@@ -5,5 +5,17 @@ edition = "2021"
 
 [dependencies]
 fission-shell = { path = "../fission-shell" }
+fission-render = { path = "../../rendering/fission-render" }
+fission-render-skia = { path = "../../rendering/fission-render-skia" }
+fission-core = { path = "../../core/fission-core" }
+fission-layout = { path = "../../core/fission-layout" } 
+fission-ir = { path = "../../core/fission-ir" }
+fission-semantics = { path = "../../core/fission-semantics" }
+winit = "0.29.15"
+softbuffer = "0.4"
+skia-safe = "0.75"
+anyhow = "1.0"
+raw-window-handle = "0.6"
+bytemuck = "1.16"
 
 [dev-dependencies]
