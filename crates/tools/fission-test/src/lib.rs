@@ -1,5 +1,5 @@
 use anyhow::Result;
-use fission_core::{Runtime, Action, ActionId, AppState, CurrentTime, AdvanceTo, Tick, Desugar, LoweringContext, InputEvent};
+use fission_core::{Runtime, Action, ActionId, AppState, CurrentTime, AdvanceTo, Tick, Desugar, LoweringContext, InputEvent, ActionEnvelope};
 use fission_core::lowering::build_layout_tree;
 use fission_ir::{NodeId, CoreIR};
 use fission_layout::{LayoutSnapshot, LayoutSize, LayoutEngine};
@@ -25,7 +25,7 @@ pub struct TestHarness {
     pub renderer: MockRenderer,
     pub layout_engine: LayoutEngine,
     pub last_snapshot: Option<LayoutSnapshot>,
-    pub last_ir: Option<CoreIR>, // Store CoreIR for hit testing
+    pub last_ir: Option<CoreIR>, 
     pub root_widget: Option<Box<dyn Desugar>>,
 }
 
@@ -60,7 +60,7 @@ impl TestHarness {
     pub fn register_reducer<S: AppState + 'static>(
         mut self,
         action_id: ActionId,
-        reducer: fn(&mut S, &dyn Action, NodeId) -> Result<()>,
+        reducer: fn(&mut S, &ActionEnvelope, NodeId) -> Result<()>,
     ) -> Self {
         self.runtime.register_reducer::<S>(action_id, reducer).unwrap();
         self
@@ -68,14 +68,14 @@ impl TestHarness {
 
     pub fn dispatch(&mut self, action: impl Action + 'static) -> Result<()> {
         let target = NodeId::derived(0, &[0]);
-        self.runtime.dispatch(Box::new(action), target)
+        let envelope: ActionEnvelope = action.into();
+        self.runtime.dispatch(envelope, target)
     }
 
     pub fn send_event(&mut self, event: InputEvent) -> Result<()> {
         if let (Some(ir), Some(layout)) = (&self.last_ir, &self.last_snapshot) {
             self.runtime.handle_input(event, ir, layout)
         } else {
-            // If no frame pumped yet, maybe pump one? Or error.
             anyhow::bail!("Cannot handle input: no frame pumped (missing IR/Layout). Call pump() first.");
         }
     }
@@ -93,7 +93,6 @@ impl TestHarness {
         self.runtime.clock().current_time()
     }
 
-    // A simulated "frame" evaluation
     pub fn pump(&mut self) -> Result<()> {
         // 1. Lowering
         let mut layout_input_nodes = Vec::new();
@@ -102,10 +101,7 @@ impl TestHarness {
             let mut cx = LoweringContext::new();
             let _root_id = root.desugar(&mut cx);
             
-            // Convert CoreIR to LayoutInputNodes
             layout_input_nodes = build_layout_tree(&cx.ir);
-            
-            // Store IR for hit testing
             self.last_ir = Some(cx.ir); 
         }
 

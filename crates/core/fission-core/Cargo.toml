@@ -8,10 +8,10 @@ fission-ir = { path = "../fission-ir" }
 fission-layout = { path = "../fission-layout" }
 fission-semantics = { path = "../fission-semantics" }
 serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0" # Moved to dependencies
 anyhow = "1.0"
 downcast-rs = "1.2"
 lazy_static = "1.4"
 blake3 = "1.5"
 
 [dev-dependencies]
-serde_json = "1.0"

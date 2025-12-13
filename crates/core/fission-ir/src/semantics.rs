@@ -10,7 +10,12 @@ pub enum Role {
     Input,
     List,
     ListItem,
-    // Future roles...
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ActionEntry {
+    pub action_id: u128, // Raw ActionId (u128)
+    pub payload_data: Option<Vec<u8>>, // Serialized Action instance, if it has payload
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -24,10 +29,5 @@ pub struct Semantics {
 
 #[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
 pub struct ActionSet {
-    // List of action IDs supported by this node.
-    // Storing u128 directly to avoid dependency on fission-core::ActionId if possible, 
-    // or assume NodeId/ActionId are compatible primitives.
-    // Ideally this would use ActionId, but ActionId is in fission-core.
-    // Let's use u128 for now, effectively ActionId raw value.
-    pub supported: Vec<u128>,
+    pub entries: Vec<ActionEntry>,
 }

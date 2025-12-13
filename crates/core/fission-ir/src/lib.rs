@@ -7,7 +7,7 @@ use std::collections::HashMap;
 
 pub use node_id::NodeId;
 pub use op::{Op, StructuralOp, LayoutOp, PaintOp, FlexDirection};
-pub use semantics::{Role, Semantics, ActionSet};
+pub use semantics::{Role, Semantics, ActionSet, ActionEntry}; // Added ActionEntry
 
 pub const IR_VERSION: u32 = 1;
 

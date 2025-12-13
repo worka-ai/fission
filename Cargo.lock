@@ -204,7 +204,6 @@ dependencies = [
  "fission-core",
  "fission-ir",
  "fission-macros",
- "fission-semantics",
  "lazy_static",
  "serde",
  "serde_json",

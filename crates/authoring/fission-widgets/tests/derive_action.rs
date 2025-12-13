@@ -11,14 +11,11 @@ fn test_derive_action_id_stability() {
     let action1 = MyTestAppAction { value: 1 };
     let action2 = MyTestAppAction { value: 2 };
 
-    // ActionId should be stable and identical for the same type
-    assert_eq!(action1.id(), action2.id());
+    // ID should be static
+    assert_eq!(MyTestAppAction::static_id(), MyTestAppAction::static_id());
 
-    // Verify the generated ID matches expectation.
-    // The macro generates ID based on module path.
-    // In integration tests, the module path is the test file module.
     let expected_id = ActionId::from_name("derive_action::MyTestAppAction");
-    assert_eq!(action1.id(), expected_id);
+    assert_eq!(MyTestAppAction::static_id(), expected_id);
 }
 
 #[test]

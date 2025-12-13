@@ -1,15 +1,22 @@
 use downcast_rs::{Downcast, impl_downcast};
-use serde::{Deserialize, Serialize};
+use serde::{Deserialize, Serialize, de::DeserializeOwned};
 use std::any::Any;
 use blake3;
+use serde_json;
 
 // ActionId is a stable, globally unique identifier for an Action type.
-// It's conceptually similar to NodeId but for actions.
 #[derive(Clone, Copy, PartialEq, Eq, Hash, Debug, Serialize, Deserialize)]
 pub struct ActionId(u128);
 
 impl ActionId {
-    /// Creates an ActionId from a string, e.g., for built-in or test actions.
+    pub const fn from_u128(val: u128) -> Self {
+        Self(val)
+    }
+
+    pub fn as_u128(&self) -> u128 {
+        self.0
+    }
+
     pub fn from_name(name: &str) -> Self {
         let mut hasher = blake3::Hasher::new();
         hasher.update(name.as_bytes());
@@ -18,22 +25,57 @@ impl ActionId {
     }
 }
 
-pub trait Action: Any + Send + Sync + std::fmt::Debug + Downcast {
-    fn id(&self) -> ActionId;
-    // Actions are expected to be serializable, but `dyn Trait` cannot be directly serialized.
-    // This will be handled by the `#[derive(Action)]` macro eventually,
-    // or by custom `Runtime` serialization logic.
+// The Action trait for typed authoring.
+// Must be Serializable/Deserializable to support the Envelope model.
+pub trait Action: Serialize + DeserializeOwned + Any + Send + Sync + std::fmt::Debug {
+    fn static_id() -> ActionId where Self: Sized;
+    
+    fn encode(&self) -> Vec<u8> {
+        serde_json::to_vec(self).expect("Action serialization failed")
+    }
 }
 
-// This macro implements Downcast for `dyn Action` and also adds `downcast_ref` etc. methods.
-impl_downcast!(Action);
+// The type-erased envelope stored in widgets and passed to reducers.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ActionEnvelope {
+    pub id: ActionId,
+    // Payload is opaque bytes. serde_bytes could be used for optimization but Vec<u8> is fine for MVP.
+    pub payload: Vec<u8>,
+}
+
+// Typed wrapper for ergonomic authoring.
+// Users write: `on_press: Some(ActionRef(Increment { amount: 1 }).into())`
+// Or simpler: `on_press: Some(Increment { amount: 1 }.into())` if we implement From<T> for ActionEnvelope?
+// Implementing From<T> directly on ActionEnvelope for all T: Action is tricky due to orphan rules if T is local? 
+// No, generic impls are allowed if the trait is local or type is local. ActionEnvelope is local.
+// `impl<T: Action> From<T> for ActionEnvelope` works! 
+// Then users just write `on_press: Some(Increment { ... }.into())`.
+// The `ActionRef` wrapper suggested in the prompt is also good for explicit intent.
+// Let's implement ActionRef as requested to be safe.
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ActionRef<T: Action>(pub T);
+
+impl<T: Action> From<ActionRef<T>> for ActionEnvelope {
+    fn from(action_ref: ActionRef<T>) -> Self {
+        ActionEnvelope {
+            id: T::static_id(),
+            payload: action_ref.0.encode(),
+        }
+    }
+}
+
+// Also allow direct conversion for convenience if desired?
+impl<T: Action> From<T> for ActionEnvelope {
+    fn from(action: T) -> Self {
+        ActionEnvelope {
+            id: T::static_id(),
+            payload: action.encode(),
+        }
+    }
+}
 
 // Trait for application state that can be managed by the Runtime.
-// This allows a single Runtime to manage multiple, distinct state types.
-pub trait AppState: Any + Send + Sync + std::fmt::Debug + Downcast {
-    // This trait intentionally doesn't define `as_any` or `as_any_mut`.
-    // The `impl_downcast!(AppState);` macro generates these for `dyn AppState`.
-}
+pub trait AppState: Any + Send + Sync + std::fmt::Debug + Downcast {}
 
-// Same for AppState.
 impl_downcast!(AppState);

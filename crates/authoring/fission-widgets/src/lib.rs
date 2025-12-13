@@ -1,5 +1,5 @@
-use fission_ir::{NodeId, Op, LayoutOp, StructuralOp, FlexDirection, Semantics};
-use fission_core::{Action as CoreAction, ActionId};
+use fission_ir::{NodeId, Op, LayoutOp, StructuralOp, FlexDirection, Semantics, ActionEntry, ActionSet};
+use fission_core::{Action as CoreAction, ActionId, ActionEnvelope};
 use serde::{Serialize, Deserialize};
 use anyhow::Result;
 use lazy_static::lazy_static;
@@ -76,7 +76,7 @@ impl Desugar for Row {
 pub struct Button {
     pub id: Option<WidgetNodeId>,
     pub child: Option<Box<Node>>,
-    pub on_press: Option<ActionId>,
+    pub on_press: Option<ActionEnvelope>, // Using ActionEnvelope
     pub semantics: Option<Semantics>,
     pub width: Option<f32>,
     pub height: Option<f32>,
@@ -93,9 +93,19 @@ impl Desugar for Button {
 
         cx.add_node(layout_id, Op::Layout(LayoutOp::Box { width: self.width, height: self.height }), child_ids);
         
-        if let Some(s) = &self.semantics {
+        if let Some(s_widget) = &self.semantics {
             let semantics_id = self.id.unwrap_or_else(|| cx.next_node_id());
-            cx.add_node(semantics_id, Op::Semantics(s.clone()), vec![layout_id]);
+            let mut s_op = s_widget.clone();
+
+            if let Some(action_envelope) = &self.on_press {
+                let action_entry = ActionEntry {
+                    action_id: action_envelope.id.as_u128(),
+                    payload_data: Some(action_envelope.payload.clone()),
+                };
+                s_op.actions.entries.push(action_entry);
+            }
+
+            cx.add_node(semantics_id, Op::Semantics(s_op), vec![layout_id]);
             return semantics_id;
         }
         
