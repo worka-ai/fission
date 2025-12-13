@@ -70,16 +70,61 @@ impl<S: AppState + Default, W: Desugar + 'static> DesktopApp<S, W> {
                         // 3. Render to DisplayList
                         let mut display_list = DisplayList::new(fission_render::LayoutRect::new(0.0, 0.0, layout_width, layout_height));
                         
-                        for (id, geom) in &snapshot.nodes {
-                            let color = fission_render::Color::BLUE; // Placeholder color
+                        if let Some(root_id) = cx.ir.root {
                             
-                            display_list.push(fission_render::DisplayOp::DrawRect { 
-                                rect: geom.rect,
-                                fill: Some(fission_render::Fill { color }),
-                                stroke: Some(fission_render::Stroke { color: fission_render::Color::BLACK, width: 1.0 }),
-                                bounds: geom.rect,
-                                node_id: Some(*id)
-                            });
+                            // Simple recursive traverser (using stack to avoid closure borrow issues if any, though recursion is fine here)
+                            // We need pre-order traversal for painter's algorithm (draw parent, then children on top? 
+                            // Actually usually background first. Parent background, then children. Yes.)
+                            
+                            fn generate_display_list(
+                                node_id: fission_ir::NodeId,
+                                ir: &fission_ir::CoreIR,
+                                snapshot: &fission_layout::LayoutSnapshot,
+                                list: &mut DisplayList
+                            ) {
+                                if let Some(geom) = snapshot.nodes.get(&node_id) {
+                                    if let Some(node) = ir.nodes.get(&node_id) {
+                                        // Debug styling based on Op type
+                                        match &node.op {
+                                            fission_ir::Op::Layout(fission_ir::LayoutOp::Flex { .. }) => {
+                                                // Container: Grey border, no fill (transparent)
+                                                list.push(fission_render::DisplayOp::DrawRect { 
+                                                    rect: geom.rect,
+                                                    fill: None,
+                                                    stroke: Some(fission_render::Stroke { 
+                                                        color: fission_render::Color { r: 100, g: 100, b: 100, a: 255 }, 
+                                                        width: 1.0 
+                                                    }),
+                                                    bounds: geom.rect,
+                                                    node_id: Some(node_id)
+                                                });
+                                            },
+                                            fission_ir::Op::Layout(fission_ir::LayoutOp::Box { .. }) => {
+                                                // Leaf/Box: Blue fill, Black border
+                                                list.push(fission_render::DisplayOp::DrawRect { 
+                                                    rect: geom.rect,
+                                                    fill: Some(fission_render::Fill { 
+                                                        color: fission_render::Color { r: 100, g: 149, b: 237, a: 255 } // Cornflower Blue
+                                                    }),
+                                                    stroke: Some(fission_render::Stroke { 
+                                                        color: fission_render::Color::BLACK, 
+                                                        width: 1.0 
+                                                    }),
+                                                    bounds: geom.rect,
+                                                    node_id: Some(node_id)
+                                                });
+                                            },
+                                            _ => {} // Semantics nodes pass through
+                                        }
+
+                                        for child in &node.children {
+                                            generate_display_list(*child, ir, snapshot, list);
+                                        }
+                                    }
+                                }
+                            }
+
+                            generate_display_list(root_id, &cx.ir, &snapshot, &mut display_list);
                         }
 
                         // 4. Render to Skia Surface (Softbuffer)
