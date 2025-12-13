@@ -1,46 +1,14 @@
-#![allow(unused_imports)]
-
-use fission_macros::Action;
-use fission_core::{Action as CoreAction, ActionId};
-use serde::{Serialize, Deserialize};
-
-#[derive(Action, Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
-pub struct MyTestAppAction { pub value: u32 }
-
-// We will add widgets here later
-
-// Current widgets (from the previous step)
 use fission_ir::{NodeId, Op, LayoutOp, StructuralOp};
 use fission_semantics::{Semantics, Role};
+use fission_core::{Action as CoreAction, ActionId};
+use serde::{Serialize, Deserialize};
 use anyhow::Result;
 use lazy_static::lazy_static;
 use std::fmt::Debug;
 
+pub use fission_core::{Desugar, LoweringContext}; 
+
 pub type WidgetNodeId = NodeId;
-
-// Placeholder for a lowering context. In reality, this would accumulate Core IR nodes.
-pub struct LoweringContext {
-    pub next_node_id_seed: u128,
-    pub ops: Vec<(NodeId, Op)>, // Accumulate Core IR operations
-}
-
-impl LoweringContext {
-    pub fn new() -> Self { LoweringContext { next_node_id_seed: 0, ops: Vec::new() } }
-
-    pub fn next_node_id(&mut self) -> NodeId {
-        self.next_node_id_seed += 1;
-        NodeId::derived(0, &[self.next_node_id_seed as u32])
-    }
-
-    pub fn push_op(&mut self, node_id: NodeId, op: Op) {
-        self.ops.push((node_id, op));
-    }
-}
-
-// The Desugar trait as defined in 03-3-authoring-node-tree-model.md
-pub trait Desugar: Send + Sync + Debug + PartialEq {
-    fn desugar(&self, cx: &mut LoweringContext) -> NodeId;
-}
 
 // --- Basic Widgets --- //
 
@@ -54,9 +22,7 @@ pub struct Text {
 impl Desugar for Text {
     fn desugar(&self, cx: &mut LoweringContext) -> NodeId {
         let node_id = self.id.unwrap_or_else(|| cx.next_node_id());
-        // For now, just push a dummy StructuralOp, will be more detailed later
-        cx.push_op(node_id, Op::Structural(StructuralOp::Group));
-        // In a real scenario, this would generate multiple ops for text layout, painting, etc.
+        cx.add_node(node_id, Op::Structural(StructuralOp::Group), vec![]);
         node_id
     }
 }
@@ -71,10 +37,11 @@ pub struct Row {
 impl Desugar for Row {
     fn desugar(&self, cx: &mut LoweringContext) -> NodeId {
         let node_id = self.id.unwrap_or_else(|| cx.next_node_id());
-        cx.push_op(node_id, Op::Layout(LayoutOp::Flex)); // Row implies Flex layout
+        let mut child_ids = Vec::new();
         for child in &self.children {
-            child.desugar(cx);
+            child_ids.push(child.desugar(cx));
         }
+        cx.add_node(node_id, Op::Layout(LayoutOp::Flex), child_ids);
         node_id
     }
 }
@@ -83,23 +50,34 @@ impl Desugar for Row {
 pub struct Button {
     pub id: Option<WidgetNodeId>,
     pub child: Option<Box<Node>>,
-    pub on_press: Option<ActionId>, // Reference an action ID directly for now
+    pub on_press: Option<ActionId>,
     pub semantics: Option<Semantics>,
 }
 
 impl Desugar for Button {
     fn desugar(&self, cx: &mut LoweringContext) -> NodeId {
         let node_id = self.id.unwrap_or_else(|| cx.next_node_id());
-        cx.push_op(node_id, Op::Layout(LayoutOp::Box)); // Button implies a Box layout
+        let mut child_ids = Vec::new();
+        
+        // Scope logic: if semantics are present, we might wrap the child in a Scope node?
+        // Or Button itself is the Scope/Box?
+        // For simplicity: Button -> LayoutOp::Box.
+        // If semantics exist, they attach to this node (in a real system).
+        // Here we just replicate the previous structure: Button -> Box -> Children.
+        // If we want a separate Semantics node, it would be a child or parent.
+        // Let's stick to Button node = Box op.
+        
         if let Some(child) = &self.child {
-            child.desugar(cx);
+            child_ids.push(child.desugar(cx));
         }
-        // Simulate pushing semantics for the button
-        if let Some(_s) = &self.semantics {
-            // In real lowering, `fission-semantics` types would be converted to Core IR ops.
-            // For now, just a dummy op to indicate semantics were processed.
-             cx.push_op(node_id, Op::Structural(StructuralOp::Scope));
-        }
+        
+        cx.add_node(node_id, Op::Layout(LayoutOp::Box), child_ids);
+        
+        // If semantics were separate ops, we'd need to link them.
+        // Previous code pushed StructuralOp::Scope. Let's assume Button IS the Scope/Box combo.
+        // Or we create a parent wrapper?
+        // Let's keep it simple: Button lowers to one Core Node (Box) for now.
+        
         node_id
     }
 }
@@ -110,12 +88,10 @@ pub enum Node {
     Text(Text),
     Row(Row),
     Button(Button),
-    // The Custom variant and its associated `dyn Desugar` serialization/cloning
-    // will be handled with a more robust solution later.
 }
 
-impl Node {
-    pub fn desugar(&self, cx: &mut LoweringContext) -> NodeId {
+impl Desugar for Node {
+    fn desugar(&self, cx: &mut LoweringContext) -> NodeId {
         match self {
             Node::Text(w) => w.desugar(cx),
             Node::Row(w) => w.desugar(cx),
@@ -124,7 +100,6 @@ impl Node {
     }
 }
 
-// Implement From for easier conversion to Node
 impl From<Text> for Node { fn from(widget: Text) -> Self { Node::Text(widget) } }
 impl From<Row> for Node { fn from(widget: Row) -> Self { Node::Row(widget) } }
 impl From<Button> for Node { fn from(widget: Button) -> Self { Node::Button(widget) } }

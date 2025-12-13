@@ -3,13 +3,15 @@ use fission_ir::NodeId;
 use std::any::{Any, TypeId};
 use std::collections::HashMap;
 use lazy_static::lazy_static;
-use downcast_rs::Downcast; // Import Downcast trait
+use downcast_rs::Downcast;
 
 pub mod action;
 pub mod time;
+pub mod lowering; // New module
 
 pub use action::{Action, ActionId, AppState};
 pub use time::{Clock, CurrentTime};
+pub use lowering::{Desugar, LoweringContext}; // Exporting Desugar and LoweringContext
 
 // Concrete Action implementations for clock control
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
@@ -58,7 +60,6 @@ impl Default for Runtime {
         };
         
         // Add the clock as an AppState managed by the runtime
-        // Note: Clock implements AppState, so it can be managed this way.
         runtime.add_app_state(Box::new(Clock::default())).expect("Failed to add Clock state");
 
         // Register internal clock reducers
@@ -82,11 +83,11 @@ impl Runtime {
     }
 
     pub fn get_app_state<S: AppState + 'static>(&self) -> Option<&S> {
-        self.app_states.get(&TypeId::of::<S>()).and_then(|s_box| s_box.as_ref().downcast_ref::<S>())
+        self.app_states.get(&TypeId::of::<S>()).and_then(|s_box| s_box.downcast_ref::<S>())
     }
 
     pub fn get_app_state_mut<S: AppState + 'static>(&mut self) -> Option<&mut S> {
-        self.app_states.get_mut(&TypeId::of::<S>()).and_then(|s_box| s_box.as_mut().downcast_mut::<S>())
+        self.app_states.get_mut(&TypeId::of::<S>()).and_then(|s_box| s_box.downcast_mut::<S>())
     }
 
     pub fn add_app_state<S: AppState + 'static>(&mut self, state: Box<S>) -> Result<()> {
@@ -107,7 +108,7 @@ impl Runtime {
         let boxed_reducer: BoxedReducer = Box::new(
             move |app_states: &mut HashMap<TypeId, Box<dyn AppState>>, action: &dyn Action, target: NodeId| -> Result<()> {
                 if let Some(state_box) = app_states.get_mut(&state_type_id) {
-                    let concrete_state = state_box.as_mut().downcast_mut::<S>()
+                    let concrete_state = state_box.downcast_mut::<S>()
                         .ok_or_else(|| anyhow!("Failed to downcast AppState to concrete type for reducer"))?;
                     reducer_fn(concrete_state, action, target)
                 } else {
@@ -131,8 +132,7 @@ impl Runtime {
             reducers.extend(temp_reducers);
 
         } else {
-            // No reducers for this action, which might be acceptable for some actions.
-            // Or, we could log a warning/error here if all actions are expected to have reducers.
+            // No reducers for this action
         }
         Ok(())
     }

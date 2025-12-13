@@ -4,6 +4,7 @@ use fission_ir::NodeId;
 use serde::{Deserialize, Serialize};
 use lazy_static::lazy_static;
 use anyhow::Result;
+use fission_widgets::Text;
 
 // --- Custom State ---
 #[derive(Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -33,10 +34,11 @@ fn increment_reducer(state: &mut MyAppState, _action: &dyn Action, _target: Node
 
 #[test]
 fn test_end_to_end_flow() -> Result<()> {
-    // 1. Setup Harness
+    // 1. Setup Harness with Root Widget
     let mut harness = TestHarness::new()
         .with_app_state(MyAppState::default())
-        .register_reducer::<MyAppState>(*INCREMENT_ID, increment_reducer); // Chained
+        .with_root_widget(Text { value: "Initial".into(), ..Default::default() })
+        .register_reducer::<MyAppState>(*INCREMENT_ID, increment_reducer);
 
     // 3. Dispatch Action
     harness.dispatch(Increment)?;
@@ -50,12 +52,16 @@ fn test_end_to_end_flow() -> Result<()> {
     harness.tick(16)?;
     assert_eq!(harness.current_time(), 16);
 
-    // 6. Pump Frame (Simulate Layout & Paint)
+    // 6. Pump Frame (Simulate Lowering, Layout & Paint)
     harness.pump()?;
 
     // 7. Verify Renderer Output
     let display_list = harness.get_last_display_list().expect("Display list should be produced");
-    assert_eq!(display_list.bounds.width(), 800.0); // Checked against default viewport
+    assert_eq!(display_list.bounds.width(), 800.0);
+    
+    // 8. Verify Layout Snapshot contains the text node
+    let snapshot = harness.last_snapshot.expect("Snapshot missing");
+    assert!(!snapshot.nodes.is_empty(), "Snapshot should contain nodes from the widget tree");
 
     Ok(())
 }

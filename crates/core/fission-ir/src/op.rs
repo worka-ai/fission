@@ -5,7 +5,6 @@ pub enum Op {
     Structural(StructuralOp),
     Layout(LayoutOp),
     Paint(PaintOp),
-    // ... other categories as needed
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
