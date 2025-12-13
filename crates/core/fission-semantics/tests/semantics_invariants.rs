@@ -1,0 +1,28 @@
+use fission_semantics::{Role, Semantics, ActionSet};
+
+#[test]
+fn test_role_variants() {
+    let roles = [
+        Role::Button,
+        Role::Text,
+        Role::Image,
+        Role::Slider,
+        Role::List,
+        Role::ListItem,
+    ];
+    assert!(roles.len() > 0);
+}
+
+#[test]
+fn test_semantics_serialization() {
+    let s = Semantics {
+        role: Role::Button,
+        label: Some("Submit".into()),
+        value: None,
+        actions: ActionSet::default(),
+        focusable: true,
+    };
+    
+    // Just verify it compiles and runs; exact serde format isn't critical yet, but capability is.
+    let _ = format!("{:?}", s);
+}

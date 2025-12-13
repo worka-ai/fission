@@ -1,0 +1,8 @@
+/target
+**/*.DS_Store
+.gemini/
+.idea/
+.vscode/
+*.swp
+commit_msg.txt
+**/*.rs.bk

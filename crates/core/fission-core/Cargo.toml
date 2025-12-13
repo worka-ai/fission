@@ -1,0 +1,9 @@
+[package]
+name = "fission-core"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+fission-ir = { path = "../fission-ir" }
+fission-layout = { path = "../fission-layout" }
+fission-semantics = { path = "../fission-semantics" }
