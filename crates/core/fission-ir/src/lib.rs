@@ -5,7 +5,7 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
 pub use node_id::NodeId;
-pub use op::{Op, StructuralOp, LayoutOp, PaintOp};
+pub use op::{Op, StructuralOp, LayoutOp, PaintOp, FlexDirection};
 
 pub const IR_VERSION: u32 = 1;
 
@@ -29,20 +29,26 @@ impl CoreIR {
     }
 
     pub fn add_node(&mut self, id: NodeId, op: Op, children: Vec<NodeId>) {
-        // We'll fix up parents later or allow caller to set them
-        let node = CoreNode {
+        // Store the node
+        let mut core_node = CoreNode {
             id,
             op,
             children: children.clone(),
             parent: None, 
         };
-        self.nodes.insert(id, node);
-        
-        // Fix up parent pointers for children (if they exist)
-        // Note: this assumes children are already added or will be updated. 
-        // Ideally we do a separate pass or require adding leaves first?
-        // Actually, just storing children IDs is enough for top-down traversal. 
-        // Parent pointers are useful for bottom-up but maybe not strictly required for initial build.
+        self.nodes.insert(id, core_node);
+
+        // Update parent pointers in children
+        // This means children must exist when added, or be updated later
+        for child_id in children {
+            if let Some(child_node) = self.nodes.get_mut(&child_id) {
+                child_node.parent = Some(id);
+            } else {
+                // Child node not yet added, its parent field will be set when it's added
+                // Or, more correctly, set during a post-processing pass.
+                // For now, this is a simplified approach.
+            }
+        }
     }
     
     pub fn set_root(&mut self, id: NodeId) {

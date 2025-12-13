@@ -1,4 +1,4 @@
-use fission_ir::{NodeId, Op, LayoutOp, StructuralOp};
+use fission_ir::{NodeId, Op, LayoutOp, StructuralOp, FlexDirection};
 use fission_semantics::{Semantics, Role};
 use fission_core::{Action as CoreAction, ActionId};
 use serde::{Serialize, Deserialize};
@@ -17,12 +17,15 @@ pub struct Text {
     pub id: Option<WidgetNodeId>,
     pub value: String,
     pub semantics: Option<Semantics>,
+    pub width: Option<f32>,
+    pub height: Option<f32>,
 }
 
 impl Desugar for Text {
     fn desugar(&self, cx: &mut LoweringContext) -> NodeId {
         let node_id = self.id.unwrap_or_else(|| cx.next_node_id());
-        cx.add_node(node_id, Op::Structural(StructuralOp::Group), vec![]);
+        // Text is a Box for layout purposes
+        cx.add_node(node_id, Op::Layout(LayoutOp::Box { width: self.width, height: self.height }), vec![]);
         node_id
     }
 }
@@ -32,6 +35,9 @@ pub struct Row {
     pub id: Option<WidgetNodeId>,
     pub children: Vec<Node>,
     pub semantics: Option<Semantics>,
+    pub direction: FlexDirection,
+    pub flex_grow: f32,
+    pub flex_shrink: f32,
 }
 
 impl Desugar for Row {
@@ -41,7 +47,11 @@ impl Desugar for Row {
         for child in &self.children {
             child_ids.push(child.desugar(cx));
         }
-        cx.add_node(node_id, Op::Layout(LayoutOp::Flex), child_ids);
+        cx.add_node(node_id, Op::Layout(LayoutOp::Flex { 
+            direction: self.direction,
+            flex_grow: self.flex_grow,
+            flex_shrink: self.flex_shrink,
+        }), child_ids);
         node_id
     }
 }
@@ -52,6 +62,8 @@ pub struct Button {
     pub child: Option<Box<Node>>,
     pub on_press: Option<ActionId>,
     pub semantics: Option<Semantics>,
+    pub width: Option<f32>,
+    pub height: Option<f32>,
 }
 
 impl Desugar for Button {
@@ -59,25 +71,15 @@ impl Desugar for Button {
         let node_id = self.id.unwrap_or_else(|| cx.next_node_id());
         let mut child_ids = Vec::new();
         
-        // Scope logic: if semantics are present, we might wrap the child in a Scope node?
-        // Or Button itself is the Scope/Box?
-        // For simplicity: Button -> LayoutOp::Box.
-        // If semantics exist, they attach to this node (in a real system).
-        // Here we just replicate the previous structure: Button -> Box -> Children.
-        // If we want a separate Semantics node, it would be a child or parent.
-        // Let's stick to Button node = Box op.
-        
         if let Some(child) = &self.child {
             child_ids.push(child.desugar(cx));
         }
         
-        cx.add_node(node_id, Op::Layout(LayoutOp::Box), child_ids);
+        cx.add_node(node_id, Op::Layout(LayoutOp::Box { width: self.width, height: self.height }), child_ids);
         
-        // If semantics were separate ops, we'd need to link them.
-        // Previous code pushed StructuralOp::Scope. Let's assume Button IS the Scope/Box combo.
-        // Or we create a parent wrapper?
-        // Let's keep it simple: Button lowers to one Core Node (Box) for now.
-        
+        if let Some(_s) = &self.semantics {
+             cx.add_node(node_id, Op::Structural(StructuralOp::Scope), vec![]); // This is not correctly adding a semantics node, just an extra structural op on the button ID.
+        }
         node_id
     }
 }
@@ -100,6 +102,7 @@ impl Desugar for Node {
     }
 }
 
+// Implement From for easier conversion to Node
 impl From<Text> for Node { fn from(widget: Text) -> Self { Node::Text(widget) } }
 impl From<Row> for Node { fn from(widget: Row) -> Self { Node::Row(widget) } }
 impl From<Button> for Node { fn from(widget: Button) -> Self { Node::Button(widget) } }

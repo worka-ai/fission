@@ -10,6 +10,11 @@ impl NodeId {
         Self(val)
     }
 
+    /// Access the underlying u128 value. Useful for hashing parents.
+    pub fn as_u128(&self) -> u128 {
+        self.0
+    }
+
     /// Create an explicit NodeId from a user-provided string key.
     /// This is stable across refactors if the string remains constant.
     pub fn explicit(key: &str) -> Self {

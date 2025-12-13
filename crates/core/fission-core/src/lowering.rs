@@ -1,6 +1,9 @@
-use fission_ir::{NodeId, Op, CoreIR, LayoutOp};
-use fission_layout::LayoutInputNode;
+use fission_ir::{NodeId, Op, CoreIR, LayoutOp, FlexDirection};
+use fission_layout::{
+    LayoutInputNode, LayoutConstraints, LayoutPoint, LayoutSize, LayoutUnit
+};
 use std::fmt::Debug;
+use std::collections::HashMap;
 
 // Context passed down during the desugaring phase.
 // It builds the CoreIR.
@@ -41,59 +44,34 @@ pub trait Desugar: Send + Sync + Debug {
 pub fn build_layout_tree(ir: &CoreIR) -> Vec<LayoutInputNode> {
     let mut input_nodes = Vec::new();
     
-    // We need to traverse the CoreIR and produce LayoutInputNodes.
-    // LayoutEngine currently expects a flat list but with parent_id info.
-    // CoreIR has parent info if we set it, or we can infer from children.
-    
-    for (id, node) in &ir.nodes {
-        // Only layout ops participate in layout tree? 
-        // For MVP, assume all nodes map 1:1.
-        // If Op is Structural, we might need to skip or handle differently?
-        // Let's assume Structural ops (Group) are transparent or just layout boxes for now.
-        
-        let layout_op = match &node.op {
-            Op::Layout(op) => op.clone(),
-            Op::Structural(_) => LayoutOp::Box, // Treat groups as Boxes for now
-            Op::Paint(_) => LayoutOp::Box, // Treat paint nodes as Boxes
-        };
-
-        input_nodes.push(LayoutInputNode {
-            id: *id,
-            parent_id: node.parent, // Parent might be None if not set
-            op: layout_op,
-            children_ids: node.children.clone(),
-            debug_name: format!("{:?}", node.id),
-        });
-    }
-    
-    // Fix up parent pointers if they are missing in CoreIR but implied by children
-    // (Our simple add_node implementation didn't set parent pointers)
-    // A more efficient way is to do a traversal from root.
-    
-    // Let's do a quick pass to set parents based on children relationships
-    // Since LayoutInputNode is being built, we can just build a map first.
-    // But LayoutInputNode owns data.
-    
-    // For MVP, just returning the list is fine if LayoutEngine doesn't strictly require valid parent_ids for the dummy implementation.
-    // The dummy engine iterated linearly.
-    // But `08-layout-system.md` implies tree traversal.
-    // Let's rely on `children_ids` which `LayoutEngine` uses?
-    // Actually `LayoutEngine::compute_layout` in my dummy impl used `parent_children_map` derived from `parent_id`.
-    // So I DO need to set `parent_id` correctly.
-    
-    // Let's populate parent_ids from children_ids.
-    let mut parent_map = std::collections::HashMap::new();
+    let mut parent_map = HashMap::new();
     for (id, node) in &ir.nodes {
         for child in &node.children {
             parent_map.insert(*child, *id);
         }
     }
     
-    for node in &mut input_nodes {
-        if let Some(parent) = parent_map.get(&node.id) {
-            node.parent_id = Some(*parent);
-        }
+    for (id, node) in &ir.nodes {
+        let (layout_op_variant, width, height, flex_grow, flex_shrink) = match &node.op {
+            Op::Layout(LayoutOp::Box { width, height }) => (LayoutOp::Box { width: *width, height: *height }, *width, *height, 0.0, 0.0),
+            Op::Layout(LayoutOp::Flex { direction, flex_grow, flex_shrink }) => (LayoutOp::Flex { direction: *direction, flex_grow: *flex_grow, flex_shrink: *flex_shrink }, None, None, *flex_grow, *flex_shrink),
+            // For other ops, convert to a default layout op or handle specifically
+            _ => (LayoutOp::Box { width: None, height: None }, None, None, 0.0, 0.0), // Default to a simple box
+        };
+        
+        input_nodes.push(LayoutInputNode {
+            id: *id,
+            parent_id: parent_map.get(id).copied(),
+            op: layout_op_variant, // Pass the extracted LayoutOp variant
+            children_ids: node.children.clone(),
+            debug_name: format!("{:?}", node.id),
+            width,
+            height,
+            flex_grow,
+            flex_shrink,
+        });
     }
 
+    // The parent_id is set above from the parent_map.
     input_nodes
 }
