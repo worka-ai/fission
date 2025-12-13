@@ -159,6 +159,7 @@ version = "0.1.0"
 name = "fission-widgets"
 version = "0.1.0"
 dependencies = [
+ "anyhow",
  "fission-core",
  "fission-ir",
  "fission-macros",
