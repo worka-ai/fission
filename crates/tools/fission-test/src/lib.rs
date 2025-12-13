@@ -1,7 +1,7 @@
 use anyhow::Result;
-use fission_core::{Runtime, Action, ActionId, AppState, CurrentTime, AdvanceTo, Tick, Desugar, LoweringContext};
+use fission_core::{Runtime, Action, ActionId, AppState, CurrentTime, AdvanceTo, Tick, Desugar, LoweringContext, InputEvent};
 use fission_core::lowering::build_layout_tree;
-use fission_ir::NodeId;
+use fission_ir::{NodeId, CoreIR};
 use fission_layout::{LayoutSnapshot, LayoutSize, LayoutEngine};
 use fission_render::{Renderer, DisplayList, LayoutRect};
 use std::sync::{Arc, Mutex};
@@ -25,6 +25,7 @@ pub struct TestHarness {
     pub renderer: MockRenderer,
     pub layout_engine: LayoutEngine,
     pub last_snapshot: Option<LayoutSnapshot>,
+    pub last_ir: Option<CoreIR>, // Store CoreIR for hit testing
     pub root_widget: Option<Box<dyn Desugar>>,
 }
 
@@ -35,6 +36,7 @@ impl Default for TestHarness {
             renderer: MockRenderer::default(),
             layout_engine: LayoutEngine::new(),
             last_snapshot: None,
+            last_ir: None,
             root_widget: None,
         }
     }
@@ -69,6 +71,15 @@ impl TestHarness {
         self.runtime.dispatch(Box::new(action), target)
     }
 
+    pub fn send_event(&mut self, event: InputEvent) -> Result<()> {
+        if let (Some(ir), Some(layout)) = (&self.last_ir, &self.last_snapshot) {
+            self.runtime.handle_input(event, ir, layout)
+        } else {
+            // If no frame pumped yet, maybe pump one? Or error.
+            anyhow::bail!("Cannot handle input: no frame pumped (missing IR/Layout). Call pump() first.");
+        }
+    }
+
     pub fn tick(&mut self, dt: CurrentTime) -> Result<()> {
         let action = Tick { dt };
         self.dispatch(action)
@@ -90,8 +101,12 @@ impl TestHarness {
         if let Some(root) = &self.root_widget {
             let mut cx = LoweringContext::new();
             let _root_id = root.desugar(&mut cx);
+            
             // Convert CoreIR to LayoutInputNodes
             layout_input_nodes = build_layout_tree(&cx.ir);
+            
+            // Store IR for hit testing
+            self.last_ir = Some(cx.ir); 
         }
 
         // 2. Layout
@@ -101,8 +116,6 @@ impl TestHarness {
 
         // 3. Render
         let display_list = DisplayList::new(LayoutRect::new(0.0, 0.0, 800.0, 600.0));
-        // Real rendering would traverse the snapshot and emit ops. 
-        // For now, our dummy renderer and display list generator are simple.
         self.renderer.render(&display_list)?;
 
         Ok(())

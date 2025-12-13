@@ -1,5 +1,4 @@
-use fission_ir::{NodeId, Op, LayoutOp, StructuralOp, FlexDirection};
-use fission_semantics::{Semantics, Role};
+use fission_ir::{NodeId, Op, LayoutOp, StructuralOp, FlexDirection, Semantics};
 use fission_core::{Action as CoreAction, ActionId};
 use serde::{Serialize, Deserialize};
 use anyhow::Result;
@@ -23,10 +22,18 @@ pub struct Text {
 
 impl Desugar for Text {
     fn desugar(&self, cx: &mut LoweringContext) -> NodeId {
-        let node_id = self.id.unwrap_or_else(|| cx.next_node_id());
-        // Text is a Box for layout purposes
-        cx.add_node(node_id, Op::Layout(LayoutOp::Box { width: self.width, height: self.height }), vec![]);
-        node_id
+        let layout_id = if self.semantics.is_some() { cx.next_node_id() } else { self.id.unwrap_or_else(|| cx.next_node_id()) };
+        
+        // Layout Node
+        cx.add_node(layout_id, Op::Layout(LayoutOp::Box { width: self.width, height: self.height }), vec![]);
+        
+        if let Some(s) = &self.semantics {
+            let semantics_id = self.id.unwrap_or_else(|| cx.next_node_id());
+            cx.add_node(semantics_id, Op::Semantics(s.clone()), vec![layout_id]);
+            return semantics_id;
+        }
+        
+        layout_id
     }
 }
 
@@ -42,17 +49,26 @@ pub struct Row {
 
 impl Desugar for Row {
     fn desugar(&self, cx: &mut LoweringContext) -> NodeId {
-        let node_id = self.id.unwrap_or_else(|| cx.next_node_id());
         let mut child_ids = Vec::new();
         for child in &self.children {
             child_ids.push(child.desugar(cx));
         }
-        cx.add_node(node_id, Op::Layout(LayoutOp::Flex { 
+
+        let layout_id = if self.semantics.is_some() { cx.next_node_id() } else { self.id.unwrap_or_else(|| cx.next_node_id()) };
+        
+        cx.add_node(layout_id, Op::Layout(LayoutOp::Flex { 
             direction: self.direction,
             flex_grow: self.flex_grow,
             flex_shrink: self.flex_shrink,
         }), child_ids);
-        node_id
+
+        if let Some(s) = &self.semantics {
+            let semantics_id = self.id.unwrap_or_else(|| cx.next_node_id());
+            cx.add_node(semantics_id, Op::Semantics(s.clone()), vec![layout_id]);
+            return semantics_id;
+        }
+
+        layout_id
     }
 }
 
@@ -68,19 +84,22 @@ pub struct Button {
 
 impl Desugar for Button {
     fn desugar(&self, cx: &mut LoweringContext) -> NodeId {
-        let node_id = self.id.unwrap_or_else(|| cx.next_node_id());
         let mut child_ids = Vec::new();
-        
         if let Some(child) = &self.child {
             child_ids.push(child.desugar(cx));
         }
         
-        cx.add_node(node_id, Op::Layout(LayoutOp::Box { width: self.width, height: self.height }), child_ids);
+        let layout_id = if self.semantics.is_some() { cx.next_node_id() } else { self.id.unwrap_or_else(|| cx.next_node_id()) };
+
+        cx.add_node(layout_id, Op::Layout(LayoutOp::Box { width: self.width, height: self.height }), child_ids);
         
-        if let Some(_s) = &self.semantics {
-             cx.add_node(node_id, Op::Structural(StructuralOp::Scope), vec![]); // This is not correctly adding a semantics node, just an extra structural op on the button ID.
+        if let Some(s) = &self.semantics {
+            let semantics_id = self.id.unwrap_or_else(|| cx.next_node_id());
+            cx.add_node(semantics_id, Op::Semantics(s.clone()), vec![layout_id]);
+            return semantics_id;
         }
-        node_id
+        
+        layout_id
     }
 }
 
@@ -102,7 +121,6 @@ impl Desugar for Node {
     }
 }
 
-// Implement From for easier conversion to Node
 impl From<Text> for Node { fn from(widget: Text) -> Self { Node::Text(widget) } }
 impl From<Row> for Node { fn from(widget: Row) -> Self { Node::Row(widget) } }
 impl From<Button> for Node { fn from(widget: Button) -> Self { Node::Button(widget) } }

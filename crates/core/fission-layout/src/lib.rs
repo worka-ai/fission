@@ -50,6 +50,11 @@ impl LayoutRect {
 
     pub fn right(&self) -> LayoutUnit { self.origin.x + self.size.width }
     pub fn bottom(&self) -> LayoutUnit { self.origin.y + self.size.height }
+
+    pub fn contains(&self, p: LayoutPoint) -> bool {
+        p.x >= self.x() && p.x < self.right() &&
+        p.y >= self.y() && p.y < self.bottom()
+    }
 }
 
 // Represents the computed layout geometry for a single node.

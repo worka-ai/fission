@@ -1,11 +1,13 @@
 pub mod node_id;
 pub mod op;
+pub mod semantics; // New module
 
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
 pub use node_id::NodeId;
 pub use op::{Op, StructuralOp, LayoutOp, PaintOp, FlexDirection};
+pub use semantics::{Role, Semantics, ActionSet};
 
 pub const IR_VERSION: u32 = 1;
 
@@ -39,14 +41,9 @@ impl CoreIR {
         self.nodes.insert(id, core_node);
 
         // Update parent pointers in children
-        // This means children must exist when added, or be updated later
         for child_id in children {
             if let Some(child_node) = self.nodes.get_mut(&child_id) {
                 child_node.parent = Some(id);
-            } else {
-                // Child node not yet added, its parent field will be set when it's added
-                // Or, more correctly, set during a post-processing pass.
-                // For now, this is a simplified approach.
             }
         }
     }

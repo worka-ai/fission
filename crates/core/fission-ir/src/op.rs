@@ -1,10 +1,12 @@
 use serde::{Deserialize, Serialize};
+use crate::semantics::Semantics;
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)] // Removed Eq
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)] 
 pub enum Op {
     Structural(StructuralOp),
     Layout(LayoutOp),
     Paint(PaintOp),
+    Semantics(Semantics), // Added Semantics variant
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -14,7 +16,7 @@ pub enum StructuralOp {
     Fragment,
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)] // Removed Eq, contains floats
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)] 
 pub enum LayoutOp {
     Box { 
         width: Option<f32>,
