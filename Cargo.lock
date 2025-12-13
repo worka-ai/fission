@@ -96,7 +96,10 @@ dependencies = [
 name = "fission-layout"
 version = "0.1.0"
 dependencies = [
+ "anyhow",
  "fission-ir",
+ "serde",
+ "serde_json",
 ]
 
 [[package]]
