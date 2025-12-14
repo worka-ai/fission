@@ -218,10 +218,18 @@ impl Runtime {
             }
             InputEvent::Pointer(PointerEvent::Down { point, .. }) => {
                 if let Some(hit_node_id) = hit_test(ir, layout, point) {
-                    // Update Interaction State
-                    self.runtime_state.interaction.set_pressed(hit_node_id, true);
-                    // (Should also clear previous pressed?)
-                    
+                    // 1. Update Interaction State (Bubble up pressed)
+                    let mut current_pressed_id = Some(hit_node_id);
+                    while let Some(node_id) = current_pressed_id {
+                        self.runtime_state.interaction.set_pressed(node_id, true);
+                        if let Some(node) = ir.nodes.get(&node_id) {
+                            current_pressed_id = node.parent;
+                        } else {
+                            break;
+                        }
+                    }
+
+                    // 2. Dispatch Action
                     let mut current_id = Some(hit_node_id);
                     while let Some(node_id) = current_id {
                         if let Some(node) = ir.nodes.get(&node_id) {
