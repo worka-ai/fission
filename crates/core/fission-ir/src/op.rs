@@ -33,7 +33,7 @@ pub enum LayoutOp {
     Box { 
         width: Option<LayoutUnit>,
         height: Option<LayoutUnit>,
-        padding: [LayoutUnit; 4], // [left, right, top, bottom]
+        padding: [LayoutUnit; 4],
     },
     Flex {
         direction: FlexDirection,
@@ -74,12 +74,20 @@ pub struct Stroke {
     pub width: LayoutUnit,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+pub struct BoxShadow {
+    pub color: Color,
+    pub blur_radius: LayoutUnit,
+    pub offset: (LayoutUnit, LayoutUnit),
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub enum PaintOp {
     DrawRect { 
         fill: Option<Fill>,
         stroke: Option<Stroke>,
         corner_radius: LayoutUnit,
+        shadow: Option<BoxShadow>, // Added
     },
     DrawText {
         text: String,

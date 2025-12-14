@@ -23,7 +23,8 @@ fn test_display_list_serialization() {
         rect, 
         fill: None, 
         stroke: None,
-        corner_radius: 0.0, // Added
+        corner_radius: 0.0,
+        shadow: None, // Added
         bounds: rect,
         node_id: None 
     };
@@ -52,7 +53,8 @@ fn test_renderer_consumes_display_list() {
         rect: LayoutRect::new(10.0, 10.0, 50.0, 50.0),
         fill: None,
         stroke: None,
-        corner_radius: 0.0, // Added
+        corner_radius: 0.0,
+        shadow: None, // Added
         bounds: LayoutRect::new(10.0, 10.0, 50.0, 50.0),
         node_id: None,
     });

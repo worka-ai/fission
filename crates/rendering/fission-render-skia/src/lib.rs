@@ -1,8 +1,9 @@
-use fission_render::{Renderer, DisplayList, DisplayOp, Color, LayoutRect, LayoutPoint, LayoutUnit, TextMeasurer};
-use skia_safe::{Canvas, Paint, Rect, Color as SkColor, FontMgr, RRect};
+use fission_render::{Renderer, DisplayList, DisplayOp, Color, LayoutRect, LayoutPoint, LayoutUnit, BoxShadow, TextMeasurer};
+use skia_safe::{Canvas, Paint, Rect, Color as SkColor, FontMgr, MaskFilter, RRect, BlurStyle}; 
 use skia_safe::font::Font;
 use skia_safe::font_style::FontStyle;
 use skia_safe::Typeface; 
+use skia_safe::wrapper::NativeTransmutableWrapper; 
 use anyhow::Result;
 
 pub struct SkiaRenderer<'a> {
@@ -58,15 +59,29 @@ impl<'a> Renderer for SkiaRenderer<'a> {
 
         for op in &display_list.ops {
             match op {
-                DisplayOp::DrawRect { rect, fill, stroke, corner_radius, /* shadow removed */ bounds, node_id } => {
+                DisplayOp::DrawRect { rect, fill, stroke, corner_radius, shadow, bounds, node_id } => {
                     let sk_rect = to_skia_rect(rect);
                     
                     let rrect = RRect::new_rect_xy(&sk_rect, *corner_radius, *corner_radius);
 
-                    // Removed shadow drawing code
+                    if let Some(s) = shadow {
+                        let mut shadow_paint = Paint::default();
+                        shadow_paint.set_color(to_skia_color(&s.color));
+                        shadow_paint.set_anti_alias(true);
+                        shadow_paint.set_mask_filter(MaskFilter::blur(
+                            BlurStyle::Normal,
+                            s.blur_radius,
+                            false,
+                        ));
+                        
+                        let shadow_rect: Rect = sk_rect.offset(s.offset);
+                        let shadow_rrect = RRect::new_rect_xy(&shadow_rect, *corner_radius, *corner_radius);
+                        self.canvas.draw_rrect(&shadow_rrect, &shadow_paint);
+                    }
 
                     if let Some(f) = fill {
                         let mut paint = Paint::default();
+                        paint.set_anti_alias(true);
                         paint.set_color(to_skia_color(&f.color));
                         paint.set_style(skia_safe::paint::Style::Fill);
                         self.canvas.draw_rrect(&rrect, &paint);
@@ -74,6 +89,7 @@ impl<'a> Renderer for SkiaRenderer<'a> {
 
                     if let Some(s) = stroke {
                         let mut paint = Paint::default();
+                        paint.set_anti_alias(true);
                         paint.set_color(to_skia_color(&s.color));
                         paint.set_style(skia_safe::paint::Style::Stroke);
                         paint.set_stroke_width(s.width);

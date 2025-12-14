@@ -120,12 +120,17 @@ impl<S: AppState + Default, W: Widget<S> + 'static> DesktopApp<S, W> {
                                         if let Some(geom) = snapshot.nodes.get(&node_id) {
                                             if let Some(node) = ir.nodes.get(&node_id) {
                                                 match &node.op {
-                                                    fission_ir::Op::Paint(fission_ir::PaintOp::DrawRect { fill, stroke, corner_radius }) => {
+                                                    fission_ir::Op::Paint(fission_ir::PaintOp::DrawRect { fill, stroke, corner_radius, shadow }) => {
                                                         list.push(fission_render::DisplayOp::DrawRect { 
                                                             rect: geom.rect,
                                                             fill: fill.map(|f| fission_render::Fill { color: RenderColor { r: f.color.r, g: f.color.g, b: f.color.b, a: f.color.a } }),
                                                             stroke: stroke.map(|s| fission_render::Stroke { color: RenderColor { r: s.color.r, g: s.color.g, b: s.color.b, a: s.color.a }, width: s.width }),
                                                             corner_radius: *corner_radius,
+                                                            shadow: shadow.map(|s| fission_render::BoxShadow { 
+                                                                color: RenderColor { r: s.color.r, g: s.color.g, b: s.color.b, a: s.color.a }, 
+                                                                blur_radius: s.blur_radius, 
+                                                                offset: s.offset 
+                                                            }),
                                                             bounds: geom.rect,
                                                             node_id: Some(node_id),
                                                         });
@@ -186,7 +191,7 @@ impl<S: AppState + Default, W: Widget<S> + 'static> DesktopApp<S, W> {
                                 let point = LayoutPoint::new(position.x as f32, position.y as f32);
                                 let event = InputEvent::Pointer(PointerEvent::Move { point });
                                 runtime.handle_input(event, ir, snapshot).unwrap();
-                                window.request_redraw(); // Request redraw to reflect hover changes
+                                window.request_redraw(); 
                             }
                         }
                         WindowEvent::MouseInput { state, button, .. } => {

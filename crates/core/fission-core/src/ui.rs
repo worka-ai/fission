@@ -1,7 +1,7 @@
 use crate::lowering::LoweringContext;
 use crate::{ActionEnvelope, Env, InteractionStateMap};
 use fission_ir::{
-    op::{Color as IrColor, Fill, LayoutOp, Op, PaintOp, FlexDirection},
+    op::{Color as IrColor, Fill, LayoutOp, Op, PaintOp, FlexDirection, BoxShadow},
     ActionEntry, ActionSet, NodeId, Role, Semantics
 };
 use fission_theme::{ButtonTheme, Theme};
@@ -229,6 +229,7 @@ struct ButtonStyleResolved {
     padding_horizontal: f32,
     height: f32,
     corner_radius: f32,
+    shadow: Option<BoxShadow>,
 }
 
 impl Button {
@@ -239,15 +240,25 @@ impl Button {
         let is_hovered = interaction.is_hovered(self_id);
         let is_pressed = interaction.is_pressed(self_id);
 
-        let bg_color = if is_pressed {
-            IrColor::BLACK // Obvious dark color for press
-        } else if is_hovered {
-            tokens.error // Use error (Red) for hover just to be VERY obvious it works
-        } else {
-            tokens.primary // Purple for rest
-        };
+        let bg_color = tokens.primary; // Keep primary color consistent
 
         let text_color = tokens.on_primary;
+
+        let shadow = if is_pressed {
+            None // Pressed: No shadow (flat)
+        } else if is_hovered {
+            Some(BoxShadow { // Hover: Larger shadow
+                color: IrColor { r: 0, g: 0, b: 0, a: 60 },
+                blur_radius: 4.0,
+                offset: (0.0, 2.0),
+            })
+        } else {
+            Some(BoxShadow { // Rest: Small shadow
+                color: IrColor { r: 0, g: 0, b: 0, a: 40 },
+                blur_radius: 2.0,
+                offset: (0.0, 1.0),
+            })
+        };
 
         ButtonStyleResolved {
             background_color: bg_color,
@@ -255,6 +266,7 @@ impl Button {
             padding_horizontal: default_style.padding_horizontal,
             height: default_style.height,
             corner_radius: default_style.radius,
+            shadow,
         }
     }
 
@@ -311,6 +323,7 @@ impl Lower for Button {
                 fill: Some(Fill { color: resolved_style.background_color }),
                 stroke: None,
                 corner_radius: resolved_style.corner_radius,
+                shadow: resolved_style.shadow,
             }),
             vec![],
         );
