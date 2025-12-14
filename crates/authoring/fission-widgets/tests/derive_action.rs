@@ -1,10 +1,12 @@
+use fission_core::{Action, ActionId};
 use fission_macros::Action;
-use fission_core::{ActionId, Action};
-use serde::{Serialize, Deserialize};
+use serde::{Deserialize, Serialize};
 use serde_json;
 
 #[derive(Action, Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
-pub struct MyTestAppAction { pub value: u32 }
+pub struct MyTestAppAction {
+    pub value: u32,
+}
 
 #[test]
 fn test_derive_action_id_stability() {
