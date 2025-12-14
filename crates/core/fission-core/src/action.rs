@@ -5,7 +5,7 @@ use blake3;
 use serde_json;
 
 // ActionId is a stable, globally unique identifier for an Action type.
-#[derive(Clone, Copy, PartialEq, Eq, Hash, Debug, Serialize, Deserialize)]
+#[derive(Clone, Copy, PartialEq, Eq, Hash, Debug, Serialize, Deserialize, PartialOrd, Ord)] // Added PartialOrd, Ord
 pub struct ActionId(u128);
 
 impl ActionId {
@@ -42,16 +42,6 @@ pub struct ActionEnvelope {
     // Payload is opaque bytes. serde_bytes could be used for optimization but Vec<u8> is fine for MVP.
     pub payload: Vec<u8>,
 }
-
-// Typed wrapper for ergonomic authoring.
-// Users write: `on_press: Some(ActionRef(Increment { amount: 1 }).into())`
-// Or simpler: `on_press: Some(Increment { amount: 1 }.into())` if we implement From<T> for ActionEnvelope?
-// Implementing From<T> directly on ActionEnvelope for all T: Action is tricky due to orphan rules if T is local? 
-// No, generic impls are allowed if the trait is local or type is local. ActionEnvelope is local.
-// `impl<T: Action> From<T> for ActionEnvelope` works! 
-// Then users just write `on_press: Some(Increment { ... }.into())`.
-// The `ActionRef` wrapper suggested in the prompt is also good for explicit intent.
-// Let's implement ActionRef as requested to be safe.
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ActionRef<T: Action>(pub T);

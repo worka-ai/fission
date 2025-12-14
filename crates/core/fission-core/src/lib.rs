@@ -11,12 +11,14 @@ pub mod time;
 pub mod lowering;
 pub mod event;
 pub mod hit_test;
+pub mod registry;
 
 pub use action::{Action, ActionId, AppState, ActionEnvelope};
 pub use time::{Clock, CurrentTime};
 pub use lowering::{Desugar, LoweringContext};
 pub use event::{InputEvent, PointerEvent, PointerButton, KeyEvent, KeyCode, LifecycleEvent};
-pub use fission_ir::op; // Re-export op module for Color
+pub use fission_ir::op; 
+pub use registry::{BuildCtx, ActionRegistry, Handler};
 use hit_test::hit_test;
 
 // Concrete Action implementations for clock control
@@ -81,6 +83,13 @@ impl Default for Runtime {
 }
 
 impl Runtime {
+    pub fn absorb_registry<S: AppState>(&mut self, registry: ActionRegistry<S>) {
+        let new_reducers = registry.into_runtime_reducers();
+        for (id, mut list) in new_reducers {
+            self.reducers.entry(id).or_default().append(&mut list);
+        }
+    }
+
     pub fn clock(&self) -> &Clock {
         self.get_app_state::<Clock>().expect("Clock state must always be present")
     }

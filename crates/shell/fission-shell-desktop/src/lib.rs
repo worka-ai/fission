@@ -12,20 +12,30 @@ use anyhow::Result;
 use fission_shell::Platform;
 use fission_render::{Renderer, DisplayList, LayoutRect, LayoutPoint, LayoutUnit, Color as RenderColor};
 use fission_render_skia::SkiaRenderer;
-use fission_core::{Runtime, Clock, Action, ActionId, AppState};
+use fission_core::{Runtime, Clock, Action, ActionId, AppState, BuildCtx};
 use fission_core::lowering::{Desugar, build_layout_tree, LoweringContext};
 use fission_layout::{LayoutEngine, LayoutSize, LayoutInputNode};
 use fission_ir::{NodeId, Op, PaintOp, Color as IrColor};
 
 pub struct DesktopApp<S: AppState, W: Desugar> {
+    runtime: Runtime,
     layout_engine: LayoutEngine,
     root_widget: W,
     _phantom: std::marker::PhantomData<S>,
 }
 
 impl<S: AppState + Default, W: Desugar + 'static> DesktopApp<S, W> {
-    pub fn new(root_widget: W) -> Self {
+    pub fn build(ui_builder: impl FnOnce(&mut BuildCtx<S>) -> W) -> Self {
+        let mut ctx = BuildCtx::new();
+        let root_widget = ui_builder(&mut ctx);
+        
+        let mut runtime = Runtime::default();
+        runtime.add_app_state(Box::new(S::default())).unwrap();
+        // Absorb the registry from the build context
+        runtime.absorb_registry(ctx.registry);
+        
         Self {
+            runtime,
             layout_engine: LayoutEngine::new(),
             root_widget,
             _phantom: std::marker::PhantomData,
@@ -47,12 +57,10 @@ impl<S: AppState + Default, W: Desugar + 'static> DesktopApp<S, W> {
         window.request_redraw();
 
         event_loop.run(move |event, elwt| {
-            // Use ControlFlow::Wait to reduce CPU usage. Redraws are now explicit.
             elwt.set_control_flow(ControlFlow::Wait); 
 
             match event {
                 Event::WindowEvent { window_id, event: WindowEvent::RedrawRequested } if window_id == window.id() => {
-                    // println!("RedrawRequested"); // Commented out to reduce spam
                     let size = window.inner_size();
                     if let (Some(width), Some(height)) = (NonZeroU32::new(size.width), NonZeroU32::new(size.height)) {
                         surface.resize(width, height).unwrap();
@@ -63,16 +71,15 @@ impl<S: AppState + Default, W: Desugar + 'static> DesktopApp<S, W> {
                         let layout_height = size.height as f32;
 
                         let mut cx = LoweringContext::new();
+                        // Capture the root ID returned by desugar
                         let root_id = self.root_widget.desugar(&mut cx);
+                        // Explicitly set the root in IR so build_layout_tree can find it
                         cx.ir.root = Some(root_id); 
                         
                         let layout_input_nodes = build_layout_tree(&cx.ir);
 
                         let viewport = LayoutSize { width: layout_width, height: layout_height };
-                        let snapshot = self
-                            .layout_engine
-                            .compute_layout(&layout_input_nodes, root_id, viewport)
-                            .unwrap();
+                        let snapshot = self.layout_engine.compute_layout(&layout_input_nodes, root_id, viewport).unwrap();
 
                         let mut display_list = DisplayList::new(fission_render::LayoutRect::new(0.0, 0.0, layout_width, layout_height));
                         
@@ -85,7 +92,7 @@ impl<S: AppState + Default, W: Desugar + 'static> DesktopApp<S, W> {
                             ) {
                                 if let Some(geom) = snapshot.nodes.get(&node_id) {
                                     if let Some(node) = ir.nodes.get(&node_id) {
-                                        println!("Drawing {:?} {:?}", node_id, geom.rect);
+                                        // println!("Drawing {:?} {:?}", node_id, geom.rect);
                                         match &node.op {
                                             fission_ir::Op::Layout(fission_ir::LayoutOp::Flex { .. }) => {
                                                 list.push(fission_render::DisplayOp::DrawRect { 
@@ -157,8 +164,6 @@ impl<S: AppState + Default, W: Desugar + 'static> DesktopApp<S, W> {
                         }
                         
                         buffer.present().unwrap();
-                    } else {
-                        println!("Window size is 0, skipping redraw");
                     }
                 }
                 Event::WindowEvent { event: WindowEvent::CloseRequested, .. } => {
