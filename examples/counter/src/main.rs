@@ -1,5 +1,5 @@
-use fission_widgets::{Button, Text, Row, TextContent, Node, Widget, View, BuildCtx, Selector, CustomNode}; // Removed LowerDyn
-use fission_core::{Action, AppState, ActionEnvelope, ActionId, op::Color as IrColor, LoweringContext, LowerDyn}; // Added LowerDyn
+use fission_widgets::{Button, Text, Row, TextContent, Node, Widget, View, BuildCtx, Selector, CustomNode}; 
+use fission_core::{Action, AppState, ActionEnvelope, ActionId, op::Color as IrColor, LoweringContext, LowerDyn}; 
 use fission_core::{Op, NodeId, op::{LayoutOp, PaintOp, Fill}}; 
 use fission_macros::Action;
 use fission_shell_desktop::DesktopApp;
@@ -68,7 +68,7 @@ impl LowerDyn for StatusIndicatorLowerer {
         // 1. Emit LayoutOp::Box (container)
         cx.add_node(
             layout_id,
-            Op::Layout(LayoutOp::Box { width: Some(20.0), height: Some(20.0) }), 
+            Op::Layout(LayoutOp::Box { width: Some(20.0), height: Some(20.0), padding: [0.0; 4] }), 
             vec![]
         );
         
@@ -108,10 +108,10 @@ impl Widget<CounterState> for CounterApp {
             children: vec![
                 Text { 
                     content: TextContent::Literal(vm.label), // Use VM data
-                    width: Some(150.0), 
-                    height: Some(50.0), 
-                    font_size: Some(20.0),
-                    color: Some(IrColor::BLACK),
+                    // Removed width/height to test intrinsic sizing!
+                    // But Taffy might collapse if no size? 
+                    // No, TextMeasurer handles it.
+                    // Text { ... }.into()
                     ..Default::default() 
                 }.into(),
                 
@@ -122,17 +122,15 @@ impl Widget<CounterState> for CounterApp {
                     on_press: Some(ctx.bind(Increment, on_increment)), 
                     child: Some(Box::new(Text { 
                         content: TextContent::Literal("Inc".into()), 
-                        width: Some(80.0), 
-                        height: Some(40.0),
-                        font_size: Some(20.0),
-                        color: Some(IrColor::WHITE),
+                        // Intrinsic size
                         ..Default::default() 
                     }.into())),
-                    width: Some(100.0), 
-                    height: Some(60.0),
+                    // Intrinsic size
                     ..Default::default() 
                 }.into(),
             ],
+            // Add some spacing to Row? 
+            // Currently Row doesn't support gap.
             ..Default::default()
         }.into()
     }

@@ -5,32 +5,16 @@ use serde::{Deserialize, Serialize};
 // These are low-level, platform-agnostic, and deterministic.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub enum Op {
-    // Structural operations (tree manipulation, identity)
     Structural(StructuralOp),
-
-    // Layout operations (size, position, flex properties)
     Layout(LayoutOp),
-
-    // Painting operations (drawing primitives)
     Paint(PaintOp),
-
-    // Semantic operations (accessibility, hit testing, actions)
     Semantics(Semantics),
-
-    // Input operations (e.g., event handlers, focus management) - TBD
-    // Input(InputOp),
 }
-
-// --- Structural Operations --- //
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub enum StructuralOp {
-    // Represents a logical grouping or an identity node without specific layout/paint.
-    // Useful for grouping children or providing a stable NodeId.
     Group,
 }
-
-// --- Layout Operations --- //
 
 pub type LayoutUnit = f32;
 
@@ -44,31 +28,24 @@ impl Default for FlexDirection {
     fn default() -> Self { FlexDirection::Row }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub enum LayoutOp {
-    // A basic rectangular box with optional fixed size.
     Box { 
         width: Option<LayoutUnit>,
         height: Option<LayoutUnit>,
+        padding: [LayoutUnit; 4], // [left, right, top, bottom]
     },
-    // A flex container that lays out its children in a single direction.
     Flex {
         direction: FlexDirection,
         flex_grow: LayoutUnit,
         flex_shrink: LayoutUnit,
+        padding: [LayoutUnit; 4],
     },
-    // A node that absolutely fills its parent (used for content layers like paint).
     AbsoluteFill,
-    
-    // Placeholder for grid layout
     Grid,
-    // Placeholder for stack layout (overlapping children)
     Stack,
-    // Placeholder for alignment (aligning a single child within bounds)
     Align,
 }
-
-// --- Painting Operations --- //
 
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
 pub struct Color {
@@ -97,15 +74,12 @@ pub struct Stroke {
     pub width: LayoutUnit,
 }
 
-// Removed BoxShadow struct
-
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub enum PaintOp {
     DrawRect { 
         fill: Option<Fill>,
         stroke: Option<Stroke>,
         corner_radius: LayoutUnit,
-        // shadow: Option<BoxShadow>, // Removed
     },
     DrawText {
         text: String,

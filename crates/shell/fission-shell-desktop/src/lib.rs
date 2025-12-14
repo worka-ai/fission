@@ -8,11 +8,12 @@ use softbuffer::{Context, Surface};
 use skia_safe::{ColorType, AlphaType};
 use std::num::NonZeroU32;
 use std::rc::Rc;
+use std::sync::Arc;
 use anyhow::Result;
 
 use fission_shell::Platform;
 use fission_render::{Renderer, DisplayList, LayoutRect, LayoutPoint, LayoutUnit, Color as RenderColor};
-use fission_render_skia::SkiaRenderer;
+use fission_render_skia::{SkiaRenderer, SkiaTextMeasurer}; // Added SkiaTextMeasurer
 use fission_core::{Runtime, Clock, Action, ActionId, AppState, BuildCtx, Env, InputEvent, PointerEvent, PointerButton, Widget, View, Node, Lower};
 use fission_core::lowering::{build_layout_tree, LoweringContext};
 use fission_layout::{LayoutEngine, LayoutSize, LayoutInputNode, LayoutSnapshot};
@@ -32,10 +33,12 @@ impl<S: AppState + Default, W: Widget<S> + 'static> DesktopApp<S, W> {
         runtime.add_app_state(Box::new(S::default())).unwrap();
         
         let env = Env::default();
+        
+        let layout_engine = LayoutEngine::new().with_measurer(Arc::new(SkiaTextMeasurer));
 
         Self {
             runtime,
-            layout_engine: LayoutEngine::new(),
+            layout_engine,
             root_widget,
             env,
             _phantom: std::marker::PhantomData,

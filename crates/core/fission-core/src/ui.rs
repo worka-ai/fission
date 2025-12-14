@@ -77,6 +77,7 @@ impl Lower for Row {
                 direction: FlexDirection::Row,
                 flex_grow: self.flex_grow,
                 flex_shrink: self.flex_shrink,
+                padding: [0.0; 4],
             }),
             child_ids,
         );
@@ -115,6 +116,7 @@ impl Lower for Column {
                 direction: FlexDirection::Column,
                 flex_grow: self.flex_grow,
                 flex_shrink: self.flex_shrink,
+                padding: [0.0; 4],
             }),
             child_ids,
         );
@@ -161,6 +163,7 @@ impl Lower for Text {
             Op::Layout(LayoutOp::Box {
                 width: self.width,
                 height: self.height,
+                padding: [0.0; 4],
             }),
             vec![],
         );
@@ -292,6 +295,7 @@ impl Lower for Button {
             Op::Layout(LayoutOp::Box {
                 width: self.width,
                 height: self.height.or(Some(resolved_style.height)),
+                padding: [resolved_style.padding_horizontal, resolved_style.padding_horizontal, 0.0, 0.0],
             }),
             vec![],
         );

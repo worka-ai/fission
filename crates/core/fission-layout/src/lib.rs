@@ -2,8 +2,10 @@ use fission_ir::{NodeId, FlexDirection as IrFlexDirection};
 use anyhow::Result;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
+use std::sync::Arc;
 use taffy::prelude::*;
-use taffy::NodeId as TaffyNodeId; 
+// use taffy::NodeId as TaffyNodeId; // Taffy 0.3 has Node as NodeId? No, Node.
+use taffy::node::Node as TaffyNodeId;
 
 pub use fission_ir::{LayoutOp, FlexDirection};
 
@@ -95,12 +97,25 @@ pub struct LayoutInputNode {
     pub height: Option<LayoutUnit>,
     pub flex_grow: LayoutUnit,
     pub flex_shrink: LayoutUnit,
+    pub text_content: Option<String>,
+    pub font_size: Option<f32>,
 }
 
-pub struct LayoutEngine;
+pub trait TextMeasurer: Send + Sync {
+    fn measure(&self, text: &str, font_size: f32, available_width: Option<f32>) -> (f32, f32);
+}
+
+pub struct LayoutEngine {
+    measurer: Option<Arc<dyn TextMeasurer>>,
+}
 
 impl LayoutEngine {
-    pub fn new() -> Self { Self }
+    pub fn new() -> Self { Self { measurer: None } }
+
+    pub fn with_measurer(mut self, measurer: Arc<dyn TextMeasurer>) -> Self {
+        self.measurer = Some(measurer);
+        self
+    }
 
     pub fn compute_layout(
         &self,
@@ -108,7 +123,7 @@ impl LayoutEngine {
         root_node_id: NodeId,
         viewport_size: LayoutSize,
     ) -> Result<LayoutSnapshot> {
-        let mut taffy = TaffyTree::new();
+        let mut taffy = Taffy::new(); // Taffy::new() in 0.3
         let mut taffy_node_map: HashMap<NodeId, TaffyNodeId> = HashMap::new();
         
         let node_map: HashMap<NodeId, &LayoutInputNode> = input_nodes.iter().map(|n| (n.id, n)).collect();
@@ -123,10 +138,8 @@ impl LayoutEngine {
             ));
         }
 
-        // 1. Build Taffy Tree
         self.build_taffy_tree(root_node_id, &mut taffy, &mut taffy_node_map, &node_map)?;
 
-        // 2. Compute Layout
         let root_taffy_id = *taffy_node_map.get(&root_node_id).unwrap();
         taffy.compute_layout(
             root_taffy_id,
@@ -136,7 +149,6 @@ impl LayoutEngine {
             },
         ).map_err(|e| anyhow::anyhow!("Taffy layout error: {:?}", e))?;
 
-        // 3. Extract Results
         let mut geometries = HashMap::new();
         self.extract_geometry_recursive(root_node_id, LayoutPoint::ZERO, &taffy, &taffy_node_map, &node_map, &mut geometries);
         
@@ -148,7 +160,7 @@ impl LayoutEngine {
     fn build_taffy_tree(
         &self,
         node_id: NodeId,
-        taffy: &mut TaffyTree,
+        taffy: &mut Taffy,
         taffy_map: &mut HashMap<NodeId, TaffyNodeId>,
         node_map: &HashMap<NodeId, &LayoutInputNode>,
     ) -> Result<TaffyNodeId> {
@@ -160,30 +172,49 @@ impl LayoutEngine {
         style.flex_shrink = node.flex_shrink;
 
         match &node.op {
-            LayoutOp::Box { width, height } => {
+            LayoutOp::Box { width, height, padding } => {
                 style.display = Display::Flex;
+                style.align_items = Some(AlignItems::Center);
+                style.justify_content = Some(JustifyContent::Center);
+                
+                style.padding = taffy::geometry::Rect {
+                    left: points(padding[0]),
+                    right: points(padding[1]),
+                    top: points(padding[2]),
+                    bottom: points(padding[3]),
+                };
+
                 style.size = taffy::geometry::Size {
-                    width: width.map(Dimension::Length).unwrap_or(Dimension::Auto),
-                    height: height.map(Dimension::Length).unwrap_or(Dimension::Auto),
+                    width: width.map(Dimension::Points).unwrap_or(Dimension::Auto),
+                    height: height.map(Dimension::Points).unwrap_or(Dimension::Auto),
                 };
             },
-            LayoutOp::Flex { direction, .. } => {
+            LayoutOp::Flex { direction, padding, .. } => {
                 style.display = Display::Flex;
                 style.flex_direction = match direction {
                     IrFlexDirection::Row => taffy::style::FlexDirection::Row,
                     IrFlexDirection::Column => taffy::style::FlexDirection::Column,
                 };
+                style.align_items = Some(AlignItems::Center); 
+                
+                style.padding = taffy::geometry::Rect {
+                    left: points(padding[0]),
+                    right: points(padding[1]),
+                    top: points(padding[2]),
+                    bottom: points(padding[3]),
+                };
+
                 style.size = taffy::geometry::Size {
-                    width: node.width.map(Dimension::Length).unwrap_or(Dimension::Auto),
-                    height: node.height.map(Dimension::Length).unwrap_or(Dimension::Auto),
+                    width: node.width.map(Dimension::Points).unwrap_or(Dimension::Auto),
+                    height: node.height.map(Dimension::Points).unwrap_or(Dimension::Auto),
                 };
             },
             LayoutOp::AbsoluteFill => {
                 style.display = Display::Flex;
                 style.position = Position::Absolute;
                 style.inset = taffy::geometry::Rect {
-                    left: length(0.0), right: length(0.0),
-                    top: length(0.0), bottom: length(0.0),
+                    left: points(0.0), right: points(0.0),
+                    top: points(0.0), bottom: points(0.0),
                 };
                 style.size = taffy::geometry::Size {
                     width: Dimension::Auto,
@@ -193,6 +224,26 @@ impl LayoutEngine {
             _ => {
                 style.display = Display::Flex;
             }
+        }
+
+        if let (Some(text), Some(size), Some(measurer)) = (&node.text_content, node.font_size, &self.measurer) {
+            let text = text.clone();
+            let font_size = size;
+            let measurer = measurer.clone();
+            
+            let child_taffy_id = taffy.new_leaf_with_measure(style, taffy::node::MeasureFunc::Boxed(Box::new(move |_known_dims, available_space| {
+                let avail_width = match available_space.width {
+                    AvailableSpace::Definite(w) => Some(w),
+                    AvailableSpace::MaxContent => None,
+                    AvailableSpace::MinContent => Some(0.0),
+                };
+                
+                let (w, h) = measurer.measure(&text, font_size, avail_width);
+                taffy::geometry::Size { width: w, height: h }
+            }))).map_err(|e| anyhow::anyhow!("Failed to create taffy leaf: {:?}", e))?;
+            
+            taffy_map.insert(node_id, child_taffy_id);
+            return Ok(child_taffy_id);
         }
 
         let mut child_taffy_ids = Vec::new();
@@ -212,7 +263,7 @@ impl LayoutEngine {
         &self,
         node_id: NodeId,
         parent_absolute_pos: LayoutPoint,
-        taffy: &TaffyTree,
+        taffy: &Taffy,
         taffy_map: &HashMap<NodeId, TaffyNodeId>,
         node_map: &HashMap<NodeId, &LayoutInputNode>,
         geometries: &mut HashMap<NodeId, LayoutNodeGeometry>,

@@ -1,4 +1,4 @@
-use fission_ir::{NodeId, Op, CoreIR, LayoutOp, FlexDirection};
+use fission_ir::{NodeId, Op, CoreIR, LayoutOp, PaintOp, FlexDirection};
 use fission_layout::{
     LayoutInputNode, LayoutPoint, LayoutSize, LayoutUnit
 };
@@ -45,23 +45,35 @@ pub fn build_layout_tree(ir: &CoreIR) -> Vec<LayoutInputNode> {
     }
     
     for (id, node) in &ir.nodes {
+        let mut text_content = None;
+        let mut font_size = None;
+
         let (layout_op_variant, width, height, flex_grow, flex_shrink) = match &node.op {
-            Op::Layout(LayoutOp::Box { width, height }) => (LayoutOp::Box { width: *width, height: *height }, *width, *height, 0.0, 0.0),
-            Op::Layout(LayoutOp::Flex { direction, flex_grow, flex_shrink }) => (LayoutOp::Flex { direction: *direction, flex_grow: *flex_grow, flex_shrink: *flex_shrink }, None, None, *flex_grow, *flex_shrink),
-            Op::Paint(_) => (LayoutOp::AbsoluteFill, None, None, 0.0, 0.0), // Paint nodes fill parent
-            _ => (LayoutOp::Box { width: None, height: None }, None, None, 0.0, 0.0), 
+            Op::Layout(LayoutOp::Box { width, height, padding }) => (LayoutOp::Box { width: *width, height: *height, padding: *padding }, *width, *height, 0.0, 0.0),
+            Op::Layout(LayoutOp::Flex { direction, flex_grow, flex_shrink, padding }) => (LayoutOp::Flex { direction: *direction, flex_grow: *flex_grow, flex_shrink: *flex_shrink, padding: *padding }, None, None, *flex_grow, *flex_shrink),
+            
+            Op::Paint(PaintOp::DrawText { text, size, .. }) => {
+                text_content = Some(text.clone());
+                font_size = Some(*size);
+                (LayoutOp::Box { width: None, height: None, padding: [0.0; 4] }, None, None, 0.0, 0.0)
+            },
+            
+            Op::Paint(_) => (LayoutOp::AbsoluteFill, None, None, 0.0, 0.0), 
+            _ => (LayoutOp::Box { width: None, height: None, padding: [0.0; 4] }, None, None, 0.0, 0.0), 
         };
         
         input_nodes.push(LayoutInputNode {
             id: *id,
             parent_id: parent_map.get(id).copied(),
-            op: layout_op_variant, // Pass the extracted LayoutOp variant
+            op: layout_op_variant, 
             children_ids: node.children.clone(),
             debug_name: format!("{:?}", node.id),
             width,
             height,
             flex_grow,
             flex_shrink,
+            text_content,
+            font_size,
         });
     }
 

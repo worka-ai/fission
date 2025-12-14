@@ -1,4 +1,4 @@
-use fission_render::{Renderer, DisplayList, DisplayOp, Color, LayoutRect, LayoutPoint, LayoutUnit};
+use fission_render::{Renderer, DisplayList, DisplayOp, Color, LayoutRect, LayoutPoint, LayoutUnit, TextMeasurer};
 use skia_safe::{Canvas, Paint, Rect, Color as SkColor, FontMgr, RRect};
 use skia_safe::font::Font;
 use skia_safe::font_style::FontStyle;
@@ -12,6 +12,18 @@ pub struct SkiaRenderer<'a> {
 impl<'a> SkiaRenderer<'a> {
     pub fn new(canvas: &'a Canvas) -> Self {
         Self { canvas }
+    }
+}
+
+pub struct SkiaTextMeasurer;
+
+impl TextMeasurer for SkiaTextMeasurer {
+    fn measure(&self, text: &str, font_size: f32, _available_width: Option<f32>) -> (f32, f32) {
+        let font_mgr = FontMgr::new();
+        let typeface = load_typeface(&font_mgr);
+        let font = Font::new(typeface, font_size);
+        let (_width, bounds) = font.measure_str(text, None);
+        (bounds.width(), bounds.height())
     }
 }
 

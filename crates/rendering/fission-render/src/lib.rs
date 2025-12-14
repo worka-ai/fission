@@ -3,7 +3,7 @@ use fission_ir::NodeId;
 use serde::{Deserialize, Serialize};
 
 // Re-export layout types so consumers of fission-render can access them
-pub use fission_layout::{LayoutRect, LayoutUnit, LayoutPoint, LayoutSize};
+pub use fission_layout::{LayoutRect, LayoutUnit, LayoutPoint, LayoutSize, TextMeasurer};
 
 pub const DISPLAY_LIST_VERSION: u32 = 1;
 
