@@ -1,6 +1,6 @@
 use fission_ir::{NodeId, Op, CoreIR, LayoutOp, FlexDirection};
 use fission_layout::{
-    LayoutInputNode, LayoutConstraints, LayoutPoint, LayoutSize, LayoutUnit
+    LayoutInputNode, LayoutPoint, LayoutSize, LayoutUnit
 };
 use std::fmt::Debug;
 use std::collections::HashMap;

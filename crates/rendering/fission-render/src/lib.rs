@@ -49,17 +49,20 @@ pub enum DisplayOp {
     // Transform operations
     Translate(LayoutPoint),
     Scale(LayoutUnit, LayoutUnit),
-    // Rotate, Skew etc.
 
     // Clipping operations
     ClipRect(LayoutRect), // Restrict drawing to this rectangle
 
     // Drawing operations
     DrawRect { rect: LayoutRect, fill: Option<Fill>, stroke: Option<Stroke>, bounds: PaintBounds, node_id: Option<NodeId> },
-    // DrawText, DrawImage, DrawPath etc.
-
-    // Debug / Metadata (optional, would be gated by feature flags)
-    DebugLabel { text: String, node_id: Option<NodeId> },
+    DrawText {
+        text: String,
+        position: LayoutPoint, // Top-left corner of the text
+        size: LayoutUnit,
+        color: Color,
+        bounds: LayoutRect, // Bounding box for the text, for layout/clipping
+        node_id: Option<NodeId>,
+    },
 }
 
 // The DisplayList itself, an ordered sequence of drawing operations.
@@ -87,5 +90,4 @@ impl DisplayList {
 // The Renderer trait, consumed by platform shells to render DisplayLists.
 pub trait Renderer {
     fn render(&mut self, display_list: &DisplayList) -> Result<()>;
-    // Optionally, methods for managing render surfaces, contexts, etc.
 }

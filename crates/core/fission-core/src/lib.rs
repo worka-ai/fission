@@ -16,6 +16,7 @@ pub use action::{Action, ActionId, AppState, ActionEnvelope};
 pub use time::{Clock, CurrentTime};
 pub use lowering::{Desugar, LoweringContext};
 pub use event::{InputEvent, PointerEvent, PointerButton, KeyEvent, KeyCode, LifecycleEvent};
+pub use fission_ir::op; // Re-export op module for Color
 use hit_test::hit_test;
 
 // Concrete Action implementations for clock control
@@ -149,18 +150,12 @@ impl Runtime {
                     while let Some(node_id) = current_id {
                         if let Some(node) = ir.nodes.get(&node_id) {
                             if let Op::Semantics(semantics) = &node.op {
-                                // Now ActionEntry contains the ActionId and Payload (serialized).
-                                // We can reconstruct the ActionEnvelope directly!
                                 if let Some(action_entry) = semantics.actions.entries.first() {
                                     if let Some(payload) = &action_entry.payload_data {
-                                        // We have everything needed for the Envelope
                                         let envelope = ActionEnvelope {
                                             id: ActionId::from_u128(action_entry.action_id),
                                             payload: payload.clone(),
                                         };
-                                        // Dispatch to target node (the semantics node, or original hit node? 
-                                        // Usually target is the element that handled it)
-                                        // Let's say target is the semantics node ID.
                                         println!("Dispatching action {:?} from input", envelope.id);
                                         return self.dispatch(envelope, node_id); 
                                     } else {
@@ -168,6 +163,7 @@ impl Runtime {
                                     }
                                 }
                             }
+                            
                             current_id = node.parent;
                         } else {
                             break;

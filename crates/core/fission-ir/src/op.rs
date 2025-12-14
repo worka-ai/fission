@@ -1,49 +1,108 @@
+use super::semantics::Semantics;
 use serde::{Deserialize, Serialize};
-use crate::semantics::Semantics;
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)] 
+// The fundamental operations that can be performed in the Core IR.
+// These are low-level, platform-agnostic, and deterministic.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub enum Op {
+    // Structural operations (tree manipulation, identity)
     Structural(StructuralOp),
+
+    // Layout operations (size, position, flex properties)
     Layout(LayoutOp),
+
+    // Painting operations (drawing primitives)
     Paint(PaintOp),
-    Semantics(Semantics), // Added Semantics variant
+
+    // Semantic operations (accessibility, hit testing, actions)
+    Semantics(Semantics),
+
+    // Input operations (e.g., event handlers, focus management) - TBD
+    // Input(InputOp),
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+// --- Structural Operations --- //
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub enum StructuralOp {
+    // Represents a logical grouping or an identity node without specific layout/paint.
+    // Useful for grouping children or providing a stable NodeId.
     Group,
-    Scope,
-    Fragment,
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)] 
-pub enum LayoutOp {
-    Box { 
-        width: Option<f32>,
-        height: Option<f32>,
-    },
-    Flex { 
-        direction: FlexDirection,
-        flex_grow: f32,
-        flex_shrink: f32,
-    },
-    Grid,
-    Stack,
-    Align,
-}
+// --- Layout Operations --- //
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+pub type LayoutUnit = f32;
+
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
 pub enum FlexDirection {
-    #[default]
     Row,
     Column,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+impl Default for FlexDirection {
+    fn default() -> Self { FlexDirection::Row }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+pub enum LayoutOp {
+    // A basic rectangular box with optional fixed size.
+    Box { 
+        width: Option<LayoutUnit>,
+        height: Option<LayoutUnit>,
+    },
+    // A flex container that lays out its children in a single direction.
+    Flex {
+        direction: FlexDirection,
+        flex_grow: LayoutUnit,
+        flex_shrink: LayoutUnit,
+    },
+    // Placeholder for grid layout
+    Grid,
+    // Placeholder for stack layout (overlapping children)
+    Stack,
+    // Placeholder for alignment (aligning a single child within bounds)
+    Align,
+}
+
+// --- Painting Operations --- //
+
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+pub struct Color {
+    pub r: u8,
+    pub g: u8,
+    pub b: u8,
+    pub a: u8,
+}
+
+impl Color {
+    pub const BLACK: Self = Self { r: 0, g: 0, b: 0, a: 255 };
+    pub const WHITE: Self = Self { r: 255, g: 255, b: 255, a: 255 };
+    pub const RED: Self = Self { r: 255, g: 0, b: 0, a: 255 };
+    pub const GREEN: Self = Self { r: 0, g: 255, b: 0, a: 255 };
+    pub const BLUE: Self = Self { r: 0, g: 0, b: 255, a: 255 };
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+pub struct Fill {
+    pub color: Color,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+pub struct Stroke {
+    pub color: Color,
+    pub width: LayoutUnit,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub enum PaintOp {
-    DrawRect,
-    DrawText,
-    DrawImage,
-    DrawPath,
-    PaintGroup,
+    DrawRect { 
+        fill: Option<Fill>,
+        stroke: Option<Stroke>,
+    },
+    DrawText {
+        text: String,
+        size: LayoutUnit,
+        color: Color,
+    },
 }

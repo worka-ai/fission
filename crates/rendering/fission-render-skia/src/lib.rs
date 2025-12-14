@@ -1,13 +1,16 @@
-use fission_render::{Renderer, DisplayList, DisplayOp, Color, LayoutRect};
-use skia_safe::{Canvas, Paint, Rect, Color as SkColor, Color4f};
+use fission_render::{Renderer, DisplayList, DisplayOp, Color, LayoutRect, LayoutPoint, LayoutUnit};
+use skia_safe::{Canvas, Paint, Rect, Color as SkColor, FontMgr};
+use skia_safe::font::Font;
+use skia_safe::font_style::FontStyle;
+use skia_safe::Typeface; 
 use anyhow::Result;
 
 pub struct SkiaRenderer<'a> {
-    canvas: &'a Canvas, // Changed from &mut Canvas
+    canvas: &'a Canvas, 
 }
 
 impl<'a> SkiaRenderer<'a> {
-    pub fn new(canvas: &'a Canvas) -> Self { // Changed from &mut Canvas
+    pub fn new(canvas: &'a Canvas) -> Self {
         Self { canvas }
     }
 }
@@ -21,10 +24,25 @@ fn to_skia_color(c: &Color) -> SkColor {
     SkColor::from_argb(c.a, c.r, c.g, c.b)
 }
 
+fn load_typeface(font_mgr: &FontMgr) -> Typeface {
+    let families = ["sans-serif", "Helvetica", "Arial", ".AppleSystemUIFont", "Segoe UI", "Roboto"];
+    
+    for family in families {
+        if let Some(tf) = font_mgr.match_family_style(family, FontStyle::default()) {
+            return tf;
+        }
+    }
+
+    if let Some(tf) = font_mgr.match_family_style("", FontStyle::default()) {
+        return tf;
+    }
+
+    panic!("Failed to load any system font (tried common families and default)");
+}
+
 impl<'a> Renderer for SkiaRenderer<'a> {
     fn render(&mut self, display_list: &DisplayList) -> Result<()> {
-        // In skia-safe 0.75, canvas methods take &self (interior mutability via C++ pointer)
-        self.canvas.clear(SkColor::WHITE); 
+        self.canvas.clear(SkColor::WHITE); // Clear background
 
         for op in &display_list.ops {
             match op {
@@ -45,6 +63,27 @@ impl<'a> Renderer for SkiaRenderer<'a> {
                         paint.set_stroke_width(s.width);
                         self.canvas.draw_rect(sk_rect, &paint);
                     }
+                }
+                DisplayOp::DrawText { text, position, size, color, bounds, .. } => {
+                    let mut paint = Paint::default();
+                    paint.set_color(to_skia_color(color));
+                    paint.set_anti_alias(true);
+
+                    let font_manager = FontMgr::new();
+                    let typeface = load_typeface(&font_manager);
+                    let font = Font::new(typeface, *size);
+
+                    let (_scale, text_metrics) = font.metrics(); 
+                    let ascender = text_metrics.ascent.abs(); 
+                    
+                    let text_draw_y = position.y + ascender; 
+
+                    self.canvas.draw_str(
+                        text, 
+                        (position.x, text_draw_y),
+                        &font, 
+                        &paint
+                    );
                 }
                 DisplayOp::Save => {
                     self.canvas.save();
