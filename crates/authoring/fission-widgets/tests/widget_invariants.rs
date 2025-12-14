@@ -1,7 +1,8 @@
 use fission_widgets::{
-    Button, LoweringContext, Node, Row, Text, Lower, TextContent
+    Button, Node, Row, Text, TextContent
 };
-use fission_ir::{NodeId, Op, StructuralOp, LayoutOp, Semantics, Role, ActionSet, ActionEntry};
+use fission_core::{Lower, LoweringContext}; // Import Lower and LoweringContext from core
+use fission_ir::{NodeId, Op, LayoutOp, Semantics, Role, ActionSet, ActionEntry}; // Removed StructuralOp
 use fission_core::{Action as CoreAction, ActionId, Env, RuntimeState};
 use lazy_static::lazy_static;
 use serde::{Serialize, Deserialize};
@@ -80,11 +81,11 @@ fn test_button_widget_lower_with_child_and_semantics() {
     let mut cx = LoweringContext::new(&env, &runtime_state);
     let button_node_id = button_widget.lower(&mut cx);
 
-    // Button.lower returns button_layout_id (wrapped by semantics if present)
-    // Actually, in my implementation:
-    // if semantics: returns semantics_id (which wraps button_layout_id).
-    
     assert!(cx.ir.nodes.contains_key(&button_node_id));
+    
+    // In new model, Button.lower returns button_layout_id.
+    // If semantics are present, it wraps it.
+    // So the returned ID should be the semantics node.
     let semantics_node = cx.ir.nodes.get(&button_node_id).unwrap();
     assert!(matches!(semantics_node.op, Op::Semantics(_)));
     
