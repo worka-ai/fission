@@ -1,5 +1,5 @@
 use anyhow::{anyhow, Result};
-use fission_ir::{NodeId, CoreIR, Op};
+use fission_ir::CoreIR; // Removed NodeId, Op
 use fission_layout::{LayoutSnapshot, LayoutPoint};
 use std::any::{Any, TypeId};
 use std::collections::HashMap;
@@ -21,13 +21,14 @@ pub use time::{Clock, CurrentTime};
 pub use lowering::{LoweringContext};
 pub use event::{InputEvent, PointerEvent, PointerButton, KeyEvent, KeyCode, LifecycleEvent};
 pub use fission_ir::op; 
+pub use fission_ir::{Op, NodeId}; // Export Op and NodeId
 pub use registry::{BuildCtx, ActionRegistry, Handler};
 pub use env::{Env, RuntimeState, InteractionStateMap};
 pub use ui::{Node, Row, Column, Text, Button, CustomNode, Lower, LowerDyn};
 pub use view::{View, Selector, Widget};
 use hit_test::hit_test;
 
-// ... (Rest of Action impls)
+// ... Rest unchanged
 // Concrete Action implementations for clock control
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct Tick {
@@ -94,13 +95,6 @@ impl Default for Runtime {
 impl Runtime {
     pub fn clear_reducers(&mut self) {
         self.reducers.clear();
-        // Restore default reducers?
-        // Actually, Clock reducers are added in default(). If we clear, we lose them.
-        // We should only clear *user* reducers or re-register defaults.
-        // For simplicity, let's re-register defaults here or assume BuildCtx includes them? No.
-        // Maybe absorb_registry should overwrite?
-        // Or we keep a separate list for persistent reducers.
-        // Fix: Just re-register Clock reducers.
         
         self.register_reducer::<Clock>(*TICK_ACTION_ID, |state: &mut Clock, action: &ActionEnvelope, _target| {
             let tick_action: Tick = serde_json::from_slice(&action.payload).map_err(|e| anyhow!("Failed to deserialize Tick: {}", e))?;
