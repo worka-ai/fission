@@ -2,21 +2,25 @@ use fission_ir::{NodeId, Op, CoreIR, LayoutOp, FlexDirection};
 use fission_layout::{
     LayoutInputNode, LayoutPoint, LayoutSize, LayoutUnit
 };
+use crate::env::{Env, RuntimeState}; // Import Env/RuntimeState
 use std::fmt::Debug;
 use std::collections::HashMap;
 
 // Context passed down during the desugaring phase.
-// It builds the CoreIR.
-pub struct LoweringContext {
+pub struct LoweringContext<'a> {
     pub next_node_id_seed: u128,
     pub ir: CoreIR,
+    pub env: &'a Env,
+    pub runtime_state: &'a RuntimeState,
 }
 
-impl LoweringContext {
-    pub fn new() -> Self {
+impl<'a> LoweringContext<'a> {
+    pub fn new(env: &'a Env, runtime_state: &'a RuntimeState) -> Self {
         LoweringContext {
             next_node_id_seed: 0,
             ir: CoreIR::new(),
+            env,
+            runtime_state,
         }
     }
 
@@ -30,11 +34,8 @@ impl LoweringContext {
     }
 }
 
-impl Default for LoweringContext {
-    fn default() -> Self {
-        Self::new()
-    }
-}
+// Default trait cannot be implemented easily if we need references.
+// Removing impl Default for LoweringContext.
 
 // The trait that Authoring Widgets must implement to convert themselves into Core IR.
 pub trait Desugar: Send + Sync + Debug {
@@ -73,6 +74,5 @@ pub fn build_layout_tree(ir: &CoreIR) -> Vec<LayoutInputNode> {
         });
     }
 
-    // The parent_id is set above from the parent_map.
     input_nodes
 }

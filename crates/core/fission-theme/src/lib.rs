@@ -1,0 +1,120 @@
+use fission_ir::op::Color;
+use serde::{Deserialize, Serialize};
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct ColorTokens {
+    pub primary: Color,
+    pub on_primary: Color,
+    pub surface: Color,
+    pub on_surface: Color,
+    pub background: Color,
+    pub on_background: Color,
+    pub error: Color,
+    pub on_error: Color,
+}
+
+impl Default for ColorTokens {
+    fn default() -> Self {
+        // Material 3-ish Baseline defaults (simplified)
+        Self {
+            primary: Color { r: 103, g: 85, b: 143, a: 255 }, // Purple 40
+            on_primary: Color::WHITE,
+            surface: Color { r: 255, g: 251, b: 254, a: 255 }, // Purple 99
+            on_surface: Color { r: 28, g: 27, b: 31, a: 255 }, // Purple 10
+            background: Color { r: 255, g: 251, b: 254, a: 255 },
+            on_background: Color { r: 28, g: 27, b: 31, a: 255 },
+            error: Color { r: 179, g: 38, b: 30, a: 255 },
+            on_error: Color::WHITE,
+        }
+    }
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct TypographyTokens {
+    // Simplified for MVP. Stores font size.
+    pub label_large_size: f32,
+    pub body_medium_size: f32,
+}
+
+impl Default for TypographyTokens {
+    fn default() -> Self {
+        Self {
+            label_large_size: 14.0,
+            body_medium_size: 16.0,
+        }
+    }
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct RadiusTokens {
+    pub small: f32,
+    pub medium: f32,
+    pub large: f32,
+    pub full: f32, // For pill shapes
+}
+
+impl Default for RadiusTokens {
+    fn default() -> Self {
+        Self {
+            small: 4.0,
+            medium: 12.0,
+            large: 16.0,
+            full: 9999.0,
+        }
+    }
+}
+
+#[derive(Clone, Debug, PartialEq, Default, Serialize, Deserialize)]
+pub struct Tokens {
+    pub colors: ColorTokens,
+    pub typography: TypographyTokens,
+    pub radii: RadiusTokens,
+}
+
+// --- Component Themes ---
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct ButtonTheme {
+    pub height: f32,
+    pub padding_horizontal: f32,
+    pub radius: f32,
+    pub text_size: f32,
+}
+
+impl ButtonTheme {
+    pub fn from_tokens(tokens: &Tokens) -> Self {
+        Self {
+            height: 40.0,
+            padding_horizontal: 24.0,
+            radius: tokens.radii.full,
+            text_size: tokens.typography.label_large_size,
+        }
+    }
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct ComponentTheme {
+    pub button: ButtonTheme,
+}
+
+impl ComponentTheme {
+    pub fn from_tokens(tokens: &Tokens) -> Self {
+        Self {
+            button: ButtonTheme::from_tokens(tokens),
+        }
+    }
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct Theme {
+    pub tokens: Tokens,
+    pub components: ComponentTheme,
+}
+
+impl Default for Theme {
+    fn default() -> Self {
+        let tokens = Tokens::default();
+        let components = ComponentTheme::from_tokens(&tokens);
+        Self { tokens, components }
+    }
+}

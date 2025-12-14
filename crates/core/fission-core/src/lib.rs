@@ -12,6 +12,7 @@ pub mod lowering;
 pub mod event;
 pub mod hit_test;
 pub mod registry;
+pub mod env; // Added
 
 pub use action::{Action, ActionId, AppState, ActionEnvelope};
 pub use time::{Clock, CurrentTime};
@@ -19,6 +20,7 @@ pub use lowering::{Desugar, LoweringContext};
 pub use event::{InputEvent, PointerEvent, PointerButton, KeyEvent, KeyCode, LifecycleEvent};
 pub use fission_ir::op; 
 pub use registry::{BuildCtx, ActionRegistry, Handler};
+pub use env::{Env, RuntimeState, InteractionStateMap}; // Export Env types
 use hit_test::hit_test;
 
 // Concrete Action implementations for clock control
@@ -57,6 +59,7 @@ pub type BoxedReducer = Box<dyn FnMut(&mut HashMap<TypeId, Box<dyn AppState>>, &
 pub struct Runtime {
     reducers: HashMap<ActionId, Vec<BoxedReducer>>,
     app_states: HashMap<TypeId, Box<dyn AppState>>,
+    pub runtime_state: RuntimeState, // Added
 }
 
 impl Default for Runtime {
@@ -64,6 +67,7 @@ impl Default for Runtime {
         let mut runtime = Self {
             reducers: HashMap::new(),
             app_states: HashMap::new(),
+            runtime_state: RuntimeState::default(),
         };
         
         runtime.add_app_state(Box::new(Clock::default())).expect("Failed to add Clock state");
@@ -155,6 +159,10 @@ impl Runtime {
         match event {
             InputEvent::Pointer(PointerEvent::Down { point, .. }) => {
                 if let Some(hit_node_id) = hit_test(ir, layout, point) {
+                    // Update Interaction State
+                    self.runtime_state.interaction.set_pressed(hit_node_id, true);
+                    // (Should also clear previous pressed?)
+                    
                     let mut current_id = Some(hit_node_id);
                     while let Some(node_id) = current_id {
                         if let Some(node) = ir.nodes.get(&node_id) {
@@ -180,6 +188,13 @@ impl Runtime {
                     }
                 }
             }
+            InputEvent::Pointer(PointerEvent::Up { point, .. }) => {
+                // Clear pressed state?
+                // Ideally we track which node was pressed.
+                // For now, clear all pressed? or just the hit one?
+                // V1 simplified.
+            }
+            // TODO: PointerMove for Hover
             _ => {}
         }
         Ok(())

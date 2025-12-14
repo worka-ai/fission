@@ -523,12 +523,21 @@ dependencies = [
  "anyhow",
  "blake3",
  "downcast-rs",
+ "fission-i18n",
  "fission-ir",
  "fission-layout",
  "fission-semantics",
+ "fission-theme",
  "lazy_static",
  "serde",
  "serde_json",
+]
+
+[[package]]
+name = "fission-i18n"
+version = "0.1.0"
+dependencies = [
+ "serde",
 ]
 
 [[package]]
@@ -649,6 +658,14 @@ dependencies = [
  "lazy_static",
  "serde",
  "serde_json",
+]
+
+[[package]]
+name = "fission-theme"
+version = "0.1.0"
+dependencies = [
+ "fission-ir",
+ "serde",
 ]
 
 [[package]]
