@@ -209,7 +209,7 @@ impl LayoutEngine {
                     height: node.height.map(Dimension::Points).unwrap_or(Dimension::Auto),
                 };
             },
-            LayoutOp::Scroll { direction } => {
+            LayoutOp::Scroll { direction, .. } => {
                 style.display = Display::Flex;
                 style.flex_direction = match direction {
                     IrFlexDirection::Row => taffy::style::FlexDirection::Row,

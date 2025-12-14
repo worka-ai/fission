@@ -13,6 +13,7 @@ pub struct Scroll {
     pub direction: FlexDirection,
     pub width: Option<f32>,
     pub height: Option<f32>,
+    pub show_scrollbar: bool,
 }
 
 impl Lower for Scroll {
@@ -30,7 +31,7 @@ impl Lower for Scroll {
             // Inner Scroll
             cx.add_node(
                 scroll_id,
-                Op::Layout(LayoutOp::Scroll { direction: self.direction }),
+                Op::Layout(LayoutOp::Scroll { direction: self.direction, show_scrollbar: self.show_scrollbar }),
                 child_ids.clone(),
             );
             
@@ -59,7 +60,7 @@ impl Lower for Scroll {
             
             cx.add_node(
                 layout_id,
-                Op::Layout(LayoutOp::Scroll { direction: self.direction }),
+                Op::Layout(LayoutOp::Scroll { direction: self.direction, show_scrollbar: self.show_scrollbar }),
                 child_ids.clone(),
             );
             

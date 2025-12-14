@@ -51,7 +51,7 @@ pub fn build_layout_tree(ir: &CoreIR) -> Vec<LayoutInputNode> {
         let (layout_op_variant, width, height, flex_grow, flex_shrink) = match &node.op {
             Op::Layout(LayoutOp::Box { width, height, padding }) => (LayoutOp::Box { width: *width, height: *height, padding: *padding }, *width, *height, 0.0, 0.0),
             Op::Layout(LayoutOp::Flex { direction, flex_grow, flex_shrink, padding }) => (LayoutOp::Flex { direction: *direction, flex_grow: *flex_grow, flex_shrink: *flex_shrink, padding: *padding }, None, None, *flex_grow, *flex_shrink),
-            Op::Layout(LayoutOp::Scroll { direction }) => (LayoutOp::Scroll { direction: *direction }, None, None, 0.0, 0.0),
+            Op::Layout(LayoutOp::Scroll { direction, show_scrollbar }) => (LayoutOp::Scroll { direction: *direction, show_scrollbar: *show_scrollbar }, None, None, 0.0, 0.0),
             
             Op::Paint(PaintOp::DrawText { text, size, .. }) => {
                 text_content = Some(text.clone());

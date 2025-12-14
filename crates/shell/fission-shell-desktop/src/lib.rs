@@ -204,6 +204,40 @@ impl<S: AppState + Default, W: Widget<S> + 'static> DesktopApp<S, W> {
 
                                                 if pushed_clip {
                                                     list.push(fission_render::DisplayOp::Restore);
+                                                    
+                                                    if let fission_ir::Op::Layout(fission_ir::LayoutOp::Scroll { show_scrollbar: true, .. }) = &node.op {
+                                                        let viewport_h = geom.rect.height();
+                                                        let content_h = geom.content_size.height;
+                                                        
+                                                        if content_h > viewport_h {
+                                                            let offset = scroll_map.get_offset(node_id);
+                                                            let ratio = viewport_h / content_h;
+                                                            let thumb_h = (viewport_h * ratio).max(20.0);
+                                                            
+                                                            // Thumb position (relative to viewport)
+                                                            let max_scroll = content_h - viewport_h;
+                                                            let scroll_fraction = if max_scroll > 0.0 { offset / max_scroll } else { 0.0 };
+                                                            let available_track = viewport_h - thumb_h;
+                                                            let thumb_y = available_track * scroll_fraction.clamp(0.0, 1.0);
+                                                            
+                                                            let thumb_rect = fission_render::LayoutRect::new(
+                                                                geom.rect.right() - 8.0, 
+                                                                geom.rect.y() + thumb_y,
+                                                                6.0,
+                                                                thumb_h
+                                                            );
+                                                            
+                                                            list.push(fission_render::DisplayOp::DrawRect {
+                                                                rect: thumb_rect,
+                                                                fill: Some(fission_render::Fill { color: RenderColor { r: 0, g: 0, b: 0, a: 100 } }),
+                                                                stroke: None,
+                                                                corner_radius: 3.0,
+                                                                shadow: None,
+                                                                bounds: thumb_rect,
+                                                                node_id: None,
+                                                            });
+                                                        }
+                                                    }
                                                 }
                                             }
                                         }
@@ -283,7 +317,6 @@ impl<S: AppState + Default, W: Widget<S> + 'static> DesktopApp<S, W> {
                             }
                         }
                         WindowEvent::KeyboardInput { event, .. } => {
-                            // Basic mapping
                             let key_code = match event.physical_key {
                                 PhysicalKey::Code(winit::keyboard::KeyCode::Tab) => Some(KeyCode::Tab),
                                 PhysicalKey::Code(winit::keyboard::KeyCode::Space) => Some(KeyCode::Space),

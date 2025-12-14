@@ -137,7 +137,6 @@ impl Widget<CounterState> for CounterApp {
             Text { content: TextContent::Literal("Scroll down to see more...".into()), ..Default::default() }.into(),
         ];
 
-        // Filler content
         for i in 0..20 {
             children.push(Text { 
                 content: TextContent::Literal(format!("Item {}", i)), 
@@ -147,8 +146,9 @@ impl Widget<CounterState> for CounterApp {
 
         Scroll {
             direction: FlexDirection::Column,
-            width: Some(600.0), // Constrained width
-            height: Some(400.0), // Constrained height to enable scrolling
+            width: Some(600.0), 
+            height: Some(400.0),
+            show_scrollbar: true,
             child: Some(Box::new(Column {
                 children,
                 flex_grow: 1.0,

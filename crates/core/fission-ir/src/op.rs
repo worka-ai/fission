@@ -50,6 +50,7 @@ pub enum LayoutOp {
     },
     Scroll {
         direction: FlexDirection, // Axis
+        show_scrollbar: bool,
     },
     Embed {
         kind: EmbedKind,
