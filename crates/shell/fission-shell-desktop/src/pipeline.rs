@@ -133,9 +133,11 @@ impl Pipeline {
 
             if let Some((cached_hash, cached_ops)) = self.paint_cache.get(&node_id) {
                 if *cached_hash == hash {
+                    let cached_ops = cached_ops.clone();
+                    self.collect_video_surfaces(node_id, ir, snapshot, video_map);
                     *hit_count += 1;
                     for op in cached_ops {
-                        out_list.push(op.clone());
+                        out_list.push(op);
                     }
                     return;
                 }
@@ -227,15 +229,7 @@ impl Pipeline {
                     kind: EmbedKind::Video,
                     widget_id,
                 }) => {
-                    if let Some(state) = video_map.states.get(widget_id) {
-                        if let Some(surface_id) = state.surface_id {
-                            self.video_surfaces.push(VideoSurfaceFrame {
-                                widget_id: *widget_id,
-                                surface_id,
-                                rect: geom.rect,
-                            });
-                        }
-                    }
+                    self.push_video_surface(*widget_id, geom.rect, video_map);
 
                     segment.push(DisplayOp::DrawRect {
                         rect: geom.rect,
@@ -331,6 +325,45 @@ impl Pipeline {
 
             self.paint_cache.insert(node_id, (hash, segment.clone()));
             out_list.ops.extend(segment);
+        }
+    }
+
+    fn push_video_surface(
+        &mut self,
+        widget_id: WidgetNodeId,
+        rect: LayoutRect,
+        video_map: &VideoStateMap,
+    ) {
+        if let Some(state) = video_map.states.get(&widget_id) {
+            if let Some(surface_id) = state.surface_id {
+                self.video_surfaces.push(VideoSurfaceFrame {
+                    widget_id,
+                    surface_id,
+                    rect,
+                });
+            }
+        }
+    }
+
+    fn collect_video_surfaces(
+        &mut self,
+        node_id: NodeId,
+        ir: &CoreIR,
+        snapshot: &LayoutSnapshot,
+        video_map: &VideoStateMap,
+    ) {
+        if let (Some(node), Some(geom)) = (ir.nodes.get(&node_id), snapshot.nodes.get(&node_id)) {
+            if let fission_ir::Op::Layout(fission_ir::LayoutOp::Embed {
+                kind: EmbedKind::Video,
+                widget_id,
+            }) = &node.op
+            {
+                self.push_video_surface(*widget_id, geom.rect, video_map);
+            }
+
+            for child in &node.children {
+                self.collect_video_surfaces(*child, ir, snapshot, video_map);
+            }
         }
     }
 }

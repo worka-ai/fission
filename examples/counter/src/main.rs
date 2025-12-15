@@ -160,7 +160,7 @@ impl Widget<CounterState> for CounterApp {
                 loop_playback: true,
                 ..Default::default()
             }
-            .into(),
+            .build(ctx, view),
             Text {
                 content: TextContent::Literal(vm.label.clone()),
                 font_size: Some(24.0),

@@ -74,11 +74,6 @@ impl From<Image> for Node {
         Node::Image(w)
     }
 }
-impl From<Video> for Node {
-    fn from(w: Video) -> Self {
-        Node::Video(w)
-    }
-}
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct CustomNode {
