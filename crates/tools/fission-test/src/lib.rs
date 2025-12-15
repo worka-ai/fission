@@ -1,9 +1,16 @@
 use anyhow::Result;
-use fission_core::{Runtime, Action, ActionId, AppState, CurrentTime, AdvanceTo, Tick, Lower, LoweringContext, InputEvent, ActionEnvelope, Env, Widget, View, Node, BuildCtx, ScrollStateMap, LayoutPoint, Clock}; 
 use fission_core::lowering::build_layout_tree;
-use fission_ir::{NodeId, CoreIR};
-use fission_layout::{LayoutSnapshot, LayoutSize, LayoutEngine, TextMeasurer};
-use fission_render::{Renderer, DisplayList, LayoutRect, DisplayOp, Color, Fill, Stroke, BoxShadow};
+use fission_core::{
+    Action, ActionEnvelope, ActionId, AdvanceTo, AppState, BuildCtx, Clock, CurrentTime, Env,
+    InputEvent, LayoutPoint, Lower, LoweringContext, Node, Runtime, ScrollStateMap, Tick, View,
+    Widget,
+};
+use fission_ir::{CoreIR, NodeId};
+use fission_layout::{LayoutEngine, LayoutSize, LayoutSnapshot, TextMeasurer};
+use std::collections::HashSet;
+use fission_render::{
+    BoxShadow, Color, DisplayList, DisplayOp, Fill, LayoutRect, Renderer, Stroke,
+};
 use std::sync::{Arc, Mutex};
 
 // A mock renderer that captures the display list for inspection.
@@ -32,7 +39,7 @@ pub struct TestHarness<S: AppState> {
     pub renderer: MockRenderer,
     pub layout_engine: LayoutEngine,
     pub last_snapshot: Option<LayoutSnapshot>,
-    pub last_ir: Option<CoreIR>, 
+    pub last_ir: Option<CoreIR>,
     pub root_widget: Option<Box<dyn Widget<S>>>,
     pub env: Env,
     _phantom: std::marker::PhantomData<S>,
@@ -42,9 +49,11 @@ impl<S: AppState> TestHarness<S> {
     pub fn new(initial_state: S) -> Self {
         let mut runtime = Runtime::default();
         if std::any::TypeId::of::<S>() != std::any::TypeId::of::<Clock>() {
-             runtime.add_app_state(Box::new(initial_state)).expect("Failed to add initial state");
+            runtime
+                .add_app_state(Box::new(initial_state))
+                .expect("Failed to add initial state");
         }
-        
+
         Self {
             runtime,
             renderer: MockRenderer::default(),
@@ -67,7 +76,9 @@ impl<S: AppState> TestHarness<S> {
         action_id: ActionId,
         reducer: fn(&mut S, &ActionEnvelope, NodeId) -> Result<()>,
     ) -> Self {
-        self.runtime.register_reducer::<S>(action_id, reducer).unwrap();
+        self.runtime
+            .register_reducer::<S>(action_id, reducer)
+            .unwrap();
         self
     }
 
@@ -81,7 +92,9 @@ impl<S: AppState> TestHarness<S> {
         if let (Some(ir), Some(layout)) = (&self.last_ir, &self.last_snapshot) {
             self.runtime.handle_input(event, ir, layout)
         } else {
-            anyhow::bail!("Cannot handle input: no frame pumped (missing IR/Layout). Call pump() first.");
+            anyhow::bail!(
+                "Cannot handle input: no frame pumped (missing IR/Layout). Call pump() first."
+            );
         }
     }
 
@@ -101,15 +114,18 @@ impl<S: AppState> TestHarness<S> {
     pub fn pump(&mut self) -> Result<()> {
         // 1. Build & Lower
         let mut layout_input_nodes = Vec::new();
-        
+
         if let Some(root) = &self.root_widget {
             // Build
             let node_tree = {
-                let state = self.runtime.get_app_state::<S>().expect("App state missing");
+                let state = self
+                    .runtime
+                    .get_app_state::<S>()
+                    .expect("App state missing");
                 let view = View::new(state, &self.runtime.runtime_state, &self.env);
                 let mut ctx = BuildCtx::new();
                 let tree = root.build(&mut ctx, &view);
-                
+
                 self.runtime.clear_reducers();
                 self.runtime.absorb_registry(ctx.registry);
                 tree
@@ -119,31 +135,38 @@ impl<S: AppState> TestHarness<S> {
             let mut cx = LoweringContext::new(&self.env, &self.runtime.runtime_state);
             let root_id = node_tree.lower(&mut cx);
             cx.ir.root = Some(root_id);
-            
+
             layout_input_nodes = build_layout_tree(&cx.ir);
-            self.last_ir = Some(cx.ir); 
-            
+            self.last_ir = Some(cx.ir);
+
             // 2. Layout
-            let viewport = LayoutSize { width: 800.0, height: 600.0 };
-            let snapshot = self.layout_engine.compute_layout(&layout_input_nodes, root_id, viewport)?;
+            let viewport = LayoutSize {
+                width: 800.0,
+                height: 600.0,
+            };
+            let dirty: HashSet<_> = layout_input_nodes.iter().map(|n| n.id).collect();
+            self.layout_engine.update(&layout_input_nodes, &dirty);
+            let snapshot =
+                self.layout_engine
+                    .compute_layout(&layout_input_nodes, root_id, viewport)?;
             self.last_snapshot = Some(snapshot.clone());
         }
 
         // 3. Render
         let mut display_list = DisplayList::new(LayoutRect::new(0.0, 0.0, 800.0, 600.0));
-        
+
         if let (Some(ir), Some(snapshot)) = (&self.last_ir, &self.last_snapshot) {
-             if let Some(root_id) = ir.root {
-                 let scroll_map = &self.runtime.runtime_state.scroll;
-                 generate_display_list(root_id, ir, snapshot, scroll_map, &mut display_list);
-             }
+            if let Some(root_id) = ir.root {
+                let scroll_map = &self.runtime.runtime_state.scroll;
+                generate_display_list(root_id, ir, snapshot, scroll_map, &mut display_list);
+            }
         }
 
         self.renderer.render(&display_list)?;
 
         Ok(())
     }
-    
+
     pub fn get_last_display_list(&self) -> Option<DisplayList> {
         self.renderer.last_display_list.lock().unwrap().clone()
     }
@@ -154,7 +177,7 @@ fn generate_display_list(
     ir: &CoreIR,
     snapshot: &LayoutSnapshot,
     scroll_map: &ScrollStateMap,
-    list: &mut DisplayList
+    list: &mut DisplayList,
 ) {
     if let Some(geom) = snapshot.nodes.get(&node_id) {
         if let Some(node) = ir.nodes.get(&node_id) {
@@ -163,39 +186,69 @@ fn generate_display_list(
             match &node.op {
                 fission_ir::Op::Layout(fission_ir::LayoutOp::Scroll { .. }) => {
                     let offset = scroll_map.get_offset(node_id);
-                    
+
                     list.push(DisplayOp::Save);
                     list.push(DisplayOp::ClipRect(geom.rect));
                     list.push(DisplayOp::Translate(LayoutPoint::new(0.0, -offset)));
                     pushed_clip = true;
-                },
-                fission_ir::Op::Paint(fission_ir::PaintOp::DrawRect { fill, stroke, corner_radius, shadow }) => {
-                    list.push(DisplayOp::DrawRect { 
+                }
+                fission_ir::Op::Paint(fission_ir::PaintOp::DrawRect {
+                    fill,
+                    stroke,
+                    corner_radius,
+                    shadow,
+                }) => {
+                    list.push(DisplayOp::DrawRect {
                         rect: geom.rect,
-                        fill: fill.map(|f| Fill { color: Color { r: f.color.r, g: f.color.g, b: f.color.b, a: f.color.a } }),
-                        stroke: stroke.map(|s| Stroke { color: Color { r: s.color.r, g: s.color.g, b: s.color.b, a: s.color.a }, width: s.width }),
+                        fill: fill.map(|f| Fill {
+                            color: Color {
+                                r: f.color.r,
+                                g: f.color.g,
+                                b: f.color.b,
+                                a: f.color.a,
+                            },
+                        }),
+                        stroke: stroke.map(|s| Stroke {
+                            color: Color {
+                                r: s.color.r,
+                                g: s.color.g,
+                                b: s.color.b,
+                                a: s.color.a,
+                            },
+                            width: s.width,
+                        }),
                         corner_radius: *corner_radius,
-                        shadow: shadow.map(|s| BoxShadow { 
-                            color: Color { r: s.color.r, g: s.color.g, b: s.color.b, a: s.color.a }, 
-                            blur_radius: s.blur_radius, 
-                            offset: s.offset 
+                        shadow: shadow.map(|s| BoxShadow {
+                            color: Color {
+                                r: s.color.r,
+                                g: s.color.g,
+                                b: s.color.b,
+                                a: s.color.a,
+                            },
+                            blur_radius: s.blur_radius,
+                            offset: s.offset,
                         }),
                         bounds: geom.rect,
                         node_id: Some(node_id),
                     });
-                },
+                }
                 fission_ir::Op::Paint(fission_ir::PaintOp::DrawText { text, size, color }) => {
-                    list.push(DisplayOp::DrawText { 
+                    list.push(DisplayOp::DrawText {
                         text: text.clone(),
-                        position: geom.rect.origin, 
+                        position: geom.rect.origin,
                         size: *size,
-                        color: Color { r: color.r, g: color.g, b: color.b, a: color.a },
+                        color: Color {
+                            r: color.r,
+                            g: color.g,
+                            b: color.b,
+                            a: color.a,
+                        },
                         bounds: geom.rect,
                         node_id: Some(node_id),
                     });
-                },
+                }
                 fission_ir::Op::Paint(fission_ir::PaintOp::DrawImage { source, fit }) => {
-                    list.push(DisplayOp::DrawImage { 
+                    list.push(DisplayOp::DrawImage {
                         rect: geom.rect,
                         source: source.clone(),
                         fit: match fit {
@@ -207,7 +260,7 @@ fn generate_display_list(
                         bounds: geom.rect,
                         node_id: Some(node_id),
                     });
-                },
+                }
                 _ => {}
             }
 

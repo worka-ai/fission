@@ -1,5 +1,5 @@
-use std::collections::HashMap;
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 
 #[derive(Clone, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct Locale(pub String);
@@ -25,7 +25,7 @@ pub struct TranslationBundle {
 #[derive(Clone, Debug, Default)]
 pub struct I18nRegistry {
     // Map Locale -> (Key -> Value)
-    bundles: HashMap<Locale, HashMap<String, String>>, 
+    bundles: HashMap<Locale, HashMap<String, String>>,
 }
 
 impl I18nRegistry {
@@ -39,6 +39,8 @@ impl I18nRegistry {
     }
 
     pub fn get(&self, locale: &Locale, key: &str) -> Option<&str> {
-        self.bundles.get(locale).and_then(|msgs| msgs.get(key).map(|s| s.as_str()))
+        self.bundles
+            .get(locale)
+            .and_then(|msgs| msgs.get(key).map(|s| s.as_str()))
     }
 }

@@ -1,6 +1,6 @@
+use crate::AppState;
 use anyhow::Result;
 use serde::{Deserialize, Serialize};
-use crate::AppState;
 
 pub type CurrentTime = u64; // Milliseconds, monotonic
 
@@ -28,9 +28,13 @@ impl Clock {
     // This should only be called by the runtime in response to a Tick action.
     pub fn advance_by(&mut self, dt: CurrentTime) -> Result<()> {
         // Enforce monotonicity and non-negative dt
-        if dt == 0 { return Ok(()); }
+        if dt == 0 {
+            return Ok(());
+        }
         // Check for overflow (unlikely for u64 milliseconds in practice for reasonable durations)
-        self.current_time = self.current_time.checked_add(dt)
+        self.current_time = self
+            .current_time
+            .checked_add(dt)
             .ok_or_else(|| anyhow::anyhow!("Clock overflow"))?;
         Ok(())
     }

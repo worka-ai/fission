@@ -25,7 +25,9 @@ pub enum FlexDirection {
 }
 
 impl Default for FlexDirection {
-    fn default() -> Self { FlexDirection::Row }
+    fn default() -> Self {
+        FlexDirection::Row
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
@@ -37,10 +39,10 @@ pub enum EmbedKind {
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub enum LayoutOp {
-    Box { 
+    Box {
         width: Option<LayoutUnit>,
         height: Option<LayoutUnit>,
-        padding: [LayoutUnit; 4], 
+        padding: [LayoutUnit; 4],
     },
     Flex {
         direction: FlexDirection,
@@ -49,7 +51,7 @@ pub enum LayoutOp {
         padding: [LayoutUnit; 4],
     },
     Scroll {
-        direction: FlexDirection, 
+        direction: FlexDirection,
         show_scrollbar: bool,
         width: Option<LayoutUnit>,
         height: Option<LayoutUnit>,
@@ -73,11 +75,36 @@ pub struct Color {
 }
 
 impl Color {
-    pub const BLACK: Self = Self { r: 0, g: 0, b: 0, a: 255 };
-    pub const WHITE: Self = Self { r: 255, g: 255, b: 255, a: 255 };
-    pub const RED: Self = Self { r: 255, g: 0, b: 0, a: 255 };
-    pub const GREEN: Self = Self { r: 0, g: 255, b: 0, a: 255 };
-    pub const BLUE: Self = Self { r: 0, g: 0, b: 255, a: 255 };
+    pub const BLACK: Self = Self {
+        r: 0,
+        g: 0,
+        b: 0,
+        a: 255,
+    };
+    pub const WHITE: Self = Self {
+        r: 255,
+        g: 255,
+        b: 255,
+        a: 255,
+    };
+    pub const RED: Self = Self {
+        r: 255,
+        g: 0,
+        b: 0,
+        a: 255,
+    };
+    pub const GREEN: Self = Self {
+        r: 0,
+        g: 255,
+        b: 0,
+        a: 255,
+    };
+    pub const BLUE: Self = Self {
+        r: 0,
+        g: 0,
+        b: 255,
+        a: 255,
+    };
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
@@ -108,7 +135,7 @@ pub enum ImageFit {
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub enum PaintOp {
-    DrawRect { 
+    DrawRect {
         fill: Option<Fill>,
         stroke: Option<Stroke>,
         corner_radius: LayoutUnit,

@@ -1,5 +1,5 @@
-use serde::{Deserialize, Serialize};
 use fission_layout::{LayoutPoint, LayoutSize};
+use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub enum PointerButton {
@@ -11,10 +11,21 @@ pub enum PointerButton {
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub enum PointerEvent {
-    Down { point: LayoutPoint, button: PointerButton },
-    Up { point: LayoutPoint, button: PointerButton },
-    Move { point: LayoutPoint },
-    Scroll { point: LayoutPoint, delta: LayoutPoint }, // Added
+    Down {
+        point: LayoutPoint,
+        button: PointerButton,
+    },
+    Up {
+        point: LayoutPoint,
+        button: PointerButton,
+    },
+    Move {
+        point: LayoutPoint,
+    },
+    Scroll {
+        point: LayoutPoint,
+        delta: LayoutPoint,
+    }, // Added
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -33,7 +44,7 @@ pub enum KeyCode {
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub enum KeyEvent {
-    Down { key_code: KeyCode, modifiers: u8 }, 
+    Down { key_code: KeyCode, modifiers: u8 },
     Up { key_code: KeyCode, modifiers: u8 },
 }
 

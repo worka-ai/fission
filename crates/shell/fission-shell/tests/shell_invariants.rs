@@ -1,22 +1,47 @@
-use fission_shell::{
-    InputEvent, LifecycleEvent, LayoutPoint, LayoutSize, PointerEvent, PointerButton, Platform,
-};
 use anyhow::Result;
+use fission_core::{
+    InputEvent, LayoutPoint, LayoutSize, LifecycleEvent, PointerButton, PointerEvent,
+};
+use fission_shell::{Platform, VideoBackend, VideoEvent, VideoPlayer};
 use serde_json;
 
-// --- Dummy Platform for testing trait implementation ---
-pub struct DummyPlatform;
+struct DummyBackend;
 
-impl Platform for DummyPlatform {
-    fn dispatch_event(&mut self, event: InputEvent) -> Result<()> {
-        // In a real scenario, this would forward to the Fission Core Runtime
-        // println!("DummyPlatform received event: {:?}", event);
-        Ok(())
+struct DummyPlayer {
+    surface_id: u64,
+    events: Vec<VideoEvent>,
+}
+
+impl DummyPlayer {
+    fn new() -> Self {
+        Self {
+            surface_id: 42,
+            events: vec![VideoEvent::Ready { duration: 1_000 }],
+        }
     }
+}
 
-    fn present(&mut self, _display_list_data: &[u8]) -> Result<()> {
-        // println!("DummyPlatform presenting display list data.");
-        Ok(())
+impl VideoPlayer for DummyPlayer {
+    fn play(&mut self) {}
+    fn pause(&mut self) {}
+    fn stop(&mut self) {}
+    fn position(&self) -> u64 {
+        0
+    }
+    fn duration(&self) -> Option<u64> {
+        Some(1_000)
+    }
+    fn surface_id(&self) -> u64 {
+        self.surface_id
+    }
+    fn poll_events(&mut self) -> Vec<VideoEvent> {
+        std::mem::take(&mut self.events)
+    }
+}
+
+impl VideoBackend for DummyBackend {
+    fn create_player(&self, _source: &str) -> Box<dyn VideoPlayer> {
+        Box::new(DummyPlayer::new())
     }
 }
 
@@ -27,7 +52,10 @@ fn test_input_event_serialization() {
         button: PointerButton::Primary,
     });
     let event2 = InputEvent::Lifecycle(LifecycleEvent::Resize {
-        size: LayoutSize { width: 800.0, height: 600.0 },
+        size: LayoutSize {
+            width: 800.0,
+            height: 600.0,
+        },
     });
 
     let json1 = serde_json::to_string(&event1).unwrap();
@@ -40,13 +68,25 @@ fn test_input_event_serialization() {
 }
 
 #[test]
-fn test_platform_trait_object() -> Result<()> {
-    let mut platform: Box<dyn Platform> = Box::new(DummyPlatform);
-    let event = InputEvent::Lifecycle(LifecycleEvent::Init);
-    let dl_data = vec![1, 2, 3, 4]; // Dummy display list data
+fn test_video_backend_trait_object() -> Result<()> {
+    let backend: Box<dyn VideoBackend> = Box::new(DummyBackend);
+    let mut player = backend.create_player("dummy.mp4");
 
-    // Verify that methods can be called through the trait object
-    platform.dispatch_event(event)?;
-    platform.present(&dl_data)?;
+    player.play();
+    player.pause();
+    player.stop();
+    assert_eq!(player.surface_id(), 42);
+    assert_eq!(player.duration(), Some(1_000));
+
+    let events = player.poll_events();
+    assert_eq!(events, vec![VideoEvent::Ready { duration: 1_000 }]);
     Ok(())
+}
+
+#[test]
+fn test_platform_enum_serialization() {
+    let platform = Platform::Desktop;
+    let json = serde_json::to_string(&platform).unwrap();
+    let roundtrip: Platform = serde_json::from_str(&json).unwrap();
+    assert_eq!(platform, roundtrip);
 }

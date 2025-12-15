@@ -8,5 +8,7 @@ pub trait Lower {
 
 pub trait LowerDyn: Send + Sync + Debug {
     fn lower_dyn(&self, cx: &mut LoweringContext) -> NodeId;
-    fn stable_key(&self) -> u64 { 0 }
+    fn stable_key(&self) -> u64 {
+        0
+    }
 }

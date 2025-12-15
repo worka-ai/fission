@@ -1,10 +1,13 @@
 use anyhow::Result;
-use fission_core::{Action, ActionId, AppState, CurrentTime, Runtime, Tick, AdvanceTo, TICK_ACTION_ID, ADVANCE_TO_ACTION_ID, ActionEnvelope};
+use downcast_rs::Downcast;
+use fission_core::{
+    Action, ActionEnvelope, ActionId, AdvanceTo, AppState, CurrentTime, Runtime, Tick,
+    ADVANCE_TO_ACTION_ID, TICK_ACTION_ID,
+};
 use fission_ir::NodeId;
+use lazy_static::lazy_static;
 use serde::{Deserialize, Serialize};
 use std::any::Any;
-use lazy_static::lazy_static;
-use downcast_rs::Downcast;
 
 // --- Test AppState --- //
 #[derive(Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -31,7 +34,11 @@ lazy_static! {
 }
 
 // --- Test Reducer --- //
-fn counter_reducer(state: &mut CounterState, action: &ActionEnvelope, _target: NodeId) -> Result<()> {
+fn counter_reducer(
+    state: &mut CounterState,
+    action: &ActionEnvelope,
+    _target: NodeId,
+) -> Result<()> {
     // Deserialize payload
     let inc_action: Increment = serde_json::from_slice(&action.payload).unwrap();
     state.count += inc_action.by;
@@ -49,7 +56,9 @@ fn test_add_get_app_state() -> Result<()> {
     let mut runtime = Runtime::default();
     runtime.add_app_state(Box::new(CounterState::default()))?;
 
-    let counter = runtime.get_app_state::<CounterState>().expect("CounterState should be present");
+    let counter = runtime
+        .get_app_state::<CounterState>()
+        .expect("CounterState should be present");
     assert_eq!(counter.count, 0);
 
     Ok(())
@@ -64,10 +73,12 @@ fn test_dispatch_custom_action_and_state_update() -> Result<()> {
     let target_node_id = NodeId::derived(0, &[1]);
     let action_struct = Increment { by: 5 };
     let envelope: ActionEnvelope = action_struct.into();
-    
+
     runtime.dispatch(envelope, target_node_id)?;
 
-    let counter = runtime.get_app_state::<CounterState>().expect("CounterState should be updated");
+    let counter = runtime
+        .get_app_state::<CounterState>()
+        .expect("CounterState should be updated");
     assert_eq!(counter.count, 5);
 
     Ok(())
@@ -93,6 +104,6 @@ fn test_clock_cannot_go_backward() -> Result<()> {
 
     let res = runtime.dispatch(AdvanceTo { time: 400 }.into(), NodeId::derived(0, &[0]));
     assert!(res.is_err());
-    
+
     Ok(())
 }

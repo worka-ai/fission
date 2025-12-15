@@ -1,4 +1,4 @@
-use fission_ir::op::{Color, BoxShadow, Stroke};
+use fission_ir::op::{BoxShadow, Color, Stroke};
 use serde::{Deserialize, Serialize};
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -17,13 +17,43 @@ impl Default for ColorTokens {
     fn default() -> Self {
         // Material 3-ish Baseline defaults (simplified)
         Self {
-            primary: Color { r: 103, g: 85, b: 143, a: 255 }, // Purple 40
+            primary: Color {
+                r: 103,
+                g: 85,
+                b: 143,
+                a: 255,
+            }, // Purple 40
             on_primary: Color::WHITE,
-            surface: Color { r: 255, g: 251, b: 254, a: 255 }, // Purple 99
-            on_surface: Color { r: 28, g: 27, b: 31, a: 255 }, // Purple 10
-            background: Color { r: 255, g: 251, b: 254, a: 255 },
-            on_background: Color { r: 28, g: 27, b: 31, a: 255 },
-            error: Color { r: 179, g: 38, b: 30, a: 255 },
+            surface: Color {
+                r: 255,
+                g: 251,
+                b: 254,
+                a: 255,
+            }, // Purple 99
+            on_surface: Color {
+                r: 28,
+                g: 27,
+                b: 31,
+                a: 255,
+            }, // Purple 10
+            background: Color {
+                r: 255,
+                g: 251,
+                b: 254,
+                a: 255,
+            },
+            on_background: Color {
+                r: 28,
+                g: 27,
+                b: 31,
+                a: 255,
+            },
+            error: Color {
+                r: 179,
+                g: 38,
+                b: 30,
+                a: 255,
+            },
             on_error: Color::WHITE,
         }
     }
@@ -76,26 +106,31 @@ pub struct ElevationTokens {
 
 impl Default for ElevationTokens {
     fn default() -> Self {
-        let black_alpha = |a| Color { r: 0, g: 0, b: 0, a };
-        
+        let black_alpha = |a| Color {
+            r: 0,
+            g: 0,
+            b: 0,
+            a,
+        };
+
         Self {
             level0: None,
-            level1: Some(BoxShadow { 
-                color: black_alpha(40), 
+            level1: Some(BoxShadow {
+                color: black_alpha(40),
                 offset: (0.0, 1.0),
-                blur_radius: 2.0 
+                blur_radius: 2.0,
             }),
-            level2: Some(BoxShadow { 
-                color: black_alpha(60), 
+            level2: Some(BoxShadow {
+                color: black_alpha(60),
                 offset: (0.0, 2.0),
-                blur_radius: 4.0 
+                blur_radius: 4.0,
             }),
-            level3: Some(BoxShadow { 
+            level3: Some(BoxShadow {
                 color: black_alpha(60),
                 offset: (0.0, 4.0),
-                blur_radius: 8.0 
+                blur_radius: 8.0,
             }),
-            level4: None, 
+            level4: None,
             level5: None,
         }
     }
@@ -133,9 +168,9 @@ impl ButtonTheme {
             elevation_rest: tokens.elevations.level1,
             elevation_hover: tokens.elevations.level2,
             elevation_pressed: tokens.elevations.level0,
-            focus_stroke: Some(Stroke { 
-                color: tokens.colors.on_background, 
-                width: 2.0 
+            focus_stroke: Some(Stroke {
+                color: tokens.colors.on_background,
+                width: 2.0,
             }),
         }
     }

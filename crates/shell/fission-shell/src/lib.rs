@@ -1,5 +1,5 @@
-use serde::{Deserialize, Serialize};
 use fission_ir::NodeId;
+use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum Platform {

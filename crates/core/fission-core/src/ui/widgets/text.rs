@@ -1,10 +1,10 @@
-use serde::{Deserialize, Serialize};
-use crate::lowering::LoweringContext;
+use crate::lowering::{LoweringContext, NodeBuilder};
+use crate::ui::traits::Lower;
 use fission_ir::{
     op::{Color as IrColor, LayoutOp, Op, PaintOp},
-    NodeId, Semantics
+    NodeId, Semantics,
 };
-use crate::ui::traits::Lower;
+use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub enum TextContent {
@@ -33,16 +33,6 @@ impl Lower for Text {
     fn lower(&self, cx: &mut LoweringContext) -> NodeId {
         let layout_node_id = self.id.unwrap_or_else(|| cx.next_node_id());
 
-        cx.add_node(
-            layout_node_id,
-            Op::Layout(LayoutOp::Box {
-                width: self.width,
-                height: self.height,
-                padding: [0.0; 4],
-            }),
-            vec![],
-        );
-
         let resolved_text = match &self.content {
             TextContent::Literal(s) => s.clone(),
             TextContent::Key(key) => cx
@@ -53,28 +43,32 @@ impl Lower for Text {
                 .unwrap_or_else(|| format!("MISSING:{}", key)),
         };
 
-        let paint_node_id = cx.next_node_id();
-        cx.add_node(
-            paint_node_id,
+        let paint_node_id = NodeBuilder::new(
+            cx.next_node_id(),
             Op::Paint(PaintOp::DrawText {
                 text: resolved_text,
                 size: self.font_size.unwrap_or(14.0),
                 color: self.color.unwrap_or(IrColor::BLACK),
             }),
-            vec![],
-        );
+        )
+        .build(cx);
 
-        if let Some(layout_node) = cx.ir.nodes.get_mut(&layout_node_id) {
-            layout_node.children.push(paint_node_id);
-            if let Some(paint_node) = cx.ir.nodes.get_mut(&paint_node_id) {
-                paint_node.parent = Some(layout_node_id);
-            }
-        }
+        let mut layout_builder = NodeBuilder::new(
+            layout_node_id,
+            Op::Layout(LayoutOp::Box {
+                width: self.width,
+                height: self.height,
+                padding: [0.0; 4],
+            }),
+        );
+        layout_builder.add_child(paint_node_id);
+        let layout_node_id = layout_builder.build(cx);
 
         if let Some(s) = &self.semantics {
-            let semantics_id = cx.next_node_id();
-            cx.add_node(semantics_id, Op::Semantics(s.clone()), vec![layout_node_id]);
-            return semantics_id;
+            let mut semantics_builder =
+                NodeBuilder::new(cx.next_node_id(), Op::Semantics(s.clone()));
+            semantics_builder.add_child(layout_node_id);
+            return semantics_builder.build(cx);
         }
 
         layout_node_id

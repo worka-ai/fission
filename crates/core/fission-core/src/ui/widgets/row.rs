@@ -1,5 +1,5 @@
 use crate::ui::{Node, traits::Lower};
-use crate::lowering::LoweringContext;
+use crate::lowering::{LoweringContext, NodeBuilder};
 use fission_ir::{NodeId, Op, LayoutOp, FlexDirection};
 use serde::{Deserialize, Serialize};
 
@@ -14,10 +14,8 @@ pub struct Row {
 
 impl Lower for Row {
     fn lower(&self, cx: &mut LoweringContext) -> NodeId {
-        let child_ids: Vec<NodeId> = self.children.iter().map(|c| c.lower(cx)).collect();
         let id = self.id.unwrap_or_else(|| cx.next_node_id());
-        
-        cx.add_node(
+        let mut builder = NodeBuilder::new(
             id,
             Op::Layout(LayoutOp::Flex {
                 direction: FlexDirection::Row,
@@ -25,14 +23,10 @@ impl Lower for Row {
                 flex_shrink: self.flex_shrink,
                 padding: self.padding,
             }),
-            child_ids.clone(),
         );
-        
-        for child_id in child_ids {
-            if let Some(node) = cx.ir.nodes.get_mut(&child_id) {
-                node.parent = Some(id);
-            }
+        for child in &self.children {
+            builder.add_child(child.lower(cx));
         }
-        id
+        builder.build(cx)
     }
 }

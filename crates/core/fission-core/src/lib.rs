@@ -1,33 +1,35 @@
 use anyhow::{anyhow, Result};
-use fission_ir::CoreIR; 
+use downcast_rs::Downcast;
+use fission_ir::CoreIR;
+use lazy_static::lazy_static;
 use std::any::{Any, TypeId};
 use std::collections::HashMap;
-use lazy_static::lazy_static;
-use downcast_rs::Downcast;
 
 pub mod action;
-pub mod time;
-pub mod lowering;
+pub mod diff;
+pub mod env;
 pub mod event;
 pub mod hit_test;
+pub mod lowering;
 pub mod registry;
-pub mod env;
+pub mod time;
 pub mod ui;
 pub mod view;
-pub mod diff; 
 
-pub use action::{Action, ActionId, AppState, ActionEnvelope};
+pub use action::{Action, ActionEnvelope, ActionId, AppState};
+pub use env::{Env, InteractionStateMap, RuntimeState, ScrollStateMap};
+pub use event::{InputEvent, KeyCode, KeyEvent, LifecycleEvent, PointerButton, PointerEvent};
+pub use fission_ir::op;
+pub use fission_ir::{EmbedKind, NodeId, Op};
+pub use fission_layout::{
+    FlexDirection, LayoutOp, LayoutPoint, LayoutRect, LayoutSize, LayoutSnapshot, LayoutUnit,
+};
+use hit_test::{find_next_focus_node, hit_test, hit_test_with_scroll};
+pub use lowering::{LoweringContext, NodeBuilder};
+pub use registry::{ActionRegistry, BuildCtx, Handler};
 pub use time::{Clock, CurrentTime};
-pub use lowering::{LoweringContext};
-pub use event::{InputEvent, PointerEvent, PointerButton, KeyEvent, KeyCode, LifecycleEvent};
-pub use fission_ir::op; 
-pub use fission_ir::{Op, NodeId, EmbedKind}; 
-pub use registry::{BuildCtx, ActionRegistry, Handler};
-pub use env::{Env, RuntimeState, InteractionStateMap, ScrollStateMap};
-pub use ui::{Node, Row, Column, Text, Button, CustomNode, Lower, LowerDyn};
-pub use view::{View, Selector, Widget};
-pub use fission_layout::{LayoutSnapshot, LayoutPoint, LayoutSize, LayoutRect, LayoutUnit, LayoutOp, FlexDirection};
-use hit_test::{hit_test, find_next_focus_node};
+pub use ui::{Button, Column, CustomNode, Lower, LowerDyn, Node, Row, Text};
+pub use view::{Selector, View, Widget};
 
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct Tick {
@@ -59,12 +61,16 @@ lazy_static! {
     pub static ref ADVANCE_TO_ACTION_ID: ActionId = ActionId::from_name("fission_core::AdvanceTo");
 }
 
-pub type BoxedReducer = Box<dyn FnMut(&mut HashMap<TypeId, Box<dyn AppState>>, &ActionEnvelope, NodeId) -> Result<()> + Send + Sync>;
+pub type BoxedReducer = Box<
+    dyn FnMut(&mut HashMap<TypeId, Box<dyn AppState>>, &ActionEnvelope, NodeId) -> Result<()>
+        + Send
+        + Sync,
+>;
 
 pub struct Runtime {
     reducers: HashMap<ActionId, Vec<BoxedReducer>>,
     app_states: HashMap<TypeId, Box<dyn AppState>>,
-    pub runtime_state: RuntimeState, 
+    pub runtime_state: RuntimeState,
 }
 
 impl Default for Runtime {
@@ -74,27 +80,39 @@ impl Default for Runtime {
             app_states: HashMap::new(),
             runtime_state: RuntimeState::default(),
         };
-        
-        runtime.add_app_state(Box::new(Clock::default())).expect("Failed to add Clock state");
+
+        runtime
+            .add_app_state(Box::new(Clock::default()))
+            .expect("Failed to add Clock state");
         // runtime.add_app_state(Box::new(VideoStateMap::default())).expect("Failed to add VideoStateMap");
 
         runtime.register_base_reducers();
-        
+
         runtime
     }
 }
 
 impl Runtime {
     pub fn register_base_reducers(&mut self) {
-        self.register_reducer::<Clock>(*TICK_ACTION_ID, |state: &mut Clock, action: &ActionEnvelope, _target| {
-            let tick_action: Tick = serde_json::from_slice(&action.payload).map_err(|e| anyhow!("Failed to deserialize Tick: {}", e))?;
-            state.advance_by(tick_action.dt)
-        }).expect("Failed to register Tick reducer");
+        self.register_reducer::<Clock>(
+            *TICK_ACTION_ID,
+            |state: &mut Clock, action: &ActionEnvelope, _target| {
+                let tick_action: Tick = serde_json::from_slice(&action.payload)
+                    .map_err(|e| anyhow!("Failed to deserialize Tick: {}", e))?;
+                state.advance_by(tick_action.dt)
+            },
+        )
+        .expect("Failed to register Tick reducer");
 
-        self.register_reducer::<Clock>(*ADVANCE_TO_ACTION_ID, |state: &mut Clock, action: &ActionEnvelope, _target| {
-            let advance_action: AdvanceTo = serde_json::from_slice(&action.payload).map_err(|e| anyhow!("Failed to deserialize AdvanceTo: {}", e))?;
-            state.set_to(advance_action.time)
-        }).expect("Failed to register AdvanceTo reducer");
+        self.register_reducer::<Clock>(
+            *ADVANCE_TO_ACTION_ID,
+            |state: &mut Clock, action: &ActionEnvelope, _target| {
+                let advance_action: AdvanceTo = serde_json::from_slice(&action.payload)
+                    .map_err(|e| anyhow!("Failed to deserialize AdvanceTo: {}", e))?;
+                state.set_to(advance_action.time)
+            },
+        )
+        .expect("Failed to register AdvanceTo reducer");
 
         // self.register_reducer::<VideoStateMap>(*VIDEO_PLAY_ID, |state: &mut VideoStateMap, _action: &ActionEnvelope, target| {
         //     if let Some(video_state) = state.states.get_mut(&target) {
@@ -124,15 +142,20 @@ impl Runtime {
     }
 
     pub fn clock(&self) -> &Clock {
-        self.get_app_state::<Clock>().expect("Clock state must always be present")
+        self.get_app_state::<Clock>()
+            .expect("Clock state must always be present")
     }
 
     pub fn get_app_state<S: AppState + 'static>(&self) -> Option<&S> {
-        self.app_states.get(&TypeId::of::<S>()).and_then(|s_box| s_box.downcast_ref::<S>())
+        self.app_states
+            .get(&TypeId::of::<S>())
+            .and_then(|s_box| s_box.downcast_ref::<S>())
     }
 
     pub fn get_app_state_mut<S: AppState + 'static>(&mut self) -> Option<&mut S> {
-        self.app_states.get_mut(&TypeId::of::<S>()).and_then(|s_box| s_box.downcast_mut::<S>())
+        self.app_states
+            .get_mut(&TypeId::of::<S>())
+            .and_then(|s_box| s_box.downcast_mut::<S>())
     }
 
     pub fn add_app_state<S: AppState + 'static>(&mut self, state: Box<S>) -> Result<()> {
@@ -151,10 +174,14 @@ impl Runtime {
         let state_type_id = TypeId::of::<S>();
 
         let boxed_reducer: BoxedReducer = Box::new(
-            move |app_states: &mut HashMap<TypeId, Box<dyn AppState>>, action: &ActionEnvelope, target: NodeId| -> Result<()> {
+            move |app_states: &mut HashMap<TypeId, Box<dyn AppState>>,
+                  action: &ActionEnvelope,
+                  target: NodeId|
+                  -> Result<()> {
                 if let Some(state_box) = app_states.get_mut(&state_type_id) {
-                    let concrete_state = state_box.downcast_mut::<S>()
-                        .ok_or_else(|| anyhow!("Failed to downcast AppState to concrete type for reducer"))?;
+                    let concrete_state = state_box.downcast_mut::<S>().ok_or_else(|| {
+                        anyhow!("Failed to downcast AppState to concrete type for reducer")
+                    })?;
                     reducer_fn(concrete_state, action, target)
                 } else {
                     anyhow::bail!("Target AppState for reducer not found in runtime.");
@@ -162,7 +189,10 @@ impl Runtime {
             },
         );
 
-        self.reducers.entry(action_id).or_default().push(boxed_reducer);
+        self.reducers
+            .entry(action_id)
+            .or_default()
+            .push(boxed_reducer);
         Ok(())
     }
 
@@ -185,12 +215,31 @@ impl Runtime {
         let action = Tick { dt };
         let envelope: ActionEnvelope = action.into();
         self.dispatch(envelope, NodeId::derived(0, &[0]))?;
-        
+
         let current_time = self.clock().current_time();
-        
-        // Removed Animation processing logic
-        // Removed Video State update logic
-        
+
+        let mut finished = Vec::new();
+        for (idx, anim) in self.runtime_state.animation.active.iter().enumerate() {
+            let elapsed = current_time.saturating_sub(anim.start_time);
+            let progress = if anim.duration == 0 {
+                1.0
+            } else {
+                (elapsed as f32 / anim.duration as f32).clamp(0.0, 1.0)
+            };
+            let value = anim.start_value + (anim.end_value - anim.start_value) * progress;
+            self.runtime_state
+                .animation
+                .values
+                .insert((anim.node_id, anim.property.clone()), value);
+            if progress >= 1.0 {
+                finished.push(idx);
+            }
+        }
+
+        for idx in finished.into_iter().rev() {
+            self.runtime_state.animation.active.remove(idx);
+        }
+
         Ok(())
     }
 
@@ -202,22 +251,23 @@ impl Runtime {
     ) -> Result<()> {
         match event {
             InputEvent::Pointer(PointerEvent::Scroll { point, delta }) => {
-                if let Some(hit_node_id) = hit_test(ir, layout, point) {
+                if let Some(hit_node_id) = hit_test_with_scroll(ir, layout, &self.runtime_state.scroll, point) {
                     let mut current_id = Some(hit_node_id);
                     while let Some(node_id) = current_id {
                         if let Some(node) = ir.nodes.get(&node_id) {
                             if let Op::Layout(op::LayoutOp::Scroll { .. }) = &node.op {
                                 let current_offset = self.runtime_state.scroll.get_offset(node_id);
                                 let mut new_offset = current_offset + delta.y; // Assuming vertical scroll
-                                
+
                                 // Clamping logic
                                 if let Some(geom) = layout.get_node_geometry(node_id) {
-                                    let max_offset = (geom.content_size.height - geom.rect.height()).max(0.0);
+                                    let max_offset =
+                                        (geom.content_size.height - geom.rect.height()).max(0.0);
                                     new_offset = new_offset.clamp(0.0, max_offset);
                                 }
 
                                 self.runtime_state.scroll.set_offset(node_id, new_offset);
-                                break; 
+                                break;
                             }
                             current_id = node.parent;
                         } else {
@@ -226,42 +276,44 @@ impl Runtime {
                     }
                 }
             }
-            InputEvent::Keyboard(KeyEvent::Down { key_code, modifiers }) => {
-                match key_code {
-                    KeyCode::Tab => {
-                        let reverse = (modifiers & 1) != 0; 
-                        let next = find_next_focus_node(ir, self.runtime_state.interaction.focused, reverse);
-                        self.runtime_state.interaction.set_focused(next);
-                    }
-                    KeyCode::Enter | KeyCode::Space => {
-                        if let Some(focused_id) = self.runtime_state.interaction.focused {
-                            let mut current_id = Some(focused_id);
-                            while let Some(node_id) = current_id {
-                                if let Some(node) = ir.nodes.get(&node_id) {
-                                    if let Op::Semantics(semantics) = &node.op {
-                                        if let Some(action_entry) = semantics.actions.entries.first() {
-                                            if let Some(payload) = &action_entry.payload_data {
-                                                let envelope = ActionEnvelope {
-                                                    id: ActionId::from_u128(action_entry.action_id),
-                                                    payload: payload.clone(),
-                                                };
-                                                return self.dispatch(envelope, node_id);
-                                            }
+            InputEvent::Keyboard(KeyEvent::Down {
+                key_code,
+                modifiers,
+            }) => match key_code {
+                KeyCode::Tab => {
+                    let reverse = (modifiers & 1) != 0;
+                    let next =
+                        find_next_focus_node(ir, self.runtime_state.interaction.focused, reverse);
+                    self.runtime_state.interaction.set_focused(next);
+                }
+                KeyCode::Enter | KeyCode::Space => {
+                    if let Some(focused_id) = self.runtime_state.interaction.focused {
+                        let mut current_id = Some(focused_id);
+                        while let Some(node_id) = current_id {
+                            if let Some(node) = ir.nodes.get(&node_id) {
+                                if let Op::Semantics(semantics) = &node.op {
+                                    if let Some(action_entry) = semantics.actions.entries.first() {
+                                        if let Some(payload) = &action_entry.payload_data {
+                                            let envelope = ActionEnvelope {
+                                                id: ActionId::from_u128(action_entry.action_id),
+                                                payload: payload.clone(),
+                                            };
+                                            return self.dispatch(envelope, node_id);
                                         }
                                     }
-                                    current_id = node.parent;
-                                } else {
-                                    break;
                                 }
+                                current_id = node.parent;
+                            } else {
+                                break;
                             }
                         }
                     }
-                    _ => {}
                 }
-            }
-            InputEvent::Pointer(PointerEvent::Move { point, .. }) => { 
-                let hit = hit_test(ir, layout, point);
-                
+                _ => {}
+            },
+            InputEvent::Pointer(PointerEvent::Move { point, .. }) => {
+                let hit = hit_test_with_scroll(ir, layout, &self.runtime_state.scroll, point);
+
                 let mut new_hovered = std::collections::HashSet::new();
                 if let Some(mut node_id) = hit {
                     loop {
@@ -277,22 +329,22 @@ impl Runtime {
                         }
                     }
                 }
-                
+
                 self.runtime_state.interaction.hovered.clear();
-                
+
                 for id in new_hovered {
                     self.runtime_state.interaction.set_hovered(id, true);
                 }
             }
             InputEvent::Pointer(PointerEvent::Down { point, .. }) => {
-                if let Some(hit_node_id) = hit_test(ir, layout, point) {
+                if let Some(hit_node_id) = hit_test_with_scroll(ir, layout, &self.runtime_state.scroll, point) {
                     let mut focus_candidate = Some(hit_node_id);
                     while let Some(node_id) = focus_candidate {
                         if let Some(node) = ir.nodes.get(&node_id) {
                             if let Op::Semantics(s) = &node.op {
                                 if s.focusable {
                                     self.runtime_state.interaction.set_focused(Some(node_id));
-                                    break; 
+                                    break;
                                 }
                             }
                             focus_candidate = node.parent;
@@ -301,7 +353,7 @@ impl Runtime {
                         }
                     }
                     if focus_candidate.is_none() {
-                        // self.runtime_state.interaction.set_focused(None); 
+                        // self.runtime_state.interaction.set_focused(None);
                     }
 
                     let mut current_pressed_id = Some(hit_node_id);
@@ -325,13 +377,13 @@ impl Runtime {
                                             payload: payload.clone(),
                                         };
                                         println!("Dispatching action {:?} from input", envelope.id);
-                                        return self.dispatch(envelope, node_id); 
+                                        return self.dispatch(envelope, node_id);
                                     } else {
                                         println!("ActionEntry found but no payload data.");
                                     }
                                 }
                             }
-                            
+
                             current_id = node.parent;
                         } else {
                             break;

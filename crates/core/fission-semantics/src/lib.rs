@@ -1,1 +1,1 @@
-pub use fission_ir::{Role, Semantics, ActionSet};
+pub use fission_ir::{ActionSet, Role, Semantics};

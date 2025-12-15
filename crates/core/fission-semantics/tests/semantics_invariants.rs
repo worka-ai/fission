@@ -1,4 +1,4 @@
-use fission_semantics::{Role, Semantics, ActionSet};
+use fission_semantics::{ActionSet, Role, Semantics};
 
 #[test]
 fn test_role_variants() {
@@ -22,7 +22,7 @@ fn test_semantics_serialization() {
         actions: ActionSet::default(),
         focusable: true,
     };
-    
+
     // Just verify it compiles and runs; exact serde format isn't critical yet, but capability is.
     let _ = format!("{:?}", s);
 }

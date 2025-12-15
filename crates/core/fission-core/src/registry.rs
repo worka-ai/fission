@@ -1,8 +1,8 @@
-use crate::{Action, ActionId, ActionEnvelope, AppState, BoxedReducer};
-use std::collections::{BTreeMap, HashMap};
+use crate::{Action, ActionEnvelope, ActionId, AppState, BoxedReducer};
+use anyhow::{anyhow, Result};
+use fission_ir::NodeId;
 use std::any::TypeId;
-use anyhow::{Result, anyhow};
-use fission_ir::NodeId; // Import NodeId from fission_ir
+use std::collections::{BTreeMap, HashMap}; // Import NodeId from fission_ir
 
 pub type Handler<S, A> = fn(&mut S, A);
 
@@ -29,13 +29,15 @@ impl<S: AppState> ActionRegistry<S> {
 
     pub fn register<A: Action>(&mut self, handler: Handler<S, A>) {
         let action_id = A::static_id();
-        
-        let typed_reducer = Box::new(move |state: &mut S, envelope: &ActionEnvelope| -> Result<()> {
-            let action: A = serde_json::from_slice(&envelope.payload)
-                .map_err(|e| anyhow!("Failed to deserialize action: {}", e))?;
-            handler(state, action);
-            Ok(())
-        });
+
+        let typed_reducer = Box::new(
+            move |state: &mut S, envelope: &ActionEnvelope| -> Result<()> {
+                let action: A = serde_json::from_slice(&envelope.payload)
+                    .map_err(|e| anyhow!("Failed to deserialize action: {}", e))?;
+                handler(state, action);
+                Ok(())
+            },
+        );
 
         self.handlers.insert(action_id, typed_reducer);
     }
@@ -48,20 +50,27 @@ impl<S: AppState> ActionRegistry<S> {
         for (action_id, typed_reducer) in self.handlers {
             // Wrap the typed_reducer into a BoxedReducer that looks up S from the Runtime's state map
             let boxed_reducer: BoxedReducer = Box::new(
-                move |app_states: &mut HashMap<TypeId, Box<dyn AppState>>, action: &ActionEnvelope, _target: NodeId| -> Result<()> {
+                move |app_states: &mut HashMap<TypeId, Box<dyn AppState>>,
+                      action: &ActionEnvelope,
+                      _target: NodeId|
+                      -> Result<()> {
                     if let Some(state_box) = app_states.get_mut(&state_type_id) {
-                        let concrete_state = state_box.downcast_mut::<S>()
-                            .ok_or_else(|| anyhow!("Failed to downcast AppState to concrete type"))?;
+                        let concrete_state = state_box.downcast_mut::<S>().ok_or_else(|| {
+                            anyhow!("Failed to downcast AppState to concrete type")
+                        })?;
                         typed_reducer(concrete_state, action)
                     } else {
-                        // If the state isn't present, we can't run this reducer. 
+                        // If the state isn't present, we can't run this reducer.
                         // Should we error? Yes.
                         anyhow::bail!("Target AppState for reducer not found in runtime.");
                     }
                 },
             );
-            
-            runtime_reducers.entry(action_id).or_default().push(boxed_reducer);
+
+            runtime_reducers
+                .entry(action_id)
+                .or_default()
+                .push(boxed_reducer);
         }
         runtime_reducers
     }
@@ -80,7 +89,7 @@ impl<S: AppState> BuildCtx<S> {
 
     pub fn bind<A: Action>(&mut self, action: A, handler: Handler<S, A>) -> ActionEnvelope {
         self.registry.register(handler);
-        
+
         ActionEnvelope {
             id: A::static_id(),
             payload: action.encode(),

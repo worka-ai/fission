@@ -1,10 +1,10 @@
-use serde::{Deserialize, Serialize};
-use crate::lowering::LoweringContext;
+use crate::lowering::{LoweringContext, NodeBuilder};
+use crate::ui::{traits::Lower, Node};
 use fission_ir::{
-    op::{LayoutOp, Op, FlexDirection},
-    NodeId
+    op::{FlexDirection, LayoutOp, Op},
+    NodeId,
 };
-use crate::ui::{Node, traits::Lower};
+use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Default, Clone, Serialize, Deserialize)]
 pub struct Scroll {
@@ -18,31 +18,20 @@ pub struct Scroll {
 
 impl Lower for Scroll {
     fn lower(&self, cx: &mut LoweringContext) -> NodeId {
-        let mut child_ids = Vec::new();
-        if let Some(child) = &self.child {
-            child_ids.push(child.lower(cx));
-        }
-
         let layout_id = self.id.unwrap_or_else(|| cx.next_node_id());
-        
-        cx.add_node(
+        let mut builder = NodeBuilder::new(
             layout_id,
-            Op::Layout(LayoutOp::Scroll { 
-                direction: self.direction, 
+            Op::Layout(LayoutOp::Scroll {
+                direction: self.direction,
                 show_scrollbar: self.show_scrollbar,
                 width: self.width,
                 height: self.height,
                 padding: [0.0; 4],
             }),
-            child_ids.clone(),
         );
-        
-        for child_id in &child_ids {
-            if let Some(node) = cx.ir.nodes.get_mut(child_id) {
-                node.parent = Some(layout_id);
-            }
+        if let Some(child) = &self.child {
+            builder.add_child(child.lower(cx));
         }
-
-        layout_id
+        builder.build(cx)
     }
 }

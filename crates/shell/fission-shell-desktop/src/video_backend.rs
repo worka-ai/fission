@@ -1,11 +1,13 @@
-use fission_shell::{VideoBackend, VideoPlayer, VideoEvent};
-use std::time::{Instant};
+use fission_shell::{VideoBackend, VideoEvent, VideoPlayer};
 use std::sync::atomic::{AtomicU64, Ordering};
+use std::time::Instant;
 
 pub struct MockVideoBackend;
 
 impl MockVideoBackend {
-    pub fn new() -> Self { Self }
+    pub fn new() -> Self {
+        Self
+    }
 }
 
 impl VideoBackend for MockVideoBackend {
@@ -46,7 +48,7 @@ impl MockPlayer {
             play_start_time: None,
             accumulated_play_time: 0,
             surface_id: NEXT_SURFACE_ID.fetch_add(1, Ordering::Relaxed),
-            duration: 5000, 
+            duration: 5000,
             sent_ready: false,
             sent_ended: false,
         }
@@ -79,18 +81,19 @@ impl VideoPlayer for MockPlayer {
     }
 
     fn position(&self) -> u64 {
-        let current = if let (PlayerState::Playing, Some(start)) = (&self.state, self.play_start_time) {
-            start.elapsed().as_millis() as u64
-        } else {
-            0
-        };
+        let current =
+            if let (PlayerState::Playing, Some(start)) = (&self.state, self.play_start_time) {
+                start.elapsed().as_millis() as u64
+            } else {
+                0
+            };
         self.accumulated_play_time + current
     }
 
     fn duration(&self) -> Option<u64> {
         Some(self.duration)
     }
-    
+
     fn surface_id(&self) -> u64 {
         self.surface_id
     }
@@ -104,7 +107,9 @@ impl VideoPlayer for MockPlayer {
                 self.state = PlayerState::Ready;
             }
             self.sent_ready = true;
-            events.push(VideoEvent::Ready { duration: self.duration });
+            events.push(VideoEvent::Ready {
+                duration: self.duration,
+            });
         }
 
         if self.state == PlayerState::Playing && self.position() >= self.duration {

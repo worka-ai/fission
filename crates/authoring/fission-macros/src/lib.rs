@@ -1,8 +1,8 @@
 use proc_macro::TokenStream;
-use quote::{quote, format_ident};
+use quote::{format_ident, quote};
 use syn::{parse_macro_input, DeriveInput};
 
-#[proc_macro_derive(Action)] 
+#[proc_macro_derive(Action)]
 pub fn derive_action(input: TokenStream) -> TokenStream {
     let input = parse_macro_input!(input as DeriveInput);
 
@@ -15,7 +15,7 @@ pub fn derive_action(input: TokenStream) -> TokenStream {
 
     let expanded = quote! {
         #[automatically_derived]
-        #[allow(non_upper_case_globals)] 
+        #[allow(non_upper_case_globals)]
         lazy_static::lazy_static! {
             pub static ref #action_id_static_name: ::fission_core::action::ActionId = ::fission_core::action::ActionId::from_name(#full_path_str);
         }
@@ -23,7 +23,7 @@ pub fn derive_action(input: TokenStream) -> TokenStream {
         #[automatically_derived]
         impl #impl_generics ::fission_core::action::Action for #name #ty_generics #where_clause {
             fn static_id() -> ::fission_core::action::ActionId {
-                *#action_id_static_name 
+                *#action_id_static_name
             }
         }
     };

@@ -1,14 +1,16 @@
-use fission_core::{ScrollStateMap, LayoutPoint};
-use fission_core::diff::diff_ir;
-use fission_ir::{CoreIR, NodeId};
-use fission_layout::{LayoutEngine, LayoutSize, LayoutSnapshot, LayoutRect};
-use fission_render::{DisplayList, DisplayOp, Renderer, Color as RenderColor, Fill, Stroke, BoxShadow, ImageFit};
-use fission_core::lowering::{build_layout_tree, LoweringContext};
 use anyhow::Result;
+use fission_core::diff::diff_ir;
+use fission_core::lowering::{build_layout_tree, LoweringContext};
+use fission_core::{LayoutPoint, ScrollStateMap};
+use fission_ir::op::EmbedKind;
+use fission_ir::{CoreIR, NodeId};
+use fission_layout::{LayoutEngine, LayoutRect, LayoutSize, LayoutSnapshot};
+use fission_render::{
+    BoxShadow, Color as RenderColor, DisplayList, DisplayOp, Fill, ImageFit, Renderer, Stroke,
+};
+use std::collections::hash_map::DefaultHasher;
 use std::collections::HashMap;
 use std::hash::{Hash, Hasher};
-use std::collections::hash_map::DefaultHasher;
-use fission_ir::op::EmbedKind;
 
 pub struct Pipeline {
     pub prev_ir: Option<CoreIR>,
@@ -25,7 +27,7 @@ pub struct PipelineStats {
 
 impl Pipeline {
     pub fn new() -> Self {
-        Self { 
+        Self {
             prev_ir: None,
             last_snapshot: None,
             paint_cache: HashMap::new(),
@@ -38,7 +40,7 @@ impl Pipeline {
         viewport: LayoutSize,
         layout_engine: &mut LayoutEngine,
         scroll_map: &ScrollStateMap,
-        renderer: &mut (impl Renderer + 'r + ?Sized)
+        renderer: &mut (impl Renderer + 'r + ?Sized),
     ) -> Result<PipelineStats> {
         let dirty_set = if let Some(prev) = &self.prev_ir {
             let diff = diff_ir(prev, &next_ir);
@@ -48,7 +50,7 @@ impl Pipeline {
             // println!("Diff: Full Rebuild");
             next_ir.nodes.keys().cloned().collect()
         };
-        
+
         let dirty_count = dirty_set.len();
 
         let layout_input_nodes = build_layout_tree(&next_ir);
@@ -57,28 +59,30 @@ impl Pipeline {
         let root_id = next_ir.root.unwrap();
         let snapshot = layout_engine.compute_layout(&layout_input_nodes, root_id, viewport)?;
 
-        let mut display_list = DisplayList::new(LayoutRect::new(0.0, 0.0, viewport.width, viewport.height));
+        let mut display_list =
+            DisplayList::new(LayoutRect::new(0.0, 0.0, viewport.width, viewport.height));
         let mut paint_misses = 0;
-        
+
         self.generate_display_list_recursive(
-            root_id, 
-            &next_ir, 
-            &snapshot, 
-            scroll_map, 
+            root_id,
+            &next_ir,
+            &snapshot,
+            scroll_map,
             &mut display_list,
-            &mut paint_misses
+            &mut paint_misses,
         );
-        
+
         renderer.render(&display_list)?;
-        
+
         self.last_snapshot = Some(snapshot);
-        self.paint_cache.retain(|k, _| next_ir.nodes.contains_key(k));
+        self.paint_cache
+            .retain(|k, _| next_ir.nodes.contains_key(k));
         self.prev_ir = Some(next_ir);
-        
-        Ok(PipelineStats { 
-            dirty_nodes: dirty_count, 
-            layout_updates: dirty_count, 
-            paint_misses 
+
+        Ok(PipelineStats {
+            dirty_nodes: dirty_count,
+            layout_updates: dirty_count,
+            paint_misses,
         })
     }
 
@@ -89,23 +93,23 @@ impl Pipeline {
         snapshot: &LayoutSnapshot,
         scroll_map: &ScrollStateMap,
         out_list: &mut DisplayList,
-        miss_count: &mut usize
+        miss_count: &mut usize,
     ) {
         if let (Some(node), Some(geom)) = (ir.nodes.get(&node_id), snapshot.nodes.get(&node_id)) {
             let mut hasher = DefaultHasher::new();
-            node.hash.hash(&mut hasher); 
+            node.hash.hash(&mut hasher);
             (geom.rect.origin.x.to_bits()).hash(&mut hasher);
             (geom.rect.origin.y.to_bits()).hash(&mut hasher);
             (geom.rect.size.width.to_bits()).hash(&mut hasher);
             (geom.rect.size.height.to_bits()).hash(&mut hasher);
             (geom.content_size.width.to_bits()).hash(&mut hasher);
             (geom.content_size.height.to_bits()).hash(&mut hasher);
-            
+
             if let fission_ir::Op::Layout(fission_ir::LayoutOp::Scroll { .. }) = &node.op {
                 let offset = scroll_map.get_offset(node_id);
                 (offset.to_bits()).hash(&mut hasher);
             }
-            
+
             let hash = hasher.finish();
 
             if let Some((cached_hash, cached_ops)) = self.paint_cache.get(&node_id) {
@@ -119,7 +123,7 @@ impl Pipeline {
 
             *miss_count += 1;
             let mut segment = Vec::new();
-            
+
             let mut pushed_clip = false;
 
             match &node.op {
@@ -129,34 +133,64 @@ impl Pipeline {
                     segment.push(DisplayOp::ClipRect(geom.rect));
                     segment.push(DisplayOp::Translate(LayoutPoint::new(0.0, -offset)));
                     pushed_clip = true;
-                },
-                fission_ir::Op::Paint(fission_ir::PaintOp::DrawRect { fill, stroke, corner_radius, shadow }) => {
-                    segment.push(DisplayOp::DrawRect { 
+                }
+                fission_ir::Op::Paint(fission_ir::PaintOp::DrawRect {
+                    fill,
+                    stroke,
+                    corner_radius,
+                    shadow,
+                }) => {
+                    segment.push(DisplayOp::DrawRect {
                         rect: geom.rect,
-                        fill: fill.map(|f| Fill { color: RenderColor { r: f.color.r, g: f.color.g, b: f.color.b, a: f.color.a } }),
-                        stroke: stroke.map(|s| Stroke { color: RenderColor { r: s.color.r, g: s.color.g, b: s.color.b, a: s.color.a }, width: s.width }),
+                        fill: fill.map(|f| Fill {
+                            color: RenderColor {
+                                r: f.color.r,
+                                g: f.color.g,
+                                b: f.color.b,
+                                a: f.color.a,
+                            },
+                        }),
+                        stroke: stroke.map(|s| Stroke {
+                            color: RenderColor {
+                                r: s.color.r,
+                                g: s.color.g,
+                                b: s.color.b,
+                                a: s.color.a,
+                            },
+                            width: s.width,
+                        }),
                         corner_radius: *corner_radius,
-                        shadow: shadow.map(|s| BoxShadow { 
-                            color: RenderColor { r: s.color.r, g: s.color.g, b: s.color.b, a: s.color.a }, 
-                            blur_radius: s.blur_radius, 
-                            offset: s.offset 
+                        shadow: shadow.map(|s| BoxShadow {
+                            color: RenderColor {
+                                r: s.color.r,
+                                g: s.color.g,
+                                b: s.color.b,
+                                a: s.color.a,
+                            },
+                            blur_radius: s.blur_radius,
+                            offset: s.offset,
                         }),
                         bounds: geom.rect,
                         node_id: Some(node_id),
                     });
-                },
+                }
                 fission_ir::Op::Paint(fission_ir::PaintOp::DrawText { text, size, color }) => {
-                    segment.push(DisplayOp::DrawText { 
+                    segment.push(DisplayOp::DrawText {
                         text: text.clone(),
-                        position: geom.rect.origin, 
+                        position: geom.rect.origin,
                         size: *size,
-                        color: RenderColor { r: color.r, g: color.g, b: color.b, a: color.a },
+                        color: RenderColor {
+                            r: color.r,
+                            g: color.g,
+                            b: color.b,
+                            a: color.a,
+                        },
                         bounds: geom.rect,
                         node_id: Some(node_id),
                     });
-                },
+                }
                 fission_ir::Op::Paint(fission_ir::PaintOp::DrawImage { source, fit }) => {
-                    segment.push(DisplayOp::DrawImage { 
+                    segment.push(DisplayOp::DrawImage {
                         rect: geom.rect,
                         source: source.clone(),
                         fit: match fit {
@@ -168,57 +202,91 @@ impl Pipeline {
                         bounds: geom.rect,
                         node_id: Some(node_id),
                     });
-                },
-                fission_ir::Op::Layout(fission_ir::LayoutOp::Embed { kind: EmbedKind::Video }) => {
-                     // For now, draw placeholder for video since we removed video map from pipeline signature
-                     segment.push(DisplayOp::DrawRect { 
+                }
+                fission_ir::Op::Layout(fission_ir::LayoutOp::Embed {
+                    kind: EmbedKind::Video,
+                }) => {
+                    // For now, draw placeholder for video since we removed video map from pipeline signature
+                    segment.push(DisplayOp::DrawRect {
                         rect: geom.rect,
-                        fill: Some(Fill { color: RenderColor { r: 0, g: 0, b: 0, a: 255 } }),
+                        fill: Some(Fill {
+                            color: RenderColor {
+                                r: 0,
+                                g: 0,
+                                b: 0,
+                                a: 255,
+                            },
+                        }),
                         stroke: None,
                         corner_radius: 0.0,
                         shadow: None,
                         bounds: geom.rect,
                         node_id: Some(node_id),
                     });
-                },
+                }
                 _ => {}
             }
 
-            let mut temp_dl = DisplayList { ops: Vec::new(), bounds: out_list.bounds };
-            
+            let mut temp_dl = DisplayList {
+                ops: Vec::new(),
+                bounds: out_list.bounds,
+            };
+
             for child in &node.children {
-                self.generate_display_list_recursive(*child, ir, snapshot, scroll_map, &mut temp_dl, miss_count);
+                self.generate_display_list_recursive(
+                    *child,
+                    ir,
+                    snapshot,
+                    scroll_map,
+                    &mut temp_dl,
+                    miss_count,
+                );
             }
-            
+
             segment.extend(temp_dl.ops);
 
             if pushed_clip {
                 segment.push(DisplayOp::Restore);
-                
-                if let fission_ir::Op::Layout(fission_ir::LayoutOp::Scroll { show_scrollbar: true, .. }) = &node.op {
+
+                if let fission_ir::Op::Layout(fission_ir::LayoutOp::Scroll {
+                    show_scrollbar: true,
+                    ..
+                }) = &node.op
+                {
                     let viewport_h = geom.rect.height();
                     let content_h = geom.content_size.height;
-                    
+
                     if content_h > viewport_h {
                         let offset = scroll_map.get_offset(node_id);
                         let ratio = viewport_h / content_h;
                         let thumb_h = (viewport_h * ratio).max(20.0);
-                        
+
                         let max_scroll = content_h - viewport_h;
-                        let scroll_fraction = if max_scroll > 0.0 { offset / max_scroll } else { 0.0 };
+                        let scroll_fraction = if max_scroll > 0.0 {
+                            offset / max_scroll
+                        } else {
+                            0.0
+                        };
                         let available_track = viewport_h - thumb_h;
                         let thumb_y = available_track * scroll_fraction.clamp(0.0, 1.0);
-                        
+
                         let thumb_rect = LayoutRect::new(
-                            geom.rect.right() - 8.0, 
+                            geom.rect.right() - 8.0,
                             geom.rect.y() + thumb_y,
                             6.0,
-                            thumb_h
+                            thumb_h,
                         );
-                        
+
                         segment.push(DisplayOp::DrawRect {
                             rect: thumb_rect,
-                            fill: Some(Fill { color: RenderColor { r: 0, g: 0, b: 0, a: 100 } }),
+                            fill: Some(Fill {
+                                color: RenderColor {
+                                    r: 0,
+                                    g: 0,
+                                    b: 0,
+                                    a: 100,
+                                },
+                            }),
                             stroke: None,
                             corner_radius: 3.0,
                             shadow: None,
@@ -228,7 +296,7 @@ impl Pipeline {
                     }
                 }
             }
-            
+
             self.paint_cache.insert(node_id, (hash, segment.clone()));
             out_list.ops.extend(segment);
         }

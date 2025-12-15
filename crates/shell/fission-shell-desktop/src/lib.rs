@@ -1,27 +1,33 @@
-use winit::{
-    dpi::PhysicalPosition,
-    event::{ElementState, Event, MouseButton, WindowEvent, MouseScrollDelta, KeyEvent},
-    event_loop::{ControlFlow, EventLoop},
-    window::WindowBuilder,
-    keyboard::PhysicalKey,
-};
+use anyhow::Result;
+use skia_safe::{AlphaType, ColorType};
 use softbuffer::{Context, Surface};
-use skia_safe::{ColorType, AlphaType};
+use std::collections::HashMap;
 use std::num::NonZeroU32;
 use std::rc::Rc;
 use std::sync::Arc;
-use std::time::{Instant, Duration};
-use anyhow::Result;
-use std::collections::HashMap;
+use std::time::{Duration, Instant};
+use winit::{
+    dpi::PhysicalPosition,
+    event::{ElementState, Event, KeyEvent, MouseButton, MouseScrollDelta, WindowEvent},
+    event_loop::{ControlFlow, EventLoop},
+    keyboard::PhysicalKey,
+    window::WindowBuilder,
+};
 
-use fission_shell::{Platform, VideoBackend, VideoPlayer, VideoEvent};
-use fission_render::{Renderer, DisplayList, LayoutRect, LayoutPoint, LayoutUnit, Color as RenderColor};
-use fission_render_skia::{SkiaRenderer, SkiaTextMeasurer};
-use fission_core::{Runtime, Clock, Action, ActionId, AppState, BuildCtx, Env, InputEvent, PointerEvent, PointerButton, Widget, View, Node, Lower, ScrollStateMap, KeyCode, KeyEvent as FissionKeyEvent};
-use fission_core::env::{VideoStateMap, VideoStatus, VideoState};
+use fission_core::env::{VideoState, VideoStateMap, VideoStatus};
 use fission_core::lowering::{build_layout_tree, LoweringContext};
-use fission_layout::{LayoutEngine, LayoutSize, LayoutInputNode, LayoutSnapshot};
-use fission_ir::{NodeId, Op, PaintOp, Color as IrColor, FlexDirection, CoreIR};
+use fission_core::{
+    Action, ActionId, AppState, BuildCtx, Clock, Env, InputEvent, KeyCode,
+    KeyEvent as FissionKeyEvent, Lower, Node, PointerButton, PointerEvent, Runtime, ScrollStateMap,
+    View, Widget,
+};
+use fission_ir::{Color as IrColor, CoreIR, FlexDirection, NodeId, Op, PaintOp};
+use fission_layout::{LayoutEngine, LayoutInputNode, LayoutSize, LayoutSnapshot};
+use fission_render::{
+    Color as RenderColor, DisplayList, LayoutPoint, LayoutRect, LayoutUnit, Renderer,
+};
+use fission_render_skia::{SkiaRenderer, SkiaTextMeasurer};
+use fission_shell::{Platform, VideoBackend, VideoEvent, VideoPlayer};
 
 mod pipeline;
 use pipeline::Pipeline;
@@ -42,9 +48,9 @@ impl<S: AppState + Default, W: Widget<S> + 'static> DesktopApp<S, W> {
     pub fn new(root_widget: W) -> Self {
         let mut runtime = Runtime::default();
         runtime.add_app_state(Box::new(S::default())).unwrap();
-        
+
         let env = Env::default();
-        
+
         let layout_engine = LayoutEngine::new().with_measurer(Arc::new(SkiaTextMeasurer));
 
         Self {
@@ -60,13 +66,21 @@ impl<S: AppState + Default, W: Widget<S> + 'static> DesktopApp<S, W> {
 
     pub fn run(self) -> Result<()> {
         println!("Starting DesktopApp::run");
-        let event_loop = EventLoop::new().map_err(|e| anyhow::anyhow!("Event loop error: {}", e))?;
-        let window = Rc::new(WindowBuilder::new().with_title("Fission App").build(&event_loop).map_err(|e| anyhow::anyhow!("Window build error: {}", e))?);
-        
+        let event_loop =
+            EventLoop::new().map_err(|e| anyhow::anyhow!("Event loop error: {}", e))?;
+        let window = Rc::new(
+            WindowBuilder::new()
+                .with_title("Fission App")
+                .build(&event_loop)
+                .map_err(|e| anyhow::anyhow!("Window build error: {}", e))?,
+        );
+
         println!("Window created: {:?}", window.id());
 
-        let context = Context::new(window.clone()).map_err(|e| anyhow::anyhow!("Context creation failed: {:?}", e))?;
-        let mut surface = Surface::new(&context, window.clone()).map_err(|e| anyhow::anyhow!("Surface creation failed: {:?}", e))?;
+        let context = Context::new(window.clone())
+            .map_err(|e| anyhow::anyhow!("Context creation failed: {:?}", e))?;
+        let mut surface = Surface::new(&context, window.clone())
+            .map_err(|e| anyhow::anyhow!("Surface creation failed: {:?}", e))?;
 
         println!("Softbuffer surface created");
 
@@ -83,217 +97,265 @@ impl<S: AppState + Default, W: Widget<S> + 'static> DesktopApp<S, W> {
         let mut last_cursor_position: Option<PhysicalPosition<f64>> = None;
         let mut last_frame_time = Instant::now();
 
-        event_loop.run(move |event, elwt| {
-            elwt.set_control_flow(ControlFlow::Wait);
+        event_loop
+            .run(move |event, elwt| {
+                elwt.set_control_flow(ControlFlow::Wait);
 
-            match event {
-                Event::AboutToWait => {
-                    let mut needs_redraw = false;
-                    let video_map = &mut runtime.runtime_state.video;
-                    
-                    for (id, state) in &mut video_map.states {
-                        if !players.contains_key(id) {
-                            if !state.asset_source.is_empty() {
-                                let player = video_backend.create_player(&state.asset_source);
-                                state.surface_id = Some(player.surface_id());
-                                players.insert(*id, player);
-                            }
-                        }
+                match event {
+                    Event::AboutToWait => {
+                        let mut needs_redraw = false;
+                        let video_map = &mut runtime.runtime_state.video;
 
-                        if let Some(player) = players.get_mut(id) {
-                            match state.status {
-                                VideoStatus::Playing => player.play(),
-                                VideoStatus::Paused => player.pause(),
-                                VideoStatus::Stopped => player.stop(),
-                                _ => {}
+                        for (id, state) in &mut video_map.states {
+                            if !players.contains_key(id) {
+                                if !state.asset_source.is_empty() {
+                                    let player = video_backend.create_player(&state.asset_source);
+                                    state.surface_id = Some(player.surface_id());
+                                    players.insert(*id, player);
+                                }
                             }
-                            
-                            for event in player.poll_events() {
-                                match event {
-                                    VideoEvent::Ready { duration } => {
-                                        state.duration_ms = Some(duration);
-                                    },
-                                    VideoEvent::Ended => {
-                                        state.status = VideoStatus::Stopped;
-                                        needs_redraw = true;
-                                    },
+
+                            if let Some(player) = players.get_mut(id) {
+                                match state.status {
+                                    VideoStatus::Playing => player.play(),
+                                    VideoStatus::Paused => player.pause(),
+                                    VideoStatus::Stopped => player.stop(),
                                     _ => {}
                                 }
-                            }
-                            
-                            let new_pos = player.position();
-                            if state.position_ms != new_pos {
-                                state.position_ms = new_pos;
-                                needs_redraw = true; 
-                            }
-                        }
-                    }
 
-                    let video_playing = video_map.states.values().any(|s| s.status == VideoStatus::Playing);
-                    let has_animations = !runtime.runtime_state.animation.active.is_empty() || video_playing;
-                    
-                    if has_animations {
-                        let now = Instant::now();
-                        let dt = now.duration_since(last_frame_time);
-                        last_frame_time = now;
-                        
-                        let dt_millis = dt.as_millis() as u64;
-                        if dt_millis > 0 {
-                            if let Err(e) = runtime.tick(dt_millis) {
-                                eprintln!("Tick error: {:?}", e);
+                                for event in player.poll_events() {
+                                    match event {
+                                        VideoEvent::Ready { duration } => {
+                                            state.duration_ms = Some(duration);
+                                        }
+                                        VideoEvent::Ended => {
+                                            state.status = VideoStatus::Stopped;
+                                            needs_redraw = true;
+                                        }
+                                        _ => {}
+                                    }
+                                }
+
+                                let new_pos = player.position();
+                                if state.position_ms != new_pos {
+                                    state.position_ms = new_pos;
+                                    needs_redraw = true;
+                                }
                             }
                         }
-                        window.request_redraw();
-                        elwt.set_control_flow(ControlFlow::WaitUntil(Instant::now() + Duration::from_millis(16)));
-                    } else {
-                        if needs_redraw {
+
+                        let video_playing = video_map
+                            .states
+                            .values()
+                            .any(|s| s.status == VideoStatus::Playing);
+                        let has_animations =
+                            !runtime.runtime_state.animation.active.is_empty() || video_playing;
+
+                        if has_animations {
+                            let now = Instant::now();
+                            let dt = now.duration_since(last_frame_time);
+                            last_frame_time = now;
+
+                            let dt_millis = dt.as_millis() as u64;
+                            if dt_millis > 0 {
+                                if let Err(e) = runtime.tick(dt_millis) {
+                                    eprintln!("Tick error: {:?}", e);
+                                }
+                            }
                             window.request_redraw();
+                            elwt.set_control_flow(ControlFlow::WaitUntil(
+                                Instant::now() + Duration::from_millis(16),
+                            ));
+                        } else {
+                            if needs_redraw {
+                                window.request_redraw();
+                            }
+                            last_frame_time = Instant::now();
                         }
-                        last_frame_time = Instant::now();
                     }
-                }
-                Event::WindowEvent { window_id, event } if window_id == window.id() => {
-                    match event {
-                        WindowEvent::RedrawRequested => {
-                            let size = window.inner_size();
-                            if let (Some(width), Some(height)) = (NonZeroU32::new(size.width), NonZeroU32::new(size.height)) {
-                                surface.resize(width, height).unwrap();
-                                
-                                let mut buffer = surface.buffer_mut().unwrap();
-                                let stride = width.get() * 4; 
-                                let layout_width = size.width as f32;
-                                let layout_height = size.height as f32;
+                    Event::WindowEvent { window_id, event } if window_id == window.id() => {
+                        match event {
+                            WindowEvent::RedrawRequested => {
+                                let size = window.inner_size();
+                                if let (Some(width), Some(height)) =
+                                    (NonZeroU32::new(size.width), NonZeroU32::new(size.height))
+                                {
+                                    surface.resize(width, height).unwrap();
 
-                                let node_tree = {
-                                    let state = runtime.get_app_state::<S>().unwrap();
-                                    let view = View::new(state, &runtime.runtime_state, &env);
-                                    let mut ctx = BuildCtx::new();
-                                    let tree = root_widget.build(&mut ctx, &view);
-                                    
-                                    runtime.clear_reducers();
-                                    runtime.absorb_registry(ctx.registry);
-                                    tree
+                                    let mut buffer = surface.buffer_mut().unwrap();
+                                    let stride = width.get() * 4;
+                                    let layout_width = size.width as f32;
+                                    let layout_height = size.height as f32;
+
+                                    let node_tree = {
+                                        let state = runtime.get_app_state::<S>().unwrap();
+                                        let view = View::new(state, &runtime.runtime_state, &env);
+                                        let mut ctx = BuildCtx::new();
+                                        let tree = root_widget.build(&mut ctx, &view);
+
+                                        runtime.clear_reducers();
+                                        runtime.absorb_registry(ctx.registry);
+                                        tree
+                                    };
+
+                                    let mut lower_cx =
+                                        LoweringContext::new(&env, &runtime.runtime_state);
+                                    let root_id = node_tree.lower(&mut lower_cx);
+                                    lower_cx.ir.root = Some(root_id);
+                                    let cx_ir = lower_cx.ir;
+
+                                    let viewport = LayoutSize {
+                                        width: layout_width,
+                                        height: layout_height,
+                                    };
+
+                                    let image_info = skia_safe::ImageInfo::new(
+                                        (size.width as i32, size.height as i32),
+                                        ColorType::BGRA8888,
+                                        AlphaType::Premul,
+                                        None,
+                                    );
+
+                                    let slice = bytemuck::cast_slice_mut(&mut buffer);
+                                    if let Some(mut sk_surface) = skia_safe::surfaces::wrap_pixels(
+                                        &image_info,
+                                        slice,
+                                        stride as usize,
+                                        None,
+                                    ) {
+                                        let canvas = sk_surface.canvas();
+                                        let mut renderer: Box<dyn Renderer> =
+                                            Box::new(SkiaRenderer::new(canvas));
+
+                                        let video_map = &runtime.runtime_state.video;
+
+                                        let stats = pipeline.render(
+                                            cx_ir,
+                                            viewport,
+                                            &mut layout_engine,
+                                            &runtime.runtime_state.scroll,
+                                            &mut *renderer,
+                                        );
+
+                                        if let Err(e) = stats {
+                                            eprintln!("Render pipeline error: {:?}", e);
+                                        }
+                                    } else {
+                                        eprintln!("Failed to wrap pixels");
+                                    }
+
+                                    buffer.present().unwrap();
+                                }
+                            }
+                            WindowEvent::CursorMoved { position, .. } => {
+                                last_cursor_position = Some(position);
+                                if let (Some(snapshot), Some(ir)) =
+                                    (&pipeline.last_snapshot, &pipeline.prev_ir)
+                                {
+                                    let point =
+                                        LayoutPoint::new(position.x as f32, position.y as f32);
+                                    let event = InputEvent::Pointer(PointerEvent::Move { point });
+                                    if let Ok(_) = runtime.handle_input(event, ir, snapshot) {
+                                        window.request_redraw();
+                                    }
+                                }
+                            }
+                            WindowEvent::MouseInput { state, button, .. } => {
+                                if let Some(pointer_button) = map_mouse_button(button) {
+                                    if let (Some(position), Some(ir), Some(snapshot)) = (
+                                        last_cursor_position.as_ref(),
+                                        &pipeline.prev_ir,
+                                        &pipeline.last_snapshot,
+                                    ) {
+                                        if let Some(input_event) =
+                                            build_pointer_event(state, pointer_button, *position)
+                                        {
+                                            if let Ok(_) =
+                                                runtime.handle_input(input_event, ir, snapshot)
+                                            {
+                                                window.request_redraw();
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                            WindowEvent::MouseWheel { delta, .. } => {
+                                let delta_point = match delta {
+                                    MouseScrollDelta::LineDelta(x, y) => {
+                                        LayoutPoint::new(-x * 20.0, -y * 20.0)
+                                    }
+                                    MouseScrollDelta::PixelDelta(pos) => {
+                                        LayoutPoint::new(-pos.x as f32, -pos.y as f32)
+                                    }
                                 };
 
-                                let mut lower_cx = LoweringContext::new(&env, &runtime.runtime_state);
-                                let root_id = node_tree.lower(&mut lower_cx);
-                                lower_cx.ir.root = Some(root_id); 
-                                let cx_ir = lower_cx.ir;
-                                
-                                let viewport = LayoutSize { width: layout_width, height: layout_height };
-                                
-                                let image_info = skia_safe::ImageInfo::new(
-                                    (size.width as i32, size.height as i32),
-                                    ColorType::BGRA8888, 
-                                    AlphaType::Premul,
-                                    None,
-                                );
-
-                                let slice = bytemuck::cast_slice_mut(&mut buffer);
-                                if let Some(mut sk_surface) = skia_safe::surfaces::wrap_pixels(
-                                    &image_info,
-                                    slice,
-                                    stride as usize,
-                                    None
-                                ) {
-                                    let canvas = sk_surface.canvas();
-                                    let mut renderer: Box<dyn Renderer> = Box::new(SkiaRenderer::new(canvas));
-                                    
-                                    let video_map = &runtime.runtime_state.video;
-
-                                    let stats = pipeline.render(
-                                        cx_ir,
-                                        viewport,
-                                        &mut layout_engine,
-                                        &runtime.runtime_state.scroll,
-                                        &mut *renderer
-                                    );
-                                    
-                                    if let Err(e) = stats {
-                                        eprintln!("Render pipeline error: {:?}", e);
-                                    }
-                                } else {
-                                    eprintln!("Failed to wrap pixels");
-                                }
-
-                                buffer.present().unwrap();
-                            }
-                        }
-                        WindowEvent::CursorMoved { position, .. } => {
-                            last_cursor_position = Some(position);
-                            if let (Some(snapshot), Some(ir)) = (&pipeline.last_snapshot, &pipeline.prev_ir) {
-                                let point = LayoutPoint::new(position.x as f32, position.y as f32);
-                                let event = InputEvent::Pointer(PointerEvent::Move { point });
-                                if let Ok(_) = runtime.handle_input(event, ir, snapshot) {
-                                     window.request_redraw();
-                                }
-                            }
-                        }
-                        WindowEvent::MouseInput { state, button, .. } => {
-                            if let Some(pointer_button) = map_mouse_button(button) {
-                                if let (Some(position), Some(ir), Some(snapshot)) = (
-                                    last_cursor_position.as_ref(),
+                                if let (Some(cursor_pos), Some(ir), Some(snapshot)) = (
+                                    last_cursor_position,
                                     &pipeline.prev_ir,
                                     &pipeline.last_snapshot,
                                 ) {
-                                    if let Some(input_event) = build_pointer_event(
-                                        state,
-                                        pointer_button,
-                                        *position,
-                                    ) {
-                                        if let Ok(_) = runtime.handle_input(input_event, ir, snapshot) {
+                                    let point =
+                                        LayoutPoint::new(cursor_pos.x as f32, cursor_pos.y as f32);
+                                    let event = InputEvent::Pointer(PointerEvent::Scroll {
+                                        point,
+                                        delta: delta_point,
+                                    });
+
+                                    if let Ok(_) = runtime.handle_input(event, ir, snapshot) {
+                                        window.request_redraw();
+                                    }
+                                }
+                            }
+                            WindowEvent::KeyboardInput { event, .. } => {
+                                let key_code = match event.physical_key {
+                                    PhysicalKey::Code(winit::keyboard::KeyCode::Tab) => {
+                                        Some(KeyCode::Tab)
+                                    }
+                                    PhysicalKey::Code(winit::keyboard::KeyCode::Space) => {
+                                        Some(KeyCode::Space)
+                                    }
+                                    PhysicalKey::Code(winit::keyboard::KeyCode::Enter) => {
+                                        Some(KeyCode::Enter)
+                                    }
+                                    _ => None,
+                                };
+
+                                if let Some(code) = key_code {
+                                    let fission_event = if event.state == ElementState::Pressed {
+                                        FissionKeyEvent::Down {
+                                            key_code: code,
+                                            modifiers: 0,
+                                        }
+                                    } else {
+                                        FissionKeyEvent::Up {
+                                            key_code: code,
+                                            modifiers: 0,
+                                        }
+                                    };
+
+                                    if let (Some(ir), Some(snapshot)) =
+                                        (&pipeline.prev_ir, &pipeline.last_snapshot)
+                                    {
+                                        if let Ok(_) = runtime.handle_input(
+                                            InputEvent::Keyboard(fission_event),
+                                            ir,
+                                            snapshot,
+                                        ) {
                                             window.request_redraw();
                                         }
                                     }
                                 }
                             }
-                        }
-                        WindowEvent::MouseWheel { delta, .. } => {
-                            let delta_point = match delta {
-                                MouseScrollDelta::LineDelta(x, y) => LayoutPoint::new(-x * 20.0, -y * 20.0),
-                                MouseScrollDelta::PixelDelta(pos) => LayoutPoint::new(-pos.x as f32, -pos.y as f32),
-                            };
-                            
-                            if let (Some(cursor_pos), Some(ir), Some(snapshot)) = (last_cursor_position, &pipeline.prev_ir, &pipeline.last_snapshot) {
-                                let point = LayoutPoint::new(cursor_pos.x as f32, cursor_pos.y as f32);
-                                let event = InputEvent::Pointer(PointerEvent::Scroll { point, delta: delta_point });
-                                
-                                if let Ok(_) = runtime.handle_input(event, ir, snapshot) {
-                                    window.request_redraw();
-                                }
+                            WindowEvent::CloseRequested => {
+                                elwt.exit();
                             }
+                            _ => {}
                         }
-                        WindowEvent::KeyboardInput { event, .. } => {
-                            let key_code = match event.physical_key {
-                                PhysicalKey::Code(winit::keyboard::KeyCode::Tab) => Some(KeyCode::Tab),
-                                PhysicalKey::Code(winit::keyboard::KeyCode::Space) => Some(KeyCode::Space),
-                                PhysicalKey::Code(winit::keyboard::KeyCode::Enter) => Some(KeyCode::Enter),
-                                _ => None
-                            };
-                            
-                            if let Some(code) = key_code {
-                                let fission_event = if event.state == ElementState::Pressed {
-                                    FissionKeyEvent::Down { key_code: code, modifiers: 0 }
-                                } else {
-                                    FissionKeyEvent::Up { key_code: code, modifiers: 0 }
-                                };
-                                
-                                if let (Some(ir), Some(snapshot)) = (&pipeline.prev_ir, &pipeline.last_snapshot) {
-                                    if let Ok(_) = runtime.handle_input(InputEvent::Keyboard(fission_event), ir, snapshot) {
-                                        window.request_redraw();
-                                    }
-                                }
-                            }
-                        }
-                        WindowEvent::CloseRequested => {
-                            elwt.exit();
-                        }
-                        _ => {}
                     }
+                    _ => {}
                 }
-                _ => {}
-            }
-        }).map_err(|e| anyhow::anyhow!("Event loop error: {}", e))
+            })
+            .map_err(|e| anyhow::anyhow!("Event loop error: {}", e))
     }
 }
 

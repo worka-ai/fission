@@ -1,10 +1,10 @@
-use serde::{Deserialize, Serialize};
-use crate::lowering::LoweringContext;
-use fission_ir::{
-    op::{LayoutOp, Op, PaintOp, ImageFit},
-    NodeId
-};
+use crate::lowering::{LoweringContext, NodeBuilder};
 use crate::ui::traits::Lower;
+use fission_ir::{
+    op::{ImageFit, LayoutOp, Op, PaintOp},
+    NodeId,
+};
+use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Default, Clone, Serialize, Deserialize)]
 pub struct Image {
@@ -18,27 +18,24 @@ pub struct Image {
 impl Lower for Image {
     fn lower(&self, cx: &mut LoweringContext) -> NodeId {
         let layout_id = self.id.unwrap_or_else(|| cx.next_node_id());
-        let paint_id = cx.next_node_id();
-
-        cx.add_node(
-            layout_id,
-            Op::Layout(LayoutOp::Box { width: self.width, height: self.height, padding: [0.0; 4] }),
-            vec![paint_id],
-        );
-
-        cx.add_node(
-            paint_id,
+        let paint_id = NodeBuilder::new(
+            cx.next_node_id(),
             Op::Paint(PaintOp::DrawImage {
                 source: self.source.clone(),
                 fit: self.fit.unwrap_or(ImageFit::Contain),
             }),
-            vec![],
-        );
-        
-        if let Some(node) = cx.ir.nodes.get_mut(&paint_id) {
-            node.parent = Some(layout_id);
-        }
+        )
+        .build(cx);
 
-        layout_id
+        let mut layout_builder = NodeBuilder::new(
+            layout_id,
+            Op::Layout(LayoutOp::Box {
+                width: self.width,
+                height: self.height,
+                padding: [0.0; 4],
+            }),
+        );
+        layout_builder.add_child(paint_id);
+        layout_builder.build(cx)
     }
 }

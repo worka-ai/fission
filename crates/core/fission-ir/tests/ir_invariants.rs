@@ -1,4 +1,4 @@
-use fission_ir::{NodeId, Op, StructuralOp, LayoutOp, PaintOp};
+use fission_ir::{LayoutOp, NodeId, Op, PaintOp, StructuralOp};
 use serde_json;
 
 #[test]
@@ -17,7 +17,10 @@ fn test_node_id_explicit_vs_derived() {
     let explicit = NodeId::explicit("submit_btn");
     let derived = NodeId::derived(0, &[0]);
 
-    assert_ne!(explicit, derived, "Explicit IDs must avoid collision with derived IDs");
+    assert_ne!(
+        explicit, derived,
+        "Explicit IDs must avoid collision with derived IDs"
+    );
 }
 
 #[test]
@@ -25,7 +28,7 @@ fn test_op_serialization() {
     let op = Op::Structural(StructuralOp::Group);
     let json = serde_json::to_string(&op).expect("Op must be serializable");
     let deserialized: Op = serde_json::from_str(&json).expect("Op must be deserializable");
-    
+
     assert_eq!(op, deserialized);
 }
 

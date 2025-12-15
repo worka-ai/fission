@@ -1,6 +1,6 @@
-use serde::{Deserialize, Serialize};
-pub use fission_layout::{LayoutPoint, LayoutSize, LayoutRect, LayoutUnit};
 use fission_ir::NodeId;
+pub use fission_layout::{LayoutPoint, LayoutRect, LayoutSize, LayoutUnit};
+use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
 pub struct Color {
@@ -83,9 +83,12 @@ pub struct DisplayList {
 
 impl DisplayList {
     pub fn new(bounds: LayoutRect) -> Self {
-        Self { ops: Vec::new(), bounds }
+        Self {
+            ops: Vec::new(),
+            bounds,
+        }
     }
-    
+
     pub fn push(&mut self, op: DisplayOp) {
         self.ops.push(op);
     }

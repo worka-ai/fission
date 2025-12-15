@@ -22,7 +22,9 @@ impl NodeId {
         hasher.update(b"explicit:");
         hasher.update(key.as_bytes());
         let hash = hasher.finalize();
-        Self(u128::from_le_bytes(hash.as_bytes()[0..16].try_into().unwrap()))
+        Self(u128::from_le_bytes(
+            hash.as_bytes()[0..16].try_into().unwrap(),
+        ))
     }
 
     /// Create a derived NodeId from a parent ID and a path index.
@@ -35,7 +37,9 @@ impl NodeId {
             hasher.update(&index.to_le_bytes());
         }
         let hash = hasher.finalize();
-        Self(u128::from_le_bytes(hash.as_bytes()[0..16].try_into().unwrap()))
+        Self(u128::from_le_bytes(
+            hash.as_bytes()[0..16].try_into().unwrap(),
+        ))
     }
 }
 

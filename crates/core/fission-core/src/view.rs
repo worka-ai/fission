@@ -1,6 +1,9 @@
-use crate::{AppState, RuntimeState, Env, BuildCtx, ui::{Node, Row, Column, Text, Button, Scroll, Image, Video}};
-use fission_theme::Theme;
+use crate::{
+    ui::{Button, Column, Image, Node, Row, Scroll, Text, Video},
+    AppState, BuildCtx, Env, RuntimeState,
+};
 use fission_i18n::I18nRegistry;
+use fission_theme::Theme;
 
 pub struct View<'a, S: AppState> {
     pub state: &'a S,
@@ -10,11 +13,19 @@ pub struct View<'a, S: AppState> {
 
 impl<'a, S: AppState> View<'a, S> {
     pub fn new(state: &'a S, runtime: &'a RuntimeState, env: &'a Env) -> Self {
-        Self { state, runtime, env }
+        Self {
+            state,
+            runtime,
+            env,
+        }
     }
-    
-    pub fn theme(&self) -> &Theme { &self.env.theme }
-    pub fn i18n(&self) -> &I18nRegistry { &self.env.i18n }
+
+    pub fn theme(&self) -> &Theme {
+        &self.env.theme
+    }
+    pub fn i18n(&self) -> &I18nRegistry {
+        &self.env.i18n
+    }
 
     pub fn select<T: Selector<S>>(&self) -> T::Output {
         T::select(self)

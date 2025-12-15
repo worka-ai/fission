@@ -1,16 +1,16 @@
-use downcast_rs::{Downcast, impl_downcast};
-use serde::{Deserialize, Serialize, de::DeserializeOwned};
-use std::any::Any;
 use blake3;
-use serde_json;
-use fission_macros::Action;
+use downcast_rs::{impl_downcast, Downcast};
 use fission_ir::NodeId;
+use fission_macros::Action;
 use lazy_static::lazy_static;
+use serde::{de::DeserializeOwned, Deserialize, Serialize};
+use serde_json;
+use std::any::Any;
 
-//pub mod video; 
+//pub mod video;
 
 // ActionId is a stable, globally unique identifier for an Action type.
-#[derive(Clone, Copy, PartialEq, Eq, Hash, Debug, Serialize, Deserialize, PartialOrd, Ord)] 
+#[derive(Clone, Copy, PartialEq, Eq, Hash, Debug, Serialize, Deserialize, PartialOrd, Ord)]
 pub struct ActionId(u128);
 
 impl ActionId {
@@ -26,15 +26,19 @@ impl ActionId {
         let mut hasher = blake3::Hasher::new();
         hasher.update(name.as_bytes());
         let hash = hasher.finalize();
-        ActionId(u128::from_le_bytes(hash.as_bytes()[0..16].try_into().unwrap()))
+        ActionId(u128::from_le_bytes(
+            hash.as_bytes()[0..16].try_into().unwrap(),
+        ))
     }
 }
 
 // The Action trait for typed authoring.
 // Must be Serializable/Deserializable to support the Envelope model.
 pub trait Action: Serialize + DeserializeOwned + Any + Send + Sync + std::fmt::Debug {
-    fn static_id() -> ActionId where Self: Sized;
-    
+    fn static_id() -> ActionId
+    where
+        Self: Sized;
+
     fn encode(&self) -> Vec<u8> {
         serde_json::to_vec(self).expect("Action serialization failed")
     }

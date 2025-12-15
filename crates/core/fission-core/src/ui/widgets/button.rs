@@ -1,12 +1,12 @@
-use serde::{Deserialize, Serialize};
-use crate::lowering::LoweringContext;
+use crate::lowering::{LoweringContext, NodeBuilder};
+use crate::ui::traits::Lower;
+use crate::ui::Node;
 use crate::{ActionEnvelope, Env, InteractionStateMap};
 use fission_ir::{
-    op::{Color as IrColor, Fill, LayoutOp, Op, PaintOp, BoxShadow, Stroke},
-    ActionEntry, ActionSet, NodeId, Role, Semantics
+    op::{BoxShadow, Color as IrColor, Fill, LayoutOp, Op, PaintOp, Stroke},
+    ActionEntry, ActionSet, NodeId, Role, Semantics,
 };
-use crate::ui::Node;
-use crate::ui::traits::Lower;
+use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Default, Clone, Serialize, Deserialize)]
 pub struct Button {
@@ -20,8 +20,7 @@ pub struct Button {
 }
 
 #[derive(Debug, Default, Clone, PartialEq, Serialize, Deserialize)]
-pub struct ButtonStyleOverride {
-}
+pub struct ButtonStyleOverride {}
 
 struct ButtonStyleResolved {
     background_color: IrColor,
@@ -34,10 +33,15 @@ struct ButtonStyleResolved {
 }
 
 impl Button {
-    fn resolve_style(&self, env: &Env, interaction: &InteractionStateMap, self_id: NodeId) -> ButtonStyleResolved {
+    fn resolve_style(
+        &self,
+        env: &Env,
+        interaction: &InteractionStateMap,
+        self_id: NodeId,
+    ) -> ButtonStyleResolved {
         let default_style = &env.theme.components.button;
         let tokens = &env.theme.tokens.colors;
-        
+
         let is_hovered = interaction.is_hovered(self_id);
         let is_pressed = interaction.is_pressed(self_id);
         let is_focused = interaction.is_focused(self_id);
@@ -101,63 +105,51 @@ impl Lower for Button {
 
         let resolved_style = self.resolve_style(cx.env, &cx.runtime_state.interaction, button_id);
 
-        cx.add_node(
-            button_id,
-            Op::Layout(LayoutOp::Box {
-                width: self.width,
-                height: self.height.or(Some(resolved_style.height)),
-                padding: [resolved_style.padding_horizontal, resolved_style.padding_horizontal, 0.0, 0.0],
-            }),
-            vec![],
-        );
-
-        let background_id = cx.next_node_id();
-        cx.add_node(
-            background_id,
-            Op::Layout(LayoutOp::AbsoluteFill),
-            vec![],
-        );
-        cx.add_node(
-            background_id,
+        let background_id = NodeBuilder::new(
+            cx.next_node_id(),
             Op::Paint(PaintOp::DrawRect {
-                fill: Some(Fill { color: resolved_style.background_color }),
+                fill: Some(Fill {
+                    color: resolved_style.background_color,
+                }),
                 stroke: resolved_style.stroke,
                 corner_radius: resolved_style.corner_radius,
                 shadow: resolved_style.shadow,
             }),
-            vec![],
+        )
+        .build(cx);
+
+        let mut button_builder = NodeBuilder::new(
+            button_id,
+            Op::Layout(LayoutOp::Box {
+                width: self.width,
+                height: self.height.or(Some(resolved_style.height)),
+                padding: [
+                    resolved_style.padding_horizontal,
+                    resolved_style.padding_horizontal,
+                    0.0,
+                    0.0,
+                ],
+            }),
         );
+        button_builder.add_child(background_id);
 
-        if let Some(layout_node) = cx.ir.nodes.get_mut(&button_id) {
-            layout_node.children.push(background_id);
-            if let Some(bg_node) = cx.ir.nodes.get_mut(&background_id) {
-                bg_node.parent = Some(button_id);
-            }
-        }
-
-        let mut child_node_ids = Vec::new();
         if let Some(child_widget) = &self.child {
-            if let Node::Text(mut text_widget) = *child_widget.clone() {
+            let child_id = if let Node::Text(mut text_widget) = *child_widget.clone() {
                 text_widget.color = Some(resolved_style.text_color);
-                child_node_ids.push(text_widget.lower(cx));
-            } else { 
-                child_node_ids.push(child_widget.lower(cx));
-            }
+                text_widget.lower(cx)
+            } else {
+                child_widget.lower(cx)
+            };
+            button_builder.add_child(child_id);
         }
 
-        if let Some(layout_node) = cx.ir.nodes.get_mut(&button_id) {
-            layout_node.children.extend(child_node_ids.iter().cloned());
-            for child_id in &child_node_ids {
-                if let Some(child_node) = cx.ir.nodes.get_mut(child_id) {
-                    child_node.parent = Some(button_id);
-                }
-            }
-        }
+        let button_id = button_builder.build(cx);
 
         if let Some(semantics_op) = self.build_semantics() {
-            let semantics_id = cx.next_node_id(); 
-            cx.add_node(semantics_id, Op::Semantics(semantics_op), vec![button_id]);
-            return semantics_id;
+            let mut semantics_builder =
+                NodeBuilder::new(cx.next_node_id(), Op::Semantics(semantics_op));
+            semantics_builder.add_child(button_id);
+            return semantics_builder.build(cx);
         }
 
         button_id

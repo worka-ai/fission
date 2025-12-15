@@ -1,15 +1,15 @@
-use fission_widgets::{
-    Button, Node, Row, Text, TextContent
-};
-use fission_core::{Lower, LoweringContext}; // Import Lower and LoweringContext from core
-use fission_ir::{NodeId, Op, LayoutOp, Semantics, Role, ActionSet, ActionEntry}; // Removed StructuralOp
 use fission_core::{Action as CoreAction, ActionId, Env, RuntimeState};
+use fission_core::{Lower, LoweringContext}; // Import Lower and LoweringContext from core
+use fission_ir::{ActionEntry, ActionSet, LayoutOp, NodeId, Op, Role, Semantics}; // Removed StructuralOp
+use fission_widgets::{Button, Node, Row, Text, TextContent};
 use lazy_static::lazy_static;
-use serde::{Serialize, Deserialize};
+use serde::{Deserialize, Serialize};
 
 // Dummy Action for Button
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)] 
-pub struct TestClickAction { pub value: u32 }
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct TestClickAction {
+    pub value: u32,
+}
 
 impl CoreAction for TestClickAction {
     fn static_id() -> ActionId {
@@ -18,7 +18,8 @@ impl CoreAction for TestClickAction {
 }
 
 lazy_static! {
-    static ref TEST_CLICK_ACTION_ID: ActionId = ActionId::from_name("fission_widgets_test::TestClickAction");
+    static ref TEST_CLICK_ACTION_ID: ActionId =
+        ActionId::from_name("fission_widgets_test::TestClickAction");
 }
 
 #[test]
@@ -30,7 +31,7 @@ fn test_text_widget_default_and_lower() {
     let runtime_state = RuntimeState::default();
     let mut cx = LoweringContext::new(&env, &runtime_state);
     let node_id = text_widget.lower(&mut cx);
-    
+
     assert!(cx.ir.nodes.contains_key(&node_id));
     let node = cx.ir.nodes.get(&node_id).unwrap();
     // Default Text maps to LayoutOp::Box
@@ -42,8 +43,16 @@ fn test_row_widget_children_lower() {
     let row_widget = Row {
         id: None,
         children: vec![
-            Text { content: TextContent::Literal("Hello".into()), ..Default::default() }.into(),
-            Text { content: TextContent::Literal("World".into()), ..Default::default() }.into(),
+            Text {
+                content: TextContent::Literal("Hello".into()),
+                ..Default::default()
+            }
+            .into(),
+            Text {
+                content: TextContent::Literal("World".into()),
+                ..Default::default()
+            }
+            .into(),
         ],
         semantics: None,
         ..Default::default()
@@ -53,7 +62,7 @@ fn test_row_widget_children_lower() {
     let runtime_state = RuntimeState::default();
     let mut cx = LoweringContext::new(&env, &runtime_state);
     let row_node_id = row_widget.lower(&mut cx);
-    
+
     assert!(cx.ir.nodes.contains_key(&row_node_id));
     let row_node = cx.ir.nodes.get(&row_node_id).unwrap();
     assert!(matches!(row_node.op, Op::Layout(LayoutOp::Flex { .. })));
@@ -64,13 +73,19 @@ fn test_row_widget_children_lower() {
 fn test_button_widget_lower_with_child_and_semantics() {
     let button_widget = Button {
         id: None,
-        child: Some(Box::new(Text { content: TextContent::Literal("Click Me".into()), ..Default::default() }.into())),
-        on_press: Some(TestClickAction { value: 1 }.into()), 
+        child: Some(Box::new(
+            Text {
+                content: TextContent::Literal("Click Me".into()),
+                ..Default::default()
+            }
+            .into(),
+        )),
+        on_press: Some(TestClickAction { value: 1 }.into()),
         semantics: Some(Semantics {
             role: Role::Button,
             label: Some("My Button".into()),
             value: None,
-            actions: ActionSet::default(), 
+            actions: ActionSet::default(),
             focusable: true,
         }),
         ..Default::default()
@@ -82,16 +97,19 @@ fn test_button_widget_lower_with_child_and_semantics() {
     let button_node_id = button_widget.lower(&mut cx);
 
     assert!(cx.ir.nodes.contains_key(&button_node_id));
-    
+
     // In new model, Button.lower returns button_layout_id.
     // If semantics are present, it wraps it.
     // So the returned ID should be the semantics node.
     let semantics_node = cx.ir.nodes.get(&button_node_id).unwrap();
     assert!(matches!(semantics_node.op, Op::Semantics(_)));
-    
+
     if let Op::Semantics(s_op) = &semantics_node.op {
         assert_eq!(s_op.actions.entries.len(), 1);
-        assert_eq!(s_op.actions.entries[0].action_id, TEST_CLICK_ACTION_ID.as_u128());
+        assert_eq!(
+            s_op.actions.entries[0].action_id,
+            TEST_CLICK_ACTION_ID.as_u128()
+        );
         assert!(s_op.actions.entries[0].payload_data.is_some());
     }
 }

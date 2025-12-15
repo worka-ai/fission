@@ -6,8 +6,8 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
 pub use node_id::NodeId;
-pub use op::{Op, StructuralOp, LayoutOp, PaintOp, FlexDirection, Color, EmbedKind};
-pub use semantics::{Role, Semantics, ActionSet, ActionEntry};
+pub use op::{Color, EmbedKind, FlexDirection, LayoutOp, Op, PaintOp, StructuralOp};
+pub use semantics::{ActionEntry, ActionSet, Role, Semantics};
 
 pub const IR_VERSION: u32 = 1;
 
@@ -47,7 +47,7 @@ impl CoreIR {
             }
         }
     }
-    
+
     pub fn set_root(&mut self, id: NodeId) {
         self.root = Some(id);
     }

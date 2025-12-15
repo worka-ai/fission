@@ -1,9 +1,9 @@
-use fission_theme::Theme;
+use crate::action::AppState;
 use fission_i18n::{I18nRegistry, Locale};
 use fission_ir::NodeId;
-use std::collections::HashMap;
+use fission_theme::Theme;
 use serde::{Deserialize, Serialize};
-use crate::action::AppState;
+use std::collections::HashMap;
 
 // Static environment data (Theme, I18n)
 #[derive(Clone, Debug, Default)]
@@ -24,7 +24,7 @@ pub struct RuntimeState {
 
 #[derive(Clone, Debug, Default)]
 pub struct AnimationStateMap {
-    pub values: HashMap<(NodeId, String), f32>, 
+    pub values: HashMap<(NodeId, String), f32>,
     pub active: Vec<ActiveAnimation>,
 }
 
@@ -47,7 +47,7 @@ impl ScrollStateMap {
     pub fn get_offset(&self, id: NodeId) -> f32 {
         *self.offsets.get(&id).unwrap_or(&0.0)
     }
-    
+
     pub fn set_offset(&mut self, id: NodeId, offset: f32) {
         self.offsets.insert(id, offset);
     }
@@ -70,7 +70,7 @@ impl InteractionStateMap {
     pub fn is_focused(&self, id: NodeId) -> bool {
         self.focused == Some(id)
     }
-    
+
     pub fn set_hovered(&mut self, id: NodeId, value: bool) {
         if value {
             self.hovered.insert(id, true);

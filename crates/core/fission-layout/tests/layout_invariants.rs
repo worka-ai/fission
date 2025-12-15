@@ -1,35 +1,37 @@
-use fission_layout::{
-        LayoutEngine, LayoutInputNode, LayoutSize, LayoutOp, FlexDirection
-};
-use fission_ir::{NodeId, LayoutOp as IrLayoutOp, FlexDirection as IrFlexDirection};
+use fission_ir::{FlexDirection as IrFlexDirection, LayoutOp as IrLayoutOp, NodeId};
+use fission_layout::{FlexDirection, LayoutEngine, LayoutInputNode, LayoutOp, LayoutSize};
 use std::collections::HashSet;
 
 #[test]
 fn test_taffy_integration_simple_box() {
     let mut engine = LayoutEngine::new();
     let root_id = NodeId::derived(0, &[1]);
-    
-    let nodes = vec![
-        LayoutInputNode {
-            id: root_id,
-            parent_id: None,
-            op: IrLayoutOp::Box { width: Some(100.0), height: Some(100.0), padding: [0.0; 4] },
-            children_ids: vec![],
-            debug_name: "root".into(),
+
+    let nodes = vec![LayoutInputNode {
+        id: root_id,
+        parent_id: None,
+        op: IrLayoutOp::Box {
             width: Some(100.0),
             height: Some(100.0),
-            flex_grow: 0.0,
-            flex_shrink: 0.0,
-            text_content: None,
-            font_size: None,
-        }
-    ];
+            padding: [0.0; 4],
+        },
+        children_ids: vec![],
+        debug_name: "root".into(),
+        width: Some(100.0),
+        height: Some(100.0),
+        flex_grow: 0.0,
+        flex_shrink: 0.0,
+        text_content: None,
+        font_size: None,
+    }];
 
     let dirty: HashSet<_> = nodes.iter().map(|n| n.id).collect();
     engine.update(&nodes, &dirty);
 
-    let snapshot = engine.compute_layout(&nodes, root_id, LayoutSize::new(800.0, 600.0)).unwrap();
-    
+    let snapshot = engine
+        .compute_layout(&nodes, root_id, LayoutSize::new(800.0, 600.0))
+        .unwrap();
+
     let geom = snapshot.get_node_geometry(root_id).unwrap();
     assert_eq!(geom.rect.size.width, 100.0);
     assert_eq!(geom.rect.size.height, 100.0);
@@ -46,7 +48,7 @@ fn test_taffy_integration_flex_row() {
         LayoutInputNode {
             id: root_id,
             parent_id: None,
-            op: IrLayoutOp::Flex { 
+            op: IrLayoutOp::Flex {
                 direction: IrFlexDirection::Row,
                 flex_grow: 0.0,
                 flex_shrink: 0.0,
@@ -64,7 +66,11 @@ fn test_taffy_integration_flex_row() {
         LayoutInputNode {
             id: child1_id,
             parent_id: Some(root_id),
-            op: IrLayoutOp::Box { width: Some(50.0), height: Some(50.0), padding: [0.0; 4] },
+            op: IrLayoutOp::Box {
+                width: Some(50.0),
+                height: Some(50.0),
+                padding: [0.0; 4],
+            },
             children_ids: vec![],
             debug_name: "child1".into(),
             width: Some(50.0),
@@ -77,7 +83,11 @@ fn test_taffy_integration_flex_row() {
         LayoutInputNode {
             id: child2_id,
             parent_id: Some(root_id),
-            op: IrLayoutOp::Box { width: None, height: Some(50.0), padding: [0.0; 4] },
+            op: IrLayoutOp::Box {
+                width: None,
+                height: Some(50.0),
+                padding: [0.0; 4],
+            },
             children_ids: vec![],
             debug_name: "child2".into(),
             width: None,
@@ -86,17 +96,19 @@ fn test_taffy_integration_flex_row() {
             flex_shrink: 0.0,
             text_content: None,
             font_size: None,
-        }
+        },
     ];
 
     let dirty: HashSet<_> = nodes.iter().map(|n| n.id).collect();
     engine.update(&nodes, &dirty);
 
-    let snapshot = engine.compute_layout(&nodes, root_id, LayoutSize::new(800.0, 600.0)).unwrap();
-    
+    let snapshot = engine
+        .compute_layout(&nodes, root_id, LayoutSize::new(800.0, 600.0))
+        .unwrap();
+
     let child1 = snapshot.get_node_geometry(child1_id).unwrap();
     let child2 = snapshot.get_node_geometry(child2_id).unwrap();
-    
+
     assert_eq!(child1.rect.size.width, 50.0);
     assert_eq!(child2.rect.size.width, 150.0); // 200 - 50 = 150
 }

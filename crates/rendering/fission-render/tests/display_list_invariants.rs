@@ -1,6 +1,6 @@
 use anyhow::Result;
 use fission_render::{
-    Color, DisplayList, DisplayOp, LayoutRect, LayoutSize, LayoutPoint, Renderer,
+    Color, DisplayList, DisplayOp, LayoutPoint, LayoutRect, LayoutSize, Renderer,
 };
 
 // A mock renderer that captures what it was asked to render.
@@ -19,24 +19,25 @@ impl Renderer for MockRenderer {
 #[test]
 fn test_display_list_serialization() {
     let rect = LayoutRect::new(0.0, 0.0, 100.0, 100.0);
-    let op1 = DisplayOp::DrawRect { 
-        rect, 
-        fill: None, 
+    let op1 = DisplayOp::DrawRect {
+        rect,
+        fill: None,
         stroke: None,
         corner_radius: 0.0,
         shadow: None, // Added
         bounds: rect,
-        node_id: None 
+        node_id: None,
     };
-    
+
     let mut list = DisplayList::new(rect);
     list.push(op1.clone());
 
     // Serialize
     let serialized = serde_json::to_string(&list).expect("Failed to serialize display list");
-    
+
     // Deserialize
-    let deserialized: DisplayList = serde_json::from_str(&serialized).expect("Failed to deserialize display list");
+    let deserialized: DisplayList =
+        serde_json::from_str(&serialized).expect("Failed to deserialize display list");
 
     assert_eq!(list, deserialized);
     assert_eq!(deserialized.ops.len(), 1);
@@ -48,7 +49,7 @@ fn test_renderer_consumes_display_list() {
     let mut renderer = MockRenderer::default();
     let bounds = LayoutRect::new(0.0, 0.0, 800.0, 600.0);
     let mut dl = DisplayList::new(bounds);
-    
+
     dl.push(DisplayOp::DrawRect {
         rect: LayoutRect::new(10.0, 10.0, 50.0, 50.0),
         fill: None,

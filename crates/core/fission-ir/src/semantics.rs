@@ -14,7 +14,7 @@ pub enum Role {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ActionEntry {
-    pub action_id: u128, // Raw ActionId (u128)
+    pub action_id: u128,               // Raw ActionId (u128)
     pub payload_data: Option<Vec<u8>>, // Serialized Action instance, if it has payload
 }
 
@@ -22,7 +22,7 @@ pub struct ActionEntry {
 pub struct Semantics {
     pub role: Role,
     pub label: Option<String>,
-    pub value: Option<String>, 
+    pub value: Option<String>,
     pub actions: ActionSet,
     pub focusable: bool,
 }
