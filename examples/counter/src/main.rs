@@ -5,8 +5,8 @@ use fission_core::ui::{
     Button, Column, CustomNode, Image, Node, Row, Scroll, Text, TextContent, Video,
 };
 use fission_core::{
-    op::Color as IrColor, ActionEnvelope, AppState, BuildCtx, FlexDirection, LowerDyn,
-    LoweringContext, NodeBuilder, NodeId, Selector, View, Widget,
+    op::Color as IrColor, ActionEnvelope, AnimationRequest, AppState, BuildCtx,
+    FlexDirection, LowerDyn, LoweringContext, NodeBuilder, NodeId, Selector, View, Widget,
 };
 use fission_macros::Action;
 use fission_shell_desktop::DesktopApp;
@@ -14,9 +14,15 @@ use lazy_static::lazy_static;
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 
+lazy_static! {
+    static ref STATUS_NODE_ID: NodeId = NodeId::explicit("status_indicator");
+    static ref DEMO_VIDEO_ID: NodeId = NodeId::explicit("demo_video");
+}
+
 #[derive(Default, Debug, Clone, PartialEq, Serialize, Deserialize)]
 struct CounterState {
     value: i32,
+    pulse_generation: u64,
 }
 
 impl AppState for CounterState {}
@@ -26,6 +32,7 @@ struct Increment;
 
 fn on_increment(state: &mut CounterState, _action: Increment) {
     state.value += 1;
+    state.pulse_generation += 1;
     println!("Counter incremented to: {}", state.value);
 }
 
@@ -33,25 +40,29 @@ struct CounterVM {
     label: String,
     is_even: bool,
     anim_val: f32,
+    pulse_generation: u64,
 }
 
 impl Selector<CounterState> for CounterVM {
     type Output = CounterVM;
 
     fn select(view: &View<CounterState>) -> Self::Output {
-        // Animation logic temporarily removed due to baseline cleanup
-        let val = 0.0;
+        let anim_val = view
+            .animation_value(*STATUS_NODE_ID, "pulse")
+            .unwrap_or(0.0);
 
         CounterVM {
             label: format!("Count: {}", view.state.value),
             is_even: view.state.value % 2 == 0,
-            anim_val: val,
+            anim_val,
+            pulse_generation: view.state.pulse_generation,
         }
     }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 struct StatusIndicator {
+    id: NodeId,
     active: bool,
     anim_val: f32,
 }
@@ -61,6 +72,7 @@ impl Widget<CounterState> for StatusIndicator {
         Node::Custom(CustomNode {
             debug_tag: "StatusIndicator".to_string(),
             lowerer: Some(Arc::new(StatusIndicatorLowerer {
+                id: self.id,
                 active: self.active,
                 anim_val: self.anim_val,
             })),
@@ -70,13 +82,14 @@ impl Widget<CounterState> for StatusIndicator {
 
 #[derive(Debug)]
 struct StatusIndicatorLowerer {
+    id: NodeId,
     active: bool,
     anim_val: f32,
 }
 
 impl LowerDyn for StatusIndicatorLowerer {
     fn lower_dyn(&self, cx: &mut LoweringContext) -> NodeId {
-        let layout_id = cx.next_node_id();
+        let layout_id = self.id;
         let base_color = if self.active {
             IrColor::GREEN
         } else {
@@ -118,6 +131,15 @@ impl Widget<CounterState> for CounterApp {
     fn build(&self, ctx: &mut BuildCtx<CounterState>, view: &View<CounterState>) -> Node {
         let vm = view.select::<CounterVM>();
 
+        ctx.request_animation(AnimationRequest {
+            key: format!("status-pulse-{}", vm.pulse_generation),
+            target: *STATUS_NODE_ID,
+            property: "pulse".into(),
+            from: vm.anim_val,
+            to: if vm.is_even { 1.0 } else { 0.0 },
+            duration_ms: 250,
+        });
+
         let mut children = vec![
             Image {
                 source: "docs/fission_logo.png".into(),
@@ -127,6 +149,7 @@ impl Widget<CounterState> for CounterApp {
             }
             .into(),
             Video {
+                id: Some(*DEMO_VIDEO_ID),
                 source: "docs/video1.mp4".into(),
                 width: Some(300.0),
                 height: Some(200.0),
@@ -142,6 +165,7 @@ impl Widget<CounterState> for CounterApp {
             }
             .into(),
             StatusIndicator {
+                id: *STATUS_NODE_ID,
                 active: vm.is_even,
                 anim_val: vm.anim_val,
             }

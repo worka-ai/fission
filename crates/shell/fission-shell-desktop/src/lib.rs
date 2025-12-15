@@ -6,6 +6,7 @@ use std::num::NonZeroU32;
 use std::rc::Rc;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
+use raw_window_handle::HasRawWindowHandle;
 use winit::{
     dpi::PhysicalPosition,
     event::{ElementState, Event, KeyEvent, MouseButton, MouseScrollDelta, WindowEvent},
@@ -193,10 +194,17 @@ impl<S: AppState + Default, W: Widget<S> + 'static> DesktopApp<S, W> {
                                         let mut ctx = BuildCtx::new();
                                         let tree = root_widget.build(&mut ctx, &view);
 
-                                        runtime.clear_reducers();
-                                        runtime.absorb_registry(ctx.registry);
-                                        tree
-                                    };
+                                    runtime.clear_reducers();
+                                    let animation_requests = ctx.take_animation_requests();
+                                    let video_nodes = ctx.take_video_registrations();
+                                    runtime.absorb_registry(ctx.registry);
+                                    for request in animation_requests {
+                                        runtime.enqueue_animation(request);
+                                    }
+
+                                    runtime.sync_video_nodes(&video_nodes);
+                                    tree
+                                };
 
                                     let mut lower_cx =
                                         LoweringContext::new(&env, &runtime.runtime_state);
@@ -235,6 +243,7 @@ impl<S: AppState + Default, W: Widget<S> + 'static> DesktopApp<S, W> {
                                             &mut layout_engine,
                                             &runtime.runtime_state.scroll,
                                             &mut *renderer,
+                                            video_map,
                                         );
 
                                         if let Err(e) = stats {
@@ -245,6 +254,9 @@ impl<S: AppState + Default, W: Widget<S> + 'static> DesktopApp<S, W> {
                                     }
 
                                     buffer.present().unwrap();
+
+                                    let video_frames = pipeline.take_video_surfaces();
+                                    video_backend.present_surfaces(&video_frames);
                                 }
                             }
                             WindowEvent::CursorMoved { position, .. } => {

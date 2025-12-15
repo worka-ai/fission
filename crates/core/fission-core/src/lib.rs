@@ -3,7 +3,7 @@ use downcast_rs::Downcast;
 use fission_ir::CoreIR;
 use lazy_static::lazy_static;
 use std::any::{Any, TypeId};
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 pub mod action;
 pub mod diff;
@@ -26,10 +26,11 @@ pub use fission_layout::{
 };
 use hit_test::{find_next_focus_node, hit_test, hit_test_with_scroll};
 pub use lowering::{LoweringContext, NodeBuilder};
-pub use registry::{ActionRegistry, BuildCtx, Handler};
+pub use registry::{ActionRegistry, AnimationRequest, BuildCtx, Handler, VideoRegistration};
 pub use time::{Clock, CurrentTime};
 pub use ui::{Button, Column, CustomNode, Lower, LowerDyn, Node, Row, Text};
 pub use view::{Selector, View, Widget};
+use crate::env::ActiveAnimation;
 
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct Tick {
@@ -241,6 +242,61 @@ impl Runtime {
         }
 
         Ok(())
+    }
+
+    pub fn enqueue_animation(&mut self, request: AnimationRequest) {
+        if self
+            .runtime_state
+            .animation
+            .triggered
+            .contains(&request.key)
+        {
+            return;
+        }
+
+        self.runtime_state
+            .animation
+            .triggered
+            .insert(request.key.clone());
+
+        self.runtime_state.animation.values.insert(
+            (request.target, request.property.clone()),
+            request.from,
+        );
+
+        self.runtime_state.animation.active.push(ActiveAnimation {
+            key: request.key,
+            node_id: request.target,
+            property: request.property,
+            start_value: request.from,
+            end_value: request.to,
+            start_time: self.clock().current_time(),
+            duration: request.duration_ms,
+        });
+    }
+
+    pub fn sync_video_nodes(&mut self, registrations: &[VideoRegistration]) {
+        let mut seen: HashSet<NodeId> = HashSet::new();
+
+        for reg in registrations {
+            seen.insert(reg.node_id);
+            let entry = self
+                .runtime_state
+                .video
+                .states
+                .entry(reg.node_id)
+                .or_insert_with(env::VideoState::default);
+            entry.asset_source = reg.source.clone();
+            entry.looped = reg.loop_playback;
+            if reg.autoplay && entry.status == env::VideoStatus::Stopped {
+                entry.status = env::VideoStatus::Playing;
+            }
+        }
+
+        self.runtime_state
+            .video
+            .states
+            .retain(|node_id, _| seen.contains(node_id));
     }
 
     pub fn handle_input(

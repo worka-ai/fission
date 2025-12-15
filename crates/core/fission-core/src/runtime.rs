@@ -61,6 +61,7 @@ impl Runtime {
         if envelope.id == Animate::static_id() {
             if let Ok(anim) = serde_json::from_slice::<Animate>(&envelope.payload) {
                 self.runtime_state.animation.active.push(ActiveAnimation {
+                    key: anim.property.clone(),
                     node_id: anim.target,
                     property: anim.property.clone(),
                     start_value: anim.start,

@@ -1,4 +1,5 @@
 use fission_shell::{VideoBackend, VideoEvent, VideoPlayer};
+use raw_window_handle::RawWindowHandle;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::Instant;
 
@@ -13,6 +14,10 @@ impl MockVideoBackend {
 impl VideoBackend for MockVideoBackend {
     fn create_player(&self, source: &str) -> Box<dyn VideoPlayer> {
         Box::new(MockPlayer::new(source))
+    }
+
+    fn present_surfaces(&self, _frames: &[fission_shell::VideoSurfaceFrame]) {
+        // mac implementation pending; placeholder no-op
     }
 }
 

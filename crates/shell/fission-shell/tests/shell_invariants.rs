@@ -43,6 +43,8 @@ impl VideoBackend for DummyBackend {
     fn create_player(&self, _source: &str) -> Box<dyn VideoPlayer> {
         Box::new(DummyPlayer::new())
     }
+
+    fn present_surfaces(&self, _frames: &[fission_shell::VideoSurfaceFrame]) {}
 }
 
 #[test]

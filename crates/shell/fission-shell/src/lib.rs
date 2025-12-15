@@ -1,4 +1,5 @@
 use fission_ir::NodeId;
+use fission_render::LayoutRect;
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -9,8 +10,15 @@ pub enum Platform {
     Test,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct VideoSurfaceFrame {
+    pub surface_id: u64,
+    pub rect: LayoutRect,
+}
+
 pub trait VideoBackend: Send + Sync {
     fn create_player(&self, source: &str) -> Box<dyn VideoPlayer>;
+    fn present_surfaces(&self, frames: &[VideoSurfaceFrame]);
 }
 
 pub trait VideoPlayer: Send + Sync {

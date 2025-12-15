@@ -3,7 +3,7 @@ use fission_i18n::{I18nRegistry, Locale};
 use fission_ir::NodeId;
 use fission_theme::Theme;
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 // Static environment data (Theme, I18n)
 #[derive(Clone, Debug, Default)]
@@ -26,10 +26,12 @@ pub struct RuntimeState {
 pub struct AnimationStateMap {
     pub values: HashMap<(NodeId, String), f32>,
     pub active: Vec<ActiveAnimation>,
+    pub triggered: HashSet<String>,
 }
 
 #[derive(Clone, Debug)]
 pub struct ActiveAnimation {
+    pub key: String,
     pub node_id: NodeId,
     pub property: String,
     pub start_value: f32,

@@ -10,6 +10,7 @@ fn test_animation_tick() {
         .animation
         .active
         .push(ActiveAnimation {
+            key: "pulse-0".into(),
             node_id: NodeId::from_u128(1),
             property: "opacity".into(),
             start_value: 0.0,

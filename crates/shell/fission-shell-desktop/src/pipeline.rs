@@ -1,5 +1,6 @@
 use anyhow::Result;
 use fission_core::diff::diff_ir;
+use fission_core::env::VideoStateMap;
 use fission_core::lowering::{build_layout_tree, LoweringContext};
 use fission_core::{LayoutPoint, ScrollStateMap};
 use fission_ir::op::EmbedKind;
@@ -8,6 +9,7 @@ use fission_layout::{LayoutEngine, LayoutRect, LayoutSize, LayoutSnapshot};
 use fission_render::{
     BoxShadow, Color as RenderColor, DisplayList, DisplayOp, Fill, ImageFit, Renderer, Stroke,
 };
+use fission_shell::VideoSurfaceFrame;
 use std::collections::hash_map::DefaultHasher;
 use std::collections::HashMap;
 use std::hash::{Hash, Hasher};
@@ -16,6 +18,7 @@ pub struct Pipeline {
     pub prev_ir: Option<CoreIR>,
     pub last_snapshot: Option<LayoutSnapshot>,
     pub paint_cache: HashMap<NodeId, (u64, Vec<DisplayOp>)>,
+    video_surfaces: Vec<VideoSurfaceFrame>,
 }
 
 #[derive(Debug, Default)]
@@ -31,6 +34,7 @@ impl Pipeline {
             prev_ir: None,
             last_snapshot: None,
             paint_cache: HashMap::new(),
+            video_surfaces: Vec::new(),
         }
     }
 
@@ -41,6 +45,7 @@ impl Pipeline {
         layout_engine: &mut LayoutEngine,
         scroll_map: &ScrollStateMap,
         renderer: &mut (impl Renderer + 'r + ?Sized),
+        video_map: &VideoStateMap,
     ) -> Result<PipelineStats> {
         let dirty_set = if let Some(prev) = &self.prev_ir {
             let diff = diff_ir(prev, &next_ir);
@@ -70,6 +75,7 @@ impl Pipeline {
             scroll_map,
             &mut display_list,
             &mut paint_misses,
+            video_map,
         );
 
         renderer.render(&display_list)?;
@@ -86,6 +92,10 @@ impl Pipeline {
         })
     }
 
+    pub fn take_video_surfaces(&mut self) -> Vec<VideoSurfaceFrame> {
+        std::mem::take(&mut self.video_surfaces)
+    }
+
     fn generate_display_list_recursive(
         &mut self,
         node_id: NodeId,
@@ -94,6 +104,7 @@ impl Pipeline {
         scroll_map: &ScrollStateMap,
         out_list: &mut DisplayList,
         miss_count: &mut usize,
+        video_map: &VideoStateMap,
     ) {
         if let (Some(node), Some(geom)) = (ir.nodes.get(&node_id), snapshot.nodes.get(&node_id)) {
             let mut hasher = DefaultHasher::new();
@@ -206,7 +217,15 @@ impl Pipeline {
                 fission_ir::Op::Layout(fission_ir::LayoutOp::Embed {
                     kind: EmbedKind::Video,
                 }) => {
-                    // For now, draw placeholder for video since we removed video map from pipeline signature
+                    if let Some(state) = video_map.states.get(&node_id) {
+                        if let Some(surface_id) = state.surface_id {
+                            self.video_surfaces.push(VideoSurfaceFrame {
+                                surface_id,
+                                rect: geom.rect,
+                            });
+                        }
+                    }
+
                     segment.push(DisplayOp::DrawRect {
                         rect: geom.rect,
                         fill: Some(Fill {
@@ -240,6 +259,7 @@ impl Pipeline {
                     scroll_map,
                     &mut temp_dl,
                     miss_count,
+                    video_map,
                 );
             }
 

@@ -2,7 +2,7 @@ use crate::{Action, ActionEnvelope, ActionId, AppState, BoxedReducer};
 use anyhow::{anyhow, Result};
 use fission_ir::NodeId;
 use std::any::TypeId;
-use std::collections::{BTreeMap, HashMap}; // Import NodeId from fission_ir
+use std::collections::{BTreeMap, HashMap};
 
 pub type Handler<S, A> = fn(&mut S, A);
 
@@ -76,14 +76,36 @@ impl<S: AppState> ActionRegistry<S> {
     }
 }
 
+#[derive(Clone, Debug)]
+pub struct AnimationRequest {
+    pub key: String,
+    pub target: NodeId,
+    pub property: String,
+    pub from: f32,
+    pub to: f32,
+    pub duration_ms: u64,
+}
+
+#[derive(Clone, Debug)]
+pub struct VideoRegistration {
+    pub node_id: NodeId,
+    pub source: String,
+    pub autoplay: bool,
+    pub loop_playback: bool,
+}
+
 pub struct BuildCtx<S: AppState> {
     pub registry: ActionRegistry<S>,
+    pub animation_requests: Vec<AnimationRequest>,
+    pub video_nodes: Vec<VideoRegistration>,
 }
 
 impl<S: AppState> BuildCtx<S> {
     pub fn new() -> Self {
         Self {
             registry: ActionRegistry::new(),
+            animation_requests: Vec::new(),
+            video_nodes: Vec::new(),
         }
     }
 
@@ -94,5 +116,21 @@ impl<S: AppState> BuildCtx<S> {
             id: A::static_id(),
             payload: action.encode(),
         }
+    }
+
+    pub fn request_animation(&mut self, request: AnimationRequest) {
+        self.animation_requests.push(request);
+    }
+
+    pub fn register_video(&mut self, registration: VideoRegistration) {
+        self.video_nodes.push(registration);
+    }
+
+    pub fn take_animation_requests(&mut self) -> Vec<AnimationRequest> {
+        std::mem::take(&mut self.animation_requests)
+    }
+
+    pub fn take_video_registrations(&mut self) -> Vec<VideoRegistration> {
+        std::mem::take(&mut self.video_nodes)
     }
 }
