@@ -80,6 +80,7 @@ impl Pipeline {
             &mut paint_misses,
             &mut paint_hits,
             video_map,
+            LayoutPoint::new(0.0, 0.0),
         );
 
         renderer.render(&display_list)?;
@@ -113,6 +114,7 @@ impl Pipeline {
         miss_count: &mut usize,
         hit_count: &mut usize,
         video_map: &VideoStateMap,
+        accumulated_offset: LayoutPoint,
     ) {
         if let (Some(node), Some(geom)) = (ir.nodes.get(&node_id), snapshot.nodes.get(&node_id)) {
             let mut hasher = DefaultHasher::new();
@@ -134,7 +136,14 @@ impl Pipeline {
             if let Some((cached_hash, cached_ops)) = self.paint_cache.get(&node_id) {
                 if *cached_hash == hash {
                     let cached_ops = cached_ops.clone();
-                    self.collect_video_surfaces(node_id, ir, snapshot, video_map);
+                    self.collect_video_surfaces(
+                        node_id,
+                        ir,
+                        snapshot,
+                        video_map,
+                        scroll_map,
+                        accumulated_offset,
+                    );
                     *hit_count += 1;
                     for op in cached_ops {
                         out_list.push(op);
@@ -147,6 +156,7 @@ impl Pipeline {
             let mut segment = Vec::new();
 
             let mut pushed_clip = false;
+            let mut child_offset = accumulated_offset;
 
             match &node.op {
                 fission_ir::Op::Layout(fission_ir::LayoutOp::Scroll { show_scrollbar, .. }) => {
@@ -155,6 +165,8 @@ impl Pipeline {
                     segment.push(DisplayOp::ClipRect(geom.rect));
                     segment.push(DisplayOp::Translate(LayoutPoint::new(0.0, -offset)));
                     pushed_clip = true;
+                    child_offset =
+                        LayoutPoint::new(accumulated_offset.x, accumulated_offset.y - offset);
                 }
                 fission_ir::Op::Paint(fission_ir::PaintOp::DrawRect {
                     fill,
@@ -229,10 +241,11 @@ impl Pipeline {
                     kind: EmbedKind::Video,
                     widget_id,
                 }) => {
-                    self.push_video_surface(*widget_id, geom.rect, video_map);
+                    let translated_rect = translate_rect(geom.rect, accumulated_offset);
+                    self.push_video_surface(*widget_id, translated_rect, video_map);
 
                     segment.push(DisplayOp::DrawRect {
-                        rect: geom.rect,
+                        rect: translated_rect,
                         fill: Some(Fill {
                             color: RenderColor {
                                 r: 0,
@@ -266,6 +279,7 @@ impl Pipeline {
                     miss_count,
                     hit_count,
                     video_map,
+                    child_offset,
                 );
             }
 
@@ -351,19 +365,43 @@ impl Pipeline {
         ir: &CoreIR,
         snapshot: &LayoutSnapshot,
         video_map: &VideoStateMap,
+        scroll_map: &ScrollStateMap,
+        accumulated_offset: LayoutPoint,
     ) {
         if let (Some(node), Some(geom)) = (ir.nodes.get(&node_id), snapshot.nodes.get(&node_id)) {
+            let mut child_offset = accumulated_offset;
+            if let fission_ir::Op::Layout(fission_ir::LayoutOp::Scroll { .. }) = &node.op {
+                let offset = scroll_map.get_offset(node_id);
+                child_offset =
+                    LayoutPoint::new(accumulated_offset.x, accumulated_offset.y - offset);
+            }
+
             if let fission_ir::Op::Layout(fission_ir::LayoutOp::Embed {
                 kind: EmbedKind::Video,
                 widget_id,
             }) = &node.op
             {
-                self.push_video_surface(*widget_id, geom.rect, video_map);
+                let translated_rect = translate_rect(geom.rect, accumulated_offset);
+                self.push_video_surface(*widget_id, translated_rect, video_map);
             }
 
             for child in &node.children {
-                self.collect_video_surfaces(*child, ir, snapshot, video_map);
+                self.collect_video_surfaces(
+                    *child,
+                    ir,
+                    snapshot,
+                    video_map,
+                    scroll_map,
+                    child_offset,
+                );
             }
         }
+    }
+}
+
+fn translate_rect(rect: LayoutRect, offset: LayoutPoint) -> LayoutRect {
+    LayoutRect {
+        origin: LayoutPoint::new(rect.origin.x + offset.x, rect.origin.y + offset.y),
+        size: rect.size,
     }
 }
