@@ -128,6 +128,13 @@ impl<S: AppState + Default, W: Widget<S> + 'static> DesktopApp<S, W> {
                                     _ => {}
                                 }
 
+                                if let Some(seek_pos) = state.pending_seek.take() {
+                                    player.seek_to(seek_pos);
+                                    state.position_ms = seek_pos;
+                                }
+
+                                player.set_rate(state.rate);
+
                                 for event in player.poll_events() {
                                     match event {
                                         VideoEvent::Ready { duration } => {

@@ -37,6 +37,8 @@ impl VideoPlayer for DummyPlayer {
     fn poll_events(&mut self) -> Vec<VideoEvent> {
         std::mem::take(&mut self.events)
     }
+    fn seek_to(&mut self, _position_ms: u64) {}
+    fn set_rate(&mut self, _rate: f32) {}
 }
 
 impl VideoBackend for DummyBackend {
@@ -77,6 +79,8 @@ fn test_video_backend_trait_object() -> Result<()> {
     player.play();
     player.pause();
     player.stop();
+    player.seek_to(500);
+    player.set_rate(1.25);
     assert_eq!(player.surface_id(), 42);
     assert_eq!(player.duration(), Some(1_000));
 

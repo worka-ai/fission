@@ -1,5 +1,5 @@
 use crate::{
-    action::video::{VideoPause, VideoPlay},
+    action::video::{VideoPause, VideoPlay, VideoSeek, VideoSetRate, VideoStop},
     Action, ActionEnvelope, ActionId, AppState, BoxedReducer,
 };
 use anyhow::{anyhow, Result};
@@ -233,6 +233,38 @@ impl VideoControlCtx {
         };
         ActionEnvelope {
             id: VideoPause::static_id(),
+            payload: action.encode(),
+        }
+    }
+
+    pub fn stop(&self) -> ActionEnvelope {
+        let action = VideoStop {
+            target: self.target,
+        };
+        ActionEnvelope {
+            id: VideoStop::static_id(),
+            payload: action.encode(),
+        }
+    }
+
+    pub fn seek_to(&self, position_ms: u64) -> ActionEnvelope {
+        let action = VideoSeek {
+            target: self.target,
+            position_ms,
+        };
+        ActionEnvelope {
+            id: VideoSeek::static_id(),
+            payload: action.encode(),
+        }
+    }
+
+    pub fn set_rate(&self, rate: f32) -> ActionEnvelope {
+        let action = VideoSetRate {
+            target: self.target,
+            rate,
+        };
+        ActionEnvelope {
+            id: VideoSetRate::static_id(),
             payload: action.encode(),
         }
     }

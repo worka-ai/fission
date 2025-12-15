@@ -303,6 +303,23 @@ mod mac {
                 Vec::new()
             }
         }
+
+        fn seek_to(&mut self, position_ms: u64) {
+            if let Some(player) = self.registry.get(self.player_id) {
+                unsafe {
+                    let time = CMTime::from_millis(position_ms);
+                    let () = msg_send![player.as_id(), seekToTime: time];
+                }
+            }
+        }
+
+        fn set_rate(&mut self, rate: f32) {
+            if let Some(player) = self.registry.get(self.player_id) {
+                unsafe {
+                    let () = msg_send![player.as_id(), setRate: rate];
+                }
+            }
+        }
     }
 
     unsafe fn create_av_player(source: &str) -> StrongPtr {
@@ -422,6 +439,7 @@ mod mock {
         duration: u64,
         sent_ready: bool,
         sent_ended: bool,
+        playback_rate: f32,
     }
 
     #[derive(PartialEq)]
@@ -445,6 +463,16 @@ mod mock {
                 duration: 5000,
                 sent_ready: false,
                 sent_ended: false,
+                playback_rate: 1.0,
+            }
+        }
+
+        fn current_elapsed_ms(&self) -> u64 {
+            if let (PlayerState::Playing, Some(start)) = (&self.state, self.play_start_time) {
+                let elapsed = start.elapsed().as_millis() as f64;
+                (elapsed * self.playback_rate as f64) as u64
+            } else {
+                0
             }
         }
     }
@@ -454,14 +482,16 @@ mod mock {
             if self.state == PlayerState::Ready || self.state == PlayerState::Paused {
                 self.state = PlayerState::Playing;
                 self.play_start_time = Some(Instant::now());
+            } else if self.state == PlayerState::Ended {
+                self.state = PlayerState::Playing;
+                self.accumulated_play_time = 0;
+                self.play_start_time = Some(Instant::now());
             }
         }
 
         fn pause(&mut self) {
             if self.state == PlayerState::Playing {
-                if let Some(start) = self.play_start_time {
-                    self.accumulated_play_time += start.elapsed().as_millis() as u64;
-                }
+                self.accumulated_play_time += self.current_elapsed_ms();
                 self.state = PlayerState::Paused;
                 self.play_start_time = None;
             }
@@ -475,13 +505,7 @@ mod mock {
         }
 
         fn position(&self) -> u64 {
-            let current =
-                if let (PlayerState::Playing, Some(start)) = (&self.state, self.play_start_time) {
-                    start.elapsed().as_millis() as u64
-                } else {
-                    0
-                };
-            self.accumulated_play_time + current
+            (self.accumulated_play_time + self.current_elapsed_ms()).min(self.duration)
         }
 
         fn duration(&self) -> Option<u64> {
@@ -516,6 +540,26 @@ mod mock {
             }
 
             events
+        }
+
+        fn seek_to(&mut self, position_ms: u64) {
+            let clamped = position_ms.min(self.duration);
+            self.accumulated_play_time = clamped;
+            if self.state == PlayerState::Playing {
+                self.play_start_time = Some(Instant::now());
+            } else {
+                self.play_start_time = None;
+            }
+            self.sent_ended = false;
+        }
+
+        fn set_rate(&mut self, rate: f32) {
+            let new_rate = rate.max(0.1);
+            if self.state == PlayerState::Playing {
+                self.accumulated_play_time = self.position();
+                self.play_start_time = Some(Instant::now());
+            }
+            self.playback_rate = new_rate;
         }
     }
 }

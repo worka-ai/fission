@@ -17,7 +17,7 @@ pub mod time;
 pub mod ui;
 pub mod view;
 
-use crate::action::video::{VideoPause, VideoPlay};
+use crate::action::video::{VideoPause, VideoPlay, VideoSeek, VideoSetRate, VideoStop};
 use crate::env::ActiveAnimation;
 pub use action::{Action, ActionEnvelope, ActionId, AppState};
 pub use env::{Env, InteractionStateMap, RuntimeState, ScrollStateMap};
@@ -217,6 +217,36 @@ impl Runtime {
                 .map_err(|e| anyhow!("Failed to deserialize VideoPause: {}", e))?;
             if let Some(video_state) = self.runtime_state.video.states.get_mut(&cmd.target) {
                 video_state.status = env::VideoStatus::Paused;
+            }
+            return Ok(());
+        }
+
+        if action.id == VideoStop::static_id() {
+            let cmd: VideoStop = serde_json::from_slice(&action.payload)
+                .map_err(|e| anyhow!("Failed to deserialize VideoStop: {}", e))?;
+            if let Some(video_state) = self.runtime_state.video.states.get_mut(&cmd.target) {
+                video_state.status = env::VideoStatus::Stopped;
+                video_state.position_ms = 0;
+                video_state.pending_seek = Some(0);
+            }
+            return Ok(());
+        }
+
+        if action.id == VideoSeek::static_id() {
+            let cmd: VideoSeek = serde_json::from_slice(&action.payload)
+                .map_err(|e| anyhow!("Failed to deserialize VideoSeek: {}", e))?;
+            if let Some(video_state) = self.runtime_state.video.states.get_mut(&cmd.target) {
+                video_state.position_ms = cmd.position_ms;
+                video_state.pending_seek = Some(cmd.position_ms);
+            }
+            return Ok(());
+        }
+
+        if action.id == VideoSetRate::static_id() {
+            let cmd: VideoSetRate = serde_json::from_slice(&action.payload)
+                .map_err(|e| anyhow!("Failed to deserialize VideoSetRate: {}", e))?;
+            if let Some(video_state) = self.runtime_state.video.states.get_mut(&cmd.target) {
+                video_state.rate = cmd.rate;
             }
             return Ok(());
         }

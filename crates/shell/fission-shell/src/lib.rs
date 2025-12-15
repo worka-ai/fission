@@ -30,6 +30,8 @@ pub trait VideoPlayer: Send + Sync {
     fn duration(&self) -> Option<u64>;
     fn surface_id(&self) -> u64;
     fn poll_events(&mut self) -> Vec<VideoEvent>;
+    fn seek_to(&mut self, position_ms: u64);
+    fn set_rate(&mut self, rate: f32);
 }
 
 #[derive(Debug, Clone, PartialEq)]

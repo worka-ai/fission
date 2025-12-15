@@ -109,6 +109,7 @@ pub struct VideoState {
     pub looped: bool,
     pub asset_source: String,
     pub surface_id: Option<u64>,
+    pub pending_seek: Option<u64>,
 }
 
 impl Default for VideoState {
@@ -122,6 +123,7 @@ impl Default for VideoState {
             looped: false,
             asset_source: String::new(),
             surface_id: None,
+            pending_seek: None,
         }
     }
 }

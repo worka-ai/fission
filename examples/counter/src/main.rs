@@ -151,6 +151,8 @@ impl Widget<CounterState> for CounterApp {
 
         let video_controls = ctx.video_controls(*DEMO_VIDEO_WIDGET_ID);
 
+        let half_duration = video_state.duration_ms.unwrap_or(0) / 2;
+
         let mut children = vec![
             Image {
                 source: "docs/fission_logo.png".into(),
@@ -207,10 +209,90 @@ impl Widget<CounterState> for CounterApp {
                 ..Default::default()
             }
             .into(),
+            Row {
+                children: vec![
+                    Button {
+                        on_press: Some(video_controls.stop()),
+                        child: Some(Box::new(
+                            Text {
+                                content: TextContent::Literal("Stop".into()),
+                                ..Default::default()
+                            }
+                            .into(),
+                        )),
+                        width: Some(140.0),
+                        ..Default::default()
+                    }
+                    .into(),
+                    Button {
+                        on_press: Some(video_controls.seek_to(0)),
+                        child: Some(Box::new(
+                            Text {
+                                content: TextContent::Literal("Seek Start".into()),
+                                ..Default::default()
+                            }
+                            .into(),
+                        )),
+                        width: Some(140.0),
+                        ..Default::default()
+                    }
+                    .into(),
+                    Button {
+                        on_press: Some(video_controls.seek_to(half_duration)),
+                        child: Some(Box::new(
+                            Text {
+                                content: TextContent::Literal("Seek Mid".into()),
+                                ..Default::default()
+                            }
+                            .into(),
+                        )),
+                        width: Some(140.0),
+                        ..Default::default()
+                    }
+                    .into(),
+                ],
+                ..Default::default()
+            }
+            .into(),
+            Row {
+                children: vec![
+                    Button {
+                        on_press: Some(video_controls.set_rate(1.0)),
+                        child: Some(Box::new(
+                            Text {
+                                content: TextContent::Literal("Rate 1x".into()),
+                                ..Default::default()
+                            }
+                            .into(),
+                        )),
+                        width: Some(140.0),
+                        ..Default::default()
+                    }
+                    .into(),
+                    Button {
+                        on_press: Some(video_controls.set_rate(1.5)),
+                        child: Some(Box::new(
+                            Text {
+                                content: TextContent::Literal("Rate 1.5x".into()),
+                                ..Default::default()
+                            }
+                            .into(),
+                        )),
+                        width: Some(140.0),
+                        ..Default::default()
+                    }
+                    .into(),
+                ],
+                ..Default::default()
+            }
+            .into(),
             Text {
                 content: TextContent::Literal(format!(
-                    "Video status: {:?} at {}ms",
-                    video_state.status, video_state.position_ms
+                    "Video status: {:?} at {}ms / {:?} (rate {:.1}x)",
+                    video_state.status,
+                    video_state.position_ms,
+                    video_state.duration_ms,
+                    video_state.rate
                 )),
                 ..Default::default()
             }
