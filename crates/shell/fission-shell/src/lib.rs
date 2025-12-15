@@ -1,17 +1,31 @@
-use anyhow::Result;
-use fission_ir::NodeId;
 use serde::{Deserialize, Serialize};
+use fission_ir::NodeId;
 
-pub use fission_render::{LayoutPoint, LayoutRect, LayoutSize}; 
-pub use fission_core::{InputEvent, PointerEvent, PointerButton, KeyEvent, KeyCode, LifecycleEvent};
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub enum Platform {
+    Desktop,
+    Web,
+    Mobile,
+    Test,
+}
 
-// The Platform trait, implemented by concrete platform shells (desktop, mobile, web).
-pub trait Platform {
-    // Dispatches an input event to the Core Runtime. The Platform is responsible for
-    // normalizing raw OS input into `InputEvent`.
-    fn dispatch_event(&mut self, event: InputEvent) -> Result<()>;
+pub trait VideoBackend: Send + Sync {
+    fn create_player(&self, source: &str) -> Box<dyn VideoPlayer>;
+}
 
-    // A placeholder for getting the render surface, or rendering commands.
-    // Actual rendering would happen via `fission-render` traits.
-    fn present(&mut self, display_list_data: &[u8]) -> Result<()>; 
+pub trait VideoPlayer: Send + Sync {
+    fn play(&mut self);
+    fn pause(&mut self);
+    fn stop(&mut self);
+    fn position(&self) -> u64;
+    fn duration(&self) -> Option<u64>;
+    fn surface_id(&self) -> u64;
+    fn poll_events(&mut self) -> Vec<VideoEvent>;
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum VideoEvent {
+    Ready { duration: u64 },
+    Ended,
+    Error(String),
 }

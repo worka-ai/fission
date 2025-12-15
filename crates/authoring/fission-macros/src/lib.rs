@@ -11,19 +11,18 @@ pub fn derive_action(input: TokenStream) -> TokenStream {
 
     let action_id_static_name = format_ident!("{}_ACTION_ID", name.to_string().to_uppercase());
 
-    // Generate the full path string using `module_path!()` at the call site
     let full_path_str = quote! { concat!(module_path!(), "::", stringify!(#name)) };
 
     let expanded = quote! {
         #[automatically_derived]
         #[allow(non_upper_case_globals)] 
         lazy_static::lazy_static! {
-            static ref #action_id_static_name: fission_core::ActionId = fission_core::ActionId::from_name(#full_path_str);
+            pub static ref #action_id_static_name: ::fission_core::action::ActionId = ::fission_core::action::ActionId::from_name(#full_path_str);
         }
 
         #[automatically_derived]
-        impl #impl_generics fission_core::Action for #name #ty_generics #where_clause {
-            fn static_id() -> fission_core::ActionId {
+        impl #impl_generics ::fission_core::action::Action for #name #ty_generics #where_clause {
+            fn static_id() -> ::fission_core::action::ActionId {
                 *#action_id_static_name 
             }
         }

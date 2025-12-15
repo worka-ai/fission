@@ -14,16 +14,16 @@ pub mod registry;
 pub mod env;
 pub mod ui;
 pub mod view;
+pub mod diff; 
 
 pub use action::{Action, ActionId, AppState, ActionEnvelope};
-pub use action::video::{VideoPlay, VideoPause, VIDEO_PLAY_ID, VIDEO_PAUSE_ID};
 pub use time::{Clock, CurrentTime};
 pub use lowering::{LoweringContext};
 pub use event::{InputEvent, PointerEvent, PointerButton, KeyEvent, KeyCode, LifecycleEvent};
 pub use fission_ir::op; 
-pub use fission_ir::{Op, NodeId}; 
+pub use fission_ir::{Op, NodeId, EmbedKind}; 
 pub use registry::{BuildCtx, ActionRegistry, Handler};
-pub use env::{Env, RuntimeState, InteractionStateMap, ScrollStateMap, ActiveAnimation, AnimationStateMap, VideoStateMap, VideoStatus};
+pub use env::{Env, RuntimeState, InteractionStateMap, ScrollStateMap};
 pub use ui::{Node, Row, Column, Text, Button, CustomNode, Lower, LowerDyn};
 pub use view::{View, Selector, Widget};
 pub use fission_layout::{LayoutSnapshot, LayoutPoint, LayoutSize, LayoutRect, LayoutUnit, LayoutOp, FlexDirection};
@@ -76,7 +76,7 @@ impl Default for Runtime {
         };
         
         runtime.add_app_state(Box::new(Clock::default())).expect("Failed to add Clock state");
-        runtime.add_app_state(Box::new(VideoStateMap::default())).expect("Failed to add VideoStateMap");
+        // runtime.add_app_state(Box::new(VideoStateMap::default())).expect("Failed to add VideoStateMap");
 
         runtime.register_base_reducers();
         
@@ -96,19 +96,19 @@ impl Runtime {
             state.set_to(advance_action.time)
         }).expect("Failed to register AdvanceTo reducer");
 
-        self.register_reducer::<VideoStateMap>(*VIDEO_PLAY_ID, |state: &mut VideoStateMap, _action: &ActionEnvelope, target| {
-            if let Some(video_state) = state.states.get_mut(&target) {
-                video_state.status = VideoStatus::Playing;
-            }
-            Ok(())
-        }).expect("Failed to register VideoPlay reducer");
+        // self.register_reducer::<VideoStateMap>(*VIDEO_PLAY_ID, |state: &mut VideoStateMap, _action: &ActionEnvelope, target| {
+        //     if let Some(video_state) = state.states.get_mut(&target) {
+        //         video_state.status = VideoStatus::Playing;
+        //     }
+        //     Ok(())
+        // }).expect("Failed to register VideoPlay reducer");
 
-        self.register_reducer::<VideoStateMap>(*VIDEO_PAUSE_ID, |state: &mut VideoStateMap, _action: &ActionEnvelope, target| {
-            if let Some(video_state) = state.states.get_mut(&target) {
-                video_state.status = VideoStatus::Paused;
-            }
-            Ok(())
-        }).expect("Failed to register VideoPause reducer");
+        // self.register_reducer::<VideoStateMap>(*VIDEO_PAUSE_ID, |state: &mut VideoStateMap, _action: &ActionEnvelope, target| {
+        //     if let Some(video_state) = state.states.get_mut(&target) {
+        //         video_state.status = VideoStatus::Paused;
+        //     }
+        //     Ok(())
+        // }).expect("Failed to register VideoPause reducer");
     }
 
     pub fn clear_reducers(&mut self) {
@@ -167,6 +167,8 @@ impl Runtime {
     }
 
     pub fn dispatch(&mut self, action: ActionEnvelope, target: NodeId) -> Result<()> {
+        // System Actions - Removed Animate dispatch
+
         let action_id = action.id;
         if let Some(reducers) = self.reducers.get_mut(&action_id) {
             let mut temp_reducers: Vec<BoxedReducer> = reducers.drain(..).collect();
@@ -186,52 +188,8 @@ impl Runtime {
         
         let current_time = self.clock().current_time();
         
-        let mut finished_indices = Vec::new();
-        let mut new_values = HashMap::new();
-        
-        for (i, anim) in self.runtime_state.animation.active.iter().enumerate() {
-            let elapsed = current_time.saturating_sub(anim.start_time);
-            let progress = (elapsed as f32 / anim.duration as f32).min(1.0);
-            
-            // Linear easing
-            let current_value = anim.start_value + (anim.end_value - anim.start_value) * progress;
-            
-            new_values.insert((anim.node_id, anim.property.clone()), current_value);
-            
-            if progress >= 1.0 {
-                finished_indices.push(i);
-            }
-        }
-        
-        for (k, v) in new_values {
-            self.runtime_state.animation.values.insert(k, v);
-        }
-        
-        for i in finished_indices.into_iter().rev() {
-            self.runtime_state.animation.active.remove(i);
-        }
-        
-        // Update Video State
-        if let Some(video_map) = self.get_app_state_mut::<VideoStateMap>() {
-            for (_, state) in video_map.states.iter_mut() {
-                if state.status == VideoStatus::Playing {
-                    // Advance position by dt * rate
-                    let advance = (dt as f32 * state.rate) as u64;
-                    state.position_ms += advance;
-                    
-                    if let Some(duration) = state.duration_ms {
-                        if state.position_ms >= duration {
-                            if state.looped {
-                                state.position_ms %= duration;
-                            } else {
-                                state.position_ms = duration;
-                                state.status = VideoStatus::Ended;
-                            }
-                        }
-                    }
-                }
-            }
-        }
+        // Removed Animation processing logic
+        // Removed Video State update logic
         
         Ok(())
     }

@@ -3,8 +3,11 @@ use serde::{Deserialize, Serialize, de::DeserializeOwned};
 use std::any::Any;
 use blake3;
 use serde_json;
+use fission_macros::Action;
+use fission_ir::NodeId;
+use lazy_static::lazy_static;
 
-pub mod video; // Added module
+//pub mod video; 
 
 // ActionId is a stable, globally unique identifier for an Action type.
 #[derive(Clone, Copy, PartialEq, Eq, Hash, Debug, Serialize, Deserialize, PartialOrd, Ord)] 
@@ -71,3 +74,5 @@ impl<T: Action> From<T> for ActionEnvelope {
 pub trait AppState: Any + Send + Sync + std::fmt::Debug + Downcast {}
 
 impl_downcast!(AppState);
+
+pub type Reducer<S> = fn(&mut S, &ActionEnvelope, NodeId) -> anyhow::Result<()>;

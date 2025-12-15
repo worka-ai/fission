@@ -526,6 +526,7 @@ dependencies = [
  "fission-i18n",
  "fission-ir",
  "fission-layout",
+ "fission-macros",
  "fission-semantics",
  "fission-theme",
  "lazy_static",
@@ -585,6 +586,7 @@ name = "fission-render-skia"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "fission-layout",
  "fission-render",
  "skia-safe",
 ]

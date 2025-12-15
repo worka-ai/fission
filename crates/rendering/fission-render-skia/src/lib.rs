@@ -1,19 +1,21 @@
-use fission_render::{Renderer, DisplayList, DisplayOp, Color, LayoutRect, LayoutPoint, LayoutUnit, BoxShadow, TextMeasurer, ImageFit};
-use skia_safe::{Canvas, Paint, Rect, Color as SkColor, FontMgr, MaskFilter, RRect, BlurStyle, Vector}; 
-use skia_safe::font::Font;
-use skia_safe::font_style::FontStyle;
-use skia_safe::Typeface; 
-use skia_safe::wrapper::NativeTransmutableWrapper; // For unwrap
-use anyhow::Result;
+use fission_render::{DisplayList, DisplayOp, Renderer, Color as RenderColor, Fill, Stroke, BoxShadow, ImageFit};
+use fission_layout::TextMeasurer;
+use skia_safe::{Canvas, Paint, Rect, Color as SkColor, FontMgr, MaskFilter, RRect, BlurStyle, Vector};
 use std::fs;
+use anyhow::Result;
+use skia_safe::wrapper::NativeTransmutableWrapper; 
 
 pub struct SkiaRenderer<'a> {
-    canvas: &'a Canvas, 
+    canvas: &'a Canvas,
+    font_mgr: FontMgr,
 }
 
 impl<'a> SkiaRenderer<'a> {
     pub fn new(canvas: &'a Canvas) -> Self {
-        Self { canvas }
+        Self {
+            canvas,
+            font_mgr: FontMgr::new(),
+        }
     }
 }
 
@@ -21,150 +23,131 @@ pub struct SkiaTextMeasurer;
 
 impl TextMeasurer for SkiaTextMeasurer {
     fn measure(&self, text: &str, font_size: f32, _available_width: Option<f32>) -> (f32, f32) {
-        let font_mgr = FontMgr::new();
-        let typeface = load_typeface(&font_mgr);
-        let font = Font::new(typeface, font_size);
-        let (_width, bounds) = font.measure_str(text, None);
-        (bounds.width(), bounds.height())
+        (text.len() as f32 * font_size * 0.6, font_size * 1.2)
     }
 }
 
-// Helper to convert Fission types to Skia types
-fn to_skia_rect(r: &LayoutRect) -> Rect {
-    Rect::from_xywh(r.x(), r.y(), r.width(), r.height())
-}
-
-fn to_skia_color(c: &Color) -> SkColor {
-    SkColor::from_argb(c.a, c.r, c.g, c.b)
-}
-
-fn load_typeface(font_mgr: &FontMgr) -> Typeface {
-    let families = ["sans-serif", "Helvetica", "Arial", ".AppleSystemUIFont", "Segoe UI", "Roboto"];
-    
-    for family in families {
-        if let Some(tf) = font_mgr.match_family_style(family, FontStyle::default()) {
-            return tf;
-        }
-    }
-
-    if let Some(tf) = font_mgr.match_family_style("", FontStyle::default()) {
-        return tf;
-    }
-
-    panic!("Failed to load any system font (tried common families and default)");
-}
-
-impl<'a> Renderer for SkiaRenderer<'a> {
+impl<'r> Renderer for SkiaRenderer<'r> {
     fn render(&mut self, display_list: &DisplayList) -> Result<()> {
-        self.canvas.clear(SkColor::WHITE); // Clear background
+        self.canvas.clear(SkColor::WHITE);
 
         for op in &display_list.ops {
             match op {
-                DisplayOp::DrawRect { rect, fill, stroke, corner_radius, shadow, bounds, node_id } => {
-                    let sk_rect = to_skia_rect(rect);
-                    
-                    let rrect = RRect::new_rect_xy(&sk_rect, *corner_radius, *corner_radius);
-
-                    if let Some(s) = shadow {
-                        let mut shadow_paint = Paint::default();
-                        shadow_paint.set_color(to_skia_color(&s.color));
-                        shadow_paint.set_anti_alias(true);
-                        shadow_paint.set_mask_filter(MaskFilter::blur(
-                            BlurStyle::Normal,
-                            s.blur_radius,
-                            false,
-                        ));
-                        
-                        let shadow_rect: Rect = sk_rect.with_offset(s.offset);
-                        let shadow_rrect = RRect::new_rect_xy(&shadow_rect, *corner_radius, *corner_radius);
-                        self.canvas.draw_rrect(&shadow_rrect, &shadow_paint);
-                    }
-
-                    if let Some(f) = fill {
-                        let mut paint = Paint::default();
-                        paint.set_anti_alias(true);
-                        paint.set_color(to_skia_color(&f.color));
-                        paint.set_style(skia_safe::paint::Style::Fill);
-                        self.canvas.draw_rrect(&rrect, &paint);
-                    }
-
-                    if let Some(s) = stroke {
-                        let mut paint = Paint::default();
-                        paint.set_anti_alias(true);
-                        paint.set_color(to_skia_color(&s.color));
-                        paint.set_style(skia_safe::paint::Style::Stroke);
-                        paint.set_stroke_width(s.width);
-                        self.canvas.draw_rrect(&rrect, &paint);
-                    }
-                }
-                DisplayOp::DrawText { text, position, size, color, bounds, .. } => {
-                    let mut paint = Paint::default();
-                    paint.set_color(to_skia_color(color));
-                    paint.set_anti_alias(true);
-
-                    let font_manager = FontMgr::new();
-                    let typeface = load_typeface(&font_manager);
-                    let font = Font::new(typeface, *size);
-
-                    let (_scale, text_metrics) = font.metrics(); 
-                    let ascender = text_metrics.ascent.abs(); 
-                    
-                    let text_draw_y = position.y + ascender; 
-
-                    self.canvas.draw_str(
-                        text, 
-                        (position.x, text_draw_y),
-                        &font, 
-                        &paint
-                    );
-                }
-                DisplayOp::DrawImage { rect, source, fit: _, .. } => {
-                    if let Ok(bytes) = fs::read(source) {
-                        if let Some(image) = skia_safe::Image::from_encoded(skia_safe::Data::new_copy(&bytes)) {
-                            let mut paint = Paint::default();
-                            paint.set_anti_alias(true);
-                            
-                            let src_rect = Rect::from_wh(image.width() as f32, image.height() as f32);
-                            let dst_rect = to_skia_rect(rect);
-                            
-                            self.canvas.draw_image_rect(&image, Some((&src_rect, skia_safe::canvas::SrcRectConstraint::Strict)), dst_rect, &paint);
-                        } else {
-                            eprintln!("Failed to decode image: {}", source);
-                        }
-                    } else {
-                        eprintln!("Failed to read image file: {}", source);
-                    }
-                }
-                DisplayOp::DrawSurface { rect, surface_id, .. } => {
-                    let mut paint = Paint::default();
-                    paint.set_color(SkColor::from_argb(255, 0, 0, 0)); // Black
-                    let dst_rect = to_skia_rect(rect);
-                    self.canvas.draw_rect(dst_rect, &paint);
-                    
-                    // Draw Label
-                    let font_manager = FontMgr::new();
-                    let typeface = load_typeface(&font_manager);
-                    let font = Font::new(typeface, 14.0);
-                    let mut text_paint = Paint::default();
-                    text_paint.set_color(SkColor::WHITE);
-                    self.canvas.draw_str(format!("Video Surface {}", surface_id), (dst_rect.x() + 10.0, dst_rect.y() + 20.0), &font, &text_paint);
-                }
                 DisplayOp::Save => {
                     self.canvas.save();
-                }
+                },
                 DisplayOp::Restore => {
                     self.canvas.restore();
-                }
-                DisplayOp::Translate(pt) => {
-                    self.canvas.translate((pt.x, pt.y));
-                }
+                },
                 DisplayOp::ClipRect(rect) => {
-                    self.canvas.clip_rect(to_skia_rect(rect), skia_safe::ClipOp::Intersect, true);
-                }
-                _ => {
-                    // Implement other ops as needed
-                }
+                    self.canvas.clip_rect(
+                        Rect::new(rect.x(), rect.y(), rect.right(), rect.bottom()),
+                        skia_safe::ClipOp::Intersect,
+                        true 
+                    );
+                },
+                DisplayOp::Translate(point) => {
+                    self.canvas.translate((point.x, point.y));
+                },
+                DisplayOp::DrawRect { rect, fill, stroke, corner_radius, shadow, bounds, node_id } => {
+                    if let Some(shadow) = shadow {
+                        let mut shadow_paint = Paint::default();
+                        shadow_paint.set_color(SkColor::from_argb(shadow.color.a, shadow.color.r, shadow.color.g, shadow.color.b));
+                        shadow_paint.set_mask_filter(MaskFilter::blur(BlurStyle::Normal, shadow.blur_radius, None));
+                        
+                        let shadow_rect = Rect::new(
+                            rect.x() + shadow.offset.0,
+                            rect.y() + shadow.offset.1,
+                            rect.right() + shadow.offset.0,
+                            rect.bottom() + shadow.offset.1
+                        );
+                        
+                        if *corner_radius > 0.0 {
+                            self.canvas.draw_rrect(
+                                RRect::new_rect_xy(shadow_rect, *corner_radius, *corner_radius),
+                                &shadow_paint
+                            );
+                        } else {
+                            self.canvas.draw_rect(shadow_rect, &shadow_paint);
+                        }
+                    }
+
+                    if let Some(fill) = fill {
+                        let mut paint = Paint::default();
+                        paint.set_color(SkColor::from_argb(fill.color.a, fill.color.r, fill.color.g, fill.color.b));
+                        
+                        if *corner_radius > 0.0 {
+                            self.canvas.draw_rrect(
+                                RRect::new_rect_xy(
+                                    Rect::new(rect.x(), rect.y(), rect.right(), rect.bottom()),
+                                    *corner_radius, *corner_radius
+                                ),
+                                &paint
+                            );
+                        } else {
+                            self.canvas.draw_rect(
+                                Rect::new(rect.x(), rect.y(), rect.right(), rect.bottom()),
+                                &paint
+                            );
+                        }
+                    }
+
+                    if let Some(stroke) = stroke {
+                        let mut paint = Paint::default();
+                        paint.set_style(skia_safe::PaintStyle::Stroke);
+                        paint.set_color(SkColor::from_argb(stroke.color.a, stroke.color.r, stroke.color.g, stroke.color.b));
+                        paint.set_stroke_width(stroke.width);
+                        
+                        if *corner_radius > 0.0 {
+                            self.canvas.draw_rrect(
+                                RRect::new_rect_xy(
+                                    Rect::new(rect.x(), rect.y(), rect.right(), rect.bottom()),
+                                    *corner_radius, *corner_radius
+                                ),
+                                &paint
+                            );
+                        } else {
+                            self.canvas.draw_rect(
+                                Rect::new(rect.x(), rect.y(), rect.right(), rect.bottom()),
+                                &paint
+                            );
+                        }
+                    }
+                },
+                DisplayOp::DrawText { text, position, size, color, bounds, .. } => {
+                    let mut paint = Paint::default();
+                    paint.set_color(SkColor::from_argb(color.a, color.r, color.g, color.b));
+                    paint.set_anti_alias(true);
+                    
+                    if let Some(typeface) = self.font_mgr.match_family_style("Arial", skia_safe::FontStyle::normal()) {
+                        let font = skia_safe::Font::from_typeface(typeface, *size);
+                        let adjusted_y = position.y + size; 
+                        self.canvas.draw_str(text, (position.x, adjusted_y), &font, &paint);
+                    }
+                },
+                DisplayOp::DrawImage { rect, source, fit, bounds, node_id } => {
+                    if let Ok(data) = fs::read(source) {
+                        if let Some(image) = skia_safe::Image::from_encoded(skia_safe::Data::new_copy(&data)) {
+                            let src_rect = Rect::from_wh(image.width() as f32, image.height() as f32);
+                            let dst_rect = Rect::new(rect.x(), rect.y(), rect.right(), rect.bottom());
+                            self.canvas.draw_image_rect(&image, Some((&src_rect, skia_safe::canvas::SrcRectConstraint::Strict)), dst_rect, &Paint::default());
+                        }
+                    }
+                },
+                DisplayOp::DrawSurface { rect, surface_id, position, .. } => {
+                    let mut paint = Paint::default();
+                    let r = ((surface_id * 50 + position / 20) % 255) as u8;
+                    let g = ((surface_id * 30 + position / 30) % 255) as u8;
+                    let b = ((surface_id * 70 + position / 40) % 255) as u8;
+                    paint.set_color(SkColor::from_rgb(r, g, b));
+                    
+                    self.canvas.draw_rect(
+                        Rect::new(rect.x(), rect.y(), rect.right(), rect.bottom()),
+                        &paint
+                    );
+                },
             }
         }
-        Ok(())}
+        Ok(())
+    }
 }

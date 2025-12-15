@@ -12,17 +12,21 @@ use std::rc::Rc;
 use std::sync::Arc;
 use std::time::{Instant, Duration};
 use anyhow::Result;
+use std::collections::HashMap;
 
-use fission_shell::Platform;
+use fission_shell::{Platform, VideoBackend, VideoPlayer, VideoEvent};
 use fission_render::{Renderer, DisplayList, LayoutRect, LayoutPoint, LayoutUnit, Color as RenderColor};
 use fission_render_skia::{SkiaRenderer, SkiaTextMeasurer};
-use fission_core::{Runtime, Clock, Action, ActionId, AppState, BuildCtx, Env, InputEvent, PointerEvent, PointerButton, Widget, View, Node, Lower, ScrollStateMap, KeyCode, KeyEvent as FissionKeyEvent, VideoStateMap, VideoStatus};
+use fission_core::{Runtime, Clock, Action, ActionId, AppState, BuildCtx, Env, InputEvent, PointerEvent, PointerButton, Widget, View, Node, Lower, ScrollStateMap, KeyCode, KeyEvent as FissionKeyEvent};
+use fission_core::env::{VideoStateMap, VideoStatus, VideoState};
 use fission_core::lowering::{build_layout_tree, LoweringContext};
 use fission_layout::{LayoutEngine, LayoutSize, LayoutInputNode, LayoutSnapshot};
 use fission_ir::{NodeId, Op, PaintOp, Color as IrColor, FlexDirection, CoreIR};
 
 mod pipeline;
 use pipeline::Pipeline;
+mod video_backend;
+use video_backend::MockVideoBackend;
 
 pub struct DesktopApp<S: AppState, W: Widget<S>> {
     runtime: Runtime,
@@ -30,6 +34,7 @@ pub struct DesktopApp<S: AppState, W: Widget<S>> {
     root_widget: W,
     env: Env,
     pipeline: Pipeline,
+    video_backend: Arc<dyn VideoBackend>,
     _phantom: std::marker::PhantomData<S>,
 }
 
@@ -48,6 +53,7 @@ impl<S: AppState + Default, W: Widget<S> + 'static> DesktopApp<S, W> {
             root_widget,
             env,
             pipeline: Pipeline::new(),
+            video_backend: Arc::new(MockVideoBackend::new()),
             _phantom: std::marker::PhantomData,
         }
     }
@@ -67,10 +73,12 @@ impl<S: AppState + Default, W: Widget<S> + 'static> DesktopApp<S, W> {
         window.request_redraw();
 
         let mut runtime = self.runtime;
-        let layout_engine = self.layout_engine;
+        let mut layout_engine = self.layout_engine;
         let root_widget = self.root_widget;
         let env = self.env;
         let mut pipeline = self.pipeline;
+        let video_backend = self.video_backend;
+        let mut players: HashMap<NodeId, Box<dyn VideoPlayer>> = HashMap::new();
 
         let mut last_cursor_position: Option<PhysicalPosition<f64>> = None;
         let mut last_frame_time = Instant::now();
@@ -80,10 +88,48 @@ impl<S: AppState + Default, W: Widget<S> + 'static> DesktopApp<S, W> {
 
             match event {
                 Event::AboutToWait => {
-                    let video_playing = runtime.get_app_state::<VideoStateMap>()
-                        .map(|m| m.states.values().any(|s| s.status == VideoStatus::Playing))
-                        .unwrap_or(false);
+                    let mut needs_redraw = false;
+                    let video_map = &mut runtime.runtime_state.video;
                     
+                    for (id, state) in &mut video_map.states {
+                        if !players.contains_key(id) {
+                            if !state.asset_source.is_empty() {
+                                let player = video_backend.create_player(&state.asset_source);
+                                state.surface_id = Some(player.surface_id());
+                                players.insert(*id, player);
+                            }
+                        }
+
+                        if let Some(player) = players.get_mut(id) {
+                            match state.status {
+                                VideoStatus::Playing => player.play(),
+                                VideoStatus::Paused => player.pause(),
+                                VideoStatus::Stopped => player.stop(),
+                                _ => {}
+                            }
+                            
+                            for event in player.poll_events() {
+                                match event {
+                                    VideoEvent::Ready { duration } => {
+                                        state.duration_ms = Some(duration);
+                                    },
+                                    VideoEvent::Ended => {
+                                        state.status = VideoStatus::Stopped;
+                                        needs_redraw = true;
+                                    },
+                                    _ => {}
+                                }
+                            }
+                            
+                            let new_pos = player.position();
+                            if state.position_ms != new_pos {
+                                state.position_ms = new_pos;
+                                needs_redraw = true; 
+                            }
+                        }
+                    }
+
+                    let video_playing = video_map.states.values().any(|s| s.status == VideoStatus::Playing);
                     let has_animations = !runtime.runtime_state.animation.active.is_empty() || video_playing;
                     
                     if has_animations {
@@ -100,6 +146,9 @@ impl<S: AppState + Default, W: Widget<S> + 'static> DesktopApp<S, W> {
                         window.request_redraw();
                         elwt.set_control_flow(ControlFlow::WaitUntil(Instant::now() + Duration::from_millis(16)));
                     } else {
+                        if needs_redraw {
+                            window.request_redraw();
+                        }
                         last_frame_time = Instant::now();
                     }
                 }
@@ -148,18 +197,19 @@ impl<S: AppState + Default, W: Widget<S> + 'static> DesktopApp<S, W> {
                                     None
                                 ) {
                                     let canvas = sk_surface.canvas();
-                                    let mut renderer = SkiaRenderer::new(canvas);
+                                    let mut renderer: Box<dyn Renderer> = Box::new(SkiaRenderer::new(canvas));
                                     
-                                    let video_map = runtime.get_app_state::<VideoStateMap>().unwrap();
+                                    let video_map = &runtime.runtime_state.video;
 
-                                    if let Err(e) = pipeline.render(
+                                    let stats = pipeline.render(
                                         cx_ir,
                                         viewport,
-                                        &layout_engine,
+                                        &mut layout_engine,
                                         &runtime.runtime_state.scroll,
-                                        video_map,
-                                        &mut renderer
-                                    ) {
+                                        &mut *renderer
+                                    );
+                                    
+                                    if let Err(e) = stats {
                                         eprintln!("Render pipeline error: {:?}", e);
                                     }
                                 } else {
@@ -171,7 +221,7 @@ impl<S: AppState + Default, W: Widget<S> + 'static> DesktopApp<S, W> {
                         }
                         WindowEvent::CursorMoved { position, .. } => {
                             last_cursor_position = Some(position);
-                            if let (Some(ir), Some(snapshot)) = (&pipeline.prev_ir, &pipeline.prev_snapshot) {
+                            if let (Some(snapshot), Some(ir)) = (&pipeline.last_snapshot, &pipeline.prev_ir) {
                                 let point = LayoutPoint::new(position.x as f32, position.y as f32);
                                 let event = InputEvent::Pointer(PointerEvent::Move { point });
                                 if let Ok(_) = runtime.handle_input(event, ir, snapshot) {
@@ -184,7 +234,7 @@ impl<S: AppState + Default, W: Widget<S> + 'static> DesktopApp<S, W> {
                                 if let (Some(position), Some(ir), Some(snapshot)) = (
                                     last_cursor_position.as_ref(),
                                     &pipeline.prev_ir,
-                                    &pipeline.prev_snapshot,
+                                    &pipeline.last_snapshot,
                                 ) {
                                     if let Some(input_event) = build_pointer_event(
                                         state,
@@ -204,7 +254,7 @@ impl<S: AppState + Default, W: Widget<S> + 'static> DesktopApp<S, W> {
                                 MouseScrollDelta::PixelDelta(pos) => LayoutPoint::new(-pos.x as f32, -pos.y as f32),
                             };
                             
-                            if let (Some(cursor_pos), Some(ir), Some(snapshot)) = (last_cursor_position, &pipeline.prev_ir, &pipeline.prev_snapshot) {
+                            if let (Some(cursor_pos), Some(ir), Some(snapshot)) = (last_cursor_position, &pipeline.prev_ir, &pipeline.last_snapshot) {
                                 let point = LayoutPoint::new(cursor_pos.x as f32, cursor_pos.y as f32);
                                 let event = InputEvent::Pointer(PointerEvent::Scroll { point, delta: delta_point });
                                 
@@ -228,7 +278,7 @@ impl<S: AppState + Default, W: Widget<S> + 'static> DesktopApp<S, W> {
                                     FissionKeyEvent::Up { key_code: code, modifiers: 0 }
                                 };
                                 
-                                if let (Some(ir), Some(snapshot)) = (&pipeline.prev_ir, &pipeline.prev_snapshot) {
+                                if let (Some(ir), Some(snapshot)) = (&pipeline.prev_ir, &pipeline.last_snapshot) {
                                     if let Ok(_) = runtime.handle_input(InputEvent::Keyboard(fission_event), ir, snapshot) {
                                         window.request_redraw();
                                     }

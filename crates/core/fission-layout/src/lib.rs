@@ -1,7 +1,7 @@
-use fission_ir::{NodeId, FlexDirection as IrFlexDirection}; 
+use fission_ir::{NodeId, FlexDirection as IrFlexDirection, PaintOp, Op}; 
 use anyhow::Result;
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 use taffy::prelude::*;
 use taffy::node::Node as TaffyNodeId;
@@ -107,67 +107,100 @@ pub trait TextMeasurer: Send + Sync {
 
 pub struct LayoutEngine {
     measurer: Option<Arc<dyn TextMeasurer>>,
+    taffy: Taffy,
+    taffy_map: HashMap<NodeId, TaffyNodeId>,
 }
 
 impl LayoutEngine {
-    pub fn new() -> Self { Self { measurer: None } }
+    pub fn new() -> Self { 
+        Self { 
+            measurer: None,
+            taffy: Taffy::new(),
+            taffy_map: HashMap::new(),
+        } 
+    }
 
     pub fn with_measurer(mut self, measurer: Arc<dyn TextMeasurer>) -> Self {
         self.measurer = Some(measurer);
         self
     }
 
-    pub fn compute_layout(
-        &self,
-        input_nodes: &[LayoutInputNode],
-        root_node_id: NodeId,
-        viewport_size: LayoutSize,
-    ) -> Result<LayoutSnapshot> {
-        let mut taffy = Taffy::new();
-        let mut taffy_node_map: HashMap<NodeId, TaffyNodeId> = HashMap::new();
-        
+    pub fn update(&mut self, input_nodes: &[LayoutInputNode], dirty_set: &HashSet<NodeId>) {
         let node_map: HashMap<NodeId, &LayoutInputNode> = input_nodes.iter().map(|n| (n.id, n)).collect();
-        if node_map.is_empty() {
-            return Err(anyhow::anyhow!("No layout nodes provided"));
+
+        // 1. Cleanup removed nodes
+        let mut to_remove = Vec::new();
+        for id in self.taffy_map.keys() {
+            if !node_map.contains_key(id) {
+                to_remove.push(*id);
+            }
+        }
+        for id in to_remove {
+            let t_id = self.taffy_map.remove(&id).unwrap();
+            self.taffy.remove(t_id).ok();
         }
 
-        if !node_map.contains_key(&root_node_id) {
-            return Err(anyhow::anyhow!(
-                "Root node {:?} missing from layout input set",
-                root_node_id
-            ));
+        let mut ensure_exists = |id: NodeId| {
+            if !self.taffy_map.contains_key(&id) {
+                let t_id = self.taffy.new_leaf(Style::default()).unwrap();
+                self.taffy_map.insert(id, t_id);
+            }
+        };
+
+        for id in dirty_set {
+            if node_map.contains_key(id) {
+                ensure_exists(*id);
+            }
         }
 
-        self.build_taffy_tree(root_node_id, &mut taffy, &mut taffy_node_map, &node_map)?;
+        // 3. Update properties and children
+        for id in dirty_set {
+            if let Some(node) = node_map.get(id) {
+                let t_id = *self.taffy_map.get(id).unwrap();
+                
+                // Style
+                let style = self.compute_style(node);
+                self.taffy.set_style(t_id, style).unwrap();
+                
+                // Measure
+                if let (Some(text), Some(size), Some(measurer)) = (&node.text_content, node.font_size, &self.measurer) {
+                    let text = text.clone();
+                    let font_size = size;
+                    let measurer = measurer.clone();
+                    
+                    self.taffy.set_measure(
+                        t_id, 
+                        Some(taffy::node::MeasureFunc::Boxed(Box::new(move |_known_dims, available_space| {
+                            let avail_width = match available_space.width {
+                                AvailableSpace::Definite(w) => Some(w),
+                                AvailableSpace::MaxContent => None,
+                                AvailableSpace::MinContent => Some(0.0),
+                            };
+                            let (w, h) = measurer.measure(&text, font_size, avail_width);
+                            taffy::geometry::Size { width: w, height: h }
+                        })))
+                    ).unwrap();
+                } else {
+                    self.taffy.set_measure(t_id, None).unwrap();
+                }
 
-        let root_taffy_id = *taffy_node_map.get(&root_node_id).unwrap();
-        taffy.compute_layout(
-            root_taffy_id,
-            taffy::geometry::Size {
-                width: taffy::style::AvailableSpace::Definite(viewport_size.width),
-                height: taffy::style::AvailableSpace::Definite(viewport_size.height),
-            },
-        ).map_err(|e| anyhow::anyhow!("Taffy layout error: {:?}", e))?;
-
-        let mut geometries = HashMap::new();
-        self.extract_geometry_recursive(root_node_id, LayoutPoint::ZERO, &taffy, &taffy_node_map, &node_map, &mut geometries);
-        
-        let mut snapshot = LayoutSnapshot::new(viewport_size);
-        snapshot.nodes = geometries;
-        Ok(snapshot)
+                // Children
+                let mut child_t_ids = Vec::new();
+                for cid in &node.children_ids {
+                    if !self.taffy_map.contains_key(cid) {
+                        let t_id = self.taffy.new_leaf(Style::default()).unwrap();
+                        self.taffy_map.insert(*cid, t_id);
+                    }
+                    child_t_ids.push(*self.taffy_map.get(cid).unwrap());
+                }
+                
+                self.taffy.set_children(t_id, &child_t_ids).unwrap();
+            }
+        }
     }
 
-    fn build_taffy_tree(
-        &self,
-        node_id: NodeId,
-        taffy: &mut Taffy,
-        taffy_map: &mut HashMap<NodeId, TaffyNodeId>,
-        node_map: &HashMap<NodeId, &LayoutInputNode>,
-    ) -> Result<TaffyNodeId> {
-        let node = node_map.get(&node_id).unwrap();
-        
+    fn compute_style(&self, node: &LayoutInputNode) -> Style {
         let mut style = Style::default();
-        
         style.flex_grow = node.flex_grow;
         style.flex_shrink = node.flex_shrink;
 
@@ -176,14 +209,10 @@ impl LayoutEngine {
                 style.display = Display::Flex;
                 style.align_items = Some(AlignItems::Center);
                 style.justify_content = Some(JustifyContent::Center);
-                
                 style.padding = taffy::geometry::Rect {
-                    left: points(padding[0]),
-                    right: points(padding[1]),
-                    top: points(padding[2]),
-                    bottom: points(padding[3]),
+                    left: points(padding[0]), right: points(padding[1]),
+                    top: points(padding[2]), bottom: points(padding[3]),
                 };
-
                 style.size = taffy::geometry::Size {
                     width: width.map(Dimension::Points).unwrap_or(Dimension::Auto),
                     height: height.map(Dimension::Points).unwrap_or(Dimension::Auto),
@@ -196,14 +225,10 @@ impl LayoutEngine {
                     IrFlexDirection::Column => taffy::style::FlexDirection::Column,
                 };
                 style.align_items = Some(AlignItems::Center); 
-                
                 style.padding = taffy::geometry::Rect {
-                    left: points(padding[0]),
-                    right: points(padding[1]),
-                    top: points(padding[2]),
-                    bottom: points(padding[3]),
+                    left: points(padding[0]), right: points(padding[1]),
+                    top: points(padding[2]), bottom: points(padding[3]),
                 };
-
                 style.size = taffy::geometry::Size {
                     width: node.width.map(Dimension::Points).unwrap_or(Dimension::Auto),
                     height: node.height.map(Dimension::Points).unwrap_or(Dimension::Auto),
@@ -215,16 +240,12 @@ impl LayoutEngine {
                     IrFlexDirection::Row => taffy::style::FlexDirection::Row,
                     IrFlexDirection::Column => taffy::style::FlexDirection::Column,
                 };
-                
                 style.padding = taffy::geometry::Rect {
-                    left: points(padding[0]),
-                    right: points(padding[1]),
-                    top: points(padding[2]),
-                    bottom: points(padding[3]),
+                    left: points(padding[0]), right: points(padding[1]),
+                    top: points(padding[2]), bottom: points(padding[3]),
                 };
-
                 style.size = taffy::geometry::Size {
-                    width: Dimension::Auto,
+                    width: Dimension::Auto, 
                     height: Dimension::Auto,
                 };
             },
@@ -243,59 +264,51 @@ impl LayoutEngine {
                     top: points(0.0), bottom: points(0.0),
                 };
                 style.size = taffy::geometry::Size {
-                    width: Dimension::Auto,
-                    height: Dimension::Auto,
+                    width: Dimension::Auto, height: Dimension::Auto,
                 };
             },
-            _ => {
-                style.display = Display::Flex;
-            }
+            _ => { style.display = Display::Flex; }
         }
+        style
+    }
 
-        if let (Some(text), Some(size), Some(measurer)) = (&node.text_content, node.font_size, &self.measurer) {
-            let text = text.clone();
-            let font_size = size;
-            let measurer = measurer.clone();
+    pub fn compute_layout(
+        &mut self,
+        input_nodes: &[LayoutInputNode],
+        root_node_id: NodeId,
+        viewport_size: LayoutSize,
+    ) -> Result<LayoutSnapshot> {
+        let node_map: HashMap<NodeId, &LayoutInputNode> = input_nodes.iter().map(|n| (n.id, n)).collect();
+        
+        if let Some(root_taffy_id) = self.taffy_map.get(&root_node_id) {
+            self.taffy.compute_layout(
+                *root_taffy_id,
+                taffy::geometry::Size {
+                    width: taffy::style::AvailableSpace::Definite(viewport_size.width),
+                    height: taffy::style::AvailableSpace::Definite(viewport_size.height),
+                },
+            ).map_err(|e| anyhow::anyhow!("Taffy layout error: {:?}", e))?;
+
+            let mut geometries = HashMap::new();
+            self.extract_geometry_recursive(root_node_id, LayoutPoint::ZERO, &node_map, &mut geometries);
             
-            let child_taffy_id = taffy.new_leaf_with_measure(style, taffy::node::MeasureFunc::Boxed(Box::new(move |_known_dims, available_space| {
-                let avail_width = match available_space.width {
-                    AvailableSpace::Definite(w) => Some(w),
-                    AvailableSpace::MaxContent => None,
-                    AvailableSpace::MinContent => Some(0.0),
-                };
-                
-                let (w, h) = measurer.measure(&text, font_size, avail_width);
-                taffy::geometry::Size { width: w, height: h }
-            }))).map_err(|e| anyhow::anyhow!("Failed to create taffy leaf: {:?}", e))?;
-            
-            taffy_map.insert(node_id, child_taffy_id);
-            return Ok(child_taffy_id);
+            let mut snapshot = LayoutSnapshot::new(viewport_size);
+            snapshot.nodes = geometries;
+            Ok(snapshot)
+        } else {
+            Err(anyhow::anyhow!("Root node layout not found. Did you call update()?"))
         }
-
-        let mut child_taffy_ids = Vec::new();
-        for child_id in &node.children_ids {
-            let child_taffy_id = self.build_taffy_tree(*child_id, taffy, taffy_map, node_map)?;
-            child_taffy_ids.push(child_taffy_id);
-        }
-
-        let taffy_id = taffy.new_with_children(style, &child_taffy_ids)
-            .map_err(|e| anyhow::anyhow!("Failed to create taffy node: {:?}", e))?;
-            
-        taffy_map.insert(node_id, taffy_id);
-        Ok(taffy_id)
     }
 
     fn extract_geometry_recursive(
         &self,
         node_id: NodeId,
         parent_absolute_pos: LayoutPoint,
-        taffy: &Taffy,
-        taffy_map: &HashMap<NodeId, TaffyNodeId>,
         node_map: &HashMap<NodeId, &LayoutInputNode>,
         geometries: &mut HashMap<NodeId, LayoutNodeGeometry>,
     ) {
-        let taffy_id = taffy_map.get(&node_id).unwrap();
-        let layout = taffy.layout(*taffy_id).unwrap();
+        let taffy_id = self.taffy_map.get(&node_id).unwrap();
+        let layout = self.taffy.layout(*taffy_id).unwrap();
         let node = node_map.get(&node_id).unwrap();
 
         let absolute_x = parent_absolute_pos.x + layout.location.x;
@@ -320,8 +333,6 @@ impl LayoutEngine {
             self.extract_geometry_recursive(
                 *child_id, 
                 LayoutPoint::new(absolute_x, absolute_y), 
-                taffy, 
-                taffy_map, 
                 node_map, 
                 geometries
             );
