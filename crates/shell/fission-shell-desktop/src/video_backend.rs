@@ -18,7 +18,7 @@ mod mac {
     use objc::rc::StrongPtr;
     use objc::{class, msg_send, sel, sel_impl};
     use raw_window_handle::{HasWindowHandle, RawWindowHandle};
-    use std::collections::HashMap;
+    use std::collections::{HashMap, HashSet};
     use std::path::Path;
     use std::sync::atomic::{AtomicU64, Ordering};
     use std::sync::{Arc, Mutex};
@@ -47,6 +47,11 @@ mod mac {
         }
     }
 
+    struct LayerContext {
+        root_layer: id,
+        scale_factor: f64,
+    }
+
     pub struct MacVideoBackend {
         view: RetainedId,
         layers: Mutex<HashMap<WidgetNodeId, VideoLayer>>,
@@ -66,20 +71,31 @@ mod mac {
             }
         }
 
-        fn ensure_layer_backing(&self) -> id {
+        fn ensure_layer_backing(&self) -> LayerContext {
             unsafe {
                 let view = self.view.as_id();
                 let wants_layer: bool = msg_send![view, wantsLayer];
                 if !wants_layer {
                     let () = msg_send![view, setWantsLayer: YES];
                 }
-                let layer: id = msg_send![view, layer];
+                let mut layer: id = msg_send![view, layer];
                 if layer == nil {
-                    let new_layer: id = msg_send![class!(CALayer), layer];
-                    let () = msg_send![view, setLayer: new_layer];
-                    new_layer
+                    layer = msg_send![class!(CALayer), layer];
+                    let () = msg_send![view, setLayer: layer];
+                }
+
+                let window: id = msg_send![view, window];
+                let scale: f64 = if window != nil {
+                    msg_send![window, backingScaleFactor]
                 } else {
-                    layer
+                    1.0
+                };
+                let () = msg_send![layer, setContentsScale: scale];
+                let () = msg_send![layer, setGeometryFlipped: YES];
+
+                LayerContext {
+                    root_layer: layer,
+                    scale_factor: if scale == 0.0 { 1.0 } else { scale },
                 }
             }
         }
@@ -88,13 +104,13 @@ mod mac {
             &self,
             layer_map: &mut HashMap<WidgetNodeId, VideoLayer>,
             frame: &VideoSurfaceFrame,
+            ctx: &LayerContext,
         ) {
             if let Some(player) = self.registry.get(frame.surface_id) {
-                let root_layer = self.ensure_layer_backing();
                 let entry = layer_map
                     .entry(frame.widget_id)
-                    .or_insert_with(|| VideoLayer::new(frame.widget_id, &player, root_layer));
-                entry.update(&player, root_layer, frame.rect);
+                    .or_insert_with(|| VideoLayer::new(&player, ctx));
+                entry.update(&player, ctx, frame.rect);
             }
         }
     }
@@ -124,9 +140,34 @@ mod mac {
 
         fn present_surfaces(&self, frames: &[VideoSurfaceFrame]) {
             let mut layers = self.layers.lock().unwrap();
-            for frame in frames {
-                self.update_video_layer(&mut layers, frame);
+
+            if frames.is_empty() {
+                for layer in layers.values() {
+                    unsafe {
+                        let () = msg_send![layer.layer.as_id(), removeFromSuperlayer];
+                    }
+                }
+                layers.clear();
+                return;
             }
+
+            let ctx = self.ensure_layer_backing();
+            let mut seen = HashSet::new();
+            for frame in frames {
+                seen.insert(frame.widget_id);
+                self.update_video_layer(&mut layers, frame, &ctx);
+            }
+
+            layers.retain(|widget_id, layer| {
+                if seen.contains(widget_id) {
+                    true
+                } else {
+                    unsafe {
+                        let () = msg_send![layer.layer.as_id(), removeFromSuperlayer];
+                    }
+                    false
+                }
+            });
         }
     }
 
@@ -135,27 +176,29 @@ mod mac {
     }
 
     impl VideoLayer {
-        fn new(widget_id: WidgetNodeId, player: &RetainedId, root_layer: id) -> Self {
+        fn new(player: &RetainedId, ctx: &LayerContext) -> Self {
             unsafe {
                 let layer: id = msg_send![class!(AVPlayerLayer), playerLayerWithPlayer: player.as_id()];
                 let gravity = NSString::alloc(nil).init_str("AVLayerVideoGravityResizeAspect");
                 let () = msg_send![layer, setVideoGravity: gravity];
                 let () = msg_send![layer, setMasksToBounds: YES];
-                let () = msg_send![root_layer, addSublayer: layer];
-                let _ = widget_id;
+                let () = msg_send![layer, setContentsScale: ctx.scale_factor];
+                let () = msg_send![layer, setGeometryFlipped: YES];
+                let () = msg_send![ctx.root_layer, addSublayer: layer];
                 Self {
                     layer: RetainedId::new(layer),
                 }
             }
         }
 
-        fn update(&mut self, player: &RetainedId, root_layer: id, rect: LayoutRect) {
+        fn update(&mut self, player: &RetainedId, ctx: &LayerContext, rect: LayoutRect) {
             unsafe {
                 let layer_id = self.layer.as_id();
+                let () = msg_send![layer_id, setContentsScale: ctx.scale_factor];
                 let () = msg_send![layer_id, setPlayer: player.as_id()];
-                let cg_rect = cg_rect_from_layout(rect);
+                let cg_rect = cg_rect_from_layout(rect, ctx.scale_factor);
                 let () = msg_send![layer_id, setFrame: cg_rect];
-                let () = msg_send![root_layer, addSublayer: layer_id];
+                let () = msg_send![ctx.root_layer, addSublayer: layer_id];
             }
         }
     }
@@ -282,10 +325,11 @@ mod mac {
         }
     }
 
-    fn cg_rect_from_layout(rect: LayoutRect) -> CGRect {
+    fn cg_rect_from_layout(rect: LayoutRect, scale: f64) -> CGRect {
+        let inv_scale = if scale == 0.0 { 1.0 } else { 1.0 / scale };
         CGRect::new(
-            &CGPoint::new(rect.origin.x as f64, rect.origin.y as f64),
-            &CGSize::new(rect.size.width as f64, rect.size.height as f64),
+            &CGPoint::new(rect.origin.x as f64 * inv_scale, rect.origin.y as f64 * inv_scale),
+            &CGSize::new(rect.size.width as f64 * inv_scale, rect.size.height as f64 * inv_scale),
         )
     }
 
