@@ -177,48 +177,22 @@ impl Widget<CounterState> for CounterApp {
                 .into(),
             );
         }
-        Row {
-            children: vec![
-                Text {
-                    content: TextContent::Literal(vm.label),
-                    font_size: Some(24.0),
+        Scroll {
+            direction: FlexDirection::Column,
+            width: Some(600.0),
+            height: Some(600.0),
+            show_scrollbar: true,
+            child: Some(Box::new(
+                Column {
+                    children,
+                    flex_grow: 1.0,
                     ..Default::default()
                 }
-                .into(),
-                Button {
-                    on_press: Some(ctx.bind(Increment, on_increment)),
-                    child: Some(Box::new(
-                        Text {
-                            content: TextContent::Literal("Increment".into()),
-                            color: Some(IrColor::WHITE),
-                            ..Default::default()
-                        }
-                        .into(),
-                    )),
-                    width: Some(120.0),
-                    ..Default::default()
-                }
-                .into(),
-                Scroll {
-                    direction: FlexDirection::Column,
-                    width: Some(600.0),
-                    height: Some(600.0),
-                    show_scrollbar: true,
-                    child: Some(Box::new(
-                        Column {
-                            children,
-                            flex_grow: 1.0,
-                            ..Default::default()
-                        }
-                        .into(),
-                    )),
-                    ..Default::default()
-                }
-                .into(),
-            ],
+                    .into(),
+            )),
             ..Default::default()
         }
-        .into()
+            .into()
     }
 }
 
