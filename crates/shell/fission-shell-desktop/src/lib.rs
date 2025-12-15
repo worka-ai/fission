@@ -116,6 +116,9 @@ impl<S: AppState + Default, W: Widget<S> + 'static> DesktopApp<S, W> {
                                 if !state.asset_source.is_empty() {
                                     let player = video_backend.create_player(&state.asset_source);
                                     state.surface_id = Some(player.surface_id());
+                                    if state.status == VideoStatus::Playing {
+                                        state.status = VideoStatus::Buffering;
+                                    }
                                     players.insert(*id, player);
                                 }
                             }
@@ -134,6 +137,8 @@ impl<S: AppState + Default, W: Widget<S> + 'static> DesktopApp<S, W> {
                                 }
 
                                 player.set_rate(state.rate);
+                                player.set_volume(state.volume);
+                                player.set_muted(state.muted);
 
                                 for event in player.poll_events() {
                                     match event {
@@ -142,6 +147,12 @@ impl<S: AppState + Default, W: Widget<S> + 'static> DesktopApp<S, W> {
                                                 state.duration_ms = Some(duration);
                                                 needs_redraw = true;
                                             }
+                                            state.status = match state.status {
+                                                VideoStatus::Playing | VideoStatus::Buffering => {
+                                                    VideoStatus::Playing
+                                                }
+                                                _ => VideoStatus::Paused,
+                                            };
                                         }
                                         VideoEvent::Ended => {
                                             if state.looped {

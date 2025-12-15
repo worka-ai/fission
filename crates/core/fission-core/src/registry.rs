@@ -1,5 +1,7 @@
 use crate::{
-    action::video::{VideoPause, VideoPlay, VideoSeek, VideoSetRate, VideoStop},
+    action::video::{
+        VideoPause, VideoPlay, VideoSeek, VideoSetMuted, VideoSetRate, VideoSetVolume, VideoStop,
+    },
     Action, ActionEnvelope, ActionId, AppState, BoxedReducer,
 };
 use anyhow::{anyhow, Result};
@@ -265,6 +267,28 @@ impl VideoControlCtx {
         };
         ActionEnvelope {
             id: VideoSetRate::static_id(),
+            payload: action.encode(),
+        }
+    }
+
+    pub fn set_volume(&self, volume: f32) -> ActionEnvelope {
+        let action = VideoSetVolume {
+            target: self.target,
+            volume,
+        };
+        ActionEnvelope {
+            id: VideoSetVolume::static_id(),
+            payload: action.encode(),
+        }
+    }
+
+    pub fn set_muted(&self, muted: bool) -> ActionEnvelope {
+        let action = VideoSetMuted {
+            target: self.target,
+            muted,
+        };
+        ActionEnvelope {
+            id: VideoSetMuted::static_id(),
             payload: action.encode(),
         }
     }

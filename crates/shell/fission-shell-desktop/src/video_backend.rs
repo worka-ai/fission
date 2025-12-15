@@ -320,6 +320,22 @@ mod mac {
                 }
             }
         }
+
+        fn set_volume(&mut self, volume: f32) {
+            if let Some(player) = self.registry.get(self.player_id) {
+                unsafe {
+                    let () = msg_send![player.as_id(), setVolume: volume];
+                }
+            }
+        }
+
+        fn set_muted(&mut self, muted: bool) {
+            if let Some(player) = self.registry.get(self.player_id) {
+                unsafe {
+                    let () = msg_send![player.as_id(), setMuted: muted];
+                }
+            }
+        }
     }
 
     unsafe fn create_av_player(source: &str) -> StrongPtr {
@@ -440,6 +456,8 @@ mod mock {
         sent_ready: bool,
         sent_ended: bool,
         playback_rate: f32,
+        volume: f32,
+        muted: bool,
     }
 
     #[derive(PartialEq)]
@@ -464,6 +482,8 @@ mod mock {
                 sent_ready: false,
                 sent_ended: false,
                 playback_rate: 1.0,
+                volume: 1.0,
+                muted: false,
             }
         }
 
@@ -560,6 +580,17 @@ mod mock {
                 self.play_start_time = Some(Instant::now());
             }
             self.playback_rate = new_rate;
+        }
+
+        fn set_volume(&mut self, volume: f32) {
+            self.volume = volume.clamp(0.0, 1.0);
+            if self.volume == 0.0 {
+                self.muted = true;
+            }
+        }
+
+        fn set_muted(&mut self, muted: bool) {
+            self.muted = muted;
         }
     }
 }

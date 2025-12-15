@@ -9,7 +9,9 @@ use std::any::Any;
 
 pub mod video;
 
-pub use video::{VideoPause, VideoPlay, VideoSeek, VideoSetRate, VideoStop};
+pub use video::{
+    VideoPause, VideoPlay, VideoSeek, VideoSetMuted, VideoSetRate, VideoSetVolume, VideoStop,
+};
 
 // ActionId is a stable, globally unique identifier for an Action type.
 #[derive(Clone, Copy, PartialEq, Eq, Hash, Debug, Serialize, Deserialize, PartialOrd, Ord)]

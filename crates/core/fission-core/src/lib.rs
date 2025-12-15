@@ -17,7 +17,9 @@ pub mod time;
 pub mod ui;
 pub mod view;
 
-use crate::action::video::{VideoPause, VideoPlay, VideoSeek, VideoSetRate, VideoStop};
+use crate::action::video::{
+    VideoPause, VideoPlay, VideoSeek, VideoSetMuted, VideoSetRate, VideoSetVolume, VideoStop,
+};
 use crate::env::ActiveAnimation;
 pub use action::{Action, ActionEnvelope, ActionId, AppState};
 pub use env::{Env, InteractionStateMap, RuntimeState, ScrollStateMap};
@@ -247,6 +249,24 @@ impl Runtime {
                 .map_err(|e| anyhow!("Failed to deserialize VideoSetRate: {}", e))?;
             if let Some(video_state) = self.runtime_state.video.states.get_mut(&cmd.target) {
                 video_state.rate = cmd.rate;
+            }
+            return Ok(());
+        }
+
+        if action.id == VideoSetVolume::static_id() {
+            let cmd: VideoSetVolume = serde_json::from_slice(&action.payload)
+                .map_err(|e| anyhow!("Failed to deserialize VideoSetVolume: {}", e))?;
+            if let Some(video_state) = self.runtime_state.video.states.get_mut(&cmd.target) {
+                video_state.volume = cmd.volume.clamp(0.0, 1.0);
+            }
+            return Ok(());
+        }
+
+        if action.id == VideoSetMuted::static_id() {
+            let cmd: VideoSetMuted = serde_json::from_slice(&action.payload)
+                .map_err(|e| anyhow!("Failed to deserialize VideoSetMuted: {}", e))?;
+            if let Some(video_state) = self.runtime_state.video.states.get_mut(&cmd.target) {
+                video_state.muted = cmd.muted;
             }
             return Ok(());
         }

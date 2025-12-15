@@ -286,13 +286,75 @@ impl Widget<CounterState> for CounterApp {
                 ..Default::default()
             }
             .into(),
+            Row {
+                children: vec![
+                    Button {
+                        on_press: Some(video_controls.set_volume(0.0)),
+                        child: Some(Box::new(
+                            Text {
+                                content: TextContent::Literal("Vol 0".into()),
+                                ..Default::default()
+                            }
+                            .into(),
+                        )),
+                        width: Some(120.0),
+                        ..Default::default()
+                    }
+                    .into(),
+                    Button {
+                        on_press: Some(video_controls.set_volume(0.5)),
+                        child: Some(Box::new(
+                            Text {
+                                content: TextContent::Literal("Vol 50%".into()),
+                                ..Default::default()
+                            }
+                            .into(),
+                        )),
+                        width: Some(120.0),
+                        ..Default::default()
+                    }
+                    .into(),
+                    Button {
+                        on_press: Some(video_controls.set_volume(1.0)),
+                        child: Some(Box::new(
+                            Text {
+                                content: TextContent::Literal("Vol 100%".into()),
+                                ..Default::default()
+                            }
+                            .into(),
+                        )),
+                        width: Some(120.0),
+                        ..Default::default()
+                    }
+                    .into(),
+                    Button {
+                        on_press: Some(video_controls.set_muted(!video_state.muted)),
+                        child: Some(Box::new(
+                            Text {
+                                content: TextContent::Literal(
+                                    if video_state.muted { "Unmute" } else { "Mute" }.into(),
+                                ),
+                                ..Default::default()
+                            }
+                            .into(),
+                        )),
+                        width: Some(120.0),
+                        ..Default::default()
+                    }
+                    .into(),
+                ],
+                ..Default::default()
+            }
+            .into(),
             Text {
                 content: TextContent::Literal(format!(
-                    "Video status: {:?} at {}ms / {:?} (rate {:.1}x)",
+                    "Video status: {:?} at {}ms / {:?} (rate {:.1}x, vol {:.0}%, muted {})",
                     video_state.status,
                     video_state.position_ms,
                     video_state.duration_ms,
-                    video_state.rate
+                    video_state.rate,
+                    video_state.volume * 100.0,
+                    video_state.muted
                 )),
                 ..Default::default()
             }

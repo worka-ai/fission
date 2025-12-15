@@ -79,3 +79,37 @@ impl Action for VideoSetRate {
 lazy_static! {
     pub static ref VIDEO_SET_RATE_ID: ActionId = ActionId::from_name("fission_core::VideoSetRate");
 }
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct VideoSetVolume {
+    pub target: WidgetNodeId,
+    pub volume: f32,
+}
+
+impl Action for VideoSetVolume {
+    fn static_id() -> ActionId {
+        *VIDEO_SET_VOLUME_ID
+    }
+}
+
+lazy_static! {
+    pub static ref VIDEO_SET_VOLUME_ID: ActionId =
+        ActionId::from_name("fission_core::VideoSetVolume");
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct VideoSetMuted {
+    pub target: WidgetNodeId,
+    pub muted: bool,
+}
+
+impl Action for VideoSetMuted {
+    fn static_id() -> ActionId {
+        *VIDEO_SET_MUTED_ID
+    }
+}
+
+lazy_static! {
+    pub static ref VIDEO_SET_MUTED_ID: ActionId =
+        ActionId::from_name("fission_core::VideoSetMuted");
+}

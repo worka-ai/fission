@@ -39,6 +39,8 @@ impl VideoPlayer for DummyPlayer {
     }
     fn seek_to(&mut self, _position_ms: u64) {}
     fn set_rate(&mut self, _rate: f32) {}
+    fn set_volume(&mut self, _volume: f32) {}
+    fn set_muted(&mut self, _muted: bool) {}
 }
 
 impl VideoBackend for DummyBackend {
