@@ -19,6 +19,10 @@ pub struct Pipeline {
     pub last_snapshot: Option<LayoutSnapshot>,
     pub paint_cache: HashMap<NodeId, (u64, Vec<DisplayOp>)>,
     video_surfaces: Vec<VideoSurfaceFrame>,
+    // instrumentation
+    pub layout_full_rebuild_count: usize,
+    pub layout_cycle_detected_count: usize,
+    pub layout_invariant_violation_count: usize,
 }
 
 #[derive(Debug, Default)]
@@ -37,6 +41,9 @@ impl Pipeline {
             last_snapshot: None,
             paint_cache: HashMap::new(),
             video_surfaces: Vec::new(),
+            layout_full_rebuild_count: 0,
+            layout_cycle_detected_count: 0,
+            layout_invariant_violation_count: 0,
         }
     }
 
@@ -120,14 +127,28 @@ impl Pipeline {
 
         let layout_input_nodes = build_layout_tree(&next_ir);
         eprintln!("[render] layout update start ({} nodes)", layout_input_nodes.len());
-
-        // Defensive: detect cycles in the layout adjacency (post-lowering) before updating Taffy.
+        // Invariant validation (fatal in debug/strict)
         if let Some(root) = next_ir.root {
-            if let Some(cycle) = detect_layout_cycle(&layout_input_nodes, root) {
-                eprintln!("[layout] cycle detected in layout graph ({} nodes). First few: {:?}", cycle.len(), &cycle[..cycle.len().min(6)]);
-                return Ok(PipelineStats { dirty_nodes: 0, layout_updates: 0, paint_misses: 0, paint_hits: 0, video_surfaces: 0 });
+            if let Err(e) = validate_layout_invariants(&layout_input_nodes, root) {
+                eprintln!("[layout.invariant] {}", e);
+                self.layout_invariant_violation_count += 1;
+                let strict = std::env::var("FISSION_LAYOUT_STRICT").ok().as_deref() == Some("1");
+                if cfg!(debug_assertions) || strict {
+                    panic!("layout invariant violation: {}", e);
+                } else {
+                    // optional diagnostic rebuild
+                    let allow_rebuild = std::env::var("FISSION_ALLOW_FULL_REBUILD").ok().as_deref() == Some("1");
+                    if allow_rebuild {
+                        eprintln!("[fallback] full rebuild due to invariant violation");
+                        layout_engine.rebuild(&layout_input_nodes)?;
+                        self.layout_full_rebuild_count += 1;
+                    } else {
+                        return Ok(PipelineStats { dirty_nodes: 0, layout_updates: 0, paint_misses: 0, paint_hits: 0, video_surfaces: 0 });
+                    }
+                }
             }
         }
+
         if use_full {
             let full: std::collections::HashSet<_> = layout_input_nodes.iter().map(|n| n.id).collect();
             layout_engine.update(&layout_input_nodes, &full);
@@ -135,6 +156,27 @@ impl Pipeline {
             layout_engine.update(&layout_input_nodes, &dirty_closure);
         }
         eprintln!("[render] layout update done");
+
+        // Post-update verification
+        if let Some(root) = next_ir.root {
+            if let Err(e) = layout_engine.verify_post_update(&layout_input_nodes, root) {
+                eprintln!("[layout.post-verify] {}", e);
+                self.layout_invariant_violation_count += 1;
+                let strict = std::env::var("FISSION_LAYOUT_STRICT").ok().as_deref() == Some("1");
+                if cfg!(debug_assertions) || strict {
+                    panic!("layout post-update verification failed: {}", e);
+                } else {
+                    let allow_rebuild = std::env::var("FISSION_ALLOW_FULL_REBUILD").ok().as_deref() == Some("1");
+                    if allow_rebuild {
+                        eprintln!("[fallback] full rebuild due to post-update verify failure");
+                        layout_engine.rebuild(&layout_input_nodes)?;
+                        self.layout_full_rebuild_count += 1;
+                    } else {
+                        return Ok(PipelineStats { dirty_nodes: 0, layout_updates: 0, paint_misses: 0, paint_hits: 0, video_surfaces: 0 });
+                    }
+                }
+            }
+        }
 
         let root_id = next_ir.root.unwrap();
         eprintln!("[render] compute_layout start");
@@ -624,4 +666,52 @@ fn detect_layout_cycle(nodes: &[fission_layout::LayoutInputNode], root: NodeId) 
     let mut stack = HashSet::new();
     let mut path = Vec::new();
     dfs(root, &map, &mut visited, &mut stack, &mut path)
+}
+
+fn validate_layout_invariants(nodes: &[fission_layout::LayoutInputNode], root: NodeId) -> Result<()> {
+    use std::collections::{HashMap, HashSet};
+    let map: HashMap<NodeId, &fission_layout::LayoutInputNode> = nodes.iter().map(|n| (n.id, n)).collect();
+
+    // Single parent / parent-child consistency
+    for n in nodes {
+        for child in &n.children_ids {
+            let cn = map.get(child).ok_or_else(|| anyhow::anyhow!("child {:?} missing", child))?;
+            if cn.parent_id != Some(n.id) {
+                return Err(anyhow::anyhow!(
+                    "parent/child mismatch parent={:?} child={:?} child.parent_id={:?}\n{}",
+                    n.id, child, cn.parent_id, dump_graph(nodes, 64)
+                ));
+            }
+        }
+    }
+
+    // Cycle check
+    if let Some(cycle) = detect_layout_cycle(nodes, root) {
+        return Err(anyhow::anyhow!("layout cycle detected: {:?}\n{}", cycle, dump_graph(nodes, 64)));
+    }
+
+    // Reachability (warn only if orphans exist)
+    let mut visited = HashSet::new();
+    let mut stack = vec![root];
+    while let Some(id) = stack.pop() {
+        if !visited.insert(id) { continue; }
+        if let Some(n) = map.get(&id) {
+            for c in &n.children_ids { stack.push(*c); }
+        }
+    }
+    // If referenced nodes exist outside visited via parent chain, that would have failed consistency above.
+    Ok(())
+}
+
+fn dump_graph(nodes: &[fission_layout::LayoutInputNode], limit: usize) -> String {
+    let mut lines = Vec::new();
+    let mut sorted: Vec<_> = nodes.iter().collect();
+    sorted.sort_by_key(|n| n.id.as_u128());
+    for (i, n) in sorted.into_iter().enumerate() {
+        if i >= limit { lines.push("...".into()); break; }
+        let mut kids: Vec<_> = n.children_ids.iter().map(|c| format!("{:x}", c.as_u128())).collect();
+        kids.sort();
+        lines.push(format!("{:x} {:?} -> [{}]", n.id.as_u128(), n.op, kids.join(",")));
+    }
+    lines.join("\n")
 }

@@ -130,14 +130,24 @@ pub struct LayoutEngine {
     measurer: Option<Arc<dyn TextMeasurer>>,
     taffy: Taffy,
     taffy_map: HashMap<NodeId, TaffyNodeId>,
+    prev_children: HashMap<NodeId, Vec<NodeId>>,
+    prev_parent: HashMap<NodeId, Option<NodeId>>,
 }
 
 impl LayoutEngine {
+    fn ensure_exists(&mut self, id: NodeId) {
+        if !self.taffy_map.contains_key(&id) {
+            let t_id = self.taffy.new_leaf(Style::default()).unwrap();
+            self.taffy_map.insert(id, t_id);
+        }
+    }
     pub fn new() -> Self {
         Self {
             measurer: None,
             taffy: Taffy::new(),
             taffy_map: HashMap::new(),
+            prev_children: HashMap::new(),
+            prev_parent: HashMap::new(),
         }
     }
 
@@ -147,8 +157,7 @@ impl LayoutEngine {
     }
 
     pub fn update(&mut self, input_nodes: &[LayoutInputNode], dirty_set: &HashSet<NodeId>) {
-        let node_map: HashMap<NodeId, &LayoutInputNode> =
-            input_nodes.iter().map(|n| (n.id, n)).collect();
+        let node_map: HashMap<NodeId, &LayoutInputNode> = input_nodes.iter().map(|n| (n.id, n)).collect();
 
         // 1. Cleanup removed nodes
         let mut to_remove = Vec::new();
@@ -162,83 +171,189 @@ impl LayoutEngine {
             self.taffy.remove(t_id).ok();
         }
 
-        let mut ensure_exists = |id: NodeId| {
-            if !self.taffy_map.contains_key(&id) {
-                let t_id = self.taffy.new_leaf(Style::default()).unwrap();
-                self.taffy_map.insert(id, t_id);
-            }
-        };
-
+        // Ensure a Taffy node exists for any updated node
         for id in dirty_set {
             if node_map.contains_key(id) {
-                ensure_exists(*id);
+                self.ensure_exists(*id);
             }
         }
 
-        // 3. Update properties and children
-        for id in dirty_set {
+        // Deterministic parent-first ordering by (depth, id)
+        let depth_of = |id: NodeId| -> usize {
+            let mut d = 0usize;
+            let mut cur = Some(id);
+            while let Some(c) = cur {
+                if let Some(n) = node_map.get(&c) { cur = n.parent_id; d += if cur.is_some() {1} else {0}; } else { break; }
+            }
+            d
+        };
+        let mut dirty_vec: Vec<NodeId> = dirty_set.iter().cloned().collect();
+        dirty_vec.sort_by(|a,b| {
+            let da = depth_of(*a); let db = depth_of(*b);
+            if da == db { a.as_u128().cmp(&b.as_u128()) } else { da.cmp(&db) }
+        });
+
+        // Pass 1: set styles/measurements for dirty nodes
+        for id in &dirty_vec {
             if let Some(node) = node_map.get(id) {
                 eprintln!("[layout.update] begin id={:?} op={:?}", id, node.op);
-                // Debug guard: prevent self-referential child cycles reaching Taffy
                 if node.children_ids.iter().any(|cid| cid == id) {
                     eprintln!("[layout] ERROR: node {:?} contains itself as a child", id);
                     panic!("layout self-cycle at {:?}", id);
                 }
                 let t_id = *self.taffy_map.get(id).unwrap();
-
-                // Style
                 let style = self.compute_style(node);
                 self.taffy.set_style(t_id, style).unwrap();
-
-                // Measure
-                if let (Some(text), Some(size), Some(measurer)) =
-                    (&node.text_content, node.font_size, &self.measurer)
-                {
+                if let (Some(text), Some(size), Some(measurer)) = (&node.text_content, node.font_size, &self.measurer) {
                     let text = text.clone();
                     let font_size = size;
                     let measurer = measurer.clone();
-
-                    self.taffy
-                        .set_measure(
-                            t_id,
-                            Some(taffy::node::MeasureFunc::Boxed(Box::new(
-                                move |_known_dims, available_space| {
-                                    let avail_width = match available_space.width {
-                                        AvailableSpace::Definite(w) => Some(w),
-                                        AvailableSpace::MaxContent => None,
-                                        AvailableSpace::MinContent => Some(0.0),
-                                    };
-                                    let (w, h) = measurer.measure(&text, font_size, avail_width);
-                                    taffy::geometry::Size {
-                                        width: w,
-                                        height: h,
-                                    }
-                                },
-                            ))),
-                        )
-                        .unwrap();
+                    self.taffy.set_measure(
+                        t_id,
+                        Some(taffy::node::MeasureFunc::Boxed(Box::new(move |_known_dims, available_space| {
+                            let avail_width = match available_space.width {
+                                AvailableSpace::Definite(w) => Some(w),
+                                AvailableSpace::MaxContent => None,
+                                AvailableSpace::MinContent => Some(0.0),
+                            };
+                            let (w, h) = measurer.measure(&text, font_size, avail_width);
+                            taffy::geometry::Size { width: w, height: h }
+                        }))),
+                    ).unwrap();
                 } else {
                     self.taffy.set_measure(t_id, None).unwrap();
                 }
+            }
+        }
 
-                // Children
-                let mut child_t_ids = Vec::new();
-                for cid in &node.children_ids {
-                    if cid == id {
-                        eprintln!("[layout] ERROR: node {:?} lists itself as a child", id);
-                        panic!("layout self-cycle at {:?}", id);
-                    }
-                    if !self.taffy_map.contains_key(cid) {
-                        let t_id = self.taffy.new_leaf(Style::default()).unwrap();
-                        self.taffy_map.insert(*cid, t_id);
-                    }
+        // Pass 2: per-parent set_children with final sorted children
+        for id in &dirty_vec {
+            if let Some(node) = node_map.get(id) {
+                let t_id = *self.taffy_map.get(id).unwrap();
+                let mut children_sorted = node.children_ids.clone();
+                children_sorted.sort_by_key(|c| c.as_u128());
+                let mut child_t_ids = Vec::with_capacity(children_sorted.len());
+                for cid in &children_sorted {
+                    if cid == id { eprintln!("[layout] ERROR: node {:?} lists itself as a child", id); panic!("layout self-cycle at {:?}", id); }
+                    self.ensure_exists(*cid);
                     child_t_ids.push(*self.taffy_map.get(cid).unwrap());
                 }
-
                 self.taffy.set_children(t_id, &child_t_ids).unwrap();
                 eprintln!("[layout.update] set_children id={:?} children={} done", id, child_t_ids.len());
             }
         }
+
+        // Refresh previous adjacency for future deltas (deterministic)
+        self.prev_children.clear();
+        self.prev_parent.clear();
+        for n in input_nodes {
+            self.prev_children.insert(n.id, n.children_ids.clone());
+            self.prev_parent.insert(n.id, n.parent_id);
+        }
+    }
+
+    pub fn rebuild(&mut self, input_nodes: &[LayoutInputNode]) -> Result<()> {
+        self.taffy = Taffy::new();
+        self.taffy_map.clear();
+
+        let node_map: HashMap<NodeId, &LayoutInputNode> = input_nodes.iter().map(|n| (n.id, n)).collect();
+        let mut roots: Vec<NodeId> = input_nodes.iter().filter(|n| n.parent_id.is_none()).map(|n| n.id).collect();
+        roots.sort_by_key(|id| id.as_u128());
+
+        // BFS order from roots
+        let mut order: Vec<NodeId> = Vec::new();
+        let mut visited: HashSet<NodeId> = HashSet::new();
+        let mut queue: Vec<NodeId> = roots;
+        while let Some(id) = queue.pop() {
+            if !visited.insert(id) { continue; }
+            order.push(id);
+            if let Some(n) = node_map.get(&id) {
+                let mut kids = n.children_ids.clone();
+                kids.sort_by_key(|c| c.as_u128());
+                for child in kids.into_iter().rev() { queue.push(child); }
+            }
+        }
+        // Create nodes, style, measure
+        for id in &order {
+            let n = node_map.get(id).unwrap();
+            let t_id = self.taffy.new_leaf(Style::default()).unwrap();
+            self.taffy_map.insert(*id, t_id);
+            let style = self.compute_style(n);
+            self.taffy.set_style(t_id, style).unwrap();
+            if let (Some(text), Some(size), Some(measurer)) = (&n.text_content, n.font_size, &self.measurer) {
+                let text = text.clone();
+                let font_size = size;
+                let measurer = measurer.clone();
+                self.taffy.set_measure(
+                    t_id,
+                    Some(taffy::node::MeasureFunc::Boxed(Box::new(move |_known_dims, available_space| {
+                        let avail_width = match available_space.width {
+                            AvailableSpace::Definite(w) => Some(w),
+                            AvailableSpace::MaxContent => None,
+                            AvailableSpace::MinContent => Some(0.0),
+                        };
+                        let (w, h) = measurer.measure(&text, font_size, avail_width);
+                        taffy::geometry::Size { width: w, height: h }
+                    }))),
+                ).unwrap();
+            } else {
+                self.taffy.set_measure(t_id, None).unwrap();
+            }
+        }
+        // Parent-first children
+        for id in &order {
+            let n = node_map.get(id).unwrap();
+            let t_id = *self.taffy_map.get(id).unwrap();
+            let mut kids = n.children_ids.clone();
+            kids.sort_by_key(|c| c.as_u128());
+            let mut child_t_ids = Vec::with_capacity(kids.len());
+            for cid in &kids { child_t_ids.push(*self.taffy_map.get(cid).unwrap()); }
+            self.taffy.set_children(t_id, &child_t_ids).unwrap();
+        }
+
+        // Update prev adjacency
+        self.prev_children.clear();
+        self.prev_parent.clear();
+        for n in input_nodes {
+            self.prev_children.insert(n.id, n.children_ids.clone());
+            self.prev_parent.insert(n.id, n.parent_id);
+        }
+        Ok(())
+    }
+
+    pub fn verify_post_update(&self, input_nodes: &[LayoutInputNode], root: NodeId) -> Result<()> {
+        let node_map: HashMap<NodeId, &LayoutInputNode> = input_nodes.iter().map(|n| (n.id, n)).collect();
+        // Existence
+        for n in input_nodes {
+            if !self.taffy_map.contains_key(&n.id) {
+                anyhow::bail!("[verify] missing taffy node for {:?}", n.id);
+            }
+        }
+        // Parent/child consistency
+        for n in input_nodes {
+            for child in &n.children_ids {
+                let child_node = node_map.get(child).ok_or_else(|| anyhow::anyhow!("[verify] child {:?} not found", child))?;
+                if child_node.parent_id != Some(n.id) {
+                    anyhow::bail!("[verify] parent/child mismatch parent={:?} child={:?} child.parent_id={:?}", n.id, child, child_node.parent_id);
+                }
+            }
+        }
+        // Cycle via DFS
+        fn dfs(id: NodeId, map: &HashMap<NodeId, &LayoutInputNode>, visited: &mut HashSet<NodeId>, stack: &mut HashSet<NodeId>) -> Result<()> {
+            if !visited.insert(id) { return Ok(()); }
+            stack.insert(id);
+            let node = map.get(&id).ok_or_else(|| anyhow::anyhow!("[verify] missing node {:?}", id))?;
+            for child in &node.children_ids {
+                if stack.contains(child) { anyhow::bail!("[verify] cycle detected at {:?} -> {:?}", id, child); }
+                dfs(*child, map, visited, stack)?;
+            }
+            stack.remove(&id);
+            Ok(())
+        }
+        let mut visited = HashSet::new();
+        let mut stack = HashSet::new();
+        dfs(root, &node_map, &mut visited, &mut stack)?;
+        Ok(())
     }
 
     fn compute_style(&self, node: &LayoutInputNode) -> Style {
