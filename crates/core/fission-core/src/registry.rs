@@ -3,6 +3,7 @@ use crate::{
         VideoPause, VideoPlay, VideoSeek, VideoSetMuted, VideoSetRate, VideoSetVolume, VideoStop,
     },
     Action, ActionEnvelope, ActionId, AppState, BoxedReducer,
+    ui::Node,
 };
 use anyhow::{anyhow, Result};
 use fission_ir::{NodeId, WidgetNodeId};
@@ -153,6 +154,7 @@ pub struct BuildCtx<S: AppState> {
     pub registry: ActionRegistry<S>,
     pub animation_requests: Vec<(WidgetNodeId, AnimationRequest)>,
     pub video_nodes: Vec<VideoRegistration>,
+    pub portals: Vec<Node>,
 }
 
 impl<S: AppState> BuildCtx<S> {
@@ -161,6 +163,7 @@ impl<S: AppState> BuildCtx<S> {
             registry: ActionRegistry::new(),
             animation_requests: Vec::new(),
             video_nodes: Vec::new(),
+            portals: Vec::new(),
         }
     }
 
@@ -187,6 +190,14 @@ impl<S: AppState> BuildCtx<S> {
 
     pub fn take_video_registrations(&mut self) -> Vec<VideoRegistration> {
         std::mem::take(&mut self.video_nodes)
+    }
+
+    pub fn register_portal(&mut self, node: Node) {
+        self.portals.push(node);
+    }
+
+    pub fn take_portals(&mut self) -> Vec<Node> {
+        std::mem::take(&mut self.portals)
     }
 
     pub fn anim_for(&mut self, target: WidgetNodeId) -> AnimCtx<'_, S> {

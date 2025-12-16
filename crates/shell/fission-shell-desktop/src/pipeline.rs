@@ -49,28 +49,104 @@ impl Pipeline {
         renderer: &mut (impl Renderer + 'r + ?Sized),
         video_map: &VideoStateMap,
     ) -> Result<PipelineStats> {
+        if let Some(cycle) = detect_ir_cycle(&next_ir) {
+            eprintln!("[ir] cycle detected ({} nodes). First few: {:?}", cycle.len(), &cycle[..cycle.len().min(6)]);
+            // Avoid crashing the frame; render nothing this frame.
+            return Ok(PipelineStats {
+                dirty_nodes: 0,
+                layout_updates: 0,
+                paint_misses: 0,
+                paint_hits: 0,
+                video_surfaces: 0,
+            });
+        }
         let dirty_set = if let Some(prev) = &self.prev_ir {
             let diff = diff_ir(prev, &next_ir);
             // println!("Diff: {} dirty nodes", diff.dirty_structural.len());
+            // Debug: highlight structural children changes for a small subset
+            let mut logged = 0usize;
+            for id in &diff.dirty_structural {
+                if let (Some(pn), Some(nn)) = (prev.nodes.get(id), next_ir.nodes.get(id)) {
+                    if pn.children != nn.children {
+                        eprintln!(
+                            "[diff] children changed at {:?}: prev_children={} next_children={} op={:?}",
+                            id,
+                            pn.children.len(),
+                            nn.children.len(),
+                            nn.op
+                        );
+                        logged += 1;
+                        if logged >= 20 { eprintln!("[diff] (truncated)"); break; }
+                    }
+                } else if prev.nodes.get(id).is_none() && next_ir.nodes.get(id).is_some() {
+                    eprintln!("[diff] new node {:?}", id);
+                    logged += 1;
+                    if logged >= 20 { eprintln!("[diff] (truncated)"); break; }
+                }
+            }
             diff.dirty_structural
         } else {
             // println!("Diff: Full Rebuild");
             next_ir.nodes.keys().cloned().collect()
         };
 
-        let dirty_count = dirty_set.len();
+        // Expand dirty set to include ancestors (safety for parent-child edge updates)
+        let mut dirty_with_ancestors = dirty_set.clone();
+        for id in &dirty_set {
+            let mut cur = next_ir.nodes.get(id).and_then(|n| n.parent);
+            while let Some(p) = cur {
+                if !dirty_with_ancestors.insert(p) { break; }
+                cur = next_ir.nodes.get(&p).and_then(|n| n.parent);
+            }
+        }
+
+        // Also include descendants of dirty nodes to ensure child parentage is fully refreshed
+        let mut dirty_closure = dirty_with_ancestors.clone();
+        let mut stack: Vec<_> = dirty_with_ancestors.iter().cloned().collect();
+        while let Some(id) = stack.pop() {
+            if let Some(n) = next_ir.nodes.get(&id) {
+                for &child in &n.children {
+                    if dirty_closure.insert(child) {
+                        stack.push(child);
+                    }
+                }
+            }
+        }
+
+        // Heuristic: if the change set is large, force full rebuild
+        let dirty_count = dirty_closure.len();
+        let total_nodes = next_ir.nodes.len();
+        let use_full = dirty_count * 2 > total_nodes;
 
         let layout_input_nodes = build_layout_tree(&next_ir);
-        layout_engine.update(&layout_input_nodes, &dirty_set);
+        eprintln!("[render] layout update start ({} nodes)", layout_input_nodes.len());
+
+        // Defensive: detect cycles in the layout adjacency (post-lowering) before updating Taffy.
+        if let Some(root) = next_ir.root {
+            if let Some(cycle) = detect_layout_cycle(&layout_input_nodes, root) {
+                eprintln!("[layout] cycle detected in layout graph ({} nodes). First few: {:?}", cycle.len(), &cycle[..cycle.len().min(6)]);
+                return Ok(PipelineStats { dirty_nodes: 0, layout_updates: 0, paint_misses: 0, paint_hits: 0, video_surfaces: 0 });
+            }
+        }
+        if use_full {
+            let full: std::collections::HashSet<_> = layout_input_nodes.iter().map(|n| n.id).collect();
+            layout_engine.update(&layout_input_nodes, &full);
+        } else {
+            layout_engine.update(&layout_input_nodes, &dirty_closure);
+        }
+        eprintln!("[render] layout update done");
 
         let root_id = next_ir.root.unwrap();
+        eprintln!("[render] compute_layout start");
         let snapshot = layout_engine.compute_layout(&layout_input_nodes, root_id, viewport)?;
+        eprintln!("[render] compute_layout done");
 
         let mut display_list =
             DisplayList::new(LayoutRect::new(0.0, 0.0, viewport.width, viewport.height));
         let mut paint_misses = 0;
         let mut paint_hits = 0;
 
+        eprintln!("[render] display_list start");
         self.generate_display_list_recursive(
             root_id,
             &next_ir,
@@ -82,6 +158,7 @@ impl Pipeline {
             video_map,
             LayoutPoint::new(0.0, 0.0),
         );
+        eprintln!("[render] display_list done (misses={}, hits={})", paint_misses, paint_hits);
 
         renderer.render(&display_list)?;
 
@@ -116,6 +193,38 @@ impl Pipeline {
         video_map: &VideoStateMap,
         accumulated_offset: LayoutPoint,
     ) {
+        use std::collections::HashSet;
+        let mut visited = HashSet::new();
+        self.generate_display_list_recursive_with_visited(
+            node_id,
+            ir,
+            snapshot,
+            scroll_map,
+            out_list,
+            miss_count,
+            hit_count,
+            video_map,
+            accumulated_offset,
+            &mut visited,
+        );
+    }
+
+    fn generate_display_list_recursive_with_visited(
+        &mut self,
+        node_id: NodeId,
+        ir: &CoreIR,
+        snapshot: &LayoutSnapshot,
+        scroll_map: &ScrollStateMap,
+        out_list: &mut DisplayList,
+        miss_count: &mut usize,
+        hit_count: &mut usize,
+        video_map: &VideoStateMap,
+        accumulated_offset: LayoutPoint,
+        visited: &mut std::collections::HashSet<NodeId>,
+    ) {
+        if !visited.insert(node_id) {
+            return;
+        }
         if let (Some(node), Some(geom)) = (ir.nodes.get(&node_id), snapshot.nodes.get(&node_id)) {
             let mut hasher = DefaultHasher::new();
             node.hash.hash(&mut hasher);
@@ -270,7 +379,7 @@ impl Pipeline {
             };
 
             for child in &node.children {
-                self.generate_display_list_recursive(
+                self.generate_display_list_recursive_with_visited(
                     *child,
                     ir,
                     snapshot,
@@ -280,6 +389,7 @@ impl Pipeline {
                     hit_count,
                     video_map,
                     child_offset,
+                    visited,
                 );
             }
 
@@ -368,6 +478,31 @@ impl Pipeline {
         scroll_map: &ScrollStateMap,
         accumulated_offset: LayoutPoint,
     ) {
+        let mut visited = std::collections::HashSet::new();
+        self.collect_video_surfaces_with_visited(
+            node_id,
+            ir,
+            snapshot,
+            video_map,
+            scroll_map,
+            accumulated_offset,
+            &mut visited,
+        );
+    }
+
+    fn collect_video_surfaces_with_visited(
+        &mut self,
+        node_id: NodeId,
+        ir: &CoreIR,
+        snapshot: &LayoutSnapshot,
+        video_map: &VideoStateMap,
+        scroll_map: &ScrollStateMap,
+        accumulated_offset: LayoutPoint,
+        visited: &mut std::collections::HashSet<NodeId>,
+    ) {
+        if !visited.insert(node_id) {
+            return;
+        }
         if let (Some(node), Some(geom)) = (ir.nodes.get(&node_id), snapshot.nodes.get(&node_id)) {
             let mut child_offset = accumulated_offset;
             if let fission_ir::Op::Layout(fission_ir::LayoutOp::Scroll { .. }) = &node.op {
@@ -386,17 +521,67 @@ impl Pipeline {
             }
 
             for child in &node.children {
-                self.collect_video_surfaces(
+                self.collect_video_surfaces_with_visited(
                     *child,
                     ir,
                     snapshot,
                     video_map,
                     scroll_map,
                     child_offset,
+                    visited,
                 );
             }
         }
     }
+}
+
+fn detect_ir_cycle(ir: &CoreIR) -> Option<Vec<NodeId>> {
+    use std::collections::{HashSet, VecDeque};
+    let mut visited = HashSet::new();
+    let mut stack = HashSet::new();
+    let mut path: Vec<NodeId> = Vec::new();
+
+    fn dfs(
+        ir: &CoreIR,
+        node: NodeId,
+        visited: &mut HashSet<NodeId>,
+        stack: &mut HashSet<NodeId>,
+        path: &mut Vec<NodeId>,
+    ) -> Option<Vec<NodeId>> {
+        if !visited.insert(node) {
+            return None;
+        }
+        stack.insert(node);
+        path.push(node);
+        if let Some(n) = ir.nodes.get(&node) {
+            for &child in &n.children {
+                if stack.contains(&child) {
+                    // Found a back edge; collect cycle path
+                    let mut cycle = Vec::new();
+                    // find child in path
+                    if let Some(pos) = path.iter().position(|&id| id == child) {
+                        cycle.extend_from_slice(&path[pos..]);
+                    } else {
+                        cycle.push(child);
+                    }
+                    return Some(cycle);
+                }
+                if let Some(cy) = dfs(ir, child, visited, stack, path) {
+                    return Some(cy);
+                }
+            }
+        }
+        stack.remove(&node);
+        path.pop();
+        None
+    }
+
+    if let Some(root) = ir.root {
+        if let Some(cycle) = dfs(ir, root, &mut visited, &mut stack, &mut path) {
+            return Some(cycle);
+        }
+    }
+    None
 }
 
 fn translate_rect(rect: LayoutRect, offset: LayoutPoint) -> LayoutRect {
@@ -404,4 +589,39 @@ fn translate_rect(rect: LayoutRect, offset: LayoutPoint) -> LayoutRect {
         origin: LayoutPoint::new(rect.origin.x + offset.x, rect.origin.y + offset.y),
         size: rect.size,
     }
+}
+
+fn detect_layout_cycle(nodes: &[fission_layout::LayoutInputNode], root: NodeId) -> Option<Vec<NodeId>> {
+    use std::collections::{HashMap, HashSet};
+    let map: HashMap<NodeId, &fission_layout::LayoutInputNode> = nodes.iter().map(|n| (n.id, n)).collect();
+    fn dfs(
+        id: NodeId,
+        map: &HashMap<NodeId, &fission_layout::LayoutInputNode>,
+        visited: &mut HashSet<NodeId>,
+        stack: &mut HashSet<NodeId>,
+        path: &mut Vec<NodeId>,
+    ) -> Option<Vec<NodeId>> {
+        if !visited.insert(id) { return None; }
+        stack.insert(id);
+        path.push(id);
+        if let Some(node) = map.get(&id) {
+            for child in &node.children_ids {
+                if stack.contains(child) {
+                    if let Some(pos) = path.iter().position(|&n| n == *child) {
+                        return Some(path[pos..].to_vec());
+                    } else {
+                        return Some(vec![*child]);
+                    }
+                }
+                if let Some(c) = dfs(*child, map, visited, stack, path) { return Some(c); }
+            }
+        }
+        stack.remove(&id);
+        path.pop();
+        None
+    }
+    let mut visited = HashSet::new();
+    let mut stack = HashSet::new();
+    let mut path = Vec::new();
+    dfs(root, &map, &mut visited, &mut stack, &mut path)
 }

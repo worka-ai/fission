@@ -42,12 +42,14 @@ impl<'a> LoweringContext<'a> {
             panic!("Failed to serialize op for hashing: {:?}", op);
         }
 
-        // Hash Children Hashes (Merkle)
+        // Hash Children Hashes (Merkle) AND their identities (NodeId)
+        // Including child ids ensures structural diffs pick up identity changes
+        // even when two subtrees are content-identical.
         for child_id in &children {
             if let Some(child) = self.ir.nodes.get(child_id) {
                 hasher.update(&child.hash.to_le_bytes());
-            } else {
             }
+            hasher.update(&child_id.as_u128().to_le_bytes());
         }
 
         let hash_bytes = hasher.finalize();
@@ -207,6 +209,13 @@ pub fn build_layout_tree(ir: &CoreIR) -> Vec<LayoutInputNode> {
             Op::Paint(PaintOp::DrawImage { .. }) => (LayoutOp::AbsoluteFill, None, None, 0.0, 0.0),
 
             Op::Paint(_) => (LayoutOp::AbsoluteFill, None, None, 0.0, 0.0),
+            Op::Layout(LayoutOp::Stack) => (
+                LayoutOp::Stack,
+                None,
+                None,
+                0.0,
+                0.0,
+            ),
             _ => (
                 LayoutOp::Box {
                     width: None,

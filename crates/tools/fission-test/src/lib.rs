@@ -178,6 +178,49 @@ impl<S: AppState> TestHarness<S> {
     }
 }
 
+pub fn detect_ir_cycle(ir: &CoreIR) -> Option<Vec<NodeId>> {
+    use std::collections::HashSet;
+
+    fn dfs(
+        ir: &CoreIR,
+        node: NodeId,
+        visited: &mut HashSet<NodeId>,
+        stack: &mut HashSet<NodeId>,
+        path: &mut Vec<NodeId>,
+    ) -> Option<Vec<NodeId>> {
+        if !visited.insert(node) {
+            return None;
+        }
+        stack.insert(node);
+        path.push(node);
+        if let Some(n) = ir.nodes.get(&node) {
+            for &child in &n.children {
+                if stack.contains(&child) {
+                    if let Some(pos) = path.iter().position(|&id| id == child) {
+                        return Some(path[pos..].to_vec());
+                    } else {
+                        return Some(vec![child]);
+                    }
+                }
+                if let Some(cy) = dfs(ir, child, visited, stack, path) {
+                    return Some(cy);
+                }
+            }
+        }
+        stack.remove(&node);
+        path.pop();
+        None
+    }
+
+    if let Some(root) = ir.root {
+        let mut visited = HashSet::new();
+        let mut stack = HashSet::new();
+        let mut path = Vec::new();
+        return dfs(ir, root, &mut visited, &mut stack, &mut path);
+    }
+    None
+}
+
 fn generate_display_list(
     node_id: NodeId,
     ir: &CoreIR,
@@ -185,6 +228,22 @@ fn generate_display_list(
     scroll_map: &ScrollStateMap,
     list: &mut DisplayList,
 ) {
+    use std::collections::HashSet;
+    let mut visited = HashSet::new();
+    generate_display_list_with_visited(node_id, ir, snapshot, scroll_map, list, &mut visited);
+}
+
+fn generate_display_list_with_visited(
+    node_id: NodeId,
+    ir: &CoreIR,
+    snapshot: &LayoutSnapshot,
+    scroll_map: &ScrollStateMap,
+    list: &mut DisplayList,
+    visited: &mut std::collections::HashSet<NodeId>,
+) {
+    if !visited.insert(node_id) {
+        return;
+    }
     if let Some(geom) = snapshot.nodes.get(&node_id) {
         if let Some(node) = ir.nodes.get(&node_id) {
             let mut pushed_clip = false;
@@ -271,7 +330,7 @@ fn generate_display_list(
             }
 
             for child in &node.children {
-                generate_display_list(*child, ir, snapshot, scroll_map, list);
+                generate_display_list_with_visited(*child, ir, snapshot, scroll_map, list, visited);
             }
 
             if pushed_clip {

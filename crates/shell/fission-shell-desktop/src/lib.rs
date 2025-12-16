@@ -8,7 +8,7 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 use winit::{
     dpi::PhysicalPosition,
-    event::{ElementState, Event, KeyEvent, MouseButton, MouseScrollDelta, WindowEvent},
+    event::{ElementState, Event, Ime, KeyEvent, MouseButton, MouseScrollDelta, WindowEvent},
     event_loop::{ControlFlow, EventLoop},
     keyboard::PhysicalKey,
     window::WindowBuilder,
@@ -30,7 +30,7 @@ use fission_render_skia::{SkiaRenderer, SkiaTextMeasurer};
 use fission_shell::{Platform, VideoBackend, VideoEvent, VideoPlayer};
 
 mod pipeline;
-use pipeline::Pipeline;
+pub use pipeline::Pipeline;
 mod video_backend;
 #[cfg(target_os = "macos")]
 use video_backend::MacVideoBackend;
@@ -212,7 +212,7 @@ impl<S: AppState + Default, W: Widget<S> + 'static> DesktopApp<S, W> {
                                 let new_pos = player.position();
                                 if state.position_ms != new_pos {
                                     state.position_ms = new_pos;
-                                    println!("[video] position {:?} -> {}", id, new_pos);
+                                    //println!("[video] position {:?} -> {}", id, new_pos);
                                     needs_redraw = true;
                                 }
 
@@ -264,6 +264,7 @@ impl<S: AppState + Default, W: Widget<S> + 'static> DesktopApp<S, W> {
                     Event::WindowEvent { window_id, event } if window_id == window.id() => {
                         match event {
                             WindowEvent::RedrawRequested => {
+                                println!("[redraw] begin");
                                 let size = window.inner_size();
                                 if let (Some(width), Some(height)) =
                                     (NonZeroU32::new(size.width), NonZeroU32::new(size.height))
@@ -279,17 +280,40 @@ impl<S: AppState + Default, W: Widget<S> + 'static> DesktopApp<S, W> {
                                         let state = runtime.get_app_state::<S>().unwrap();
                                         let view = View::new(state, &runtime.runtime_state, &env);
                                         let mut ctx = BuildCtx::new();
-                                        let tree = root_widget.build(&mut ctx, &view);
+                                    let mut tree = root_widget.build(&mut ctx, &view);
 
                                         runtime.clear_reducers();
                                         let animation_requests = ctx.take_animation_requests();
                                         let video_nodes = ctx.take_video_registrations();
+                                        // Collect portals before moving out of ctx.registry
+                                        let portals = ctx.take_portals();
+
                                         runtime.absorb_registry(ctx.registry);
                                         for (target, request) in animation_requests {
                                             runtime.enqueue_animation(target, request);
                                         }
 
                                         runtime.sync_video_nodes(&video_nodes);
+
+                                        // If any portals were registered, wrap root in a Stack and
+                                        // append each portal as an AbsoluteFill child so it renders on top.
+                                        if !portals.is_empty() {
+                                            use fission_core::ui::{Overlay, Row, Stack};
+                                            let mut children = Vec::with_capacity(1 + portals.len());
+                                            children.push(tree);
+                                            for p in portals {
+                                                // Portal content will be wrapped in AbsoluteFill during lowering of Overlay/Stack.
+                                                children.push(Node::Overlay(
+                                                    Overlay {
+                                                        id: None,
+                                                        content: Box::new(Node::Row(Row::default())),
+                                                        overlay: Box::new(p),
+                                                    },
+                                                ));
+                                            }
+                                            tree = Node::Stack(Stack { id: None, children });
+                                        }
+
                                         tree
                                     };
 
@@ -298,6 +322,7 @@ impl<S: AppState + Default, W: Widget<S> + 'static> DesktopApp<S, W> {
                                     let root_id = node_tree.lower(&mut lower_cx);
                                     lower_cx.ir.root = Some(root_id);
                                     let lowered_nodes = lower_cx.ir.nodes.len();
+                                    println!("[redraw] lowered nodes: {}", lowered_nodes);
                                     let cx_ir = lower_cx.ir;
 
                                     let viewport = LayoutSize {
@@ -325,6 +350,7 @@ impl<S: AppState + Default, W: Widget<S> + 'static> DesktopApp<S, W> {
 
                                         let video_map = &runtime.runtime_state.video;
 
+                                    println!("[redraw] render pipeline start");
                                     match pipeline.render(
                                         cx_ir,
                                         viewport,
@@ -333,19 +359,20 @@ impl<S: AppState + Default, W: Widget<S> + 'static> DesktopApp<S, W> {
                                         &mut *renderer,
                                         video_map,
                                     ) {
-                                        Ok(stats) => {
-                                            println!(
-                                                "Frame stats: lowered={} layout_dirty={} paint_hits={} paint_misses={} video_surfaces={} active_anims={}",
-                                                lowered_nodes,
-                                                stats.dirty_nodes,
-                                                stats.paint_hits,
-                                                stats.paint_misses,
-                                                stats.video_surfaces,
-                                                runtime.runtime_state.animation.active.len()
-                                            );
+                                        Ok(_stats) => {
+                                            println!("[redraw] render ok");
+                                            // println!(
+                                            //     "Frame stats: lowered={} layout_dirty={} paint_hits={} paint_misses={} video_surfaces={} active_anims={}",
+                                            //     lowered_nodes,
+                                            //     stats.dirty_nodes,
+                                            //     stats.paint_hits,
+                                            //     stats.paint_misses,
+                                            //     stats.video_surfaces,
+                                            //     runtime.runtime_state.animation.active.len()
+                                            // );
                                         }
                                         Err(e) => {
-                                            eprintln!("Render pipeline error: {:?}", e);
+                                        eprintln!("[redraw] pipeline error: {:?}", e);
                                         }
                                     }
                                     } else {
@@ -356,6 +383,7 @@ impl<S: AppState + Default, W: Widget<S> + 'static> DesktopApp<S, W> {
 
                                     let video_frames = pipeline.take_video_surfaces();
                                     video_backend.present_surfaces(&video_frames);
+                                    println!("[redraw] end");
                                 }
                             }
                             WindowEvent::CursorMoved { position, .. } => {
@@ -428,6 +456,24 @@ impl<S: AppState + Default, W: Widget<S> + 'static> DesktopApp<S, W> {
                                     PhysicalKey::Code(winit::keyboard::KeyCode::Enter) => {
                                         Some(KeyCode::Enter)
                                     }
+                                    PhysicalKey::Code(winit::keyboard::KeyCode::Backspace) => {
+                                        Some(KeyCode::Backspace)
+                                    }
+                                    PhysicalKey::Code(winit::keyboard::KeyCode::Escape) => {
+                                        Some(KeyCode::Escape)
+                                    }
+                                    PhysicalKey::Code(winit::keyboard::KeyCode::ArrowLeft) => {
+                                        Some(KeyCode::Left)
+                                    }
+                                    PhysicalKey::Code(winit::keyboard::KeyCode::ArrowRight) => {
+                                        Some(KeyCode::Right)
+                                    }
+                                    PhysicalKey::Code(winit::keyboard::KeyCode::ArrowUp) => {
+                                        Some(KeyCode::Up)
+                                    }
+                                    PhysicalKey::Code(winit::keyboard::KeyCode::ArrowDown) => {
+                                        Some(KeyCode::Down)
+                                    }
                                     _ => None,
                                 };
 
@@ -456,6 +502,41 @@ impl<S: AppState + Default, W: Widget<S> + 'static> DesktopApp<S, W> {
                                         }
                                     }
                                 }
+
+                                // Textual input via KeyEvent.text (winit 0.29)
+                                if let Some(text) = event.text.as_ref() {
+                                    for ch in text.chars() {
+                                        if ch.is_control() { continue; }
+                                        let fission_event = FissionKeyEvent::Down {
+                                            key_code: KeyCode::Char(ch),
+                                            modifiers: 0,
+                                        };
+                                        if let (Some(ir), Some(snapshot)) =
+                                            (&pipeline.prev_ir, &pipeline.last_snapshot)
+                                        {
+                                            if let Ok(_) = runtime.handle_input(
+                                                InputEvent::Keyboard(fission_event),
+                                                ir,
+                                                snapshot,
+                                            ) {
+                                                window.request_redraw();
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                            // IME commit path: feed committed string as Char events
+                            WindowEvent::Ime(Ime::Commit(committed)) => {
+                                let evt = InputEvent::Ime(fission_core::event::ImeEvent::Commit { text: committed.clone() });
+                                if let (Some(ir), Some(snapshot)) = (&pipeline.prev_ir, &pipeline.last_snapshot) {
+                                    if let Ok(_) = runtime.handle_input(evt, ir, snapshot) {
+                                        window.request_redraw();
+                                    }
+                                }
+                            }
+                            // IME preedit: ignore for now (no composition rendering yet)
+                            WindowEvent::Ime(Ime::Preedit(text, _cursor)) => {
+                                let _ = text; // future: wire to ImeEvent::Preedit
                             }
                             WindowEvent::CloseRequested => {
                                 elwt.exit();

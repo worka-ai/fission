@@ -178,6 +178,12 @@ impl LayoutEngine {
         // 3. Update properties and children
         for id in dirty_set {
             if let Some(node) = node_map.get(id) {
+                eprintln!("[layout.update] begin id={:?} op={:?}", id, node.op);
+                // Debug guard: prevent self-referential child cycles reaching Taffy
+                if node.children_ids.iter().any(|cid| cid == id) {
+                    eprintln!("[layout] ERROR: node {:?} contains itself as a child", id);
+                    panic!("layout self-cycle at {:?}", id);
+                }
                 let t_id = *self.taffy_map.get(id).unwrap();
 
                 // Style
@@ -218,6 +224,10 @@ impl LayoutEngine {
                 // Children
                 let mut child_t_ids = Vec::new();
                 for cid in &node.children_ids {
+                    if cid == id {
+                        eprintln!("[layout] ERROR: node {:?} lists itself as a child", id);
+                        panic!("layout self-cycle at {:?}", id);
+                    }
                     if !self.taffy_map.contains_key(cid) {
                         let t_id = self.taffy.new_leaf(Style::default()).unwrap();
                         self.taffy_map.insert(*cid, t_id);
@@ -226,6 +236,7 @@ impl LayoutEngine {
                 }
 
                 self.taffy.set_children(t_id, &child_t_ids).unwrap();
+                eprintln!("[layout.update] set_children id={:?} children={} done", id, child_t_ids.len());
             }
         }
     }
@@ -307,6 +318,15 @@ impl LayoutEngine {
                         .unwrap_or(Dimension::Auto),
                 };
             }
+            LayoutOp::Stack => {
+                // Stack acts like a box for sizing; children can opt into absolute
+                // positioning via AbsoluteFill or future Positioned.
+                style.display = Display::Flex;
+                style.size = taffy::geometry::Size {
+                    width: node.width.map(Dimension::Points).unwrap_or(Dimension::Auto),
+                    height: node.height.map(Dimension::Points).unwrap_or(Dimension::Auto),
+                };
+            }
             LayoutOp::AbsoluteFill => {
                 style.display = Display::Flex;
                 style.position = Position::Absolute;
@@ -349,11 +369,13 @@ impl LayoutEngine {
                 .map_err(|e| anyhow::anyhow!("Taffy layout error: {:?}", e))?;
 
             let mut geometries = HashMap::new();
-            self.extract_geometry_recursive(
+            let mut visited = HashSet::new();
+            self.extract_geometry_recursive_with_visited(
                 root_node_id,
                 LayoutPoint::ZERO,
                 &node_map,
                 &mut geometries,
+                &mut visited,
             );
 
             let mut snapshot = LayoutSnapshot::new(viewport_size);
@@ -366,13 +388,19 @@ impl LayoutEngine {
         }
     }
 
-    fn extract_geometry_recursive(
+    fn extract_geometry_recursive_with_visited(
         &self,
         node_id: NodeId,
         parent_absolute_pos: LayoutPoint,
         node_map: &HashMap<NodeId, &LayoutInputNode>,
         geometries: &mut HashMap<NodeId, LayoutNodeGeometry>,
+        visited: &mut HashSet<NodeId>,
     ) {
+        if !visited.insert(node_id) {
+            // Cycle detected; skip to avoid infinite recursion
+            eprintln!("[layout] cycle detected at node {:?}", node_id);
+            return;
+        }
         let taffy_id = self.taffy_map.get(&node_id).unwrap();
         let layout = self.taffy.layout(*taffy_id).unwrap();
         let node = node_map.get(&node_id).unwrap();
@@ -400,11 +428,12 @@ impl LayoutEngine {
         geometries.insert(node_id, LayoutNodeGeometry { rect, content_size });
 
         for child_id in &node.children_ids {
-            self.extract_geometry_recursive(
+            self.extract_geometry_recursive_with_visited(
                 *child_id,
                 LayoutPoint::new(absolute_x, absolute_y),
                 node_map,
                 geometries,
+                visited,
             );
         }
     }

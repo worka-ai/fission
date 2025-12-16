@@ -61,5 +61,12 @@ pub enum LifecycleEvent {
 pub enum InputEvent {
     Pointer(PointerEvent),
     Keyboard(KeyEvent),
+    Ime(ImeEvent),
     Lifecycle(LifecycleEvent),
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub enum ImeEvent {
+    Preedit { text: String },
+    Commit { text: String },
 }

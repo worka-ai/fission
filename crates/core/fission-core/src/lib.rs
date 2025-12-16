@@ -205,6 +205,7 @@ impl Runtime {
     }
 
     pub fn dispatch(&mut self, action: ActionEnvelope, target: NodeId) -> Result<()> {
+        println!("[dispatch] start id={:?} target={:?}", action.id, target);
         if action.id == VideoPlay::static_id() {
             let cmd: VideoPlay = serde_json::from_slice(&action.payload)
                 .map_err(|e| anyhow!("Failed to deserialize VideoPlay: {}", e))?;
@@ -275,6 +276,7 @@ impl Runtime {
 
         let action_id = action.id;
         if let Some(reducers) = self.reducers.get_mut(&action_id) {
+            println!("[dispatch] reducers found: {}", reducers.len());
             let mut temp_reducers: Vec<BoxedReducer> = reducers.drain(..).collect();
 
             for reducer_wrapper in temp_reducers.iter_mut() {
@@ -282,6 +284,7 @@ impl Runtime {
             }
             reducers.extend(temp_reducers);
         }
+        println!("[dispatch] end id={:?}", action_id);
         Ok(())
     }
 
@@ -439,8 +442,95 @@ impl Runtime {
                         }
                     }
                 }
+                KeyCode::Char(c) => {
+                    if let Some(focused_id) = self.runtime_state.interaction.focused {
+                        let mut current_id = Some(focused_id);
+                        while let Some(node_id) = current_id {
+                            if let Some(node) = ir.nodes.get(&node_id) {
+                                if let Op::Semantics(semantics) = &node.op {
+                                    if semantics.role == fission_ir::semantics::Role::TextInput {
+                                        let current_text = semantics.value.as_deref().unwrap_or("");
+                                        let new_text = format!("{}{}", current_text, c);
+                                        
+                                        if let Some(action_entry) = semantics.actions.entries.first() {
+                                            let payload = serde_json::to_vec(&new_text).unwrap();
+                                            let envelope = ActionEnvelope {
+                                                id: ActionId::from_u128(action_entry.action_id),
+                                                payload,
+                                            };
+                                            return self.dispatch(envelope, node_id);
+                                        }
+                                    }
+                                }
+                                current_id = node.parent;
+                            } else {
+                                break;
+                            }
+                        }
+                    }
+                }
+                KeyCode::Backspace => {
+                    if let Some(focused_id) = self.runtime_state.interaction.focused {
+                        let mut current_id = Some(focused_id);
+                        while let Some(node_id) = current_id {
+                            if let Some(node) = ir.nodes.get(&node_id) {
+                                if let Op::Semantics(semantics) = &node.op {
+                                    if semantics.role == fission_ir::semantics::Role::TextInput {
+                                        let current_text = semantics.value.as_deref().unwrap_or("");
+                                        let mut new_text = current_text.to_string();
+                                        new_text.pop();
+                                        
+                                        if let Some(action_entry) = semantics.actions.entries.first() {
+                                            let payload = serde_json::to_vec(&new_text).unwrap();
+                                            let envelope = ActionEnvelope {
+                                                id: ActionId::from_u128(action_entry.action_id),
+                                                payload,
+                                            };
+                                            return self.dispatch(envelope, node_id);
+                                        }
+                                    }
+                                }
+                                current_id = node.parent;
+                            } else {
+                                break;
+                            }
+                        }
+                    }
+                }
                 _ => {}
             },
+            InputEvent::Ime(ime) => {
+                // Minimal IME handling: commit inserts text at caret; preedit ignored for now
+                match ime {
+                    crate::event::ImeEvent::Commit { text } => {
+                        if let Some(focused_id) = self.runtime_state.interaction.focused {
+                            let mut current_id = Some(focused_id);
+                            while let Some(node_id) = current_id {
+                                if let Some(node) = ir.nodes.get(&node_id) {
+                                    if let Op::Semantics(semantics) = &node.op {
+                                        if semantics.role == fission_ir::semantics::Role::TextInput {
+                                            let current_text = semantics.value.as_deref().unwrap_or("");
+                                            let new_text = format!("{}{}", current_text, text);
+                                            if let Some(action_entry) = semantics.actions.entries.first() {
+                                                let payload = serde_json::to_vec(&new_text).unwrap();
+                                                let envelope = ActionEnvelope {
+                                                    id: ActionId::from_u128(action_entry.action_id),
+                                                    payload,
+                                                };
+                                                return self.dispatch(envelope, node_id);
+                                            }
+                                        }
+                                    }
+                                    current_id = node.parent;
+                                } else {
+                                    break;
+                                }
+                            }
+                        }
+                    }
+                    crate::event::ImeEvent::Preedit { .. } => {}
+                }
+            }
             InputEvent::Pointer(PointerEvent::Move { point, .. }) => {
                 let hit = hit_test_with_scroll(ir, layout, &self.runtime_state.scroll, point);
 
@@ -470,6 +560,7 @@ impl Runtime {
                 if let Some(hit_node_id) =
                     hit_test_with_scroll(ir, layout, &self.runtime_state.scroll, point)
                 {
+                    println!("[input] pointer down hit {:?}", hit_node_id);
                     let mut focus_candidate = Some(hit_node_id);
                     while let Some(node_id) = focus_candidate {
                         if let Some(node) = ir.nodes.get(&node_id) {
@@ -497,7 +588,18 @@ impl Runtime {
                             break;
                         }
                     }
+                } else {
+                    self.runtime_state.interaction.set_focused(None);
+                }
+            }
+            InputEvent::Pointer(PointerEvent::Up { point, .. }) => {
+                if let Some(hit_node_id) =
+                    hit_test_with_scroll(ir, layout, &self.runtime_state.scroll, point)
+                {
+                    // Clear pressed state
+                    self.runtime_state.interaction.pressed.clear();
 
+                    // Dispatch at most one action on pointer up, closest semantics first
                     let mut current_id = Some(hit_node_id);
                     while let Some(node_id) = current_id {
                         if let Some(node) = ir.nodes.get(&node_id) {
@@ -508,21 +610,19 @@ impl Runtime {
                                             id: ActionId::from_u128(action_entry.action_id),
                                             payload: payload.clone(),
                                         };
-                                        println!("Dispatching action {:?} from input", envelope.id);
+                                        println!(
+                                            "[input] (up) dispatch action {:?} from node {:?}",
+                                            envelope.id, node_id
+                                        );
                                         return self.dispatch(envelope, node_id);
-                                    } else {
-                                        println!("ActionEntry found but no payload data.");
                                     }
                                 }
                             }
-
                             current_id = node.parent;
                         } else {
                             break;
                         }
                     }
-                } else {
-                    self.runtime_state.interaction.set_focused(None);
                 }
             }
             InputEvent::Pointer(PointerEvent::Up { point: _, .. }) => {

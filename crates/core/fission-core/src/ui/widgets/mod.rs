@@ -5,6 +5,9 @@ pub mod row;
 pub mod scroll;
 pub mod text;
 pub mod video;
+pub mod text_input;
+pub mod stack;
+pub mod overlay;
 
 pub use button::Button;
 pub use column::Column;
@@ -13,3 +16,6 @@ pub use row::Row;
 pub use scroll::Scroll;
 pub use text::{Text, TextContent};
 pub use video::Video;
+pub use text_input::TextInput;
+pub use stack::Stack;
+pub use overlay::Overlay;

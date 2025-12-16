@@ -4,6 +4,7 @@ use serde::{Deserialize, Serialize};
 pub enum Role {
     Button,
     Text,
+    TextInput,
     Image,
     Checkbox,
     Slider,

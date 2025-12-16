@@ -14,6 +14,7 @@ fission-semantics = { path = "../../core/fission-semantics" }
 anyhow = "1.0"
 serde = { version = "1.0", features = ["derive"] }
 lazy_static = "1.4"
+fission-macros = { path = "../../authoring/fission-macros" }
 
 [dev-dependencies]
 serde_json = "1.0"

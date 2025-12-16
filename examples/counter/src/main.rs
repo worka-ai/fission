@@ -3,7 +3,8 @@ use fission_core::action::{Action, ActionId};
 use fission_core::env::{VideoState, VideoStatus};
 use fission_core::op::PaintOp;
 use fission_core::ui::{
-    Button, Column, CustomNode, Image, Node, Row, Scroll, Text, TextContent, Video,
+    Button, Column, CustomNode, Image, Node, Overlay, Row, Scroll, Stack, Text, TextContent,
+    TextInput, Video,
 };
 use fission_core::{
     op::Color as IrColor, ActionEnvelope, AnimationPropertyId, AnimationRequest,
@@ -15,6 +16,7 @@ use fission_shell_desktop::DesktopApp;
 use lazy_static::lazy_static;
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
+use fission_widgets::{canvas, checkbox, spacer, CheckboxProps, Portal};
 
 lazy_static! {
     static ref STATUS_WIDGET_ID: WidgetNodeId = WidgetNodeId::explicit("status_indicator");
@@ -26,6 +28,12 @@ lazy_static! {
 #[derive(Default, Debug, Clone, PartialEq, Serialize, Deserialize)]
 struct CounterState {
     value: i32,
+    #[serde(default)]
+    text_value: String,
+    #[serde(default)]
+    checked: bool,
+    #[serde(default)]
+    show_modal: bool,
 }
 
 impl AppState for CounterState {}
@@ -38,10 +46,35 @@ fn on_increment(state: &mut CounterState, _action: Increment) {
     println!("Counter incremented to: {}", state.value);
 }
 
+#[derive(fission_macros::Action, Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
+#[serde(transparent)]
+struct UpdateText(String);
+
+fn on_update_text(state: &mut CounterState, action: UpdateText) {
+    state.text_value = action.0;
+    println!("Text updated: {}", state.text_value);
+}
+
+#[derive(fission_macros::Action, Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
+struct ToggleChecked;
+
+fn on_toggle_checked(state: &mut CounterState, _action: ToggleChecked) {
+    state.checked = !state.checked;
+    println!("Checked: {}", state.checked);
+}
+
+#[derive(fission_macros::Action, Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
+struct ToggleModal;
+
+fn on_toggle_modal(state: &mut CounterState, _action: ToggleModal) {
+    state.show_modal = !state.show_modal;
+}
+
 struct CounterVM {
     label: String,
     is_even: bool,
     anim_val: f32,
+    text_value: String,
 }
 
 impl Selector<CounterState> for CounterVM {
@@ -54,6 +87,7 @@ impl Selector<CounterState> for CounterVM {
             label: format!("Count: {}", view.state.value),
             is_even: view.state.value % 2 == 0,
             anim_val,
+            text_value: view.state.text_value.clone(),
         }
     }
 }
@@ -161,6 +195,32 @@ impl Widget<CounterState> for CounterApp {
                 ..Default::default()
             }
             .into(),
+            // Canvas demo
+            canvas(Some(220.0), Some(60.0), |cx| {
+                use fission_core::op::{Color as IrColor, Fill};
+                let r1 = NodeBuilder::new(
+                    cx.next_node_id(),
+                    fission_core::Op::Paint(PaintOp::DrawRect {
+                        fill: Some(Fill { color: IrColor { r: 30, g: 144, b: 255, a: 255 } }),
+                        stroke: None,
+                        corner_radius: 6.0,
+                        shadow: None,
+                    }),
+                )
+                .build(cx);
+                let r2 = NodeBuilder::new(
+                    cx.next_node_id(),
+                    fission_core::Op::Paint(PaintOp::DrawRect {
+                        fill: Some(Fill { color: IrColor { r: 46, g: 204, b: 113, a: 255 } }),
+                        stroke: None,
+                        corner_radius: 6.0,
+                        shadow: None,
+                    }),
+                )
+                .build(cx);
+                vec![r1, r2]
+            }),
+            spacer(Some(0.0), Some(8.0)),
             Video {
                 id: Some(*DEMO_VIDEO_WIDGET_ID),
                 source: "docs/video1.mp4".into(),
@@ -174,6 +234,34 @@ impl Widget<CounterState> for CounterApp {
             Text {
                 content: TextContent::Literal(vm.label.clone()),
                 font_size: Some(24.0),
+                ..Default::default()
+            }
+            .into(),
+            Row {
+                children: vec![
+                    // Checkbox demo
+                    checkbox(CheckboxProps {
+                        checked: view.state.checked,
+                        on_toggle: Some(ctx.bind(ToggleChecked, on_toggle_checked)),
+                        label: Some("Enable feature".into()),
+                    }),
+                    spacer(Some(16.0), None),
+                    Button {
+                        on_press: Some(ctx.bind(ToggleModal, on_toggle_modal)),
+                        child: Some(Box::new(
+                            Text {
+                                content: TextContent::Literal(
+                                    if view.state.show_modal { "Hide Modal".into() } else { "Show Modal".into() }
+                                ),
+                                ..Default::default()
+                            }
+                            .into(),
+                        )),
+                        width: Some(140.0),
+                        ..Default::default()
+                    }
+                    .into(),
+                ],
                 ..Default::default()
             }
             .into(),
@@ -359,6 +447,20 @@ impl Widget<CounterState> for CounterApp {
                 ..Default::default()
             }
             .into(),
+            TextInput {
+                value: vm.text_value.clone(),
+                placeholder: Some("Type something...".into()),
+                on_change: Some(ctx.bind(UpdateText(String::new()), on_update_text)),
+                width: Some(300.0),
+                ..Default::default()
+            }
+            .into(),
+            // Live echo of input below the field
+            Text {
+                content: TextContent::Literal(format!("Echo: {}", vm.text_value)),
+                ..Default::default()
+            }
+            .into(),
             StatusIndicator {
                 id: *STATUS_WIDGET_ID,
                 active: vm.is_even,
@@ -386,6 +488,33 @@ impl Widget<CounterState> for CounterApp {
             .into(),
         ];
 
+        // Show a modal using Portal + Overlay layering above everything
+        if view.state.show_modal {
+            let modal = Overlay {
+                id: None,
+                content: Box::new(Node::Column(Column {
+                    children: vec![],
+                    ..Default::default()
+                })),
+                overlay: Box::new(Node::Stack(Stack {
+                    children: vec![
+                        // Dim background
+                        Node::Custom(CustomNode {
+                            debug_tag: "Dimmer".into(),
+                            lowerer: Some(Arc::new(ModalDimLowerer)),
+                        }),
+                        // Modal box content
+                        Node::Custom(CustomNode {
+                            debug_tag: "Modal".into(),
+                            lowerer: Some(Arc::new(ModalBoxLowerer)),
+                        }),
+                    ],
+                    ..Default::default()
+                })),
+            };
+            children.push(Portal { child: Node::Overlay(modal) }.build(ctx, view));
+        }
+
         for i in 0..20 {
             children.push(
                 Text {
@@ -411,6 +540,68 @@ impl Widget<CounterState> for CounterApp {
             ..Default::default()
         }
         .into()
+    }
+}
+
+#[derive(Debug)]
+struct ModalDimLowerer;
+
+impl LowerDyn for ModalDimLowerer {
+    fn lower_dyn(&self, cx: &mut LoweringContext) -> NodeId {
+        // Full-screen dim overlay (AbsoluteFill)
+        let paint = NodeBuilder::new(
+            cx.next_node_id(),
+            fission_core::Op::Paint(PaintOp::DrawRect {
+                fill: Some(fission_core::op::Fill { color: IrColor { r: 0, g: 0, b: 0, a: 150 } }),
+                stroke: None,
+                corner_radius: 0.0,
+                shadow: None,
+            }),
+        )
+        .build(cx);
+        let mut fill = NodeBuilder::new(
+            cx.next_node_id(),
+            fission_core::Op::Layout(fission_core::LayoutOp::AbsoluteFill),
+        );
+        fill.add_child(paint);
+        fill.build(cx)
+    }
+}
+
+#[derive(Debug)]
+struct ModalBoxLowerer;
+
+impl LowerDyn for ModalBoxLowerer {
+    fn lower_dyn(&self, cx: &mut LoweringContext) -> NodeId {
+        // Centered box using AbsoluteFill + inner Box
+        let content = NodeBuilder::new(
+            cx.next_node_id(),
+            fission_core::Op::Paint(PaintOp::DrawRect {
+                fill: Some(fission_core::op::Fill { color: IrColor::WHITE }),
+                stroke: None,
+                corner_radius: 8.0,
+                shadow: None,
+            }),
+        )
+        .build(cx);
+        let mut inner = NodeBuilder::new(
+            cx.next_node_id(),
+            fission_core::Op::Layout(fission_core::LayoutOp::Box {
+                width: Some(260.0),
+                height: Some(120.0),
+                padding: [16.0; 4],
+            }),
+        );
+        inner.add_child(content);
+        let inner_id = inner.build(cx);
+
+        // Wrap in AbsoluteFill to overlay and roughly center via padding
+        let mut fill = NodeBuilder::new(
+            cx.next_node_id(),
+            fission_core::Op::Layout(fission_core::LayoutOp::AbsoluteFill),
+        );
+        fill.add_child(inner_id);
+        fill.build(cx)
     }
 }
 

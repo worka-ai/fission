@@ -24,3 +24,7 @@ cocoa = "0.25"
 core-graphics = "0.23"
 
 [dev-dependencies]
+serde = { version = "1", features = ["derive"] }
+fission-macros = { path = "../../authoring/fission-macros" }
+fission-widgets = { path = "../../authoring/fission-widgets" }
+lazy_static = "1"
