@@ -54,7 +54,9 @@ impl<S: AppState + Default, W: Widget<S> + 'static> DesktopApp<S, W> {
 
         let env = Env::default();
 
-        let layout_engine = LayoutEngine::new().with_measurer(Arc::new(SkiaTextMeasurer));
+        let measurer = Arc::new(SkiaTextMeasurer);
+        let layout_engine = LayoutEngine::new().with_measurer(measurer.clone());
+        let runtime = runtime.with_measurer(measurer);
 
         Self {
             runtime,
@@ -704,42 +706,47 @@ impl<S: AppState + Default, W: Widget<S> + 'static> DesktopApp<S, W> {
                                     }
                                 }
 
-                                // For command/control combos, logical_key still carries characters (e.g., 'v'), even if text is None.
-                                if !dispatched && event.state == ElementState::Pressed {
+                                // Use logical key for command shortcuts (Ctrl/Super), otherwise prefer text input
+                                let is_cmd = (current_mods & 4 != 0) || (current_mods & 8 != 0); // Ctrl (4) or Super (8)
+
+                                if !dispatched && is_cmd && event.state == ElementState::Pressed {
                                     if let Key::Character(s) = &event.logical_key {
                                         if let Some(ch) = s.chars().next() {
                                             let fission_event = FissionKeyEvent::Down { key_code: KeyCode::Char(ch), modifiers: current_mods };
                                             if let (Some(ir), Some(snapshot)) = (&pipeline.prev_ir, &pipeline.last_snapshot) {
                                                 if let Ok(_) = runtime.handle_input(InputEvent::Keyboard(fission_event), ir, snapshot) {
                                                     window.request_redraw();
+                                                    dispatched = true;
                                                 }
                                             }
                                         }
                                     }
                                 }
 
-                                // Textual input via KeyEvent.text (winit 0.29)
-                                if let Some(text) = event.text.as_ref() {
-                                    for ch in text.chars() {
-                                        if ch.is_control() { continue; }
-                                        diag::emit(
-                                            diag::DiagCategory::Input,
-                                            diag::DiagLevel::Debug,
-                                            diag::DiagEventKind::InputEvent { kind: format!("char:{}", ch), target: None, position: None },
-                                        );
-                                        let fission_event = FissionKeyEvent::Down {
-                                            key_code: KeyCode::Char(ch),
-                                            modifiers: current_mods,
-                                        };
-                                        if let (Some(ir), Some(snapshot)) =
-                                            (&pipeline.prev_ir, &pipeline.last_snapshot)
-                                        {
-                                            if let Ok(_) = runtime.handle_input(
-                                                InputEvent::Keyboard(fission_event),
-                                                ir,
-                                                snapshot,
-                                            ) {
-                                                window.request_redraw();
+                                // Textual input via KeyEvent.text (winit 0.29) - Skip if dispatched as command
+                                if !dispatched {
+                                    if let Some(text) = event.text.as_ref() {
+                                        for ch in text.chars() {
+                                            if ch.is_control() { continue; }
+                                            diag::emit(
+                                                diag::DiagCategory::Input,
+                                                diag::DiagLevel::Debug,
+                                                diag::DiagEventKind::InputEvent { kind: format!("char:{}", ch), target: None, position: None },
+                                            );
+                                            let fission_event = FissionKeyEvent::Down {
+                                                key_code: KeyCode::Char(ch),
+                                                modifiers: current_mods,
+                                            };
+                                            if let (Some(ir), Some(snapshot)) =
+                                                (&pipeline.prev_ir, &pipeline.last_snapshot)
+                                            {
+                                                if let Ok(_) = runtime.handle_input(
+                                                    InputEvent::Keyboard(fission_event),
+                                                    ir,
+                                                    snapshot,
+                                                ) {
+                                                    window.request_redraw();
+                                                }
                                             }
                                         }
                                     }

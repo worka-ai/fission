@@ -7,6 +7,7 @@ use serde_json;
 use std::any::{Any, TypeId};
 use std::collections::{HashMap, HashSet};
 use unicode_segmentation::UnicodeSegmentation;
+use std::sync::Arc;
 
 pub mod action;
 pub mod diff;
@@ -29,7 +30,7 @@ pub use event::{InputEvent, KeyCode, KeyEvent, LifecycleEvent, PointerButton, Po
 pub use fission_ir::op;
 pub use fission_ir::{EmbedKind, NodeId, Op, WidgetNodeId};
 pub use fission_layout::{
-    FlexDirection, LayoutOp, LayoutPoint, LayoutRect, LayoutSize, LayoutSnapshot, LayoutUnit,
+    FlexDirection, LayoutOp, LayoutPoint, LayoutRect, LayoutSize, LayoutSnapshot, LayoutUnit, TextMeasurer,
 };
 use hit_test::{find_next_focus_node, hit_test, hit_test_with_scroll};
 pub use lowering::{LoweringContext, NodeBuilder};
@@ -81,6 +82,7 @@ pub struct Runtime {
     reducers: HashMap<ActionId, Vec<BoxedReducer>>,
     app_states: HashMap<TypeId, Box<dyn AppState>>,
     pub runtime_state: RuntimeState,
+    pub measurer: Option<Arc<dyn TextMeasurer>>,
 }
 
 impl Default for Runtime {
@@ -89,12 +91,12 @@ impl Default for Runtime {
             reducers: HashMap::new(),
             app_states: HashMap::new(),
             runtime_state: RuntimeState::default(),
+            measurer: None,
         };
 
         runtime
             .add_app_state(Box::new(Clock::default()))
             .expect("Failed to add Clock state");
-        // runtime.add_app_state(Box::new(VideoStateMap::default())).expect("Failed to add VideoStateMap");
 
         runtime.register_base_reducers();
 
@@ -103,26 +105,62 @@ impl Default for Runtime {
 }
 
 impl Runtime {
+    pub fn with_measurer(mut self, measurer: Arc<dyn TextMeasurer>) -> Self {
+        self.measurer = Some(measurer);
+        self
+    }
+
     fn approx_text_width(s: &str, font_size: f32) -> f32 {
-        // Simple heuristic to align with SkiaTextMeasurer (len * size * 0.6)
         (s.chars().count() as f32) * font_size * 0.6
     }
 
-    fn caret_from_point_in_text(value: &str, font_size: f32, viewport_x: f32, viewport_w: f32, content_w: f32, scroll_offset: f32, point_x: f32) -> usize {
-        // Convert global point.x to local content x (account for viewport origin and scroll offset)
+    pub fn caret_from_point_in_text(&self, value: &str, font_size: f32, viewport_x: f32, viewport_w: f32, content_w: f32, scroll_offset: f32, point_x: f32) -> usize {
         let mut local_x = (point_x - viewport_x) + scroll_offset;
         if local_x <= 0.0 { return 0; }
         let max_x = content_w.max(viewport_w);
         if local_x >= max_x { return value.len(); }
-        let mut acc = 0.0f32;
-        let mut last_index = 0usize;
-        for (idx, g) in value.grapheme_indices(true) {
-            let w = Self::approx_text_width(g, font_size);
-            if acc + w * 0.5 >= local_x { return idx; }
-            acc += w;
-            last_index = idx;
+
+        if let Some(measurer) = &self.measurer {
+            let mut last_idx = 0;
+            let mut last_w = 0.0;
+            
+            for (idx, _) in value.grapheme_indices(true) {
+                // Optimization: skip measurement for index 0
+                let w = if idx == 0 { 0.0 } else {
+                    measurer.measure(&value[..idx], font_size, None).0
+                };
+                
+                if w > local_x {
+                    // Check midpoint between last char end (last_w) and this char end (w)
+                    // If local_x is closer to last_w, pick last_idx.
+                    if local_x < (last_w + w) / 2.0 {
+                        return last_idx;
+                    } else {
+                        return idx;
+                    }
+                }
+                last_idx = idx;
+                last_w = w;
+            }
+            // Check last segment
+            let (total_w, _) = measurer.measure(value, font_size, None);
+            if local_x < (last_w + total_w) / 2.0 {
+                return last_idx;
+            } else {
+                return value.len();
+            }
+        } else {
+            // Fallback to approx if no measurer
+            let mut acc = 0.0f32;
+            let mut last_index = 0usize;
+            for (idx, g) in value.grapheme_indices(true) {
+                let w = Self::approx_text_width(g, font_size);
+                if acc + w * 0.5 >= local_x { return idx; }
+                acc += w;
+                last_index = idx;
+            }
+            value.len()
         }
-        value.len()
     }
 
     fn clamp_caret_to_value(value: &str, caret: usize) -> usize {
@@ -205,13 +243,11 @@ impl Runtime {
     }
 
     fn find_scroll_row_and_text(ir: &CoreIR, root: NodeId) -> Option<(NodeId, NodeId)> {
-        // Find first Row scroll + the DrawText under it (main text, not placeholder).
         let mut stack = vec![root];
         while let Some(id) = stack.pop() {
             if let Some(n) = ir.nodes.get(&id) {
                 if let Op::Layout(op::LayoutOp::Scroll { direction, .. }) = &n.op {
                     if *direction == op::FlexDirection::Row {
-                        // Find text paint inside this scroll subtree
                         let mut q = vec![id];
                         while let Some(cid) = q.pop() {
                             if let Some(cn) = ir.nodes.get(&cid) {
@@ -234,10 +270,8 @@ impl Runtime {
         let mut q = vec![scroll_id];
         while let Some(id) = q.pop() {
             if let Some(n) = ir.nodes.get(&id) {
-                // Identify caret: a narrow Box(width=~2.0) that has a single DrawRect child
                 if let Op::Layout(op::LayoutOp::Box { width: Some(w), .. }) = &n.op {
                     if (*w - 2.0).abs() < 0.01 {
-                        // Check child paint
                         let mut has_paint = false;
                         for &cid in &n.children {
                             if let Some(cn) = ir.nodes.get(&cid) {
@@ -262,7 +296,6 @@ impl Runtime {
                 let viewport_x = scroll_geom.rect.origin.x;
                 let viewport_w = scroll_geom.rect.size.width;
                 let content_w = scroll_geom.content_size.width.max(viewport_w);
-                // Prefer caret geometry if present (robust when text is segmented for selection)
                 let caret_left = if let Some(caret_id) = Self::find_caret_in_scroll(ir, scroll_id) {
                     layout.get_node_geometry(caret_id).map(|g| g.rect.origin.x).unwrap_or_else(|| {
                         layout.get_node_geometry(text_id).map(|g| g.rect.origin.x + g.rect.size.width).unwrap_or(viewport_x)
@@ -274,7 +307,7 @@ impl Runtime {
                 let caret_right = caret_left + caret_width;
                 let mut offset = self.runtime_state.scroll.get_offset(scroll_id);
                 let margin_left = 2.0f32;
-                let margin_right = 3.0f32; // account for border and caret thickness
+                let margin_right = 3.0f32; 
                 let visible_left = (caret_left - offset) - viewport_x;
                 let visible_right = (caret_right - offset) - viewport_x;
                 let offset_before = offset;
@@ -287,7 +320,6 @@ impl Runtime {
                 offset = offset.clamp(0.0, max_offset);
                 self.runtime_state.scroll.set_offset(scroll_id, offset);
 
-                // Emit targeted diagnostic to understand caret/viewport dynamics.
                 let text_len = if let Some(node) = ir.nodes.get(&text_id) {
                     if let Op::Paint(fission_ir::PaintOp::DrawText { text, .. }) = &node.op { text.len() as u32 } else { 0 }
                 } else { 0 };
@@ -315,7 +347,6 @@ impl Runtime {
                         offset_after: offset,
                     },
                 );
-                // Also emit as input event when a non-zero gap is observed (debug)
                 if caret_gap.abs() > 0.5 {
                     diag::emit(
                         diag::DiagCategory::Input,
@@ -346,20 +377,6 @@ impl Runtime {
             },
         )
         .expect("Failed to register AdvanceTo reducer");
-
-        // self.register_reducer::<VideoStateMap>(*VIDEO_PLAY_ID, |state: &mut VideoStateMap, _action: &ActionEnvelope, target| {
-        //     if let Some(video_state) = state.states.get_mut(&target) {
-        //         video_state.status = VideoStatus::Playing;
-        //     }
-        //     Ok(())
-        // }).expect("Failed to register VideoPlay reducer");
-
-        // self.register_reducer::<VideoStateMap>(*VIDEO_PAUSE_ID, |state: &mut VideoStateMap, _action: &ActionEnvelope, target| {
-        //     if let Some(video_state) = state.states.get_mut(&target) {
-        //         video_state.status = VideoStatus::Paused;
-        //     }
-        //     Ok(())
-        // }).expect("Failed to register VideoPause reducer");
     }
 
     pub fn clear_reducers(&mut self) {
@@ -500,8 +517,6 @@ impl Runtime {
             }
             return Ok(());
         }
-
-        // System Actions - Removed Animate dispatch
 
         let action_id = action.id;
         if let Some(reducers) = self.reducers.get_mut(&action_id) {
@@ -662,7 +677,48 @@ impl Runtime {
                     }
                     self.runtime_state.interaction.set_focused(next);
                 }
-                KeyCode::Enter | KeyCode::Space => {
+                KeyCode::Space => {
+                    if let Some(focused_id) = self.runtime_state.interaction.focused {
+                        let mut current_id = Some(focused_id);
+                        while let Some(node_id) = current_id {
+                            if let Some(node) = ir.nodes.get(&node_id) {
+                                if let Op::Semantics(semantics) = &node.op {
+                                    if semantics.role == fission_ir::semantics::Role::TextInput {
+                                        let current_text = semantics.value.as_deref().unwrap_or("");
+                                        let st = self.runtime_state.text_edit.get_mut_or_default(node_id);
+                                        let caret = Self::clamp_caret_to_value(current_text, st.caret);
+                                        let sel = if st.caret != st.anchor { Some((st.anchor, st.caret)) } else { None };
+                                        let (new_text, new_caret) = Self::insert_text(current_text, caret, sel, " ");
+                                        
+                                        if let Some(action_entry) = semantics.actions.entries.first() {
+                                            let payload = serde_json::to_vec(&new_text).unwrap();
+                                            let envelope = ActionEnvelope {
+                                                id: ActionId::from_u128(action_entry.action_id),
+                                                payload,
+                                            };
+                                            let res = self.dispatch(envelope, node_id);
+                                            let st = self.runtime_state.text_edit.get_mut_or_default(node_id);
+                                            st.caret = new_caret; st.anchor = new_caret;
+                                            self.auto_scroll_textinput(node_id, ir, layout);
+                                            return res;
+                                        }
+                                        return Ok(());
+                                    } else if let Some(action_entry) = semantics.actions.entries.first() {
+                                        if let Some(payload) = &action_entry.payload_data {
+                                            let envelope = ActionEnvelope {
+                                                id: ActionId::from_u128(action_entry.action_id),
+                                                payload: payload.clone(),
+                                            };
+                                            return self.dispatch(envelope, node_id);
+                                        }
+                                    }
+                                }
+                                current_id = node.parent;
+                            } else { break; }
+                        }
+                    }
+                }
+                KeyCode::Enter => {
                     if let Some(focused_id) = self.runtime_state.interaction.focused {
                         let mut current_id = Some(focused_id);
                         while let Some(node_id) = current_id {
@@ -1024,7 +1080,7 @@ impl Runtime {
                                         if let Some((scroll_id, _)) = Self::find_scroll_row_and_text(ir, focused) {
                                             if let Some(scroll_geom) = layout.get_node_geometry(scroll_id) {
                                                 let value = sem.value.as_deref().unwrap_or("");
-                                                let new_caret = Self::caret_from_point_in_text(
+                                                let new_caret = self.caret_from_point_in_text(
                                                     value,
                                                     16.0,
                                                     scroll_geom.rect.origin.x,
@@ -1070,7 +1126,7 @@ impl Runtime {
                                         // On pointer down inside text, set both caret and anchor based on x (coarse start/end)
                                         if let Some((scroll_id, _)) = Self::find_scroll_row_and_text(ir, node_id) {
                                             if let Some(scroll_geom) = layout.get_node_geometry(scroll_id) {
-                                                let caret = Self::caret_from_point_in_text(
+                                                let caret = self.caret_from_point_in_text(
                                                     value,
                                                     16.0,
                                                     scroll_geom.rect.origin.x,
@@ -1122,7 +1178,9 @@ impl Runtime {
                     while let Some(node_id) = current_id {
                         if let Some(node) = ir.nodes.get(&node_id) {
                             if let Op::Semantics(semantics) = &node.op {
-                                if let Some(action_entry) = semantics.actions.entries.first() {
+                                if semantics.role == fission_ir::semantics::Role::TextInput {
+                                    // TextInput only takes focus on click, no action dispatch
+                                } else if let Some(action_entry) = semantics.actions.entries.first() {
                                     if let Some(payload) = &action_entry.payload_data {
                                         let envelope = ActionEnvelope {
                                             id: ActionId::from_u128(action_entry.action_id),
@@ -1135,6 +1193,7 @@ impl Runtime {
                                         );
                                         return self.dispatch(envelope, node_id);
                                     }
+                                    // If no payload (dynamic action), ignore for click.
                                 }
                             }
                             current_id = node.parent;
