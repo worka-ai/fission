@@ -12,6 +12,7 @@ fission-layout = { path = "../../core/fission-layout" }
 fission-ir = { path = "../../core/fission-ir" }
 fission-semantics = { path = "../../core/fission-semantics" }
 winit = "0.29.15"
+arboard = "3.4"
 fission-diagnostics = { path = "../../tools/fission-diagnostics" }
 softbuffer = "0.4"
 skia-safe = "0.75"

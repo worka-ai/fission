@@ -25,7 +25,7 @@ use crate::action::video::{
 };
 use crate::env::ActiveAnimation;
 pub use action::{Action, ActionEnvelope, ActionId, AppState};
-pub use env::{Env, InteractionStateMap, RuntimeState, ScrollStateMap};
+pub use env::{Env, InteractionStateMap, RuntimeState, ScrollStateMap, Clipboard};
 pub use event::{InputEvent, KeyCode, KeyEvent, LifecycleEvent, PointerButton, PointerEvent};
 pub use fission_ir::op;
 pub use fission_ir::{EmbedKind, NodeId, Op, WidgetNodeId};
@@ -83,6 +83,7 @@ pub struct Runtime {
     app_states: HashMap<TypeId, Box<dyn AppState>>,
     pub runtime_state: RuntimeState,
     pub measurer: Option<Arc<dyn TextMeasurer>>,
+    pub clipboard_backend: Option<Arc<dyn Clipboard>>,
 }
 
 impl Default for Runtime {
@@ -92,6 +93,7 @@ impl Default for Runtime {
             app_states: HashMap::new(),
             runtime_state: RuntimeState::default(),
             measurer: None,
+            clipboard_backend: None,
         };
 
         runtime
@@ -107,6 +109,11 @@ impl Default for Runtime {
 impl Runtime {
     pub fn with_measurer(mut self, measurer: Arc<dyn TextMeasurer>) -> Self {
         self.measurer = Some(measurer);
+        self
+    }
+
+    pub fn with_clipboard(mut self, backend: Arc<dyn Clipboard>) -> Self {
+        self.clipboard_backend = Some(backend);
         self
     }
 
@@ -741,42 +748,6 @@ impl Runtime {
                         }
                     }
                 }
-                KeyCode::Char(c) => {
-                    if let Some(focused_id) = self.runtime_state.interaction.focused {
-                        let mut current_id = Some(focused_id);
-                        while let Some(node_id) = current_id {
-                            if let Some(node) = ir.nodes.get(&node_id) {
-                                if let Op::Semantics(semantics) = &node.op {
-                                    if semantics.role == fission_ir::semantics::Role::TextInput {
-                                        let current_text = semantics.value.as_deref().unwrap_or("");
-                                        let st = self.runtime_state.text_edit.get_mut_or_default(node_id);
-                                        let caret = Self::clamp_caret_to_value(current_text, st.caret);
-                                        let sel = if st.caret != st.anchor { Some((st.anchor, st.caret)) } else { None };
-                                        let (new_text, new_caret) = Self::insert_text(current_text, caret, sel, &c.to_string());
-                                        
-                                        if let Some(action_entry) = semantics.actions.entries.first() {
-                                            let payload = serde_json::to_vec(&new_text).unwrap();
-                                            let envelope = ActionEnvelope {
-                                                id: ActionId::from_u128(action_entry.action_id),
-                                                payload,
-                                            };
-                                            let res = self.dispatch(envelope, node_id);
-                                            let st = self.runtime_state.text_edit.get_mut_or_default(node_id);
-                                            // typing collapses selection
-                                            st.caret = new_caret; st.anchor = new_caret;
-                                            // Auto-scroll to keep caret visible using measured geometry
-                                            self.auto_scroll_textinput(node_id, ir, layout);
-                                            return res;
-                                        }
-                                    }
-                                }
-                                current_id = node.parent;
-                            } else {
-                                break;
-                            }
-                        }
-                    }
-                }
                 KeyCode::Backspace => {
                     if let Some(focused_id) = self.runtime_state.interaction.focused {
                         let mut current_id = Some(focused_id);
@@ -829,65 +800,6 @@ impl Runtime {
                                 current_id = node.parent;
                             } else {
                                 break;
-                            }
-                        }
-                    }
-                }
-                // Copy/Cut/Paste via Ctrl/Super modifiers
-                KeyCode::Char(ch) if ((modifiers & 4) != 0) || ((modifiers & 8) != 0) => {
-                    let lower = ch.to_ascii_lowercase();
-                    if let Some(focused_id) = self.runtime_state.interaction.focused {
-                        if let Some(node) = ir.nodes.get(&focused_id) {
-                            if let Op::Semantics(sem) = &node.op {
-                                if sem.role == fission_ir::semantics::Role::TextInput {
-                                    let value = sem.value.as_deref().unwrap_or("");
-                                    let st = self.runtime_state.text_edit.get_mut_or_default(focused_id);
-                                    let (s,e) = if st.caret <= st.anchor { (st.caret, st.anchor) } else { (st.anchor, st.caret) };
-                                    match lower {
-                                        'c' => {
-                                            if s != e {
-                                                self.runtime_state.clipboard = value[s..e].to_string();
-                                            }
-                                        }
-                                        'x' => {
-                                            if s != e {
-                                                self.runtime_state.clipboard = value[s..e].to_string();
-                                                if let Some(node) = ir.nodes.get(&focused_id) {
-                                                    if let Op::Semantics(semantics) = &node.op {
-                                                        if let Some(action_entry) = semantics.actions.entries.first() {
-                                                            let mut out = String::with_capacity(value.len() - (e - s));
-                                                            out.push_str(&value[..s]);
-                                                            out.push_str(&value[e..]);
-                                                            let payload = serde_json::to_vec(&out).unwrap();
-                                                            let envelope = ActionEnvelope { id: ActionId::from_u128(action_entry.action_id), payload };
-                                                            let _ = self.dispatch(envelope, focused_id);
-                                                            self.runtime_state.text_edit.set_caret(focused_id, s, Some(s));
-                                                            self.auto_scroll_textinput(focused_id, ir, layout);
-                                                        }
-                                                    }
-                                                }
-                                            }
-                                        }
-                                        'v' => {
-                                            if !self.runtime_state.clipboard.is_empty() {
-                                                if let Some(node) = ir.nodes.get(&focused_id) {
-                                                    if let Op::Semantics(semantics) = &node.op {
-                                                        if let Some(action_entry) = semantics.actions.entries.first() {
-                                                            let sel_opt = if s != e { Some((s, e)) } else { None };
-                                                            let (new_text, new_caret) = Self::insert_text(value, st.caret, sel_opt, &self.runtime_state.clipboard);
-                                                            let payload = serde_json::to_vec(&new_text).unwrap();
-                                                            let envelope = ActionEnvelope { id: ActionId::from_u128(action_entry.action_id), payload };
-                                                            let _ = self.dispatch(envelope, focused_id);
-                                                            self.runtime_state.text_edit.set_caret(focused_id, new_caret, Some(new_caret));
-                                                            self.auto_scroll_textinput(focused_id, ir, layout);
-                                                        }
-                                                    }
-                                                }
-                                            }
-                                        }
-                                        _ => {}
-                                    }
-                                }
                             }
                         }
                     }
@@ -979,6 +891,117 @@ impl Runtime {
                                 }
                                 current_id = node.parent;
                             } else { break; }
+                        }
+                    }
+                }
+                // Copy/Cut/Paste via Ctrl/Super modifiers
+                KeyCode::Char(ch) if ((modifiers & 4) != 0) || ((modifiers & 8) != 0) => {
+                    let lower = ch.to_ascii_lowercase();
+                    let backend = self.clipboard_backend.clone();
+                    if let Some(focused_id) = self.runtime_state.interaction.focused {
+                        if let Some(node) = ir.nodes.get(&focused_id) {
+                            if let Op::Semantics(sem) = &node.op {
+                                if sem.role == fission_ir::semantics::Role::TextInput {
+                                    let value = sem.value.as_deref().unwrap_or("");
+                                    let st = self.runtime_state.text_edit.get_mut_or_default(focused_id);
+                                    let (s,e) = if st.caret <= st.anchor { (st.caret, st.anchor) } else { (st.anchor, st.caret) };
+                                    match lower {
+                                        'c' => {
+                                            if s != e {
+                                                let txt = value[s..e].to_string();
+                                                if let Some(cb) = &backend {
+                                                    cb.set_text(&txt);
+                                                } else {
+                                                    self.runtime_state.clipboard = txt;
+                                                }
+                                            }
+                                        }
+                                        'x' => {
+                                            if s != e {
+                                                let txt = value[s..e].to_string();
+                                                if let Some(cb) = &backend {
+                                                    cb.set_text(&txt);
+                                                } else {
+                                                    self.runtime_state.clipboard = txt;
+                                                }
+                                                if let Some(node) = ir.nodes.get(&focused_id) {
+                                                    if let Op::Semantics(semantics) = &node.op {
+                                                        if let Some(action_entry) = semantics.actions.entries.first() {
+                                                            let mut out = String::with_capacity(value.len() - (e - s));
+                                                            out.push_str(&value[..s]);
+                                                            out.push_str(&value[e..]);
+                                                            let payload = serde_json::to_vec(&out).unwrap();
+                                                            let envelope = ActionEnvelope { id: ActionId::from_u128(action_entry.action_id), payload };
+                                                            let _ = self.dispatch(envelope, focused_id);
+                                                            self.runtime_state.text_edit.set_caret(focused_id, s, Some(s));
+                                                            self.auto_scroll_textinput(focused_id, ir, layout);
+                                                        }
+                                                    }
+                                                }
+                                            }
+                                        }
+                                        'v' => {
+                                            let text_to_paste = if let Some(cb) = &backend {
+                                                cb.get_text().unwrap_or_default()
+                                            } else {
+                                                self.runtime_state.clipboard.clone()
+                                            };
+                                            if !text_to_paste.is_empty() {
+                                                if let Some(node) = ir.nodes.get(&focused_id) {
+                                                    if let Op::Semantics(semantics) = &node.op {
+                                                        if let Some(action_entry) = semantics.actions.entries.first() {
+                                                            let sel_opt = if s != e { Some((s, e)) } else { None };
+                                                            let (new_text, new_caret) = Self::insert_text(value, st.caret, sel_opt, &text_to_paste);
+                                                            let payload = serde_json::to_vec(&new_text).unwrap();
+                                                            let envelope = ActionEnvelope { id: ActionId::from_u128(action_entry.action_id), payload };
+                                                            let _ = self.dispatch(envelope, focused_id);
+                                                            self.runtime_state.text_edit.set_caret(focused_id, new_caret, Some(new_caret));
+                                                            self.auto_scroll_textinput(focused_id, ir, layout);
+                                                        }
+                                                    }
+                                                }
+                                            }
+                                        }
+                                        _ => {}
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+                KeyCode::Char(c) => {
+                    if let Some(focused_id) = self.runtime_state.interaction.focused {
+                        let mut current_id = Some(focused_id);
+                        while let Some(node_id) = current_id {
+                            if let Some(node) = ir.nodes.get(&node_id) {
+                                if let Op::Semantics(semantics) = &node.op {
+                                    if semantics.role == fission_ir::semantics::Role::TextInput {
+                                        let current_text = semantics.value.as_deref().unwrap_or("");
+                                        let st = self.runtime_state.text_edit.get_mut_or_default(node_id);
+                                        let caret = Self::clamp_caret_to_value(current_text, st.caret);
+                                        let sel = if st.caret != st.anchor { Some((st.anchor, st.caret)) } else { None };
+                                        let (new_text, new_caret) = Self::insert_text(current_text, caret, sel, &c.to_string());
+
+                                        if let Some(action_entry) = semantics.actions.entries.first() {
+                                            let payload = serde_json::to_vec(&new_text).unwrap();
+                                            let envelope = ActionEnvelope {
+                                                id: ActionId::from_u128(action_entry.action_id),
+                                                payload,
+                                            };
+                                            let res = self.dispatch(envelope, node_id);
+                                            let st = self.runtime_state.text_edit.get_mut_or_default(node_id);
+                                            // typing collapses selection
+                                            st.caret = new_caret; st.anchor = new_caret;
+                                            // Auto-scroll to keep caret visible using measured geometry
+                                            self.auto_scroll_textinput(node_id, ir, layout);
+                                            return res;
+                                        }
+                                    }
+                                }
+                                current_id = node.parent;
+                            } else {
+                                break;
+                            }
                         }
                     }
                 }

@@ -14,6 +14,11 @@ pub struct Env {
     pub locale: Locale,
 }
 
+pub trait Clipboard: Send + Sync {
+    fn get_text(&self) -> Option<String>;
+    fn set_text(&self, text: &str);
+}
+
 // Runtime state managed by framework (Interaction)
 #[derive(Clone, Debug, Default)]
 pub struct RuntimeState {

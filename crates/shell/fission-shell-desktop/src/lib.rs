@@ -38,6 +38,9 @@ use video_backend::MacVideoBackend;
 #[cfg(not(target_os = "macos"))]
 use video_backend::MockVideoBackend;
 
+mod clipboard;
+use clipboard::DesktopClipboard;
+
 pub struct DesktopApp<S: AppState, W: Widget<S>> {
     runtime: Runtime,
     layout_engine: LayoutEngine,
@@ -55,8 +58,12 @@ impl<S: AppState + Default, W: Widget<S> + 'static> DesktopApp<S, W> {
         let env = Env::default();
 
         let measurer = Arc::new(SkiaTextMeasurer);
+        let clipboard: Arc<dyn fission_core::env::Clipboard> = Arc::new(DesktopClipboard::new());
+
         let layout_engine = LayoutEngine::new().with_measurer(measurer.clone());
-        let runtime = runtime.with_measurer(measurer);
+        let runtime = runtime
+            .with_measurer(measurer)
+            .with_clipboard(clipboard);
 
         Self {
             runtime,
