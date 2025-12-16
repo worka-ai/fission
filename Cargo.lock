@@ -569,6 +569,7 @@ dependencies = [
  "lazy_static",
  "serde",
  "serde_json",
+ "unicode-segmentation",
 ]
 
 [[package]]

@@ -39,6 +39,8 @@ pub enum KeyCode {
     Right,
     Up,
     Down,
+    Home,
+    End,
     Char(char),
 }
 

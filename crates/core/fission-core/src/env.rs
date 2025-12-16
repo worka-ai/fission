@@ -1,4 +1,5 @@
 use crate::{action::AppState, registry::AnimationPropertyId};
+use fission_layout::LayoutPoint;
 use fission_i18n::{I18nRegistry, Locale};
 use fission_ir::{NodeId, WidgetNodeId};
 use fission_theme::Theme;
@@ -21,6 +22,9 @@ pub struct RuntimeState {
     pub animation: AnimationStateMap,
     pub video: VideoStateMap,
     pub ime_preedit: Option<(NodeId, String)>,
+    pub text_edit: TextEditStateMap,
+    pub clipboard: String,
+    pub caret_visible: HashMap<NodeId, bool>,
 }
 
 #[derive(Clone, Debug, Default)]
@@ -55,10 +59,34 @@ impl ScrollStateMap {
 }
 
 #[derive(Clone, Debug, Default)]
+pub struct TextEditStateMap {
+    pub states: HashMap<NodeId, TextEditState>,
+}
+
+#[derive(Clone, Debug, Default)]
+pub struct TextEditState {
+    pub caret: usize,       // byte index into value
+    pub anchor: usize,      // selection anchor; if equal to caret then no selection
+}
+
+impl TextEditStateMap {
+    pub fn get_mut_or_default(&mut self, id: NodeId) -> &mut TextEditState {
+        self.states.entry(id).or_default()
+    }
+    pub fn get(&self, id: NodeId) -> Option<&TextEditState> { self.states.get(&id) }
+    pub fn set_caret(&mut self, id: NodeId, caret: usize, anchor: Option<usize>) {
+        let st = self.states.entry(id).or_default();
+        st.caret = caret;
+        st.anchor = anchor.unwrap_or(caret);
+    }
+}
+
+#[derive(Clone, Debug, Default)]
 pub struct InteractionStateMap {
     pub hovered: HashMap<NodeId, bool>,
     pub pressed: HashMap<NodeId, bool>,
     pub focused: Option<NodeId>,
+    pub last_down_point: Option<LayoutPoint>,
 }
 
 impl InteractionStateMap {

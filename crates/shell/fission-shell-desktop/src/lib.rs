@@ -116,6 +116,12 @@ impl<S: AppState + Default, W: Widget<S> + 'static> DesktopApp<S, W> {
 
         let mut last_cursor_position: Option<PhysicalPosition<f64>> = None;
         let mut last_frame_time = Instant::now();
+        // Optional caret blink support (env-gated)
+        let blink_enabled = std::env::var("FISSION_TEXTINPUT_BLINK").ok().as_deref() == Some("1");
+        let mut last_blink_toggle = Instant::now();
+        let blink_period = Duration::from_millis(500);
+
+        let mut current_mods: u8 = 0;
 
         event_loop
             .run(move |event, elwt| {
@@ -315,6 +321,16 @@ impl<S: AppState + Default, W: Widget<S> + 'static> DesktopApp<S, W> {
                             .states
                             .values()
                             .any(|s| s.status == VideoStatus::Playing);
+                        // caret blink toggle
+                        if blink_enabled && last_blink_toggle.elapsed() >= blink_period {
+                            if let Some(fid) = runtime.runtime_state.interaction.focused {
+                                let vis = runtime.runtime_state.caret_visible.get(&fid).copied().unwrap_or(true);
+                                runtime.runtime_state.caret_visible.insert(fid, !vis);
+                                needs_redraw = true;
+                            }
+                            last_blink_toggle = Instant::now();
+                        }
+
                         let has_animations =
                             !runtime.runtime_state.animation.active.is_empty() || video_playing;
 
@@ -587,8 +603,19 @@ impl<S: AppState + Default, W: Widget<S> + 'static> DesktopApp<S, W> {
                                     }
                                 }
                             }
+                            WindowEvent::ModifiersChanged(new) => {
+                                let state = new.state();
+                                let mut m: u8 = 0;
+                                if state.shift_key() { m |= 1; }
+                                if state.alt_key() { m |= 2; }
+                                if state.control_key() { m |= 4; }
+                                if state.super_key() { m |= 8; }
+                                current_mods = m;
+                            }
                             WindowEvent::KeyboardInput { event, .. } => {
-                                let key_code = match event.physical_key {
+                                use winit::keyboard::Key;
+                                // Primary: map via physical keycodes
+                                let mut key_code = match event.physical_key {
                                     PhysicalKey::Code(winit::keyboard::KeyCode::Tab) => {
                                         Some(KeyCode::Tab)
                                     }
@@ -616,9 +643,34 @@ impl<S: AppState + Default, W: Widget<S> + 'static> DesktopApp<S, W> {
                                     PhysicalKey::Code(winit::keyboard::KeyCode::ArrowDown) => {
                                         Some(KeyCode::Down)
                                     }
+                                    PhysicalKey::Code(winit::keyboard::KeyCode::Home) => {
+                                        Some(KeyCode::Home)
+                                    }
+                                    PhysicalKey::Code(winit::keyboard::KeyCode::End) => {
+                                        Some(KeyCode::End)
+                                    }
                                     _ => None,
                                 };
 
+                                // Fallback: map via logical named keys (covers layouts/platform quirks)
+                                if key_code.is_none() {
+                                    key_code = match event.logical_key {
+                                        Key::Named(winit::keyboard::NamedKey::ArrowLeft) => Some(KeyCode::Left),
+                                        Key::Named(winit::keyboard::NamedKey::ArrowRight) => Some(KeyCode::Right),
+                                        Key::Named(winit::keyboard::NamedKey::ArrowUp) => Some(KeyCode::Up),
+                                        Key::Named(winit::keyboard::NamedKey::ArrowDown) => Some(KeyCode::Down),
+                                        Key::Named(winit::keyboard::NamedKey::Escape) => Some(KeyCode::Escape),
+                                        Key::Named(winit::keyboard::NamedKey::Tab) => Some(KeyCode::Tab),
+                                        Key::Named(winit::keyboard::NamedKey::Enter) => Some(KeyCode::Enter),
+                                        Key::Named(winit::keyboard::NamedKey::Space) => Some(KeyCode::Space),
+                                        Key::Named(winit::keyboard::NamedKey::Home) => Some(KeyCode::Home),
+                                        Key::Named(winit::keyboard::NamedKey::End) => Some(KeyCode::End),
+                                        _ => None,
+                                    };
+                                }
+
+                                // Prefer physical mapping for non-text keys; also derive character from logical_key for combos
+                                let mut dispatched = false;
                                 if let Some(code) = key_code {
                                     let kind = if event.state == ElementState::Pressed { "key_down" } else { "key_up" };
                                     diag::emit(
@@ -629,12 +681,12 @@ impl<S: AppState + Default, W: Widget<S> + 'static> DesktopApp<S, W> {
                                     let fission_event = if event.state == ElementState::Pressed {
                                         FissionKeyEvent::Down {
                                             key_code: code,
-                                            modifiers: 0,
+                                            modifiers: current_mods,
                                         }
                                     } else {
                                         FissionKeyEvent::Up {
                                             key_code: code,
-                                            modifiers: 0,
+                                            modifiers: current_mods,
                                         }
                                     };
 
@@ -647,6 +699,21 @@ impl<S: AppState + Default, W: Widget<S> + 'static> DesktopApp<S, W> {
                                             snapshot,
                                         ) {
                                             window.request_redraw();
+                                            dispatched = true;
+                                        }
+                                    }
+                                }
+
+                                // For command/control combos, logical_key still carries characters (e.g., 'v'), even if text is None.
+                                if !dispatched && event.state == ElementState::Pressed {
+                                    if let Key::Character(s) = &event.logical_key {
+                                        if let Some(ch) = s.chars().next() {
+                                            let fission_event = FissionKeyEvent::Down { key_code: KeyCode::Char(ch), modifiers: current_mods };
+                                            if let (Some(ir), Some(snapshot)) = (&pipeline.prev_ir, &pipeline.last_snapshot) {
+                                                if let Ok(_) = runtime.handle_input(InputEvent::Keyboard(fission_event), ir, snapshot) {
+                                                    window.request_redraw();
+                                                }
+                                            }
                                         }
                                     }
                                 }
@@ -662,7 +729,7 @@ impl<S: AppState + Default, W: Widget<S> + 'static> DesktopApp<S, W> {
                                         );
                                         let fission_event = FissionKeyEvent::Down {
                                             key_code: KeyCode::Char(ch),
-                                            modifiers: 0,
+                                            modifiers: current_mods,
                                         };
                                         if let (Some(ir), Some(snapshot)) =
                                             (&pipeline.prev_ir, &pipeline.last_snapshot)

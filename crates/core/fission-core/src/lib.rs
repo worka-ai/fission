@@ -6,6 +6,7 @@ use lazy_static::lazy_static;
 use serde_json;
 use std::any::{Any, TypeId};
 use std::collections::{HashMap, HashSet};
+use unicode_segmentation::UnicodeSegmentation;
 
 pub mod action;
 pub mod diff;
@@ -107,6 +108,102 @@ impl Runtime {
         (s.chars().count() as f32) * font_size * 0.6
     }
 
+    fn caret_from_point_in_text(value: &str, font_size: f32, viewport_x: f32, viewport_w: f32, content_w: f32, scroll_offset: f32, point_x: f32) -> usize {
+        // Convert global point.x to local content x (account for viewport origin and scroll offset)
+        let mut local_x = (point_x - viewport_x) + scroll_offset;
+        if local_x <= 0.0 { return 0; }
+        let max_x = content_w.max(viewport_w);
+        if local_x >= max_x { return value.len(); }
+        let mut acc = 0.0f32;
+        let mut last_index = 0usize;
+        for (idx, g) in value.grapheme_indices(true) {
+            let w = Self::approx_text_width(g, font_size);
+            if acc + w * 0.5 >= local_x { return idx; }
+            acc += w;
+            last_index = idx;
+        }
+        value.len()
+    }
+
+    fn clamp_caret_to_value(value: &str, caret: usize) -> usize {
+        if caret > value.len() { value.len() } else { caret }
+    }
+
+    fn prev_grapheme_boundary(value: &str, idx: usize) -> usize {
+        let mut last = 0;
+        for (pos, _) in value.grapheme_indices(true) {
+            if pos >= idx { break; }
+            last = pos;
+        }
+        last
+    }
+
+    fn next_grapheme_boundary(value: &str, idx: usize) -> usize {
+        for (pos, _) in value.grapheme_indices(true) {
+            if pos > idx { return pos; }
+        }
+        value.len()
+    }
+
+    fn delete_prev_grapheme(value: &str, caret: usize, sel: Option<(usize,usize)>) -> (String, usize) {
+        if let Some((a,b)) = sel {
+            let (s,e) = if a<=b {(a,b)} else {(b,a)};
+            let mut out = String::with_capacity(value.len() - (e-s));
+            out.push_str(&value[..s]);
+            out.push_str(&value[e..]);
+            return (out, s);
+        }
+        let at = caret.min(value.len());
+        if at == 0 { return (value.to_string(), 0); }
+        let prev = Self::prev_grapheme_boundary(value, at);
+        let mut out = String::with_capacity(value.len() - (at-prev));
+        out.push_str(&value[..prev]);
+        out.push_str(&value[at..]);
+        (out, prev)
+    }
+
+    fn prev_word_boundary(value: &str, idx: usize) -> usize {
+        let mut at = idx.min(value.len());
+        while at > 0 {
+            let prev = Self::prev_grapheme_boundary(value, at);
+            let ch = value[prev..].chars().next().unwrap_or('\0');
+            if !ch.is_whitespace() { at = prev; break; }
+            at = prev;
+        }
+        while at > 0 {
+            let prev = Self::prev_grapheme_boundary(value, at);
+            let ch = value[prev..].chars().next().unwrap_or('\0');
+            if ch.is_alphanumeric() || ch == '_' { at = prev; } else { break; }
+        }
+        at
+    }
+
+    fn next_word_boundary(value: &str, idx: usize) -> usize {
+        let mut at = idx.min(value.len());
+        while at < value.len() {
+            let next = Self::next_grapheme_boundary(value, at);
+            let ch = value[at..].chars().next().unwrap_or('\0');
+            if !ch.is_whitespace() { at = next; break; }
+            at = next;
+        }
+        while at < value.len() {
+            let next = Self::next_grapheme_boundary(value, at);
+            let ch = value[at..].chars().next().unwrap_or('\0');
+            if ch.is_alphanumeric() || ch == '_' { at = next; } else { break; }
+            at = next;
+        }
+        at
+    }
+
+    fn insert_text(value: &str, caret: usize, sel: Option<(usize,usize)>, text: &str) -> (String, usize) {
+        let (s,e) = sel.map(|(a,b)| if a<=b {(a,b)} else {(b,a)}).unwrap_or((caret, caret));
+        let mut out = String::with_capacity(value.len() - (e-s) + text.len());
+        out.push_str(&value[..s]);
+        out.push_str(text);
+        out.push_str(&value[e..]);
+        (out, s + text.len())
+    }
+
     fn find_scroll_row_and_text(ir: &CoreIR, root: NodeId) -> Option<(NodeId, NodeId)> {
         // Find first Row scroll + the DrawText under it (main text, not placeholder).
         let mut stack = vec![root];
@@ -161,19 +258,30 @@ impl Runtime {
 
     fn auto_scroll_textinput(&mut self, text_root: NodeId, ir: &CoreIR, layout: &LayoutSnapshot) {
         if let Some((scroll_id, text_id)) = Self::find_scroll_row_and_text(ir, text_root) {
-            if let (Some(scroll_geom), Some(text_geom)) = (layout.get_node_geometry(scroll_id), layout.get_node_geometry(text_id)) {
+            if let Some(scroll_geom) = layout.get_node_geometry(scroll_id) {
                 let viewport_x = scroll_geom.rect.origin.x;
                 let viewport_w = scroll_geom.rect.size.width;
                 let content_w = scroll_geom.content_size.width.max(viewport_w);
-                let caret_abs_x = text_geom.rect.origin.x + text_geom.rect.size.width;
+                // Prefer caret geometry if present (robust when text is segmented for selection)
+                let caret_left = if let Some(caret_id) = Self::find_caret_in_scroll(ir, scroll_id) {
+                    layout.get_node_geometry(caret_id).map(|g| g.rect.origin.x).unwrap_or_else(|| {
+                        layout.get_node_geometry(text_id).map(|g| g.rect.origin.x + g.rect.size.width).unwrap_or(viewport_x)
+                    })
+                } else {
+                    layout.get_node_geometry(text_id).map(|g| g.rect.origin.x + g.rect.size.width).unwrap_or(viewport_x)
+                };
+                let caret_width = 2.0f32;
+                let caret_right = caret_left + caret_width;
                 let mut offset = self.runtime_state.scroll.get_offset(scroll_id);
-                let caret_margin = 2.0f32;
-                let visible_rel_x = (caret_abs_x - offset) - viewport_x;
+                let margin_left = 2.0f32;
+                let margin_right = 3.0f32; // account for border and caret thickness
+                let visible_left = (caret_left - offset) - viewport_x;
+                let visible_right = (caret_right - offset) - viewport_x;
                 let offset_before = offset;
-                if visible_rel_x > (viewport_w - caret_margin) {
-                    offset = (caret_abs_x - (viewport_x + viewport_w - caret_margin)).max(0.0);
-                } else if visible_rel_x < 0.0 {
-                    offset = (caret_abs_x - (viewport_x + caret_margin)).max(0.0);
+                if visible_right > (viewport_w - margin_right) {
+                    offset = (caret_right - (viewport_x + viewport_w - margin_right)).max(0.0);
+                } else if visible_left < margin_left {
+                    offset = (caret_left - (viewport_x + margin_left)).max(0.0);
                 }
                 let max_offset = (content_w - viewport_w).max(0.0);
                 offset = offset.clamp(0.0, max_offset);
@@ -183,11 +291,11 @@ impl Runtime {
                 let text_len = if let Some(node) = ir.nodes.get(&text_id) {
                     if let Op::Paint(fission_ir::PaintOp::DrawText { text, .. }) = &node.op { text.len() as u32 } else { 0 }
                 } else { 0 };
-                let line_h = text_geom.rect.size.height;
-                let (caret_left, caret_gap) = if let Some(caret_id) = Self::find_caret_in_scroll(ir, scroll_id) {
+                let line_h = layout.get_node_geometry(text_id).map(|g| g.rect.size.height).unwrap_or(0.0);
+                let (caret_left_geom, caret_gap) = if let Some(caret_id) = Self::find_caret_in_scroll(ir, scroll_id) {
                     if let Some(cg) = layout.get_node_geometry(caret_id) {
                         let left = cg.rect.origin.x;
-                        (left, left - caret_abs_x)
+                        (left, left - caret_left)
                     } else { (0.0, 0.0) }
                 } else { (0.0, 0.0) };
                 diag::emit(
@@ -197,12 +305,12 @@ impl Runtime {
                         scroll_id: scroll_id.as_u128(),
                         text_id: text_id.as_u128(),
                         text_len,
-                        measured_w: text_geom.rect.size.width,
+                        measured_w: layout.get_node_geometry(text_id).map(|g| g.rect.size.width).unwrap_or(0.0),
                         line_h,
                         viewport_x,
                         viewport_w,
                         content_w,
-                        caret_abs_x,
+                        caret_abs_x: caret_left,
                         offset_before,
                         offset_after: offset,
                     },
@@ -212,7 +320,7 @@ impl Runtime {
                     diag::emit(
                         diag::DiagCategory::Input,
                         diag::DiagLevel::Debug,
-                        diag::DiagEventKind::InputEvent { kind: format!("caret_gap: {:.2} (caret_left={:.2} caret_abs_x={:.2})", caret_gap, caret_left, caret_abs_x), target: Some(scroll_id.as_u128()), position: None },
+                        diag::DiagEventKind::InputEvent { kind: format!("caret_gap: {:.2} (caret_left={:.2} caret_abs_x={:.2})", caret_gap, caret_left_geom, caret_left), target: Some(scroll_id.as_u128()), position: None },
                     );
                 }
             }
@@ -585,7 +693,10 @@ impl Runtime {
                                 if let Op::Semantics(semantics) = &node.op {
                                     if semantics.role == fission_ir::semantics::Role::TextInput {
                                         let current_text = semantics.value.as_deref().unwrap_or("");
-                                        let new_text = format!("{}{}", current_text, c);
+                                        let st = self.runtime_state.text_edit.get_mut_or_default(node_id);
+                                        let caret = Self::clamp_caret_to_value(current_text, st.caret);
+                                        let sel = if st.caret != st.anchor { Some((st.anchor, st.caret)) } else { None };
+                                        let (new_text, new_caret) = Self::insert_text(current_text, caret, sel, &c.to_string());
                                         
                                         if let Some(action_entry) = semantics.actions.entries.first() {
                                             let payload = serde_json::to_vec(&new_text).unwrap();
@@ -594,6 +705,9 @@ impl Runtime {
                                                 payload,
                                             };
                                             let res = self.dispatch(envelope, node_id);
+                                            let st = self.runtime_state.text_edit.get_mut_or_default(node_id);
+                                            // typing collapses selection
+                                            st.caret = new_caret; st.anchor = new_caret;
                                             // Auto-scroll to keep caret visible using measured geometry
                                             self.auto_scroll_textinput(node_id, ir, layout);
                                             return res;
@@ -615,8 +729,32 @@ impl Runtime {
                                 if let Op::Semantics(semantics) = &node.op {
                                     if semantics.role == fission_ir::semantics::Role::TextInput {
                                         let current_text = semantics.value.as_deref().unwrap_or("");
-                                        let mut new_text = current_text.to_string();
-                                        new_text.pop();
+                                        let st = self.runtime_state.text_edit.get_mut_or_default(node_id);
+                                        let caret = Self::clamp_caret_to_value(current_text, st.caret);
+                                        let sel = if st.caret != st.anchor { Some((st.anchor, st.caret)) } else { None };
+                                        let (new_text, new_caret) = if (modifiers & 2) != 0 && sel.is_none() {
+                                            // Alt/Option+Backspace: delete previous word (coarse)
+                                            let mut at = caret;
+                                            // skip whitespace
+                                            while at > 0 {
+                                                let prev = Self::prev_grapheme_boundary(current_text, at);
+                                                let ch = current_text[prev..].chars().next().unwrap_or('\0');
+                                                if !ch.is_whitespace() { at = prev; break; }
+                                                at = prev;
+                                            }
+                                            // delete word chars
+                                            while at > 0 {
+                                                let prev = Self::prev_grapheme_boundary(current_text, at);
+                                                let ch = current_text[prev..].chars().next().unwrap_or('\0');
+                                                if ch.is_alphanumeric() || ch == '_' { at = prev; } else { break; }
+                                            }
+                                            let mut out = String::with_capacity(current_text.len() - (caret - at));
+                                            out.push_str(&current_text[..at]);
+                                            out.push_str(&current_text[caret..]);
+                                            (out, at)
+                                        } else {
+                                            Self::delete_prev_grapheme(current_text, caret, sel)
+                                        };
                                         
                                         if let Some(action_entry) = semantics.actions.entries.first() {
                                             let payload = serde_json::to_vec(&new_text).unwrap();
@@ -625,6 +763,8 @@ impl Runtime {
                                                 payload,
                                             };
                                             let res = self.dispatch(envelope, node_id);
+                                            let st = self.runtime_state.text_edit.get_mut_or_default(node_id);
+                                            st.caret = new_caret; st.anchor = new_caret;
                                             self.auto_scroll_textinput(node_id, ir, layout);
                                             return res;
                                         }
@@ -634,6 +774,155 @@ impl Runtime {
                             } else {
                                 break;
                             }
+                        }
+                    }
+                }
+                // Copy/Cut/Paste via Ctrl/Super modifiers
+                KeyCode::Char(ch) if ((modifiers & 4) != 0) || ((modifiers & 8) != 0) => {
+                    let lower = ch.to_ascii_lowercase();
+                    if let Some(focused_id) = self.runtime_state.interaction.focused {
+                        if let Some(node) = ir.nodes.get(&focused_id) {
+                            if let Op::Semantics(sem) = &node.op {
+                                if sem.role == fission_ir::semantics::Role::TextInput {
+                                    let value = sem.value.as_deref().unwrap_or("");
+                                    let st = self.runtime_state.text_edit.get_mut_or_default(focused_id);
+                                    let (s,e) = if st.caret <= st.anchor { (st.caret, st.anchor) } else { (st.anchor, st.caret) };
+                                    match lower {
+                                        'c' => {
+                                            if s != e {
+                                                self.runtime_state.clipboard = value[s..e].to_string();
+                                            }
+                                        }
+                                        'x' => {
+                                            if s != e {
+                                                self.runtime_state.clipboard = value[s..e].to_string();
+                                                if let Some(node) = ir.nodes.get(&focused_id) {
+                                                    if let Op::Semantics(semantics) = &node.op {
+                                                        if let Some(action_entry) = semantics.actions.entries.first() {
+                                                            let mut out = String::with_capacity(value.len() - (e - s));
+                                                            out.push_str(&value[..s]);
+                                                            out.push_str(&value[e..]);
+                                                            let payload = serde_json::to_vec(&out).unwrap();
+                                                            let envelope = ActionEnvelope { id: ActionId::from_u128(action_entry.action_id), payload };
+                                                            let _ = self.dispatch(envelope, focused_id);
+                                                            self.runtime_state.text_edit.set_caret(focused_id, s, Some(s));
+                                                            self.auto_scroll_textinput(focused_id, ir, layout);
+                                                        }
+                                                    }
+                                                }
+                                            }
+                                        }
+                                        'v' => {
+                                            if !self.runtime_state.clipboard.is_empty() {
+                                                if let Some(node) = ir.nodes.get(&focused_id) {
+                                                    if let Op::Semantics(semantics) = &node.op {
+                                                        if let Some(action_entry) = semantics.actions.entries.first() {
+                                                            let sel_opt = if s != e { Some((s, e)) } else { None };
+                                                            let (new_text, new_caret) = Self::insert_text(value, st.caret, sel_opt, &self.runtime_state.clipboard);
+                                                            let payload = serde_json::to_vec(&new_text).unwrap();
+                                                            let envelope = ActionEnvelope { id: ActionId::from_u128(action_entry.action_id), payload };
+                                                            let _ = self.dispatch(envelope, focused_id);
+                                                            self.runtime_state.text_edit.set_caret(focused_id, new_caret, Some(new_caret));
+                                                            self.auto_scroll_textinput(focused_id, ir, layout);
+                                                        }
+                                                    }
+                                                }
+                                            }
+                                        }
+                                        _ => {}
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+                KeyCode::Left => {
+                    if let Some(focused_id) = self.runtime_state.interaction.focused {
+                        let mut current_id = Some(focused_id);
+                        while let Some(node_id) = current_id {
+                            if let Some(node) = ir.nodes.get(&node_id) {
+                                if let Op::Semantics(semantics) = &node.op {
+                                    if semantics.role == fission_ir::semantics::Role::TextInput {
+                                        let current_text = semantics.value.as_deref().unwrap_or("");
+                                        let st = self.runtime_state.text_edit.get_mut_or_default(node_id);
+                                        let caret = Self::clamp_caret_to_value(current_text, st.caret);
+                                        let prev = if (modifiers & 2) != 0 { // Alt/Option
+                                            Self::prev_word_boundary(current_text, caret)
+                                        } else {
+                                            Self::prev_grapheme_boundary(current_text, caret)
+                                        };
+                                        // Shift extends selection: do not collapse anchor
+                                        if (modifiers & 1) != 0 { st.caret = prev; } else { st.caret = prev; st.anchor = prev; }
+                                        self.auto_scroll_textinput(node_id, ir, layout);
+                                        break;
+                                    }
+                                }
+                                current_id = node.parent;
+                            } else { break; }
+                        }
+                    }
+                }
+                KeyCode::Right => {
+                    if let Some(focused_id) = self.runtime_state.interaction.focused {
+                        let mut current_id = Some(focused_id);
+                        while let Some(node_id) = current_id {
+                            if let Some(node) = ir.nodes.get(&node_id) {
+                                if let Op::Semantics(semantics) = &node.op {
+                                    if semantics.role == fission_ir::semantics::Role::TextInput {
+                                        let current_text = semantics.value.as_deref().unwrap_or("");
+                                        let st = self.runtime_state.text_edit.get_mut_or_default(node_id);
+                                        let caret = Self::clamp_caret_to_value(current_text, st.caret);
+                                        let next = if (modifiers & 2) != 0 { // Alt/Option
+                                            Self::next_word_boundary(current_text, caret)
+                                        } else {
+                                            Self::next_grapheme_boundary(current_text, caret)
+                                        };
+                                        if (modifiers & 1) != 0 { st.caret = next; } else { st.caret = next; st.anchor = next; }
+                                        self.auto_scroll_textinput(node_id, ir, layout);
+                                        break;
+                                    }
+                                }
+                                current_id = node.parent;
+                            } else { break; }
+                        }
+                    }
+                }
+                KeyCode::Home => {
+                    if let Some(focused_id) = self.runtime_state.interaction.focused {
+                        let mut current_id = Some(focused_id);
+                        while let Some(node_id) = current_id {
+                            if let Some(node) = ir.nodes.get(&node_id) {
+                                if let Op::Semantics(semantics) = &node.op {
+                                    if semantics.role == fission_ir::semantics::Role::TextInput {
+                                        let st = self.runtime_state.text_edit.get_mut_or_default(node_id);
+        
+                                        if (modifiers & 1) != 0 { st.caret = 0; } else { st.caret = 0; st.anchor = 0; }
+                                        self.auto_scroll_textinput(node_id, ir, layout);
+                                        break;
+                                    }
+                                }
+                                current_id = node.parent;
+                            } else { break; }
+                        }
+                    }
+                }
+                KeyCode::End => {
+                    if let Some(focused_id) = self.runtime_state.interaction.focused {
+                        let mut current_id = Some(focused_id);
+                        while let Some(node_id) = current_id {
+                            if let Some(node) = ir.nodes.get(&node_id) {
+                                if let Op::Semantics(semantics) = &node.op {
+                                    if semantics.role == fission_ir::semantics::Role::TextInput {
+                                        let value = semantics.value.as_deref().unwrap_or("");
+                                        let end = value.len();
+                                        let st = self.runtime_state.text_edit.get_mut_or_default(node_id);
+                                        if (modifiers & 1) != 0 { st.caret = end; } else { st.caret = end; st.anchor = end; }
+                                        self.auto_scroll_textinput(node_id, ir, layout);
+                                        break;
+                                    }
+                                }
+                                current_id = node.parent;
+                            } else { break; }
                         }
                     }
                 }
@@ -650,7 +939,10 @@ impl Runtime {
                                     if let Op::Semantics(semantics) = &node.op {
                                         if semantics.role == fission_ir::semantics::Role::TextInput {
                                             let current_text = semantics.value.as_deref().unwrap_or("");
-                                            let new_text = format!("{}{}", current_text, text);
+                                            let st = self.runtime_state.text_edit.get_mut_or_default(node_id);
+                                            let caret = Self::clamp_caret_to_value(current_text, st.caret);
+                                            let sel = if st.caret != st.anchor { Some((st.anchor, st.caret)) } else { None };
+                                            let (new_text, new_caret) = Self::insert_text(current_text, caret, sel, &text);
                                             if let Some(action_entry) = semantics.actions.entries.first() {
                                                 let payload = serde_json::to_vec(&new_text).unwrap();
                                                 let envelope = ActionEnvelope {
@@ -660,6 +952,8 @@ impl Runtime {
                                                 // Clear preedit and scroll to caret
                                                 self.runtime_state.ime_preedit = None;
                                                 let res = self.dispatch(envelope, node_id);
+                                                let st = self.runtime_state.text_edit.get_mut_or_default(node_id);
+                                                st.caret = new_caret; st.anchor = new_caret;
                                                 self.auto_scroll_textinput(node_id, ir, layout);
                                                 return res;
                                             }
@@ -712,6 +1006,44 @@ impl Runtime {
                 for id in new_hovered {
                     self.runtime_state.interaction.set_hovered(id, true);
                 }
+
+                // Drag-select: if focused TextInput and mouse is down beyond a small threshold, update caret based on x using approximate measurement
+                if let Some(focused) = self.runtime_state.interaction.focused {
+                    if let Some(node) = ir.nodes.get(&focused) {
+                        if let Op::Semantics(sem) = &node.op {
+                            if sem.role == fission_ir::semantics::Role::TextInput {
+                                if !self.runtime_state.interaction.pressed.is_empty() {
+                                    // Apply a 2px movement threshold to avoid accidental selection on tiny mouse moves
+                                    let mut moved_enough = true;
+                                    if let Some(start) = self.runtime_state.interaction.last_down_point {
+                                        let dx = point.x - start.x;
+                                        let dy = point.y - start.y;
+                                        if dx*dx + dy*dy < 4.0 { moved_enough = false; }
+                                    }
+                                    if moved_enough {
+                                        if let Some((scroll_id, _)) = Self::find_scroll_row_and_text(ir, focused) {
+                                            if let Some(scroll_geom) = layout.get_node_geometry(scroll_id) {
+                                                let value = sem.value.as_deref().unwrap_or("");
+                                                let new_caret = Self::caret_from_point_in_text(
+                                                    value,
+                                                    16.0,
+                                                    scroll_geom.rect.origin.x,
+                                                    scroll_geom.rect.size.width,
+                                                    scroll_geom.content_size.width,
+                                                    self.runtime_state.scroll.get_offset(scroll_id),
+                                                    point.x,
+                                                );
+                                                let st = self.runtime_state.text_edit.get_mut_or_default(focused);
+                                                st.caret = new_caret; // anchor preserved from pointer down
+                                                self.auto_scroll_textinput(focused, ir, layout);
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
             }
             InputEvent::Pointer(PointerEvent::Down { point, .. }) => {
                 if let Some(hit_node_id) =
@@ -731,6 +1063,26 @@ impl Runtime {
                                         self.runtime_state.ime_preedit = None;
                                     }
                                     self.runtime_state.interaction.set_focused(Some(node_id));
+                                    // If focusing a text input, initialize caret to end
+                                    if s.role == fission_ir::semantics::Role::TextInput {
+                                        let value = s.value.as_deref().unwrap_or("");
+                                        self.runtime_state.text_edit.set_caret(node_id, value.len(), None);
+                                        // On pointer down inside text, set both caret and anchor based on x (coarse start/end)
+                                        if let Some((scroll_id, _)) = Self::find_scroll_row_and_text(ir, node_id) {
+                                            if let Some(scroll_geom) = layout.get_node_geometry(scroll_id) {
+                                                let caret = Self::caret_from_point_in_text(
+                                                    value,
+                                                    16.0,
+                                                    scroll_geom.rect.origin.x,
+                                                    scroll_geom.rect.size.width,
+                                                    scroll_geom.content_size.width,
+                                                    self.runtime_state.scroll.get_offset(scroll_id),
+                                                    point.x,
+                                                );
+                                                self.runtime_state.text_edit.set_caret(node_id, caret, Some(caret));
+                                            }
+                                        }
+                                    }
                                     break;
                                 }
                             }
@@ -752,6 +1104,8 @@ impl Runtime {
                             break;
                         }
                     }
+                    // Record pointer down location (for move threshold)
+                    self.runtime_state.interaction.last_down_point = Some(point);
                 } else {
                     self.runtime_state.interaction.set_focused(None);
                 }
@@ -788,10 +1142,14 @@ impl Runtime {
                             break;
                         }
                     }
+
+                    // Clear drag start on pointer up
+                    self.runtime_state.interaction.last_down_point = None;
                 }
             }
             InputEvent::Pointer(PointerEvent::Up { point: _, .. }) => {
                 self.runtime_state.interaction.pressed.clear();
+                self.runtime_state.interaction.last_down_point = None;
             }
             _ => {}
         }

@@ -25,13 +25,14 @@ impl Lower for TextInput {
         let is_focused = cx.runtime_state.interaction.is_focused(input_id);
 
         // 1. Background (Paint) - AbsoluteFill
+        let stroke_w = if is_focused { 2.0 } else { 1.0 };
         let background_id = NodeBuilder::new(
             cx.next_node_id(),
             Op::Paint(PaintOp::DrawRect {
                 fill: Some(Fill { color: IrColor::WHITE }), 
                 stroke: Some(Stroke { 
                     color: if is_focused { IrColor::BLUE } else { IrColor::BLACK }, 
-                    width: if is_focused { 2.0 } else { 1.0 } 
+                    width: stroke_w 
                 }),
                 corner_radius: 4.0,
                 shadow: None,
@@ -59,22 +60,78 @@ impl Lower for TextInput {
         
         let text_color = if preedit_suffix.is_some() { IrColor::BLUE } else { IrColor::BLACK };
 
-        let text_id = NodeBuilder::new(
-            cx.next_node_id(),
-            Op::Paint(PaintOp::DrawText {
-                text: display_text,
-                size: 16.0,
-                color: text_color,
-            })
-        ).build(cx);
-        
-        // Wrap Text in Layout Box to act as flex item
-        let mut text_layout_builder = NodeBuilder::new(
-            cx.next_node_id(),
-            Op::Layout(LayoutOp::Box { width: None, height: None, padding: [0.0, 0.0, 0.0, 0.0] })
-        );
-        text_layout_builder.add_child(text_id);
-        let text_layout_id = text_layout_builder.build(cx);
+        // Build segments for selection rendering (if focused and selection non-empty)
+        let mut text_layout_id = NodeId::derived(0, &[0]);
+        let mut left_layout_id = None;
+        let mut sel_layout_id = None;
+        let mut right_layout_id = None;
+
+        let value_for_selection = self.value.clone();
+        let (caret, anchor) = if is_focused {
+            if let Some(st) = cx.runtime_state.text_edit.get(input_id) {
+                (st.caret.min(value_for_selection.len()), st.anchor.min(value_for_selection.len()))
+            } else { (value_for_selection.len(), value_for_selection.len()) }
+        } else { (0usize, 0usize) };
+        let has_selection = is_focused && caret != anchor;
+
+        // We'll create segments relative to caret/anchor even if no selection.
+        let (s,e) = if caret <= anchor { (caret, anchor) } else { (anchor, caret) };
+        let left_str = value_for_selection.get(0..s).unwrap_or("");
+        let sel_str = value_for_selection.get(s..e).unwrap_or("");
+        let right_str_full = value_for_selection.get(e..).unwrap_or("");
+
+        if has_selection {
+            let right_str = right_str_full;
+
+            // Left text
+            if !left_str.is_empty() {
+                let left_text_id = NodeBuilder::new(cx.next_node_id(), Op::Paint(PaintOp::DrawText { text: left_str.to_string(), size: 16.0, color: IrColor::BLACK })).build(cx);
+                let mut left_box = NodeBuilder::new(cx.next_node_id(), Op::Layout(LayoutOp::Box { width: None, height: None, padding: [0.0;4] }));
+                left_box.add_child(left_text_id);
+                left_layout_id = Some(left_box.build(cx));
+            }
+
+            // Selected text with background rect (behind)
+            if !sel_str.is_empty() {
+                // Background rect that fills the selection box; color from theme (simple blue with alpha)
+                let bg_id = NodeBuilder::new(cx.next_node_id(), Op::Paint(PaintOp::DrawRect { fill: Some(Fill { color: IrColor { r: 173, g: 208, b: 255, a: 255 } }), stroke: None, corner_radius: 0.0, shadow: None })).build(cx);
+                let sel_text_id = NodeBuilder::new(cx.next_node_id(), Op::Paint(PaintOp::DrawText { text: sel_str.to_string(), size: 16.0, color: IrColor::BLACK })).build(cx);
+                // Container box; DrawRect (AbsoluteFill) will fill it because paint ops are treated as fill under layout
+                let mut sel_box = NodeBuilder::new(cx.next_node_id(), Op::Layout(LayoutOp::Box { width: None, height: None, padding: [0.0;4] }));
+                sel_box.add_child(bg_id);
+                sel_box.add_child(sel_text_id);
+                sel_layout_id = Some(sel_box.build(cx));
+            }
+
+            // Right text
+            if !right_str.is_empty() || preedit_suffix.is_some() {
+                // Append preedit suffix to the right segment for visual continuity
+                let mut right_concat = right_str.to_string();
+                if let Some(pre) = &preedit_suffix { right_concat.insert_str(0, ""); right_concat.push_str(pre); }
+                let right_text_id = NodeBuilder::new(cx.next_node_id(), Op::Paint(PaintOp::DrawText { text: right_concat, size: 16.0, color: text_color })).build(cx);
+                let mut right_box = NodeBuilder::new(cx.next_node_id(), Op::Layout(LayoutOp::Box { width: None, height: None, padding: [0.0;4] }));
+                right_box.add_child(right_text_id);
+                right_layout_id = Some(right_box.build(cx));
+            }
+        } else {
+            // No selection: split around caret into left and right
+            let left_only = value_for_selection.get(0..caret).unwrap_or("");
+            let mut right_only = value_for_selection.get(caret..).unwrap_or("").to_string();
+            if let Some(pre) = &preedit_suffix { right_only.push_str(pre); }
+
+            if !left_only.is_empty() {
+                let left_text_id = NodeBuilder::new(cx.next_node_id(), Op::Paint(PaintOp::DrawText { text: left_only.to_string(), size: 16.0, color: IrColor::BLACK })).build(cx);
+                let mut left_box = NodeBuilder::new(cx.next_node_id(), Op::Layout(LayoutOp::Box { width: None, height: None, padding: [0.0;4] }));
+                left_box.add_child(left_text_id);
+                left_layout_id = Some(left_box.build(cx));
+            }
+            if !right_only.is_empty() {
+                let right_text_id = NodeBuilder::new(cx.next_node_id(), Op::Paint(PaintOp::DrawText { text: right_only, size: 16.0, color: text_color })).build(cx);
+                let mut right_box = NodeBuilder::new(cx.next_node_id(), Op::Layout(LayoutOp::Box { width: None, height: None, padding: [0.0;4] }));
+                right_box.add_child(right_text_id);
+                right_layout_id = Some(right_box.build(cx));
+            }
+        }
 
         // 3. Content container (Flex Row)
         let flex_id = cx.next_node_id();
@@ -99,31 +156,60 @@ impl Lower for TextInput {
             }),
         );
         
-        flex_builder.add_child(text_layout_id);
-
+        // Build caret node (if focused and visible)
+        let mut caret_id_opt: Option<NodeId> = None;
         if is_focused {
-             let cursor_paint_id = NodeBuilder::new(
-                cx.next_node_id(),
-                Op::Paint(PaintOp::DrawRect {
-                    fill: Some(Fill { color: IrColor::BLACK }),
-                    stroke: None,
-                    corner_radius: 0.0,
-                    shadow: None,
-                })
-             ).build(cx);
-             
-             let mut cursor_layout_builder = NodeBuilder::new(
-                cx.next_node_id(),
-                Op::Layout(LayoutOp::Box {
-                    width: Some(2.0),
-                    height: Some(16.0 * 1.2), // approximate line height from text size
-                    padding: [0.0, 0.0, 0.0, 0.0],
-                })
-             );
-             cursor_layout_builder.add_child(cursor_paint_id);
-             let cursor_layout_id = cursor_layout_builder.build(cx);
-             
-             flex_builder.add_child(cursor_layout_id);
+            let caret_visible = cx
+                .runtime_state
+                .caret_visible
+                .get(&input_id)
+                .copied()
+                .unwrap_or(true);
+            if caret_visible {
+                let cursor_paint_id = NodeBuilder::new(
+                    cx.next_node_id(),
+                    Op::Paint(PaintOp::DrawRect {
+                        fill: Some(Fill { color: IrColor::BLACK }),
+                        stroke: None,
+                        corner_radius: 0.0,
+                        shadow: None,
+                    }),
+                )
+                .build(cx);
+
+                let mut cursor_layout_builder = NodeBuilder::new(
+                    cx.next_node_id(),
+                    Op::Layout(LayoutOp::Box {
+                        width: Some(2.0),
+                        height: Some(16.0 * 1.2), // approximate line height from text size
+                        padding: [0.0, 0.0, 0.0, 0.0],
+                    }),
+                );
+                cursor_layout_builder.add_child(cursor_paint_id);
+                caret_id_opt = Some(cursor_layout_builder.build(cx));
+            }
+        }
+
+        // Add children to flex in correct order relative to caret
+        if has_selection {
+            if caret <= anchor {
+                // caret at selection start: left, caret, selection, right
+                if let Some(id) = left_layout_id { flex_builder.add_child(id); }
+                if let Some(cid) = caret_id_opt { flex_builder.add_child(cid); }
+                if let Some(sel) = sel_layout_id { flex_builder.add_child(sel); }
+                if let Some(id) = right_layout_id { flex_builder.add_child(id); }
+            } else {
+                // caret at selection end: left, selection, caret, right
+                if let Some(id) = left_layout_id { flex_builder.add_child(id); }
+                if let Some(sel) = sel_layout_id { flex_builder.add_child(sel); }
+                if let Some(cid) = caret_id_opt { flex_builder.add_child(cid); }
+                if let Some(id) = right_layout_id { flex_builder.add_child(id); }
+            }
+        } else {
+            // no selection: left, caret, right (caret added only if focused)
+            if let Some(id) = left_layout_id { flex_builder.add_child(id); }
+            if let Some(cid) = caret_id_opt { flex_builder.add_child(cid); }
+            if let Some(id) = right_layout_id { flex_builder.add_child(id); }
         }
         
         let flex_node_id = flex_builder.build(cx);
@@ -133,8 +219,9 @@ impl Lower for TextInput {
         // Compute inner viewport from wrapper padding and configured size
         let outer_w = self.width.unwrap_or(200.0);
         let outer_h = self.height.unwrap_or(40.0);
-        let inner_w = (outer_w - (8.0 + 8.0)).max(0.0);
-        let inner_h = (outer_h - (8.0 + 4.0)).max(0.0);
+        // subtract padding and stroke so caret doesn't disappear under the border
+        let inner_w = (outer_w - (8.0 + 8.0) - (stroke_w * 2.0)).max(0.0);
+        let inner_h = (outer_h - (8.0 + 4.0) - (stroke_w * 2.0)).max(0.0);
         let mut scroll_builder = NodeBuilder::new(
             scroll_id,
             Op::Layout(LayoutOp::Scroll {
