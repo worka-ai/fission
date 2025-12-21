@@ -828,3 +828,45 @@ fn dump_graph(nodes: &[fission_layout::LayoutInputNode], limit: usize) -> String
     }
     lines.join("\n")
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use fission_core::env::{VideoState, VideoStatus};
+    use fission_ir::WidgetNodeId;
+
+    #[test]
+    fn test_push_video_surface_respects_surface_id() {
+        let mut pipeline = Pipeline::new();
+        let widget_id = WidgetNodeId::from_u128(1);
+        let rect = LayoutRect::new(0.0, 0.0, 100.0, 100.0);
+        
+        let mut video_map = VideoStateMap::default();
+        
+        // Case 1: No surface_id (simulate bug before fix)
+        video_map.states.insert(widget_id, VideoState {
+            asset_source: "test.mp4".into(),
+            status: VideoStatus::Buffering,
+            surface_id: None,
+            duration_ms: None,
+            position_ms: 0,
+            rate: 1.0,
+            volume: 1.0,
+            muted: false,
+            looped: false,
+            pending_seek: None,
+        });
+        
+        pipeline.push_video_surface(widget_id, rect, &video_map);
+        assert_eq!(pipeline.video_surfaces.len(), 0, "Should not push surface if ID is missing");
+
+        // Case 2: With surface_id (simulate fix)
+        if let Some(state) = video_map.states.get_mut(&widget_id) {
+            state.surface_id = Some(42);
+        }
+        
+        pipeline.push_video_surface(widget_id, rect, &video_map);
+        assert_eq!(pipeline.video_surfaces.len(), 1, "Should push surface if ID is present");
+        assert_eq!(pipeline.video_surfaces[0].surface_id, 42);
+    }
+}

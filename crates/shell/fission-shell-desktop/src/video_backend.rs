@@ -16,6 +16,7 @@ mod mac {
     use fission_ir::WidgetNodeId;
     use fission_render::LayoutRect;
     use fission_shell::VideoSurfaceFrame;
+    use fission_diagnostics::prelude as diag;
     use objc::rc::StrongPtr;
     use objc::{class, msg_send, sel, sel_impl};
     use raw_window_handle::{HasWindowHandle, RawWindowHandle};
@@ -176,15 +177,35 @@ mod mac {
                 let root_layer = ctx.root_layer;
                 let sublayers: id = msg_send![root_layer, sublayers];
                 let count: usize = msg_send![sublayers, count];
-                println!("Root layer {:?} has {} sublayers", root_layer, count);
-                for i in 0..count {
-                    let sublayer: id = msg_send![sublayers, objectAtIndex: i];
-                    let z_position: f64 = msg_send![sublayer, zPosition];
-                    let class_name_id: id = msg_send![sublayer, className];
-                    let class_cstr: *const std::os::raw::c_char = msg_send![class_name_id, UTF8String];
-                    let class_str_ref = CStr::from_ptr(class_cstr).to_string_lossy();
-                    println!("  Sublayer {}: {:?} (Class: {:?}, zPosition: {})", i, sublayer, class_str_ref, z_position);
+            diag::emit(
+                diag::DiagCategory::Media,
+                diag::DiagLevel::Info,
+                diag::DiagEventKind::MediaEvent {
+                    kind: format!("Layer Hierarchy: Root {:?} has {} sublayers", root_layer, count),
+                    id: None,
+                    duration_ms: None,
+                    position_ms: None
                 }
+            );
+            println!("Root layer {:?} has {} sublayers", root_layer, count);
+            for i in 0..count {
+                let sublayer: id = msg_send![sublayers, objectAtIndex: i];
+                let z_position: f64 = msg_send![sublayer, zPosition];
+                let class_name_id: id = msg_send![sublayer, className];
+                let class_cstr: *const std::os::raw::c_char = msg_send![class_name_id, UTF8String];
+                let class_str_ref = CStr::from_ptr(class_cstr).to_string_lossy();
+                diag::emit(
+                    diag::DiagCategory::Media,
+                    diag::DiagLevel::Info,
+                    diag::DiagEventKind::MediaEvent {
+                        kind: format!("  Sublayer {}: {:?} (Class: {:?}, zPosition: {})", i, sublayer, class_str_ref, z_position),
+                        id: None,
+                        duration_ms: None,
+                        position_ms: None
+                    }
+                );
+                println!("  Sublayer {}: {:?} (Class: {:?}, zPosition: {})", i, sublayer, class_str_ref, z_position);
+            }
             }
             println!("--- End Layer Hierarchy Debug ---");
         }
