@@ -153,17 +153,12 @@ impl<S: AppState + Default, W: Widget<S> + 'static> DesktopApp<S, W> {
                         last_frame_time = now;
 
                         // Tick Runtime (Animations)
-                        let dt_secs = dt.as_secs_f64();
-                        if let Err(e) = runtime.tick(dt_secs) {
+                        let dt_ms = dt.as_millis() as u64;
+                        if let Err(e) = runtime.tick(dt_ms) {
                             eprintln!("Runtime tick error: {:?}", e);
                         }
 
                         // Video Logic
-                        // Sync players with pipeline video surfaces (from previous frame)
-                        // Note: pipeline.video_surfaces is populated during render.
-                        // We need to access it here. But pipeline is moved into run?
-                        // Pipeline is local.
-                        
                         let surfaces = pipeline.take_video_surfaces();
                         let mut active_nodes = std::collections::HashSet::new();
                         
@@ -173,26 +168,15 @@ impl<S: AppState + Default, W: Widget<S> + 'static> DesktopApp<S, W> {
                             // Create player if missing
                             if !players.contains_key(&surface.widget_id) {
                                 if let Some(state) = runtime.runtime_state.video.states.get(&surface.widget_id) {
-                                    if let Some(source) = &state.asset_source {
-                                        match video_backend.create_player(source) {
-                                            Ok(player) => {
-                                                players.insert(surface.widget_id, player);
-                                            }
-                                            Err(e) => eprintln!("Failed to create video player: {:?}", e),
-                                        }
+                                    let source = &state.asset_source;
+                                    if !source.is_empty() {
+                                        let player = video_backend.create_player(source);
+                                        players.insert(surface.widget_id, player);
                                     }
                                 }
                             }
                             
-                            // Update player rect/surface
-                            if let Some(player) = players.get_mut(&surface.widget_id) {
-                                // For WGPU/Vello, we might need to pass the surface ID or texture?
-                                // fission-shell VideoPlayer trait has `set_rect`?
-                                // MacVideoBackend uses `CALayer`.
-                                // We need to attach the player layer to the window/surface?
-                                // This part is complex in Vello.
-                                // For now, let's just drive the event loop.
-                            }
+                            // Update player logic would go here
                         }
                         
                         // Cleanup inactive players
@@ -322,7 +306,7 @@ impl<S: AppState + Default, W: Widget<S> + 'static> DesktopApp<S, W> {
                                         };
                                         if let Some(btn) = map_mouse_button(button) {
                                             // Debug Hit Test
-                                            if let Some(hit) = fission_core::hit_test_with_scroll(ir, layout, &runtime.runtime_state.scroll, point) {
+                                            if let Some(hit) = fission_core::hit_test::hit_test_with_scroll(ir, layout, &runtime.runtime_state.scroll, point) {
                                                 println!("Debug: Hit Node {:?}", hit);
                                                 if let Some(node) = ir.nodes.get(&hit) {
                                                     println!("Debug: Node Op: {:?}", node.op);
