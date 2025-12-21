@@ -9,6 +9,7 @@ members = [
     "crates/authoring/fission",
     "crates/rendering/fission-render",
     "crates/rendering/fission-render-skia",
+    "crates/rendering/fission-render-vello",
     "crates/shell/fission-shell",
     "crates/shell/fission-shell-desktop",
     "crates/shell/fission-shell-mobile",
