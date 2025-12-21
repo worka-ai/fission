@@ -370,6 +370,60 @@ impl<S: AppState + Default, W: Widget<S> + 'static> DesktopApp<S, W> {
                                     }
                                 }
                             }
+                            WindowEvent::ModifiersChanged(modifiers) => {
+                                current_mods = 0;
+                                if modifiers.state().shift_key() { current_mods |= 1; }
+                            }
+                            WindowEvent::KeyboardInput { event, .. } => {
+                                if event.state.is_pressed() {
+                                    use winit::keyboard::{Key, NamedKey};
+                                    let key_code = match event.logical_key {
+                                        Key::Named(NamedKey::Space) => Some(KeyCode::Space),
+                                        Key::Named(NamedKey::Enter) => Some(KeyCode::Enter),
+                                        Key::Named(NamedKey::Escape) => Some(KeyCode::Escape),
+                                        Key::Named(NamedKey::Backspace) => Some(KeyCode::Backspace),
+                                        Key::Named(NamedKey::Tab) => Some(KeyCode::Tab),
+                                        Key::Named(NamedKey::ArrowLeft) => Some(KeyCode::Left),
+                                        Key::Named(NamedKey::ArrowRight) => Some(KeyCode::Right),
+                                        Key::Named(NamedKey::ArrowUp) => Some(KeyCode::Up),
+                                        Key::Named(NamedKey::ArrowDown) => Some(KeyCode::Down),
+                                        Key::Named(NamedKey::Home) => Some(KeyCode::Home),
+                                        Key::Named(NamedKey::End) => Some(KeyCode::End),
+                                        _ => {
+                                            if let Some(text) = &event.text {
+                                                text.chars().next().map(KeyCode::Char)
+                                            } else {
+                                                None
+                                            }
+                                        }
+                                    };
+
+                                    if let (Some(code), Some(ir), Some(layout)) = (key_code, &pipeline.prev_ir, &pipeline.last_snapshot) {
+                                        let input_event = InputEvent::Keyboard(FissionKeyEvent::Down {
+                                            key_code: code,
+                                            modifiers: current_mods,
+                                        });
+                                        if let Err(e) = runtime.handle_input(input_event, ir, layout) {
+                                            eprintln!("Keyboard error: {:?}", e);
+                                        }
+                                        window.request_redraw();
+                                    }
+                                }
+                            }
+                            WindowEvent::Ime(ime) => {
+                                if let (Some(ir), Some(layout)) = (&pipeline.prev_ir, &pipeline.last_snapshot) {
+                                    let input_event = match ime {
+                                        Ime::Commit(text) => Some(InputEvent::Ime(fission_core::event::ImeEvent::Commit { text })),
+                                        Ime::Preedit(text, _) => Some(InputEvent::Ime(fission_core::event::ImeEvent::Preedit { text })),
+                                        _ => None,
+                                    };
+                                    
+                                    if let Some(e) = input_event {
+                                        runtime.handle_input(e, ir, layout).ok();
+                                        window.request_redraw();
+                                    }
+                                }
+                            }
                             _ => {}
                         }
                     }
