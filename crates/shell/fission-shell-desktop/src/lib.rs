@@ -110,10 +110,10 @@ impl<S: AppState + Default, W: Widget<S> + 'static> DesktopApp<S, W> {
         let mut vello_renderer = VelloSceneRenderer::new(
             &device_handle.device,
             RendererOptions {
-                surface_format: Some(surface.config.format),
                 use_cpu: false,
                 antialiasing_support: AaSupport::all(),
-                num_init_threads: None, 
+                num_init_threads: None,
+                pipeline_cache: None,
             },
         ).unwrap();
         
@@ -205,11 +205,12 @@ impl<S: AppState + Default, W: Widget<S> + 'static> DesktopApp<S, W> {
                                                 antialiasing_method: vello::AaConfig::Area,
                                             };
                                             
-                                            vello_renderer.render_to_surface(
+                                            let surface_view = surface_texture.texture.create_view(&wgpu::TextureViewDescriptor::default());
+                                            vello_renderer.render_to_texture(
                                                 &device_handle.device,
                                                 &device_handle.queue,
                                                 &scene,
-                                                &surface_texture,
+                                                &surface_view,
                                                 &render_params,
                                             ).expect("failed to render");
                                             
