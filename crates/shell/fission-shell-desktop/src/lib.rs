@@ -254,8 +254,6 @@ impl<S: AppState + Default, W: Widget<S> + 'static> DesktopApp<S, W> {
                                     if let Err(e) = runtime.handle_input(event, ir, layout) {
                                         eprintln!("Input handling error: {:?}", e);
                                     }
-                                    // Always request redraw on interaction for now to ensure UI updates
-                                    // Optimally check return value or dirty state
                                     window.request_redraw();
                                 }
                             }
@@ -268,6 +266,22 @@ impl<S: AppState + Default, W: Widget<S> + 'static> DesktopApp<S, W> {
                                             y: (position.y / scale_factor) as f32,
                                         };
                                         if let Some(btn) = map_mouse_button(button) {
+                                            // Debug Hit Test
+                                            if let Some(hit) = fission_core::hit_test_with_scroll(ir, layout, &runtime.runtime_state.scroll, point) {
+                                                println!("Debug: Hit Node {:?}", hit);
+                                                if let Some(node) = ir.nodes.get(&hit) {
+                                                    println!("Debug: Node Op: {:?}", node.op);
+                                                }
+                                            } else {
+                                                println!("Debug: Hit Nothing at {:?}", point);
+                                                // Dump layout to see where nodes are
+                                                println!("--- Layout Dump ---");
+                                                for (id, geom) in &layout.nodes {
+                                                    println!("Node {:?}: Rect {:?}", id, geom.rect);
+                                                }
+                                                println!("--- End Dump ---");
+                                            }
+
                                             if let Some(event) = build_pointer_event(state, btn, point) {
                                                 println!("Dispatching input: {:?} at {:?}", event, point);
                                                 if let Err(e) = runtime.handle_input(event, ir, layout) {
@@ -278,11 +292,7 @@ impl<S: AppState + Default, W: Widget<S> + 'static> DesktopApp<S, W> {
                                                 window.request_redraw();
                                             }
                                         }
-                                    } else {
-                                        println!("MouseInput but no last_cursor_position");
                                     }
-                                } else {
-                                    println!("MouseInput but no pipeline state");
                                 }
                             }
                             _ => {}
