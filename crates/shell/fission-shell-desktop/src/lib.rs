@@ -176,6 +176,9 @@ impl<S: AppState + Default, W: Widget<S> + 'static> DesktopApp<S, W> {
                                     let source = &state.asset_source;
                                     if !source.is_empty() {
                                         let player = video_backend.create_player(source);
+                                        if let Some(state) = runtime.runtime_state.video.states.get_mut(&surface.widget_id) {
+                                            state.surface_id = Some(player.surface_id());
+                                        }
                                         players.insert(surface.widget_id, player);
                                     }
                                 }
@@ -187,6 +190,49 @@ impl<S: AppState + Default, W: Widget<S> + 'static> DesktopApp<S, W> {
                         
                         // Update backend
                         video_backend.present_surfaces(&surfaces);
+
+                        // Video Logic - Process Player Events and Sync State
+                        for (widget_id, player) in players.iter_mut() {
+                            if let Some(video_state) = runtime.runtime_state.video.states.get_mut(widget_id) {
+                                // Sync player controls from runtime state
+                                match video_state.status {
+                                    VideoStatus::Playing => player.play(),
+                                    VideoStatus::Paused => player.pause(),
+                                    VideoStatus::Stopped => player.stop(),
+                                    _ => {} 
+                                }
+                                
+                                // Update runtime state from player events
+                                for event in player.poll_events() {
+                                    match event {
+                                        VideoEvent::Ready { duration } => {
+                                            video_state.duration_ms = Some(duration);
+                                            if video_state.status == VideoStatus::Playing {
+                                                player.play();
+                                            }
+                                        },
+                                        VideoEvent::Ended => {
+                                            video_state.status = VideoStatus::Ended;
+                                            window.request_redraw(); 
+                                        },
+                                        VideoEvent::Error(e) => {
+                                            eprintln!("Video playback error for {:?}: {:?}", widget_id, e);
+                                            video_state.status = VideoStatus::Error;
+                                            window.request_redraw();
+                                        },
+                                    }
+                                }
+                                // Sync other properties
+                                video_state.position_ms = player.position();
+                                player.set_rate(video_state.rate);
+                                player.set_volume(video_state.volume);
+                                player.set_muted(video_state.muted);
+
+                                if let Some(seek_pos) = video_state.pending_seek.take() {
+                                    player.seek_to(seek_pos);
+                                }
+                            }
+                        }
                         
                         // Video Logic - Process Player Events and Sync State
                         for (widget_id, player) in players.iter_mut() {
