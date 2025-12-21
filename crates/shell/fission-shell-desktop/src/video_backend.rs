@@ -378,6 +378,10 @@ mod mac {
         } else {
             std::env::current_dir().unwrap().join(path)
         };
+        println!("Loading video from: {:?}", full_path);
+        if !full_path.exists() {
+            println!("ERROR: Video file does not exist at {:?}", full_path);
+        }
         unsafe {
             let ns_string = NSString::alloc(nil).init_str(full_path.to_string_lossy().as_ref());
             NSURL::fileURLWithPath_(nil, ns_string)

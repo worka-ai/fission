@@ -95,6 +95,7 @@ impl<S: AppState + Default, W: Widget<S> + 'static> DesktopApp<S, W> {
         let window = Arc::new(
             WindowBuilder::new()
                 .with_title("Fission Vello App")
+                .with_transparent(true)
                 .build(&event_loop)
                 .map_err(|e| anyhow::anyhow!("Window build error: {}", e))?,
         );
