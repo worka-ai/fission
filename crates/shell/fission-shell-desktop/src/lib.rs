@@ -108,7 +108,7 @@ impl<S: AppState + Default, W: Widget<S> + 'static> DesktopApp<S, W> {
         
         // Enable Alpha for video hole punching
         let device_handle = &render_cx.devices[surface.dev_id];
-        surface.config.alpha_mode = wgpu::CompositeAlphaMode::PreMultiplied;
+        surface.config.alpha_mode = wgpu::CompositeAlphaMode::PostMultiplied;
         surface.surface.configure(&device_handle.device, &surface.config);
         
         let mut vello_renderer = VelloSceneRenderer::new(
@@ -204,7 +204,7 @@ impl<S: AppState + Default, W: Widget<S> + 'static> DesktopApp<S, W> {
                                         render_cx.resize_surface(&mut surface, size.width, size.height);
                                         // Re-apply alpha mode after resize
                                         let device_handle = &render_cx.devices[surface.dev_id];
-                                        surface.config.alpha_mode = wgpu::CompositeAlphaMode::PreMultiplied;
+                                        surface.config.alpha_mode = wgpu::CompositeAlphaMode::PostMultiplied;
                                         surface.surface.configure(&device_handle.device, &surface.config);
                                     }
 
