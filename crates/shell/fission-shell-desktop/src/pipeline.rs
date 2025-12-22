@@ -599,13 +599,12 @@ impl Pipeline {
         video_map: &VideoStateMap,
     ) {
         if let Some(state) = video_map.states.get(&widget_id) {
-            if let Some(surface_id) = state.surface_id {
-                self.video_surfaces.push(VideoSurfaceFrame {
-                    widget_id,
-                    surface_id,
-                    rect,
-                });
-            }
+            let surface_id = state.surface_id.unwrap_or(0);
+            self.video_surfaces.push(VideoSurfaceFrame {
+                widget_id,
+                surface_id,
+                rect,
+            });
         }
     }
 
@@ -858,7 +857,8 @@ mod tests {
         });
         
         pipeline.push_video_surface(widget_id, rect, &video_map);
-        assert_eq!(pipeline.video_surfaces.len(), 0, "Should not push surface if ID is missing");
+        assert_eq!(pipeline.video_surfaces.len(), 1, "Should push surface even if ID is missing (uses 0)");
+        assert_eq!(pipeline.video_surfaces[0].surface_id, 0);
 
         // Case 2: With surface_id (simulate fix)
         if let Some(state) = video_map.states.get_mut(&widget_id) {
@@ -866,7 +866,7 @@ mod tests {
         }
         
         pipeline.push_video_surface(widget_id, rect, &video_map);
-        assert_eq!(pipeline.video_surfaces.len(), 1, "Should push surface if ID is present");
-        assert_eq!(pipeline.video_surfaces[0].surface_id, 42);
+        assert_eq!(pipeline.video_surfaces.len(), 2, "Should push surface if ID is present");
+        assert_eq!(pipeline.video_surfaces[1].surface_id, 42);
     }
 }
