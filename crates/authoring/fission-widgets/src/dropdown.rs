@@ -1,38 +1,30 @@
-use fission::prelude::*;
+use fission_core::action::{Action, ActionEnvelope, AppState};
+use fission_core::ui::{Button, Text, TextContent};
+use fission_core::{Node, Widget, BuildCtx, View};
 
-#[derive(Default)]
+#[derive(Default, Clone)]
 pub struct DropDown {
-    pub is_open: bool,
-    pub on_toggle: Option<Action>,
+    pub on_toggle: Option<ActionEnvelope>,
     pub options: Vec<String>,
-    pub on_select: Option<Action<(String)>>,
+    pub on_select: Option<ActionEnvelope>,
     pub selected: Option<String>,
 }
 
-impl<S: 'static> Widget<S> for DropDown {
-    fn build(&self, ctx: &mut BuildCtx<S>, _view: &View<S>) -> Node {
-        let mut children = vec![];
-
+impl<S: AppState + 'static> Widget<S> for DropDown {
+    fn build(&self, _ctx: &mut BuildCtx<S>, _view: &View<S>) -> Node {
         let button_text = self.selected.as_deref().unwrap_or("Select an option");
 
-        children.push(
-            Button::new(button_text)
-                .on_press(self.on_toggle)
+        Button {
+            child: Some(Box::new(
+                Text {
+                    content: TextContent::Literal(button_text.into()),
+                    ..Default::default()
+                }
                 .into(),
-        );
-
-        if self.is_open {
-            let mut options_list = vec![];
-            for option in &self.options {
-                options_list.push(
-                    Button::new(option.clone())
-                        .on_press(self.on_select.map(|a| a.with(option.clone())))
-                        .into(),
-                );
-            }
-            children.push(Column::new(options_list).into());
+            )),
+            on_press: self.on_toggle.clone(),
+            ..Default::default()
         }
-
-        Column::new(children).into()
+        .into()
     }
 }
