@@ -20,6 +20,21 @@ pub use avatar::Avatar;
 pub mod divider;
 pub use divider::Divider;
 
+pub mod card;
+pub use card::Card;
+
+pub mod progress;
+pub use progress::ProgressBar;
+
+pub mod spinner;
+pub use spinner::Spinner;
+
+pub mod tabs;
+pub use tabs::Tabs;
+
+pub mod accordion;
+pub use accordion::Accordion;
+
 use fission_core::{lowering::NodeBuilder, op::StructuralOp, LowerDyn, LoweringContext, NodeId, Op};
 use std::sync::Arc;
 

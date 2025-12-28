@@ -273,17 +273,39 @@ impl Runtime {
         let mut finished = Vec::new();
         for ((target, property), anim) in self.runtime_state.animation.active.iter_mut() {
             let elapsed = current_time.saturating_sub(anim.start_time);
-            let progress = if anim.duration == 0 {
+            let mut progress = if anim.duration == 0 {
                 1.0
             } else {
-                (elapsed as f32 / anim.duration as f32).clamp(0.0, 1.0)
+                (elapsed as f32 / anim.duration as f32)
             };
+            
+            if anim.repeat && progress >= 1.0 {
+                // Loop: reset start time to maintain phase
+                // Keep the fractional part to avoid drift? 
+                // For simplicity: reset start_time.
+                // Better: start_time += duration;
+                // But we need to mutate anim.start_time.
+                // We are iterating mutable.
+                
+                // Handle multiple loops in one tick if dt is large? 
+                // progress = total_elapsed / duration. 
+                // local_progress = progress % 1.0.
+                // But we want to trigger "end" logic? No, just keep running.
+                
+                progress = progress % 1.0; 
+                // Note: this makes progress jump from 0.99 -> 0.0. 
+                // If we want ping-pong, we need more state.
+            } else {
+                progress = progress.clamp(0.0, 1.0);
+            }
+
             let value = anim.start_value + (anim.end_value - anim.start_value) * progress;
             self.runtime_state
                 .animation
                 .values
                 .insert((*target, property.clone()), value);
-            if progress >= 1.0 {
+            
+            if !anim.repeat && (elapsed >= anim.duration || anim.duration == 0) {
                 finished.push((*target, property.clone()));
             }
         }
@@ -314,8 +336,9 @@ impl Runtime {
             property: request.property.clone(),
             start_value,
             end_value: request.to,
-            start_time: self.clock().current_time(),
+            start_time: self.clock().current_time() + request.delay_ms,
             duration: request.duration_ms,
+            repeat: request.repeat,
         };
 
         self.runtime_state

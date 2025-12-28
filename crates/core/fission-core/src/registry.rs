@@ -140,6 +140,8 @@ pub struct AnimationRequest {
     pub from: AnimationStartValue,
     pub to: f32,
     pub duration_ms: u64,
+    pub repeat: bool,
+    pub delay_ms: u64,
 }
 
 #[derive(Clone, Debug)]

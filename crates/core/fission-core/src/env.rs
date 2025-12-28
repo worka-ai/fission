@@ -51,6 +51,7 @@ pub struct ActiveAnimation {
     pub end_value: f32,
     pub start_time: u64,
     pub duration: u64,
+    pub repeat: bool,
 }
 
 #[derive(Clone, Debug, Default)]
