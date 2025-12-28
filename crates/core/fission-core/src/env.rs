@@ -35,6 +35,15 @@ pub struct RuntimeState {
     pub text_edit: TextEditStateMap,
     pub clipboard: String,
     pub caret_visible: HashMap<NodeId, bool>,
+    pub gesture: GestureState,
+}
+
+#[derive(Clone, Debug, Default)]
+pub struct GestureState {
+    pub start_point: Option<LayoutPoint>,
+    pub last_point: Option<LayoutPoint>,
+    pub is_panning: bool,
+    pub target_node: Option<NodeId>,
 }
 
 #[derive(Clone, Debug, Default)]

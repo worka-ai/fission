@@ -7,6 +7,7 @@ use std::sync::Arc;
 
 pub mod text;
 pub mod slider;
+pub mod gesture;
 
 pub struct ControllerContext<'a> {
     pub ir: &'a CoreIR,
@@ -15,6 +16,7 @@ pub struct ControllerContext<'a> {
     pub interaction: &'a mut InteractionStateMap,
     pub scroll: &'a mut ScrollStateMap,
     pub ime_preedit: &'a mut Option<(NodeId, String)>,
+    pub gesture: &'a mut crate::env::GestureState,
     pub clipboard: Option<&'a Arc<dyn Clipboard>>,
     pub measurer: Option<&'a Arc<dyn TextMeasurer>>,
     // We queue actions here instead of dispatching immediately to keep Controller pure logic

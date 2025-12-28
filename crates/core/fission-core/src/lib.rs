@@ -381,6 +381,7 @@ impl Runtime {
         use crate::input::{ControllerContext, InputController};
         use crate::input::text::TextInputController;
         use crate::input::slider::SliderController;
+        use crate::input::gesture::GestureController;
 
         let mut dispatched_actions = Vec::new();
         let mut handled = false;
@@ -393,18 +394,24 @@ impl Runtime {
                 interaction: &mut self.runtime_state.interaction,
                 scroll: &mut self.runtime_state.scroll,
                 ime_preedit: &mut self.runtime_state.ime_preedit,
+                gesture: &mut self.runtime_state.gesture,
                 clipboard: self.clipboard_backend.as_ref(), 
                 measurer: self.measurer.as_ref(),
                 dispatched_actions: Vec::new(),
             };
 
-            let mut text_controller = TextInputController;
-            if text_controller.handle_event(&mut ctx, &event) {
+            let mut gesture_controller = GestureController;
+            if gesture_controller.handle_event(&mut ctx, &event) {
                 handled = true;
             } else {
-                let mut slider_controller = SliderController;
-                if slider_controller.handle_event(&mut ctx, &event) {
+                let mut text_controller = TextInputController;
+                if text_controller.handle_event(&mut ctx, &event) {
                     handled = true;
+                } else {
+                    let mut slider_controller = SliderController;
+                    if slider_controller.handle_event(&mut ctx, &event) {
+                        handled = true;
+                    }
                 }
             }
             dispatched_actions = ctx.dispatched_actions;

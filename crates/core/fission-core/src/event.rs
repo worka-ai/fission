@@ -60,10 +60,21 @@ pub enum LifecycleEvent {
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub enum GestureEvent {
+    Tap { point: LayoutPoint },
+    DoubleTap { point: LayoutPoint },
+    PanStart { point: LayoutPoint },
+    PanUpdate { point: LayoutPoint, delta: LayoutPoint },
+    PanEnd { point: LayoutPoint },
+    LongPress { point: LayoutPoint },
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub enum InputEvent {
     Pointer(PointerEvent),
     Keyboard(KeyEvent),
     Ime(ImeEvent),
+    Gesture(GestureEvent),
     Lifecycle(LifecycleEvent),
 }
 

@@ -220,6 +220,9 @@ impl Lower for TextInput {
             ime_preedit_range: None, // TODO: Fix preedit highlighting
             checked: None,
             disabled: false,
+            draggable: false,
+            scrollable_x: false,
+            scrollable_y: false,
             min_value: None,
             max_value: None,
             current_value: None,
