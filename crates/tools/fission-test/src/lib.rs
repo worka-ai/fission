@@ -129,7 +129,7 @@ impl<S: AppState> TestHarness<S> {
                     .runtime
                     .get_app_state::<S>()
                     .expect("App state missing");
-                let view = View::new(state, &self.runtime.runtime_state, &self.env);
+                let view = View::new(state, &self.runtime.runtime_state, &self.env, self.last_snapshot.as_ref());
                 let mut ctx = BuildCtx::new();
                 let tree = root.build(&mut ctx, &view);
 
@@ -145,7 +145,7 @@ impl<S: AppState> TestHarness<S> {
             };
 
             // Lower
-            let mut cx = LoweringContext::new(&self.env, &self.runtime.runtime_state, Some(&self.measurer));
+            let mut cx = LoweringContext::new(&self.env, &self.runtime.runtime_state, Some(&self.measurer), self.last_snapshot.as_ref());
             let root_id = node_tree.lower(&mut cx);
             cx.ir.root = Some(root_id);
 
@@ -304,7 +304,7 @@ fn generate_display_list_with_visited(
                         node_id: Some(node_id),
                     });
                 }
-                fission_ir::Op::Paint(fission_ir::PaintOp::DrawText { text, size, color, underline }) => {
+                fission_ir::Op::Paint(fission_ir::PaintOp::DrawText { text, size, color, underline, caret_index }) => {
                     list.push(DisplayOp::DrawText {
                         text: text.clone(),
                         position: LayoutPoint::new(0.0, 0.0),
@@ -313,6 +313,7 @@ fn generate_display_list_with_visited(
                         bounds: LayoutRect::new(0.0, 0.0, 0.0, 0.0),
                         node_id: None,
                         underline: *underline,
+                        caret_index: *caret_index,
                     });
                 }
                 fission_ir::Op::Paint(fission_ir::PaintOp::DrawImage { source, fit }) => {

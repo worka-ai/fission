@@ -72,7 +72,13 @@ impl Lower for LazyColumn {
         
         let mut col = NodeBuilder::new(
             col_id, 
-            Op::Layout(LayoutOp::Flex { ... })
+            Op::Layout(LayoutOp::Flex {
+                direction: FlexDirection::Column,
+                flex_grow: 0.0,
+                flex_shrink: 0.0,
+                padding: [0.0; 4],
+                gap: None,
+            })
         );
         col.add_children(column_children);
         let col_id = col.build(cx);
@@ -80,7 +86,17 @@ impl Lower for LazyColumn {
         // Scroll
         let mut scroll = NodeBuilder::new(
             scroll_id,
-            Op::Layout(LayoutOp::Scroll { ... })
+            Op::Layout(LayoutOp::Scroll {
+                direction: FlexDirection::Column,
+                show_scrollbar: true,
+                width: None,
+                height: None,
+                min_width: None,
+                max_width: None,
+                min_height: None,
+                max_height: None,
+                padding: [0.0; 4],
+            })
         );
         scroll.add_child(col_id);
         scroll.build(cx)
