@@ -1,4 +1,4 @@
-pub use fission_core::ui::{Button, Checkbox, Column, Container, CustomNode, Grid, GridItem, Image, Node, Overlay, Radio, Row, Scroll, Switch, ZStack, Text, TextContent, TextInput, Video};
+pub use fission_core::ui::{Button, Checkbox, Column, Container, CustomNode, Grid, GridItem, Image, Node, Overlay, Positioned, Radio, Row, Scroll, Spacer, Switch, ZStack, Text, TextContent, TextInput, Video};
 pub use fission_core::view::{Selector, View, Widget};
 pub use fission_core::BuildCtx;
 
@@ -34,9 +34,6 @@ pub use tabs::{Tabs, TabItem};
 
 pub mod accordion;
 pub use accordion::{Accordion, AccordionItem};
-
-pub mod positioned;
-pub use positioned::Positioned;
 
 pub mod popover;
 pub use popover::Popover;
@@ -106,31 +103,6 @@ impl<S: fission_core::AppState> Widget<S> for Portal {
     fn build(&self, ctx: &mut BuildCtx<S>, _view: &View<S>) -> Node {
         ctx.register_portal(self.child.clone());
         // Return invisible spacer
-        Node::Custom(fission_core::CustomNode {
-            debug_tag: "Spacer".into(),
-            lowerer: Some(Arc::new(SizedBoxLowerer { width: None, height: None })),
-        })
-    }
-}
-
-// Spacer Helper
-#[derive(Debug)]
-struct SizedBoxLowerer {
-    width: Option<f32>,
-    height: Option<f32>,
-}
-
-impl LowerDyn for SizedBoxLowerer {
-    fn lower_dyn(&self, cx: &mut LoweringContext) -> NodeId {
-        NodeBuilder::new(
-            cx.next_node_id(),
-            Op::Layout(fission_core::LayoutOp::Box {
-                width: self.width,
-                height: self.height,
-                min_width: None, max_width: None, min_height: None, max_height: None,
-                padding: [0.0; 4],
-            }),
-        )
-        .build(cx)
+        Node::Spacer(fission_core::ui::widgets::spacer::Spacer::default())
     }
 }

@@ -1,11 +1,11 @@
 use crate::{
     env::VideoState,
     registry::{AnimationPropertyId, VideoRegistration},
-    ui::{Button, Checkbox, Column, Container, Grid, GridItem, Image, Node, Overlay, Radio, Row, Scroll, Switch, Text, TextInput, Video, ZStack},
+    ui::{Button, Checkbox, Column, Container, Grid, GridItem, Image, Node, Overlay, Positioned, Radio, Row, Scroll, Spacer, Switch, Text, TextInput, Video, ZStack},
     AppState, BuildCtx, Env, RuntimeState, LayoutSnapshot, LayoutRect,
 };
 use fission_i18n::I18nRegistry;
-use fission_ir::WidgetNodeId;
+use fission_ir::{WidgetNodeId, NodeId};
 use fission_theme::Theme;
 
 pub struct View<'a, S: AppState> {
@@ -33,7 +33,7 @@ impl<'a, S: AppState> View<'a, S> {
     }
 
     pub fn get_rect(&self, id: WidgetNodeId) -> Option<LayoutRect> {
-        let node_id = fission_ir::NodeId::derived(id.as_u128(), &[]);
+        let node_id = NodeId::derived(id.as_u128(), &[]);
         self.layout.and_then(|l| l.get_node_rect(node_id))
     }
 
@@ -96,6 +96,8 @@ impl_widget_for_primitive!(GridItem, GridItem);
 impl_widget_for_primitive!(Checkbox, Checkbox);
 impl_widget_for_primitive!(Switch, Switch);
 impl_widget_for_primitive!(Radio, Radio);
+impl_widget_for_primitive!(Positioned, Positioned);
+impl_widget_for_primitive!(Spacer, Spacer);
 
 impl<S: AppState> Widget<S> for Video {
     fn build(&self, ctx: &mut BuildCtx<S>, _view: &View<S>) -> Node {

@@ -1,6 +1,5 @@
-use fission_core::ui::{Container, Node};
+use fission_core::ui::{Container, Node, Positioned};
 use fission_core::{BuildCtx, View, Widget, WidgetNodeId, NodeId};
-use crate::positioned::Positioned;
 use crate::Portal; // Assuming Portal is re-exported or available
 use serde::{Deserialize, Serialize};
 
@@ -84,7 +83,7 @@ impl<S: fission_core::AppState> Widget<S> for Popover {
                 let content = Positioned {
                     left: Some(x),
                     top: Some(y),
-                    child: *self.content.clone(),
+                    child: Some(self.content.clone()),
                     ..Default::default()
                 }.build(ctx, view);
                 

@@ -1,6 +1,6 @@
 use super::traits::{Lower, LowerDyn};
 use super::widgets::{
-    Button, Checkbox, Column, Container, Grid, GridItem, Image, Overlay, Radio, Row, Scroll, Switch,
+    Button, Checkbox, Column, Container, Grid, GridItem, Image, Overlay, Positioned, Radio, Row, Scroll, Spacer, Switch,
     Text, TextInput, Video, ZStack,
 };
 use crate::lowering::LoweringContext;
@@ -26,6 +26,8 @@ pub enum Node {
     Checkbox(Checkbox),
     Switch(Switch),
     Radio(Radio),
+    Positioned(Positioned),
+    Spacer(Spacer),
     Custom(CustomNode),
 }
 
@@ -48,6 +50,8 @@ impl Node {
             Node::Checkbox(w) => w.lower(cx),
             Node::Switch(w) => w.lower(cx),
             Node::Radio(w) => w.lower(cx),
+            Node::Positioned(w) => w.lower(cx),
+            Node::Spacer(w) => w.lower(cx),
             Node::Custom(w) => {
                 let lowerer = w.lowerer.as_ref().expect("CustomNode lowerer must be set");
                 let child_id = lowerer.lower_dyn(cx);
@@ -138,6 +142,16 @@ impl From<Switch> for Node {
 impl From<Radio> for Node {
     fn from(w: Radio) -> Self {
         Node::Radio(w)
+    }
+}
+impl From<Positioned> for Node {
+    fn from(w: Positioned) -> Self {
+        Node::Positioned(w)
+    }
+}
+impl From<Spacer> for Node {
+    fn from(w: Spacer) -> Self {
+        Node::Spacer(w)
     }
 }
 

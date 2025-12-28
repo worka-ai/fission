@@ -13,7 +13,7 @@ use fission_core::{
 };
 use fission_macros::Action;
 use fission_shell_desktop::DesktopApp;
-use fission_widgets::{canvas, Checkbox, spacer, Portal};
+use fission_widgets::{canvas, Checkbox, Spacer, Portal};
 use lazy_static::lazy_static;
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
@@ -167,6 +167,8 @@ impl Widget<CounterState> for CounterApp {
             from: AnimationStartValue::Current,
             to: if vm.is_even { 1.0 } else { 0.0 },
             duration_ms: 250,
+            repeat: false,
+            delay_ms: 0,
         });
 
         let video_state: VideoState = view
@@ -225,7 +227,7 @@ impl Widget<CounterState> for CounterApp {
                 .build(cx);
                 vec![r1, r2]
             }),
-            spacer(Some(0.0), Some(8.0)),
+            Spacer { width: Some(0.0), height: Some(8.0), ..Default::default() }.into(),
             Video {
                 id: Some(*DEMO_VIDEO_WIDGET_ID),
                 source: "docs/video1.mp4".into(),
@@ -255,8 +257,9 @@ impl Widget<CounterState> for CounterApp {
                             },
                         )),
                         label: Some("Enable feature".into()),
+                        ..Default::default()
                     }.build(ctx, view),
-                    spacer(Some(16.0), None),
+                    Spacer { width: Some(16.0), height: None, ..Default::default() }.into(),
                     Button {
                         on_press: Some(ctx.bind(ToggleModal, on_toggle_modal)),
                         child: Some(Box::new(
