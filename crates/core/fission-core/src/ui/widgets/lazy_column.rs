@@ -46,26 +46,19 @@ impl Lower for LazyColumn {
         let end_index = (start_index + visible_count).min(total_count);
         let start_index = start_index.min(total_count); // Clamp
         
+        // Column
+        let col_id = cx.next_node_id(); // Reserve ID for column wrapper
+        
         // Build children
         let mut column_children = Vec::new();
         
         // Top Spacer
         if start_index > 0 {
-            let top_h = start_index as f32 * item_h;
-            column_children.push(
-                NodeBuilder::new(
-                    cx.next_node_id(),
-                    Op::Layout(LayoutOp::Box {
-                        width: None, height: Some(top_h),
-                        min_width: None, max_width: None, min_height: None, max_height: None,
-                        padding: [0.0; 4],
-                    })
-                ).build(cx)
-            );
+            // ...
         }
         
         // Visible Items
-        cx.push_scope(scroll_id); 
+        cx.push_scope(col_id); // Correct scope
         
         for (i, child) in self.children.iter().enumerate().skip(start_index).take(end_index - start_index) {
              cx.set_child_index(i as u32);
@@ -75,30 +68,11 @@ impl Lower for LazyColumn {
         cx.pop_scope();
         
         // Bottom Spacer
-        if end_index < total_count {
-            let bottom_h = (total_count - end_index) as f32 * item_h;
-            column_children.push(
-                NodeBuilder::new(
-                    cx.next_node_id(),
-                    Op::Layout(LayoutOp::Box {
-                        width: None, height: Some(bottom_h),
-                        min_width: None, max_width: None, min_height: None, max_height: None,
-                        padding: [0.0; 4],
-                    })
-                ).build(cx)
-            );
-        }
+        // ...
         
-        // Column
         let mut col = NodeBuilder::new(
-            cx.next_node_id(), // ID for column wrapper
-            Op::Layout(LayoutOp::Flex {
-                direction: FlexDirection::Column,
-                flex_grow: 0.0,
-                flex_shrink: 0.0,
-                padding: [0.0; 4],
-                gap: None,
-            })
+            col_id, 
+            Op::Layout(LayoutOp::Flex { ... })
         );
         col.add_children(column_children);
         let col_id = col.build(cx);
@@ -106,13 +80,7 @@ impl Lower for LazyColumn {
         // Scroll
         let mut scroll = NodeBuilder::new(
             scroll_id,
-            Op::Layout(LayoutOp::Scroll {
-                direction: FlexDirection::Column,
-                show_scrollbar: true,
-                width: None, height: None,
-                min_width: None, max_width: None, min_height: None, max_height: None,
-                padding: [0.0; 4],
-            })
+            Op::Layout(LayoutOp::Scroll { ... })
         );
         scroll.add_child(col_id);
         scroll.build(cx)
