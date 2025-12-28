@@ -48,10 +48,15 @@ impl Lower for TextInput {
     fn lower(&self, cx: &mut LoweringContext) -> NodeId {
         let input_id = self.id.unwrap_or_else(|| cx.next_node_id());
         let is_focused = cx.runtime_state.interaction.is_focused(input_id);
+        
+        let theme = &cx.env.theme.components.text_input;
+        let tokens = &cx.env.theme.tokens;
 
-        let font_size = 16.0; // Still hardcoded for now, should be from theme
-        let text_color = IrColor::BLACK;
-        let selection_color = IrColor::BLUE; // Text color for selection
+        let font_size = theme.font_size;
+        let text_color = theme.text_color;
+        let selection_color = theme.focus_color;
+        let border_color = if is_focused { theme.focus_color } else { theme.border_color };
+        let border_width = if is_focused { 2.0 } else { theme.border_width };
 
         // Resolve placeholder
         let resolved_placeholder = if let Some(ph) = &self.placeholder {
@@ -69,16 +74,15 @@ impl Lower for TextInput {
         };
 
         // 1. Background
-        let stroke_w = if is_focused { 2.0 } else { 1.0 };
         let background_id = NodeBuilder::new(
             cx.next_node_id(),
             Op::Paint(PaintOp::DrawRect {
-                fill: Some(Fill { color: IrColor::WHITE }), 
-                stroke: Some(Stroke { 
-                    color: if is_focused { IrColor::BLUE } else { IrColor::BLACK }, 
-                    width: stroke_w 
+                fill: Some(Fill { color: tokens.colors.background }), 
+                stroke: Some(Stroke {
+                    color: border_color, 
+                    width: border_width 
                 }),
-                corner_radius: 4.0,
+                corner_radius: theme.radius,
                 shadow: None,
             })
         ).build(cx);
@@ -144,7 +148,7 @@ impl Lower for TextInput {
         if display_text.is_empty() && resolved_placeholder.is_some() {
              runs = vec![fission_ir::op::TextRun {
                 text: resolved_placeholder.unwrap(),
-                style: fission_ir::op::TextStyle { font_size, color: IrColor { r: 150, g: 150, b: 150, a: 255 }, underline: false },
+                style: fission_ir::op::TextStyle { font_size, color: theme.placeholder_color, underline: false },
             }];
         }
 
@@ -192,10 +196,10 @@ impl Lower for TextInput {
         let mut wrapper = NodeBuilder::new(
             wrapper_id,
             Op::Layout(LayoutOp::Box {
-                width: self.width.or(Some(200.0)),
-                height: self.height,
+                width: self.width.or(Some(200.0)), // TODO: width auto?
+                height: self.height.or(if self.multiline { None } else { Some(theme.height) }),
                 min_width: None, max_width: None, min_height: None, max_height: None,
-                padding: [8.0, 8.0, 4.0, 4.0], // Padding applied here
+                padding: [theme.padding_h, theme.padding_h, 4.0, 4.0], // Padding applied here
             })
         );
         wrapper.add_child(background_id); // Fill

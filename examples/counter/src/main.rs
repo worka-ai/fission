@@ -13,7 +13,7 @@ use fission_core::{
 };
 use fission_macros::Action;
 use fission_shell_desktop::DesktopApp;
-use fission_widgets::{canvas, checkbox, spacer, CheckboxProps, Portal};
+use fission_widgets::{canvas, Checkbox, spacer, Portal};
 use lazy_static::lazy_static;
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
@@ -245,7 +245,7 @@ impl Widget<CounterState> for CounterApp {
             Row {
                 children: vec![
                     // Checkbox demo
-                    checkbox(CheckboxProps {
+                    Checkbox {
                         checked: view.state.checked,
                         on_toggle: Some(ctx.bind(
                             ToggleChecked,
@@ -255,7 +255,7 @@ impl Widget<CounterState> for CounterApp {
                             },
                         )),
                         label: Some("Enable feature".into()),
-                    }),
+                    }.build(ctx, view),
                     spacer(Some(16.0), None),
                     Button {
                         on_press: Some(ctx.bind(ToggleModal, on_toggle_modal)),

@@ -5,72 +5,77 @@ use serde::{Deserialize, Serialize};
 pub struct ColorTokens {
     pub primary: Color,
     pub on_primary: Color,
+    pub secondary: Color,
+    pub on_secondary: Color,
     pub surface: Color,
     pub on_surface: Color,
     pub background: Color,
     pub on_background: Color,
     pub error: Color,
     pub on_error: Color,
+    pub border: Color,
+    pub text_primary: Color,
+    pub text_secondary: Color,
 }
 
 impl Default for ColorTokens {
     fn default() -> Self {
-        // Material 3-ish Baseline defaults (simplified)
         Self {
-            primary: Color {
-                r: 103,
-                g: 85,
-                b: 143,
-                a: 255,
-            }, // Purple 40
+            primary: Color { r: 103, g: 85, b: 143, a: 255 }, // Purple 40
             on_primary: Color::WHITE,
-            surface: Color {
-                r: 255,
-                g: 251,
-                b: 254,
-                a: 255,
-            }, // Purple 99
-            on_surface: Color {
-                r: 28,
-                g: 27,
-                b: 31,
-                a: 255,
-            }, // Purple 10
-            background: Color {
-                r: 255,
-                g: 251,
-                b: 254,
-                a: 255,
-            },
-            on_background: Color {
-                r: 28,
-                g: 27,
-                b: 31,
-                a: 255,
-            },
-            error: Color {
-                r: 179,
-                g: 38,
-                b: 30,
-                a: 255,
-            },
+            secondary: Color { r: 98, g: 91, b: 113, a: 255 },
+            on_secondary: Color::WHITE,
+            surface: Color { r: 255, g: 251, b: 254, a: 255 },
+            on_surface: Color { r: 28, g: 27, b: 31, a: 255 },
+            background: Color { r: 255, g: 251, b: 254, a: 255 },
+            on_background: Color { r: 28, g: 27, b: 31, a: 255 },
+            error: Color { r: 179, g: 38, b: 30, a: 255 },
             on_error: Color::WHITE,
+            border: Color { r: 200, g: 200, b: 200, a: 255 },
+            text_primary: Color { r: 28, g: 27, b: 31, a: 255 },
+            text_secondary: Color { r: 100, g: 100, b: 100, a: 255 },
+        }
+    }
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct SpacingTokens {
+    pub none: f32, // 0
+    pub xs: f32,   // 4
+    pub s: f32,    // 8
+    pub m: f32,    // 16
+    pub l: f32,    // 24
+    pub xl: f32,   // 32
+}
+
+impl Default for SpacingTokens {
+    fn default() -> Self {
+        Self {
+            none: 0.0,
+            xs: 4.0,
+            s: 8.0,
+            m: 16.0,
+            l: 24.0,
+            xl: 32.0,
         }
     }
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct TypographyTokens {
-    // Simplified for MVP. Stores font size.
     pub label_large_size: f32,
     pub body_medium_size: f32,
+    pub body_large_size: f32,
+    pub heading_size: f32,
 }
 
 impl Default for TypographyTokens {
     fn default() -> Self {
         Self {
             label_large_size: 14.0,
-            body_medium_size: 16.0,
+            body_medium_size: 14.0,
+            body_large_size: 16.0,
+            heading_size: 24.0,
         }
     }
 }
@@ -80,15 +85,15 @@ pub struct RadiusTokens {
     pub small: f32,
     pub medium: f32,
     pub large: f32,
-    pub full: f32, // For pill shapes
+    pub full: f32,
 }
 
 impl Default for RadiusTokens {
     fn default() -> Self {
         Self {
             small: 4.0,
-            medium: 12.0,
-            large: 16.0,
+            medium: 8.0,
+            large: 12.0,
             full: 9999.0,
         }
     }
@@ -106,30 +111,12 @@ pub struct ElevationTokens {
 
 impl Default for ElevationTokens {
     fn default() -> Self {
-        let black_alpha = |a| Color {
-            r: 0,
-            g: 0,
-            b: 0,
-            a,
-        };
-
+        let black_alpha = |a| Color { r: 0, g: 0, b: 0, a };
         Self {
             level0: None,
-            level1: Some(BoxShadow {
-                color: black_alpha(40),
-                offset: (0.0, 1.0),
-                blur_radius: 2.0,
-            }),
-            level2: Some(BoxShadow {
-                color: black_alpha(60),
-                offset: (0.0, 2.0),
-                blur_radius: 4.0,
-            }),
-            level3: Some(BoxShadow {
-                color: black_alpha(60),
-                offset: (0.0, 4.0),
-                blur_radius: 8.0,
-            }),
+            level1: Some(BoxShadow { color: black_alpha(40), offset: (0.0, 1.0), blur_radius: 2.0 }),
+            level2: Some(BoxShadow { color: black_alpha(60), offset: (0.0, 2.0), blur_radius: 4.0 }),
+            level3: Some(BoxShadow { color: black_alpha(60), offset: (0.0, 4.0), blur_radius: 8.0 }),
             level4: None,
             level5: None,
         }
@@ -139,6 +126,7 @@ impl Default for ElevationTokens {
 #[derive(Clone, Debug, PartialEq, Default, Serialize, Deserialize)]
 pub struct Tokens {
     pub colors: ColorTokens,
+    pub spacing: SpacingTokens,
     pub typography: TypographyTokens,
     pub radii: RadiusTokens,
     pub elevations: ElevationTokens,
@@ -162,7 +150,7 @@ impl ButtonTheme {
     pub fn from_tokens(tokens: &Tokens) -> Self {
         Self {
             height: 40.0,
-            padding_horizontal: 24.0,
+            padding_horizontal: tokens.spacing.l,
             radius: tokens.radii.full,
             text_size: tokens.typography.label_large_size,
             elevation_rest: tokens.elevations.level1,
@@ -177,14 +165,45 @@ impl ButtonTheme {
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct TextInputTheme {
+    pub height: f32,
+    pub padding_h: f32,
+    pub radius: f32,
+    pub font_size: f32,
+    pub border_color: Color,
+    pub border_width: f32,
+    pub focus_color: Color,
+    pub text_color: Color,
+    pub placeholder_color: Color,
+}
+
+impl TextInputTheme {
+    pub fn from_tokens(tokens: &Tokens) -> Self {
+        Self {
+            height: 40.0,
+            padding_h: tokens.spacing.m,
+            radius: tokens.radii.small,
+            font_size: tokens.typography.body_large_size,
+            border_color: tokens.colors.border,
+            border_width: 1.0,
+            focus_color: tokens.colors.primary,
+            text_color: tokens.colors.text_primary,
+            placeholder_color: tokens.colors.text_secondary,
+        }
+    }
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct ComponentTheme {
     pub button: ButtonTheme,
+    pub text_input: TextInputTheme,
 }
 
 impl ComponentTheme {
     pub fn from_tokens(tokens: &Tokens) -> Self {
         Self {
             button: ButtonTheme::from_tokens(tokens),
+            text_input: TextInputTheme::from_tokens(tokens),
         }
     }
 }
@@ -203,27 +222,9 @@ impl Default for Theme {
     }
 }
 
-// --- Fonts ---
-// Expose pinned, embedded font bytes for deterministic text measurement/rendering across platforms.
-// We start with Noto Sans Regular as the default UI font.
-
-#[allow(dead_code)]
 pub mod fonts {
-    /// Noto Sans Regular (static) bundled as part of the theme for deterministic metrics.
-    ///
-    /// Source: crates/core/fission-theme/fonts/Noto_Sans/static/NotoSans-Regular.ttf
-    pub const NOTO_SANS_REGULAR_TTF: &[u8] =
-        include_bytes!("../fonts/Noto_Sans/static/NotoSans-Regular.ttf");
-
-    /// Inter 24pt Regular (static). Useful for headings or future variations.
-    ///
-    /// Source: crates/core/fission-theme/fonts/Inter/static/Inter_24pt-Regular.ttf
-    pub const INTER_24PT_REGULAR_TTF: &[u8] =
-        include_bytes!("../fonts/Inter/static/Inter_24pt-Regular.ttf");
-
-    /// Returns the default UI font bytes to be used by measurement and rendering backends.
+    pub const NOTO_SANS_REGULAR_TTF: &[u8] = include_bytes!("../fonts/Noto_Sans/static/NotoSans-Regular.ttf");
+    pub const INTER_24PT_REGULAR_TTF: &[u8] = include_bytes!("../fonts/Inter/static/Inter_24pt-Regular.ttf");
     #[inline]
-    pub fn default_font_bytes() -> &'static [u8] {
-        NOTO_SANS_REGULAR_TTF
-    }
+    pub fn default_font_bytes() -> &'static [u8] { NOTO_SANS_REGULAR_TTF }
 }

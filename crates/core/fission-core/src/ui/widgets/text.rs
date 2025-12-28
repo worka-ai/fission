@@ -59,8 +59,8 @@ impl Lower for Text {
             cx.next_node_id(),
             Op::Paint(PaintOp::DrawText {
                 text: resolved_text,
-                size: self.font_size.unwrap_or(14.0),
-                color: self.color.unwrap_or(IrColor::BLACK),
+                size: self.font_size.unwrap_or(cx.env.theme.tokens.typography.body_medium_size),
+                color: self.color.unwrap_or(cx.env.theme.tokens.colors.text_primary),
                 underline: false,
                 caret_index: None,
             }),
