@@ -452,7 +452,7 @@ impl LayoutEngine {
                     IrFlexDirection::Row => taffy::style::FlexDirection::Row,
                     IrFlexDirection::Column => taffy::style::FlexDirection::Column,
                 };
-                style.align_items = Some(AlignItems::Center);
+                style.align_items = Some(AlignItems::Stretch);
                 style.padding = taffy::geometry::Rect {
                     left: points(padding[0]),
                     right: points(padding[1]),
