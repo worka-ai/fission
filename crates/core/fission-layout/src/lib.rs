@@ -607,6 +607,9 @@ impl LayoutEngine {
             }
             LayoutOp::ZStack => {
                 style.display = Display::Flex;
+                // Ensure absolutely-positioned overlay children (e.g., AbsoluteFill)
+                // are positioned relative to this stack, not some outer container.
+                style.position = Position::Relative;
                 style.size = taffy::geometry::Size {
                     width: node.width.map(Dimension::Points).unwrap_or(Dimension::Auto),
                     height: node.height.map(Dimension::Points).unwrap_or(Dimension::Auto),
@@ -673,23 +676,84 @@ impl LayoutEngine {
                 .map_err(|e| anyhow::anyhow!("Taffy layout error (pass 1): {:?}", e))?;
 
             // Post-layout pass for Flyouts
+            let mut flyout_abs_overrides: HashMap<NodeId, (f32, f32)> = HashMap::new();
             for node in input_nodes {
                 if let LayoutOp::Flyout { anchor, content } = node.op {
                     if let (Some(anchor_taffy_id), Some(content_taffy_id)) = (
                         self.taffy_map.get(&anchor),
                         self.taffy_map.get(&content),
                     ) {
-                        let anchor_layout = self.taffy.layout(*anchor_taffy_id)?;
-                        let absolute_pos = self.get_absolute_location(*anchor_taffy_id)?;
+                        let anchor_abs = self.get_absolute_location(*anchor_taffy_id)?;
+                        let (anchor_w, anchor_h) = {
+                            let l = self.taffy.layout(*anchor_taffy_id)?;
+                            (l.size.width, l.size.height)
+                        };
+                        // Determine the overlay AbsoluteFill that is a direct child of root.
+                        let mut overlay_fill_abs = taffy::geometry::Point { x: 0.0, y: 0.0 };
+                        let mut cur = self.taffy.parent(*content_taffy_id);
+                        while let Some(pid) = cur {
+                            // Map back to NodeId by reverse lookup
+                            let maybe_node_id = self
+                                .taffy_map
+                                .iter()
+                                .find_map(|(nid, tid)| if *tid == pid { Some(*nid) } else { None });
+                            if let Some(node_id) = maybe_node_id {
+                                if let Some(input) = node_map.get(&node_id) {
+                                    if let LayoutOp::AbsoluteFill = input.op {
+                                        if let Some(pparent) = self.taffy.parent(pid) {
+                                            if Some(pparent) == self.taffy_map.get(&root_node_id).copied() {
+                                                overlay_fill_abs = self.get_absolute_location(pid)?;
+                                                break;
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                            cur = self.taffy.parent(pid);
+                        }
+                        // Compute left/top relative to that overlay fill
+                        let left_rel = anchor_abs.x - overlay_fill_abs.x;
+                        let top_rel = anchor_abs.y + anchor_h - overlay_fill_abs.y;
                         let mut new_style = self.taffy.style(*content_taffy_id)?.clone();
+                        // Preserve measured size from first pass to avoid zero-size when
+                        // switching to absolute positioning.
+                        let measured = self.taffy.layout(*content_taffy_id)?;
                         new_style.position = Position::Absolute;
                         new_style.inset = taffy::geometry::Rect {
-                            left: points(absolute_pos.x),
-                            top: points(absolute_pos.y + anchor_layout.size.height),
+                            left: points(left_rel),
+                            top: points(top_rel),
                             right: LengthPercentageAuto::Auto,
                             bottom: LengthPercentageAuto::Auto,
                         };
+                        new_style.size = taffy::geometry::Size {
+                            width: Dimension::Points(measured.size.width),
+                            height: Dimension::Points(measured.size.height),
+                        };
+                        // Diagnostics: record flyout placement
+                        {
+                            use fission_diagnostics::prelude as diag;
+                            diag::emit(
+                                diag::DiagCategory::Layout,
+                                diag::DiagLevel::Debug,
+                                diag::DiagEventKind::AnchorPlacement {
+                                    widget: 0,
+                                    node: anchor.as_u128(),
+                                    rect_x: anchor_abs.x,
+                                    rect_y: anchor_abs.y,
+                                    rect_w: anchor_w,
+                                    rect_h: anchor_h,
+                                    place_left: left_rel,
+                                    place_top: top_rel,
+                                    note: Some("Flyout".into()),
+                                },
+                            );
+                        }
                         self.taffy.set_style(*content_taffy_id, new_style)?;
+                        // Ensure re-layout picks up updated absolute positioning
+                        let _ = self.taffy.mark_dirty(*content_taffy_id);
+
+                        // Track absolute override for snapshot reporting
+                        flyout_abs_overrides.insert(content, (anchor_abs.x, anchor_abs.y + anchor_h));
                     }
                 }
             }
@@ -715,6 +779,34 @@ impl LayoutEngine {
                 &mut visited,
                 scroll_source,
             );
+
+            // Apply final absolute overrides to content nodes and shift their entire subtrees
+            // so all descendants align with the intended screen-space anchor.
+            fn apply_offset_recursive(
+                id: NodeId,
+                dx: f32,
+                dy: f32,
+                node_map: &HashMap<NodeId, &LayoutInputNode>,
+                geometries: &mut HashMap<NodeId, LayoutNodeGeometry>,
+            ) {
+                if let Some(g) = geometries.get_mut(&id) {
+                    g.rect.origin.x += dx;
+                    g.rect.origin.y += dy;
+                }
+                if let Some(n) = node_map.get(&id) {
+                    for child in &n.children_ids {
+                        apply_offset_recursive(*child, dx, dy, node_map, geometries);
+                    }
+                }
+            }
+
+            for (nid, (abs_x, abs_y)) in flyout_abs_overrides {
+                if let Some(current) = geometries.get(&nid) {
+                    let dx = abs_x - current.rect.origin.x;
+                    let dy = abs_y - current.rect.origin.y;
+                    apply_offset_recursive(nid, dx, dy, &node_map, &mut geometries);
+                }
+            }
 
             let mut snapshot = LayoutSnapshot::new(viewport_size);
             snapshot.nodes = geometries;

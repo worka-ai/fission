@@ -934,6 +934,7 @@ dependencies = [
  "fission-render",
  "fission-semantics",
  "fission-shell",
+ "fission-shell-desktop",
  "fission-widgets",
  "lazy_static",
  "serde",
@@ -954,6 +955,7 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "fission-core",
+ "fission-diagnostics",
  "fission-ir",
  "fission-macros",
  "fission-theme",

@@ -335,6 +335,13 @@ impl Pipeline {
         accumulated_offset: LayoutPoint,
     ) {
         use std::collections::HashSet;
+        // Gather Flyout content ids for this frame (once per root walk)
+        let mut flyout_contents: HashSet<NodeId> = HashSet::new();
+        for (_id, n) in &ir.nodes {
+            if let fission_ir::Op::Layout(fission_ir::LayoutOp::Flyout { content, .. }) = n.op {
+                flyout_contents.insert(content);
+            }
+        }
         let mut visited = HashSet::new();
         self.generate_display_list_recursive_with_visited(
             node_id,
@@ -347,6 +354,7 @@ impl Pipeline {
             video_map,
             accumulated_offset,
             &mut visited,
+            &flyout_contents,
         );
     }
 
@@ -362,6 +370,7 @@ impl Pipeline {
         video_map: &VideoStateMap,
         accumulated_offset: LayoutPoint,
         visited: &mut std::collections::HashSet<NodeId>,
+        flyout_contents: &std::collections::HashSet<NodeId>,
     ) {
         if !visited.insert(node_id) {
             return;
@@ -537,6 +546,28 @@ impl Pipeline {
                 _ => {}
             }
 
+            // If this node is a flyout content, emit a paint marker and its rect
+            if flyout_contents.contains(&node_id) {
+                use fission_diagnostics::prelude as diag;
+                diag::emit(
+                    diag::DiagCategory::Paint,
+                    diag::DiagLevel::Debug,
+                    diag::DiagEventKind::PaintNode { node: node_id.as_u128(), note: Some("flyout_content".into()) },
+                );
+                diag::emit(
+                    diag::DiagCategory::Paint,
+                    diag::DiagLevel::Debug,
+                    diag::DiagEventKind::PaintNodeRect {
+                        node: node_id.as_u128(),
+                        x: geom.rect.x(),
+                        y: geom.rect.y(),
+                        w: geom.rect.width(),
+                        h: geom.rect.height(),
+                        note: Some("flyout_content".into()),
+                    },
+                );
+            }
+
             let mut temp_dl = DisplayList {
                 ops: Vec::new(),
                 bounds: out_list.bounds,
@@ -554,6 +585,7 @@ impl Pipeline {
                     video_map,
                     child_offset,
                     visited,
+                    flyout_contents,
                 );
             }
 

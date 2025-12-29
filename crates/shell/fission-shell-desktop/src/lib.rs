@@ -305,6 +305,15 @@ impl<S: AppState + Default, W: Widget<S> + 'static> DesktopApp<S, W> {
                                         let anims = ctx.take_animation_requests();
                                         let videos = ctx.take_video_registrations();
                                         let portals = ctx.take_portals();
+                                        // Emit portal summary to diagnostics
+                                        {
+                                            use fission_diagnostics::prelude as diag;
+                                            diag::emit(
+                                                diag::DiagCategory::Layout,
+                                                diag::DiagLevel::Debug,
+                                                diag::DiagEventKind::PortalsComposed { portal_count: portals.len() as u32 },
+                                            );
+                                        }
                                         (node, ctx.registry, anims, videos, portals)
                                     };
 
@@ -315,23 +324,21 @@ impl<S: AppState + Default, W: Widget<S> + 'static> DesktopApp<S, W> {
                                     }
                                     runtime.sync_video_nodes(&videos);
 
-                                    // If we have portals, wrap the root in a ZStack (overlay layer)
-                                    let final_root = if portals.is_empty() {
-                                        node_tree
-                                    } else {
-                                        let mut children = vec![node_tree];
-                                        // Wrap portals in an AbsoluteFill container if needed? 
-                                        // Portals usually expect to be absolute.
-                                        // ZStack children are just stacked. 
-                                        // If portal nodes are AbsoluteFill or positioned, ZStack works.
-                                        children.extend(portals);
-                                        
-                                        // Create a synthetic ZStack node
-                                        fission_core::Node::ZStack(fission_core::ui::ZStack {
-                                            children,
-                                            ..Default::default()
-                                        })
-                                    };
+                                    // Always compose an overlay layer above content.
+                                    // Portals are injected into that layer and never
+                                    // participate in normal layout.
+                                    let final_root = fission_core::Node::Overlay(
+                                        fission_core::ui::Overlay {
+                                            id: None,
+                                            content: Box::new(node_tree),
+                                            overlay: Box::new(fission_core::Node::ZStack(
+                                                fission_core::ui::ZStack {
+                                                    children: portals,
+                                                    ..Default::default()
+                                                },
+                                            )),
+                                        }
+                                    );
 
                                     let mut lower_cx = LoweringContext::new(&env, &runtime.runtime_state, runtime.measurer.as_ref(), pipeline.last_snapshot.as_ref());
                                     let root_id = final_root.lower(&mut lower_cx);

@@ -284,6 +284,15 @@ pub fn build_layout_tree(ir: &CoreIR) -> Vec<LayoutInputNode> {
                 0.0,
                 0.0,
             ),
+            // Preserve Flyout markers so the layout engine can run
+            // the post-layout anchor positioning pass.
+            Op::Layout(LayoutOp::Flyout { anchor, content }) => (
+                LayoutOp::Flyout { anchor: *anchor, content: *content },
+                None,
+                None,
+                0.0,
+                0.0,
+            ),
             _ => (
                 LayoutOp::Box {
                     width: None,

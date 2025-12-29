@@ -1,6 +1,7 @@
 use fission_core::ui::{Container, Node, Text, TextContent, Positioned};
 use fission_core::{BuildCtx, View, Widget, WidgetNodeId, NodeId};
-use fission_core::op::{Color, BoxShadow};
+use fission_core::op::Color;
+use crate::flyout;
 use serde::{Deserialize, Serialize};
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -27,32 +28,22 @@ impl<S: fission_core::AppState> Widget<S> for Tooltip {
         let is_hovered = view.runtime.interaction.is_hovered(node_id);
 
         if is_hovered {
-            if let Some(rect) = view.get_rect(self.id) {
-                let x = rect.origin.x;
-                let y = rect.bottom() + 4.0;
-
-                let content = Positioned {
-                    left: Some(x),
-                    top: Some(y),
-                    child: Some(Box::new(
-                        Container::new(
-                            Text { 
-                                content: TextContent::Literal(self.text.clone()), 
-                                color: Some(Color::WHITE),
-                                font_size: Some(12.0),
-                                ..Default::default() 
-                            }.into()
-                        )
-                        .bg(Color { r: 50, g: 50, b: 50, a: 255 })
-                        .border_radius(4.0)
-                        .padding_all(4.0)
-                        .into_node()
-                    )),
-                    ..Default::default()
-                }.build(ctx, view);
-
-                ctx.register_portal(content);
-            }
+            // Use engine-level Flyout for robust positioning using previous snapshot
+            let tooltip_node = Container::new(
+                    Text {
+                        content: TextContent::Literal(self.text.clone()),
+                        color: Some(Color::WHITE),
+                        font_size: Some(12.0),
+                        ..Default::default()
+                    }
+                    .into(),
+                )
+                .bg(Color { r: 50, g: 50, b: 50, a: 255 })
+                .border_radius(4.0)
+                .padding_all(4.0)
+                .into_node();
+            let flyout_node = crate::flyout(node_id, tooltip_node);
+            ctx.register_portal(flyout_node);
         }
 
         trigger

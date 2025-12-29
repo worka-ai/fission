@@ -93,6 +93,18 @@ pub enum DiagEventKind {
         segments_regenerated: u32,
         paint_ops_total: u32,
     },
+    PaintNode {
+        node: u128,
+        note: Option<String>,
+    },
+    PaintNodeRect {
+        node: u128,
+        x: f32,
+        y: f32,
+        w: f32,
+        h: f32,
+        note: Option<String>,
+    },
 
     RasterSummary {
         cache_hits: u32,
@@ -111,6 +123,20 @@ pub enum DiagEventKind {
         video_nodes: u32,
         audio_nodes: u32,
         embeds_total: u32,
+    },
+
+    // Overlay/Portal + Anchor diagnostics (layout investigation helpers)
+    PortalsComposed { portal_count: u32 },
+    AnchorPlacement {
+        widget: u128,
+        node: u128,
+        rect_x: f32,
+        rect_y: f32,
+        rect_w: f32,
+        rect_h: f32,
+        place_left: f32,
+        place_top: f32,
+        note: Option<String>,
     },
 
     InvariantViolation {

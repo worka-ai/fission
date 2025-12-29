@@ -98,6 +98,44 @@ where
     })
 }
 
+// Flyout (anchor-relative absolute positioning) convenience
+#[derive(Debug)]
+struct FlyoutLowerer {
+    anchor: NodeId,
+    content: Node,
+}
+
+impl LowerDyn for FlyoutLowerer {
+    fn lower_dyn(&self, cx: &mut LoweringContext) -> NodeId {
+        let content_id = self.content.lower(cx);
+        // Create a marker node that tells the layout engine to reposition `content_id`
+        let marker_id = NodeBuilder::new(
+            cx.next_node_id(),
+            Op::Layout(fission_core::LayoutOp::Flyout {
+                anchor: self.anchor,
+                content: content_id,
+            }),
+        )
+        .build(cx);
+
+        // Ensure both the content and marker are attached to the tree via a structural group.
+        let mut wrapper = NodeBuilder::new(
+            cx.next_node_id(),
+            Op::Structural(StructuralOp::Group { stable_hash: 0 }),
+        );
+        wrapper.add_child(content_id);
+        wrapper.add_child(marker_id);
+        wrapper.build(cx)
+    }
+}
+
+pub fn flyout(anchor: NodeId, content: Node) -> Node {
+    Node::Custom(fission_core::CustomNode {
+        debug_tag: "Flyout".into(),
+        lowerer: Some(Arc::new(FlyoutLowerer { anchor, content })),
+    })
+}
+
 // Portal
 #[derive(Debug, Clone)]
 pub struct Portal {
