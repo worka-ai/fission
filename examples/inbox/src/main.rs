@@ -4,8 +4,9 @@ use fission_core::{BuildCtx, View, Widget, NodeId, WidgetNodeId, Env};
 use fission_widgets::{
     Accordion, AccordionItem, Avatar, Badge, Button, ButtonVariant, Card, Checkbox, Container, Divider, Grid, GridItem, 
     HStack, Image, LazyColumn, MenuButton, MenuItem, Node, Popover, ProgressBar, Radio, Scroll, Slider, Spinner, Switch, Tabs, TabItem, Tag, Text, 
-    TextContent, TextInput, VStack,
-};use fission_shell_desktop::DesktopApp;
+    TextContent, TextInput, Tooltip, VStack,
+};
+use fission_shell_desktop::DesktopApp;
 use fission_i18n::{I18nRegistry, Locale, TranslationBundle};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -129,20 +130,26 @@ impl Widget<InboxState> for Sidebar {
             let label_key = format!("folder.{}", folder.to_lowercase());
             
             children.push(
-                Button {
-                    variant: if is_selected { ButtonVariant::Filled } else { ButtonVariant::Ghost },
-                    child: Some(Box::new(
-                        Text {
-                            content: TextContent::Key(label_key),
-                            color: Some(if is_selected { Color::WHITE } else { Color::BLACK }),
+                Tooltip {
+                    id: WidgetNodeId::explicit(format!("tooltip_{}", folder)),
+                    text: format!("Go to {}", folder),
+                    child: Box::new(
+                        Button {
+                            variant: if is_selected { ButtonVariant::Filled } else { ButtonVariant::Ghost },
+                            child: Some(Box::new(
+                                Text {
+                                    content: TextContent::Key(label_key),
+                                    color: Some(if is_selected { Color::WHITE } else { Color::BLACK }),
+                                    ..Default::default()
+                                }
+                                .into()
+                            )),
+                            on_press: Some(ctx.bind(SelectFolder(folder.to_string()), |s, a| s.selected_folder = a.0)),
                             ..Default::default()
                         }
                         .into()
-                    )),
-                    on_press: Some(ctx.bind(SelectFolder(folder.to_string()), |s, a| s.selected_folder = a.0)),
-                    ..Default::default()
-                }
-                .into()
+                    )
+                }.build(ctx, view)
             );
         }
         
@@ -173,6 +180,9 @@ impl Widget<InboxState> for Sidebar {
                         on_change: Some(ctx.bind(SetStorageUsage(0.0), |s, a| s.storage_usage = a.0)),
                         ..Default::default()
                     }.into(),
+                    ProgressBar {
+                        value: view.state.storage_usage,
+                    }.build(ctx, view),
                 ]
             }.build(ctx, view)
         );
@@ -421,7 +431,7 @@ impl Widget<InboxState> for EmailDetail {
                                     children: vec![
                                         Text {
                                             content: TextContent::Literal(
-                                                "Hey there,\n\nThis demonstrates the new Checkbox, Switch, Radio, Slider and I18n features.\nThe sidebar labels are localized.\n\nTry selecting items in the list!".into()
+                                                "Hey there,\n\nThis demonstrates the new Checkbox, Switch, Radio, Slider and I18n features.\nThe sidebar labels are localized.\n\nTry selecting items in the list!\n".into()
                                             ),
                                             ..Default::default()
                                         }.into(),
