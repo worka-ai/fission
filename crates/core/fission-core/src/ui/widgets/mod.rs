@@ -18,7 +18,7 @@ pub mod spacer;
 pub mod slider;
 pub mod lazy_column;
 
-pub use button::Button;
+pub use button::{Button, ButtonVariant};
 pub use column::Column;
 pub use image::Image;
 pub use row::Row;

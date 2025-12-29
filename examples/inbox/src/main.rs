@@ -1,8 +1,8 @@
 use fission_core::action::{Action, ActionEnvelope, AppState};
 use fission_core::op::{Color, GridTrack};
-use fission_core::{BuildCtx, View, Widget, NodeId, WidgetNodeId, Env, Column};
+use fission_core::{BuildCtx, View, Widget, NodeId, WidgetNodeId, Env};
 use fission_widgets::{ 
-    Accordion, AccordionItem, Avatar, Badge, Button, Card, Checkbox, Container, Divider, Grid, GridItem, 
+    Accordion, AccordionItem, Avatar, Badge, Button, ButtonVariant, Card, Checkbox, Container, Divider, Grid, GridItem, 
     HStack, Image, LazyColumn, Node, Popover, ProgressBar, Radio, Scroll, Slider, Spinner, Switch, Tabs, TabItem, Tag, Text, 
     TextContent, TextInput, VStack,
 };
@@ -131,6 +131,7 @@ impl Widget<InboxState> for Sidebar {
             
             children.push(
                 Button {
+                    variant: if is_selected { ButtonVariant::Filled } else { ButtonVariant::Ghost },
                     child: Some(Box::new(
                         Text {
                             content: TextContent::Key(label_key),
@@ -238,6 +239,7 @@ impl Widget<InboxState> for EmailList {
                         anchor_id: WidgetNodeId::explicit("filter_btn"),
                         trigger: Box::new(
                             Button {
+                                variant: ButtonVariant::Outline,
                                 child: Some(Box::new(Text { content: TextContent::Literal("Filter".into()), ..Default::default() }.into())),
                                 on_press: Some(ctx.bind(ToggleFilterDropdown, |s, _| s.show_filter_dropdown = !s.show_filter_dropdown)),
                                 ..Default::default()
@@ -252,6 +254,7 @@ impl Widget<InboxState> for EmailList {
                                         Text { content: TextContent::Literal("Unread".into()), ..Default::default() }.into(),
                                         Text { content: TextContent::Literal("Flagged".into()), ..Default::default() }.into(),
                                         Button {
+                                            variant: ButtonVariant::Ghost,
                                             child: Some(Box::new(Text { content: TextContent::Literal("Close".into()), color: Some(Color::RED), ..Default::default() }.into())),
                                             on_press: Some(ctx.bind(DismissDropdown, |s,_| s.show_filter_dropdown = false)),
                                             ..Default::default()
@@ -271,7 +274,7 @@ impl Widget<InboxState> for EmailList {
         );
 
         let mut email_nodes = Vec::new();
-        // Virtual List Demo: 50 items
+        // Virtual List Demo
         for i in 0..50 {
             let id = i;
             let is_selected = view.state.selected_email_id == Some(id);
@@ -334,6 +337,7 @@ impl Widget<InboxState> for EmailList {
 
             email_nodes.push(
                 Button {
+                    variant: ButtonVariant::Ghost,
                     child: Some(Box::new(item)),
                     on_press: Some(ctx.bind(SelectEmail(id), |s, a| s.selected_email_id = Some(a.0))),
                     ..Default::default()
@@ -342,19 +346,14 @@ impl Widget<InboxState> for EmailList {
             );
         }
 
-        // LazyColumn wrapping the list
-        // Note: LazyColumn expects `id` to be stable to track scroll offset.
         let lazy_id = WidgetNodeId::explicit("email_list");
-        // Convert WidgetNodeId to NodeId?
-        // LazyColumn struct has `id: Option<NodeId>`.
-        // NodeId::derived(lazy_id.as_u128(), &[]) matches the pattern used elsewhere.
         let node_id = NodeId::derived(lazy_id.as_u128(), &[]);
 
         list_items.push(
             LazyColumn {
                 id: Some(node_id),
                 children: email_nodes,
-                item_height: 80.0, // Estimated item height
+                item_height: 80.0, 
             }.into()
         );
 
@@ -381,6 +380,7 @@ impl Widget<InboxState> for EmailDetail {
                 VStack {
                     spacing: Some(16.0),
                     children: vec![
+                        // Header
                         HStack {
                             spacing: Some(8.0),
                             children: vec![
@@ -391,7 +391,7 @@ impl Widget<InboxState> for EmailDetail {
                                 }.into(),
                                 Tag {
                                     label: "Work".into(),
-                                    on_close: Some(ctx.bind(DismissDropdown, |_,_| {})), 
+                                    on_close: Some(ctx.bind(DismissDropdown, |_,_| {})),
                                 }.build(ctx, view),
                                 Tag {
                                     label: "Important".into(),
@@ -400,6 +400,7 @@ impl Widget<InboxState> for EmailDetail {
                             ]
                         }.build(ctx, view),
                         
+                        // Sender Info
                         HStack {
                             spacing: Some(8.0),
                             children: vec![
@@ -436,6 +437,7 @@ impl Widget<InboxState> for EmailDetail {
                         
                         Divider { orientation: fission_widgets::divider::Orientation::Horizontal }.build(ctx, view),
                         
+                        // Body
                         Card {
                             child: Box::new(
                                 VStack {
@@ -479,7 +481,7 @@ impl Widget<InboxState> for EmailDetail {
                                     label: Some("Reply".into()),
                                     on_select: Some(ctx.bind(SelectReplyMode(0), |s,a| s.reply_mode = a.0)),
                                     ..Default::default()
-                                }.into(), // Radio is Core
+                                }.into(),
                                 Radio {
                                     checked: view.state.reply_mode == 1,
                                     label: Some("Reply All".into()),

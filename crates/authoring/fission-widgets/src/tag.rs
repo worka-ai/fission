@@ -1,5 +1,5 @@
 use fission_core::action::ActionEnvelope;
-use fission_core::ui::{Button, Container, Text, TextContent, Node};
+use fission_core::ui::{Button, ButtonVariant, Container, Text, TextContent, Node};
 use fission_core::{BuildCtx, View, Widget};
 use fission_core::op::Color;
 use crate::stack::HStack;
@@ -27,6 +27,7 @@ impl<S: fission_core::AppState> Widget<S> for Tag {
         if let Some(action) = &self.on_close {
             children.push(
                 Button {
+                    variant: ButtonVariant::Ghost,
                     child: Some(Box::new(
                         Text { 
                             content: TextContent::Literal("×".into()), 
@@ -48,11 +49,7 @@ impl<S: fission_core::AppState> Widget<S> for Tag {
             HStack {
                 spacing: Some(4.0),
                 children,
-            }.build(ctx, view) // Helper needed? No, HStack implements Widget.
-            // Widget::build returns Node.
-            // Wait, HStack returns Node.
-            // Container takes Node.
-            // Correct.
+            }.build(ctx, view)
         )
         .bg(tokens.colors.surface) // or slightly darker
         .border(tokens.colors.border, 1.0)

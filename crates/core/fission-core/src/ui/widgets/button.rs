@@ -8,6 +8,14 @@ use fission_ir::{
 };
 use serde::{Deserialize, Serialize};
 
+#[derive(Debug, Default, Clone, Copy, PartialEq, Serialize, Deserialize)]
+pub enum ButtonVariant {
+    #[default]
+    Filled,
+    Outline,
+    Ghost,
+}
+
 #[derive(Debug, Default, Clone, Serialize, Deserialize)]
 pub struct Button {
     pub id: Option<NodeId>,
@@ -17,13 +25,14 @@ pub struct Button {
     pub width: Option<f32>,
     pub height: Option<f32>,
     pub style: Option<ButtonStyleOverride>,
+    pub variant: ButtonVariant,
 }
 
 #[derive(Debug, Default, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ButtonStyleOverride {}
 
 struct ButtonStyleResolved {
-    background_color: IrColor,
+    background_color: Option<IrColor>,
     text_color: IrColor,
     padding_horizontal: f32,
     height: f32,
@@ -46,19 +55,32 @@ impl Button {
         let is_pressed = interaction.is_pressed(self_id);
         let is_focused = interaction.is_focused(self_id);
 
-        let bg_color = tokens.primary;
-        let text_color = tokens.on_primary;
-
-        let shadow = if is_pressed {
-            default_style.elevation_pressed
-        } else if is_hovered {
-            default_style.elevation_hover
-        } else {
-            default_style.elevation_rest
+        let (bg_color, text_color, border_stroke) = match self.variant {
+            ButtonVariant::Filled => (
+                Some(tokens.primary),
+                tokens.on_primary,
+                if is_focused { default_style.focus_stroke } else { None },
+            ),
+            ButtonVariant::Outline => (
+                if is_hovered { Some(tokens.surface) } else { None },
+                tokens.primary,
+                Some(Stroke { color: tokens.border, width: 1.0 }),
+            ),
+            ButtonVariant::Ghost => (
+                if is_hovered { Some(tokens.surface) } else { None },
+                tokens.primary,
+                None,
+            ),
         };
 
-        let stroke = if is_focused {
-            default_style.focus_stroke
+        let shadow = if self.variant == ButtonVariant::Filled {
+            if is_pressed {
+                default_style.elevation_pressed
+            } else if is_hovered {
+                default_style.elevation_hover
+            } else {
+                default_style.elevation_rest
+            }
         } else {
             None
         };
@@ -70,7 +92,7 @@ impl Button {
             height: default_style.height,
             corner_radius: default_style.radius,
             shadow,
-            stroke,
+            stroke: border_stroke,
         }
     }
 
@@ -110,9 +132,7 @@ impl Lower for Button {
         let background_id = NodeBuilder::new(
             cx.next_node_id(),
             Op::Paint(PaintOp::DrawRect {
-                fill: Some(Fill {
-                    color: resolved_style.background_color,
-                }),
+                fill: resolved_style.background_color.map(|c| Fill { color: c }),
                 stroke: resolved_style.stroke,
                 corner_radius: resolved_style.corner_radius,
                 shadow: resolved_style.shadow,
