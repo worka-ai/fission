@@ -274,6 +274,9 @@ impl<S: AppState + Default, W: Widget<S> + 'static> DesktopApp<S, W> {
                         
                         if needs_redraw {
                             window.request_redraw();
+                            elwt.set_control_flow(ControlFlow::WaitUntil(Instant::now() + Duration::from_millis(16)));
+                        } else {
+                            elwt.set_control_flow(ControlFlow::Wait);
                         }
                     }
                     Event::WindowEvent { window_id, event } if window_id == window.id() => {

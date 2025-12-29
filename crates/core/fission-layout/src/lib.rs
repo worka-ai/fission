@@ -424,7 +424,7 @@ impl LayoutEngine {
             } => {
                 style.display = Display::Flex;
                 style.align_items = Some(AlignItems::Center);
-                style.justify_content = Some(JustifyContent::FlexStart);
+                style.justify_content = Some(JustifyContent::Center);
                 style.padding = taffy::geometry::Rect {
                     left: points(padding[0]),
                     right: points(padding[1]),
