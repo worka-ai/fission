@@ -162,7 +162,7 @@ impl<S: AppState> TestHarness<S> {
             self.layout_engine.verify_post_update(&layout_input_nodes, root_id)?;
             let snapshot =
                 self.layout_engine
-                    .compute_layout(&layout_input_nodes, root_id, viewport)?;
+                    .compute_layout(&layout_input_nodes, root_id, viewport, &|id| self.runtime.runtime_state.scroll.get_offset(id))?;
             self.last_snapshot = Some(snapshot.clone());
         }
 

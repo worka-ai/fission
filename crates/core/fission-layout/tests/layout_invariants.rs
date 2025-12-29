@@ -32,7 +32,7 @@ fn test_taffy_integration_simple_box() {
     engine.update(&nodes, &dirty);
 
     let snapshot = engine
-        .compute_layout(&nodes, root_id, LayoutSize::new(800.0, 600.0))
+        .compute_layout(&nodes, root_id, LayoutSize::new(800.0, 600.0), &|_| 0.0)
         .unwrap();
 
     let geom = snapshot.get_node_geometry(root_id).unwrap();
@@ -112,7 +112,7 @@ fn test_taffy_integration_flex_row() {
     engine.update(&nodes, &dirty);
 
     let snapshot = engine
-        .compute_layout(&nodes, root_id, LayoutSize::new(800.0, 600.0))
+        .compute_layout(&nodes, root_id, LayoutSize::new(800.0, 600.0), &|_| 0.0)
         .unwrap();
 
     let child1 = snapshot.get_node_geometry(child1_id).unwrap();

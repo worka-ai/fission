@@ -266,7 +266,12 @@ impl Pipeline {
 
         let root_id = next_ir.root.unwrap();
         // compute_layout
-        let snapshot = layout_engine.compute_layout(&layout_input_nodes, root_id, viewport)?;
+        let snapshot = layout_engine.compute_layout(
+            &layout_input_nodes, 
+            root_id, 
+            viewport,
+            &|id| scroll_map.get_offset(id)
+        )?;
         // done
 
         let mut display_list =

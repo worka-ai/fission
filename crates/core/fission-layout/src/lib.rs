@@ -13,6 +13,16 @@ use taffy::style::{MinTrackSizingFunction, MaxTrackSizingFunction, GridPlacement
 
 pub use fission_ir::{FlexDirection, LayoutOp, GridTrack, GridPlacement};
 
+pub trait ScrollDataSource {
+    fn get_offset(&self, node_id: NodeId) -> f32;
+}
+
+impl<F> ScrollDataSource for F where F: Fn(NodeId) -> f32 {
+    fn get_offset(&self, node_id: NodeId) -> f32 {
+        self(node_id)
+    }
+}
+
 pub type LayoutUnit = f32;
 
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize, Default)]
@@ -645,6 +655,7 @@ impl LayoutEngine {
         input_nodes: &[LayoutInputNode],
         root_node_id: NodeId,
         viewport_size: LayoutSize,
+        scroll_source: &impl ScrollDataSource,
     ) -> Result<LayoutSnapshot> {
         let node_map: HashMap<NodeId, &LayoutInputNode> =
             input_nodes.iter().map(|n| (n.id, n)).collect();
@@ -702,6 +713,7 @@ impl LayoutEngine {
                 &node_map,
                 &mut geometries,
                 &mut visited,
+                scroll_source,
             );
 
             let mut snapshot = LayoutSnapshot::new(viewport_size);
@@ -721,9 +733,9 @@ impl LayoutEngine {
         node_map: &HashMap<NodeId, &LayoutInputNode>,
         geometries: &mut HashMap<NodeId, LayoutNodeGeometry>,
         visited: &mut HashSet<NodeId>,
+        scroll_source: &impl ScrollDataSource,
     ) {
         if !visited.insert(node_id) {
-            // Cycle detected; skip to avoid infinite recursion
             diag::emit(
                 diag::DiagCategory::Invariants,
                 diag::DiagLevel::Error,
@@ -741,7 +753,6 @@ impl LayoutEngine {
         let mut width = layout.size.width;
         let mut height = layout.size.height;
 
-        // For Scroll, the rect is the viewport; width/height may be explicitly set on node.
         if let LayoutOp::Scroll { .. } = &node.op {
             if let Some(w) = node.width { width = w; }
             if let Some(h) = node.height { height = h; }
@@ -749,31 +760,42 @@ impl LayoutEngine {
 
         let rect = LayoutRect::new(absolute_x, absolute_y, width, height);
 
-        // Recurse children first so their geometry is available for content union.
+        // Recurse
+        let mut child_origin_x = absolute_x;
+        let mut child_origin_y = absolute_y;
+
+        if let LayoutOp::Scroll { direction, .. } = &node.op {
+            let offset = scroll_source.get_offset(node_id);
+            match direction {
+                IrFlexDirection::Row => child_origin_x -= offset,
+                IrFlexDirection::Column => child_origin_y -= offset,
+            }
+        }
+
         for child_id in &node.children_ids {
             self.extract_geometry_recursive_with_visited(
                 *child_id,
-                LayoutPoint::new(absolute_x, absolute_y),
+                LayoutPoint::new(child_origin_x, child_origin_y),
                 node_map,
                 geometries,
                 visited,
+                scroll_source,
             );
         }
 
-        // Compute content_size as union of children extents relative to this node.
         let mut content_w = layout.size.width;
         let mut content_h = layout.size.height;
         if !node.children_ids.is_empty() {
-            let mut max_right = rect.origin.x;
-            let mut max_bottom = rect.origin.y;
-            for child_id in &node.children_ids {
-                if let Some(g) = geometries.get(child_id) {
-                    max_right = max_right.max(g.rect.right());
-                    max_bottom = max_bottom.max(g.rect.bottom());
-                }
-            }
-            content_w = (max_right - rect.origin.x).max(width);
-            content_h = (max_bottom - rect.origin.y).max(height);
+             let mut max_x: f32 = 0.0;
+             let mut max_y: f32 = 0.0;
+             for child_id in &node.children_ids {
+                 let child_taffy = self.taffy_map.get(child_id).unwrap();
+                 let cl = self.taffy.layout(*child_taffy).unwrap();
+                 max_x = max_x.max(cl.location.x + cl.size.width);
+                 max_y = max_y.max(cl.location.y + cl.size.height);
+             }
+             content_w = max_x.max(width);
+             content_h = max_y.max(height);
         }
         let content_size = LayoutSize::new(content_w, content_h);
 
