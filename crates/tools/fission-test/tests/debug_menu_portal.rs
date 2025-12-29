@@ -151,20 +151,31 @@ fn menu_portal_position_near_anchor() -> Result<()> {
 
         // Find Flyout op and check its content's geometry
         let mut flyout_xs = Vec::new();
+        let mut flyout_ys = Vec::new();
         for (_id, n) in &ir2.nodes {
             if let fission_ir::Op::Layout(fission_ir::LayoutOp::Flyout { anchor: _a, content }) = n.op {
                 if let Some(r) = snap2.get_node_rect(content) {
                     flyout_xs.push(r.x());
+                    flyout_ys.push(r.y());
                 }
             }
         }
         assert!(!flyout_xs.is_empty(), "no flyout nodes in IR (frame 2)");
 
-        let ok = flyout_xs.iter().any(|x| (*x - anchor_rect.x()).abs() < 20.0);
-        if !ok {
+        // X should match anchor's left within tolerance
+        let ok_x = flyout_xs.iter().any(|x| (*x - anchor_rect.x()).abs() < 20.0);
+        if !ok_x {
             eprintln!("anchor_x={}, flyout_xs={:?}", anchor_rect.x(), flyout_xs);
         }
-        assert!(ok, "no flyout content near anchor x");
+        assert!(ok_x, "no flyout content near anchor x");
+
+        // Y should match anchor's bottom within tolerance (anchor.y + anchor.h)
+        let anchor_bottom = anchor_rect.y() + anchor_rect.height();
+        let ok_y = flyout_ys.iter().any(|y| (*y - anchor_bottom).abs() < 20.0);
+        if !ok_y {
+            eprintln!("anchor_bottom={}, flyout_ys={:?}", anchor_bottom, flyout_ys);
+        }
+        assert!(ok_y, "no flyout content near anchor y");
     }
 
     Ok(())

@@ -769,6 +769,16 @@ impl LayoutEngine {
                 )
                 .map_err(|e| anyhow::anyhow!("Taffy layout error (pass 2): {:?}", e))?;
 
+            // Identify overlay AbsoluteFill nodes (direct children of root) to reset coordinate space
+            let mut overlay_fill_nodes: HashSet<NodeId> = HashSet::new();
+            for n in input_nodes {
+                if let LayoutOp::AbsoluteFill = n.op {
+                    if n.parent_id == Some(root_node_id) {
+                        overlay_fill_nodes.insert(n.id);
+                    }
+                }
+            }
+
             let mut geometries = HashMap::new();
             let mut visited = HashSet::new();
             self.extract_geometry_recursive_with_visited(
@@ -778,6 +788,7 @@ impl LayoutEngine {
                 &mut geometries,
                 &mut visited,
                 scroll_source,
+                &overlay_fill_nodes,
             );
 
             // Apply final absolute overrides to content nodes and shift their entire subtrees
@@ -826,6 +837,7 @@ impl LayoutEngine {
         geometries: &mut HashMap<NodeId, LayoutNodeGeometry>,
         visited: &mut HashSet<NodeId>,
         scroll_source: &impl ScrollDataSource,
+        overlay_fill_nodes: &HashSet<NodeId>,
     ) {
         if !visited.insert(node_id) {
             diag::emit(
@@ -864,6 +876,12 @@ impl LayoutEngine {
             }
         }
 
+        // Reset coordinate space for overlay AbsoluteFill descendants (screen-space)
+        if overlay_fill_nodes.contains(&node_id) {
+            child_origin_x = 0.0;
+            child_origin_y = 0.0;
+        }
+
         for child_id in &node.children_ids {
             self.extract_geometry_recursive_with_visited(
                 *child_id,
@@ -872,6 +890,7 @@ impl LayoutEngine {
                 geometries,
                 visited,
                 scroll_source,
+                overlay_fill_nodes,
             );
         }
 

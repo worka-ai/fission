@@ -6,14 +6,20 @@ use anyhow::Result;
 use fission_render::{DisplayList, DisplayOp, Renderer, Color as RenderColor, TextStyle as RenderTextStyle};
 use vello::kurbo::{Affine, Rect, RoundedRect, Stroke};
 // Minimal imports from peniko
-use vello::peniko::{Color, Fill, Mix, Blob};
+use vello::peniko::{Color, Fill, Mix, Blob, ImageData, ImageFormat, ImageAlphaType, ImageBrush, ImageSampler};
 use vello::{Scene, Glyph};
 use std::sync::{Arc, Mutex};
+use std::collections::HashMap;
+use lazy_static::lazy_static;
 use parley::{FontContext, LayoutContext};
 use parley::layout::PositionedLayoutItem;
 use std::borrow::Cow;
 use parley::style::{FontStack, StyleProperty};
 use crate::text::ParleyBrush;
+
+lazy_static! {
+    static ref IMAGE_CACHE: Mutex<HashMap<String, Arc<ImageData>>> = Mutex::new(HashMap::new());
+}
 
 pub struct VelloRenderer<'a> {
     scene: &'a mut Scene,
@@ -36,8 +42,29 @@ impl<'a> VelloRenderer<'a> {
         }
     }
 
-    // Stubbed image loading
-    // fn get_image(&self, _path: &str) -> Option<(Blob, u32, u32)> { None }
+    fn get_image(&self, path: &str) -> Option<Arc<ImageData>> {
+        let mut cache = IMAGE_CACHE.lock().unwrap();
+        if let Some(img) = cache.get(path) {
+            return Some(Arc::clone(img));
+        }
+
+        if let Ok(img) = image::open(path) {
+            let img = img.to_rgba8();
+            let (width, height) = img.dimensions();
+            let data = img.into_raw();
+            let image_data = Arc::new(ImageData {
+                data: Blob::new(Arc::new(data)),
+                format: ImageFormat::Rgba8,
+                alpha_type: ImageAlphaType::Alpha,
+                width,
+                height,
+            });
+            cache.insert(path.to_string(), Arc::clone(&image_data));
+            Some(image_data)
+        } else {
+            None
+        }
+    }
 
     fn render_text(
         &mut self, 
@@ -267,8 +294,18 @@ impl<'a> Renderer for VelloRenderer<'a> {
                     
                     self.render_text(&full_text, base_size, base_color, *bounds, *caret_index, &styles);
                 }
-                DisplayOp::DrawImage { .. } => {
-                    // TODO: Implement DrawImage once peniko::Image import is resolved
+                DisplayOp::DrawImage { source, rect, .. } => {
+                    if let Some(image_data) = self.get_image(source) {
+                        let transform = self.current_transform * Affine::translate((rect.origin.x as f64, rect.origin.y as f64)) * Affine::scale_non_uniform(
+                            rect.size.width as f64 / image_data.width as f64,
+                            rect.size.height as f64 / image_data.height as f64
+                        );
+                        let brush = ImageBrush {
+                            image: &*image_data,
+                            sampler: ImageSampler::default(),
+                        };
+                        self.scene.draw_image(brush, transform);
+                    }
                 }
                 _ => {}
             }
