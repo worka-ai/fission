@@ -35,6 +35,11 @@ pub use tabs::{Tabs, TabItem};
 pub mod accordion;
 pub use accordion::{Accordion, AccordionItem};
 
+// pub mod tooltip;
+pub use tooltip::Tooltip;
+pub mod menu;
+pub use menu::{MenuButton, MenuItem};
+
 pub mod popover;
 pub use popover::Popover;
 

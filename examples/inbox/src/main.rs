@@ -1,12 +1,11 @@
 use fission_core::action::{Action, ActionEnvelope, AppState};
 use fission_core::op::{Color, GridTrack};
 use fission_core::{BuildCtx, View, Widget, NodeId, WidgetNodeId, Env};
-use fission_widgets::{ 
+use fission_widgets::{
     Accordion, AccordionItem, Avatar, Badge, Button, ButtonVariant, Card, Checkbox, Container, Divider, Grid, GridItem, 
-    HStack, Image, LazyColumn, Node, Popover, ProgressBar, Radio, Scroll, Slider, Spinner, Switch, Tabs, TabItem, Tag, Text, 
+    HStack, Image, LazyColumn, MenuButton, MenuItem, Node, Popover, ProgressBar, Radio, Scroll, Slider, Spinner, Switch, Tabs, TabItem, Tag, Text, 
     TextContent, TextInput, VStack,
-};
-use fission_shell_desktop::DesktopApp;
+};use fission_shell_desktop::DesktopApp;
 use fission_i18n::{I18nRegistry, Locale, TranslationBundle};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -234,40 +233,17 @@ impl Widget<InboxState> for EmailList {
                     }
                     .into(),
                     
-                    Popover {
+                    MenuButton {
+                        id: WidgetNodeId::explicit("filter_menu"),
+                        label: "Filter".into(),
                         is_open: view.state.show_filter_dropdown,
-                        anchor_id: WidgetNodeId::explicit("filter_btn"),
-                        trigger: Box::new(
-                            Button {
-                                variant: ButtonVariant::Outline,
-                                child: Some(Box::new(Text { content: TextContent::Literal("Filter".into()), ..Default::default() }.into())),
-                                on_press: Some(ctx.bind(ToggleFilterDropdown, |s, _| s.show_filter_dropdown = !s.show_filter_dropdown)),
-                                ..Default::default()
-                            }.into()
-                        ),
-                        content: Box::new(
-                            Container::new(
-                                VStack {
-                                    spacing: Some(8.0),
-                                    children: vec![
-                                        Text { content: TextContent::Literal("All".into()), ..Default::default() }.into(),
-                                        Text { content: TextContent::Literal("Unread".into()), ..Default::default() }.into(),
-                                        Text { content: TextContent::Literal("Flagged".into()), ..Default::default() }.into(),
-                                        Button {
-                                            variant: ButtonVariant::Ghost,
-                                            child: Some(Box::new(Text { content: TextContent::Literal("Close".into()), color: Some(Color::RED), ..Default::default() }.into())),
-                                            on_press: Some(ctx.bind(DismissDropdown, |s,_| s.show_filter_dropdown = false)),
-                                            ..Default::default()
-                                        }.into()
-                                    ]
-                                }.build(ctx, view)
-                            )
-                            .bg(Color::WHITE)
-                            .border(Color { r: 200, g: 200, b: 200, a: 255 }, 1.0)
-                            .shadow(fission_core::op::BoxShadow { color: Color { r:0, g:0, b:0, a:50 }, blur_radius: 10.0, offset: (0.0, 4.0) })
-                            .padding_all(12.0)
-                            .into_node()
-                        )
+                        on_toggle: Some(ctx.bind(ToggleFilterDropdown, |s, _| s.show_filter_dropdown = !s.show_filter_dropdown)),
+                        on_dismiss: Some(ctx.bind(DismissDropdown, |s, _| s.show_filter_dropdown = false)),
+                        items: vec![
+                            MenuItem { label: "All".into(), on_select: Some(ctx.bind(DismissDropdown, |s, _| s.show_filter_dropdown = false)) },
+                            MenuItem { label: "Unread".into(), on_select: Some(ctx.bind(DismissDropdown, |s, _| s.show_filter_dropdown = false)) },
+                            MenuItem { label: "Flagged".into(), on_select: Some(ctx.bind(DismissDropdown, |s, _| s.show_filter_dropdown = false)) },
+                        ]
                     }.build(ctx, view)
                 ]
             }.build(ctx, view)
