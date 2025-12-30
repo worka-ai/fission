@@ -59,6 +59,9 @@ pub use data_table::{DataTable, TableColumn, TableRow};
 pub mod split_view;
 pub use split_view::{SplitView, SplitDirection};
 
+pub mod drawer;
+pub use drawer::{Drawer, DrawerSide};
+
 use fission_core::{lowering::NodeBuilder, op::StructuralOp, LowerDyn, LoweringContext, NodeId, Op};
 use std::sync::Arc;
 
