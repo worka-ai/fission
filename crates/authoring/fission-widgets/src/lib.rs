@@ -65,6 +65,9 @@ pub use drawer::{Drawer, DrawerSide};
 pub mod form_control;
 pub use form_control::FormControl;
 
+pub mod number_input;
+pub use number_input::NumberInput;
+
 use fission_core::{lowering::NodeBuilder, op::StructuralOp, LowerDyn, LoweringContext, NodeId, Op};
 use std::sync::Arc;
 
