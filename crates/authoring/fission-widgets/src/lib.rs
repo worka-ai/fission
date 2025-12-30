@@ -68,6 +68,9 @@ pub use form_control::FormControl;
 pub mod number_input;
 pub use number_input::NumberInput;
 
+pub mod alert;
+pub use alert::{Alert, AlertKind};
+
 use fission_core::{lowering::NodeBuilder, op::StructuralOp, LowerDyn, LoweringContext, NodeId, Op};
 use std::sync::Arc;
 
