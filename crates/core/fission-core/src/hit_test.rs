@@ -41,14 +41,18 @@ fn hit_test_recursive(
     let mut current_is_hit = false;
     if let Some(geom) = layout.get_node_geometry(node_id) {
         if geom.rect.contains(point) {
-            current_is_hit = true;
-
             if let Some(node_ir) = ir.nodes.get(&node_id) {
                 match &node_ir.op {
                     Op::Paint(PaintOp::DrawRect { corner_radius, .. }) => {
                         current_is_hit = is_point_in_rounded_rect(point, geom.rect, *corner_radius);
                     }
-                    _ => {}
+                    Op::Paint(_) | Op::Layout(LayoutOp::Scroll { .. }) | Op::Layout(LayoutOp::Embed { .. }) => {
+                        current_is_hit = true;
+                    }
+                    _ => {
+                        // Layout/Semantics nodes are transparent to hits unless they have specific logic
+                        current_is_hit = false;
+                    }
                 }
             }
         }

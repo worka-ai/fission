@@ -216,8 +216,16 @@ impl Runtime {
                             return Some(hit);
                         }
                     }
+                    
+                    // Only return self as hit if we are a "paintable" or interactive leaf/container
+                    match &node.op {
+                        Op::Paint(_) | 
+                        Op::Layout(LayoutOp::Scroll { .. }) | 
+                        Op::Layout(LayoutOp::Embed { .. }) => return Some(node_id),
+                        _ => return None,
+                    }
                 }
-                return Some(node_id);
+                return None;
             }
         }
         None
