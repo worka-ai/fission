@@ -56,6 +56,9 @@ pub use modal::{Modal, ModalAction};
 pub mod data_table;
 pub use data_table::{DataTable, TableColumn, TableRow};
 
+pub mod split_view;
+pub use split_view::{SplitView, SplitDirection};
+
 use fission_core::{lowering::NodeBuilder, op::StructuralOp, LowerDyn, LoweringContext, NodeId, Op};
 use std::sync::Arc;
 
