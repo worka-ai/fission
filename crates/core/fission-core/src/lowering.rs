@@ -285,6 +285,20 @@ pub fn build_layout_tree(ir: &CoreIR) -> Vec<LayoutInputNode> {
             Op::Paint(PaintOp::DrawImage { .. }) => (LayoutOp::AbsoluteFill, None, None, 0.0, 0.0),
 
             Op::Paint(_) => (LayoutOp::AbsoluteFill, None, None, 0.0, 0.0),
+            Op::Layout(LayoutOp::Positioned { left, top, right, bottom, width, height }) => (
+                LayoutOp::Positioned {
+                    left: *left,
+                    top: *top,
+                    right: *right,
+                    bottom: *bottom,
+                    width: *width,
+                    height: *height,
+                },
+                *width,
+                *height,
+                0.0,
+                0.0,
+            ),
             Op::Layout(LayoutOp::ZStack) => (
                 LayoutOp::ZStack,
                 None,
@@ -292,8 +306,13 @@ pub fn build_layout_tree(ir: &CoreIR) -> Vec<LayoutInputNode> {
                 0.0,
                 0.0,
             ),
-            // Preserve Flyout markers so the layout engine can run
-            // the post-layout anchor positioning pass.
+            Op::Layout(LayoutOp::AbsoluteFill) => (
+                LayoutOp::AbsoluteFill,
+                None,
+                None,
+                0.0,
+                0.0,
+            ),
             Op::Layout(LayoutOp::Flyout { anchor, content }) => (
                 LayoutOp::Flyout { anchor: *anchor, content: *content },
                 None,
