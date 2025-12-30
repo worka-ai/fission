@@ -1,0 +1,60 @@
+use fission_core::ui::{Container, Node, Text, TextContent};
+use fission_core::{BuildCtx, View, Widget, WidgetNodeId};
+use fission_core::op::Color;
+use crate::stack::VStack;
+use serde::{Deserialize, Serialize};
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct FormControl {
+    pub id: Option<WidgetNodeId>,
+    pub label: Option<String>,
+    pub child: Box<Node>,
+    pub error: Option<String>,
+    pub helper: Option<String>,
+    pub required: bool,
+}
+
+impl<S: fission_core::AppState> Widget<S> for FormControl {
+    fn build(&self, ctx: &mut BuildCtx<S>, view: &View<S>) -> Node {
+        let tokens = &view.env.theme.tokens;
+        let mut children = Vec::new();
+
+        if let Some(label_text) = &self.label {
+            let display_text = if self.required {
+                format!("{} *", label_text)
+            } else {
+                label_text.clone()
+            };
+            
+            children.push(
+                Text::new(display_text)
+                    .size(tokens.typography.label_large_size)
+                    .color(tokens.colors.text_primary)
+                    .into_node()
+            );
+        }
+
+        children.push(*self.child.clone());
+
+        if let Some(err) = &self.error {
+            children.push(
+                Text::new(err.clone())
+                    .size(12.0)
+                    .color(tokens.colors.error)
+                    .into_node()
+            );
+        } else if let Some(help) = &self.helper {
+            children.push(
+                Text::new(help.clone())
+                    .size(12.0)
+                    .color(tokens.colors.text_secondary)
+                    .into_node()
+            );
+        }
+
+        VStack {
+            spacing: Some(4.0),
+            children,
+        }.build(ctx, view)
+    }
+}

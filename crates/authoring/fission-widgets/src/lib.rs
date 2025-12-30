@@ -62,6 +62,9 @@ pub use split_view::{SplitView, SplitDirection};
 pub mod drawer;
 pub use drawer::{Drawer, DrawerSide};
 
+pub mod form_control;
+pub use form_control::FormControl;
+
 use fission_core::{lowering::NodeBuilder, op::StructuralOp, LowerDyn, LoweringContext, NodeId, Op};
 use std::sync::Arc;
 
