@@ -74,6 +74,9 @@ pub use alert::{Alert, AlertKind};
 pub mod skeleton;
 pub use skeleton::Skeleton;
 
+pub mod breadcrumb;
+pub use breadcrumb::{Breadcrumb, BreadcrumbItem};
+
 use fission_core::{lowering::NodeBuilder, op::StructuralOp, LowerDyn, LoweringContext, NodeId, Op};
 use std::sync::Arc;
 
