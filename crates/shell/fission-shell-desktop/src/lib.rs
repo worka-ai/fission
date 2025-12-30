@@ -60,7 +60,7 @@ pub struct DesktopApp<S: AppState, W: Widget<S>> {
     root_widget: W,
     env: Env,
     pipeline: Pipeline,
-    font_cx: Arc<Mutex<FontContext>>,
+    measurer: Arc<VelloTextMeasurer>,
     _phantom: std::marker::PhantomData<S>,
 }
 
@@ -77,7 +77,7 @@ impl<S: AppState + Default, W: Widget<S> + 'static> DesktopApp<S, W> {
 
         let layout_engine = LayoutEngine::new().with_measurer(measurer.clone());
         let runtime = runtime
-            .with_measurer(measurer)
+            .with_measurer(measurer.clone())
             .with_clipboard(clipboard);
 
         Self {
@@ -86,7 +86,7 @@ impl<S: AppState + Default, W: Widget<S> + 'static> DesktopApp<S, W> {
             root_widget,
             env,
             pipeline: Pipeline::new(),
-            font_cx,
+            measurer,
             _phantom: std::marker::PhantomData,
         }
     }
@@ -143,7 +143,7 @@ impl<S: AppState + Default, W: Widget<S> + 'static> DesktopApp<S, W> {
         let root_widget = self.root_widget;
         let env = self.env;
         let mut pipeline = self.pipeline;
-        let font_cx = self.font_cx;
+        let measurer = self.measurer;
 
         #[cfg(target_os = "macos")]
         let video_backend: Arc<dyn VideoBackend> = Arc::new(MacVideoBackend::new(&window));
@@ -353,7 +353,7 @@ impl<S: AppState + Default, W: Widget<S> + 'static> DesktopApp<S, W> {
                                     // Vello Rendering
                                     scene.reset();
                                     
-                                    let mut renderer_wrapper = VelloRenderer::new(&mut scene, font_cx.clone(), scale_factor);
+                                    let mut renderer_wrapper = VelloRenderer::new(&mut scene, measurer.clone(), scale_factor);
                                     
                                     match pipeline.render(
                                         cx_ir,

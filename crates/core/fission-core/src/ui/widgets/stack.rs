@@ -10,6 +10,12 @@ pub struct ZStack {
     pub children: Vec<Node>,
 }
 
+impl ZStack {
+    pub fn into_node(self) -> Node {
+        Node::ZStack(self)
+    }
+}
+
 impl Lower for ZStack {
     fn lower(&self, cx: &mut LoweringContext) -> NodeId {
         let id = self.id.unwrap_or_else(|| cx.next_node_id());

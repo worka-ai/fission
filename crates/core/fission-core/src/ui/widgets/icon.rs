@@ -129,6 +129,8 @@ impl Lower for Icon {
                 height: Some(size),
                 min_width: None, max_width: None, min_height: None, max_height: None,
                 padding: [0.0; 4],
+                flex_grow: 0.0,
+                flex_shrink: 0.0,
             }),
         );
         layout.add_child(paint_id);

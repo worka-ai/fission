@@ -11,13 +11,9 @@ pub struct LazyColumn {
     pub item_height: f32,
 }
 
-impl Default for LazyColumn {
-    fn default() -> Self {
-        Self {
-            id: None,
-            children: Vec::new(),
-            item_height: 40.0,
-        }
+impl LazyColumn {
+    pub fn into_node(self) -> crate::ui::Node {
+        crate::ui::Node::LazyColumn(self)
     }
 }
 

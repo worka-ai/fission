@@ -134,11 +134,17 @@ impl Runtime {
         
         match event {
             PointerEvent::Move { .. } => {
+                self.runtime_state.interaction.hovered.clear();
                 if let Some(id) = target_id {
-                    self.runtime_state.interaction.hovered.clear();
-                    self.runtime_state.interaction.set_hovered(id, true);
-                } else {
-                    self.runtime_state.interaction.hovered.clear();
+                    let mut current = Some(id);
+                    while let Some(node_id) = current {
+                        self.runtime_state.interaction.set_hovered(node_id, true);
+                        if let Some(node) = ir.nodes.get(&node_id) {
+                            current = node.parent;
+                        } else {
+                            break;
+                        }
+                    }
                 }
             },
             PointerEvent::Down { .. } => {
@@ -161,11 +167,14 @@ impl Runtime {
                                     let max_offset = (geom.content_size.height - geom.rect.height()).max(0.0);
                                     let new_offset = (current_offset + delta.y).clamp(0.0, max_offset);
                                     
-                                    self.runtime_state.scroll.set_offset(curr_id, new_offset);
+                                self.runtime_state.scroll.set_offset(node_id, new_offset);
+                                
+                                // Only consume event if we actually scrolled
+                                if (new_offset - current_offset).abs() > 0.001 {
+                                    break;
                                 }
-                                break;
                             }
-                            current = node.parent;
+                            current_id = node.parent;
                         } else {
                             break;
                         }
@@ -194,8 +203,13 @@ impl Runtime {
                     for child in node.children.iter().rev() {
                         let child_point = point;
                         
-                        if let Op::Layout(LayoutOp::Scroll { .. }) = &node.op {
+                        if let Op::Layout(LayoutOp::Scroll { direction, .. }) = &node.op {
                             if !geom.rect.contains(point) { continue; }
+                            let offset = self.runtime_state.scroll.get_offset(node_id);
+                            match direction {
+                                fission_ir::FlexDirection::Row => child_point.x += offset,
+                                fission_ir::FlexDirection::Column => child_point.y += offset,
+                            }
                         }
                         
                         if let Some(hit) = self.hit_test_recursive(*child, child_point, ir, snapshot) {

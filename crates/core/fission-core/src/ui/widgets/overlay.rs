@@ -11,6 +11,12 @@ pub struct Overlay {
     pub overlay: Box<Node>,
 }
 
+impl Overlay {
+    pub fn into_node(self) -> Node {
+        Node::Overlay(self)
+    }
+}
+
 impl Default for Overlay {
     fn default() -> Self {
         Self {

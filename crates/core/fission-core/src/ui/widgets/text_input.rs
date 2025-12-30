@@ -25,6 +25,12 @@ pub struct TextInput {
     pub mask: Option<fission_ir::semantics::InputMask>,
 }
 
+impl TextInput {
+    pub fn into_node(self) -> crate::ui::Node {
+        crate::ui::Node::TextInput(self)
+    }
+}
+
 impl Default for TextInput {
     fn default() -> Self {
         Self {
@@ -170,6 +176,8 @@ impl Lower for TextInput {
             Op::Layout(LayoutOp::Box {
                 width: None, height: None, min_width: None, max_width: None, min_height: None, max_height: None,
                 padding: [0.0; 4],
+                flex_grow: 0.0,
+                flex_shrink: 0.0,
             })
         );
         text_box.add_child(text_id);
@@ -200,6 +208,8 @@ impl Lower for TextInput {
                 height: self.height.or(if self.multiline { None } else { Some(theme.height) }),
                 min_width: None, max_width: None, min_height: None, max_height: None,
                 padding: [theme.padding_h, theme.padding_h, 4.0, 4.0], // Padding applied here
+                flex_grow: 0.0,
+                flex_shrink: 0.0,
             })
         );
         wrapper.add_child(background_id); // Fill

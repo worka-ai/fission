@@ -20,6 +20,8 @@ pub struct Container {
     pub min_height: Option<f32>,
     pub max_height: Option<f32>,
     pub padding: [f32; 4],
+    pub flex_grow: f32,
+    pub flex_shrink: f32,
     
     // Style
     pub background_color: Option<Color>,
@@ -60,6 +62,16 @@ impl Container {
     
     pub fn padding_all(mut self, p: f32) -> Self {
         self.padding = [p; 4];
+        self
+    }
+
+    pub fn flex_grow(mut self, grow: f32) -> Self {
+        self.flex_grow = grow;
+        self
+    }
+
+    pub fn flex_shrink(mut self, shrink: f32) -> Self {
+        self.flex_shrink = shrink;
         self
     }
     
@@ -122,6 +134,8 @@ impl Lower for Container {
             min_height: self.min_height,
             max_height: self.max_height,
             padding: self.padding,
+            flex_grow: self.flex_grow,
+            flex_shrink: self.flex_shrink,
         }));
         
         for cid in children_ids {

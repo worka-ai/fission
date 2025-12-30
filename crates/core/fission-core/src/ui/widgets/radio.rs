@@ -15,6 +15,12 @@ pub struct Radio {
     pub label: Option<String>,
 }
 
+impl Radio {
+    pub fn into_node(self) -> crate::ui::Node {
+        crate::ui::Node::Radio(self)
+    }
+}
+
 impl Lower for Radio {
     fn lower(&self, cx: &mut LoweringContext) -> NodeId {
         let id = self.id.unwrap_or_else(|| cx.next_node_id());
@@ -56,7 +62,8 @@ impl Lower for Radio {
             })).build(cx);
             let mut dot_box = NodeBuilder::new(cx.next_node_id(), Op::Layout(LayoutOp::Box {
                 width: Some(dot_size), height: Some(dot_size), 
-                min_width: None, max_width: None, min_height: None, max_height: None, padding: [0.0;4]
+                min_width: None, max_width: None, min_height: None, max_height: None, padding: [0.0;4],
+                flex_grow: 0.0, flex_shrink: 0.0,
             }));
             dot_box.add_child(dot);
             Some(dot_box.build(cx))
@@ -64,7 +71,7 @@ impl Lower for Radio {
 
         let mut radio_box = NodeBuilder::new(
             cx.next_node_id(),
-            Op::Layout(LayoutOp::Box { width: Some(size), height: Some(size), min_width: None, max_width: None, min_height: None, max_height: None, padding: [0.0; 4] }),
+            Op::Layout(LayoutOp::Box { width: Some(size), height: Some(size), min_width: None, max_width: None, min_height: None, max_height: None, padding: [0.0; 4], flex_grow: 0.0, flex_shrink: 0.0 }),
         );
         radio_box.add_child(outer_node);
         if let Some(d) = dot_node { radio_box.add_child(d); }
@@ -84,7 +91,7 @@ impl Lower for Radio {
             ).build(cx);
             let mut layout = NodeBuilder::new(
                 cx.next_node_id(),
-                Op::Layout(LayoutOp::Box { width: None, height: None, min_width: None, max_width: None, min_height: None, max_height: None, padding: [tokens.spacing.s, 0.0, 0.0, 0.0] }), 
+                Op::Layout(LayoutOp::Box { width: None, height: None, min_width: None, max_width: None, min_height: None, max_height: None, padding: [tokens.spacing.s, 0.0, 0.0, 0.0], flex_grow: 0.0, flex_shrink: 0.0 }), 
             );
             layout.add_child(text_id);
             Some(layout.build(cx))

@@ -16,6 +16,12 @@ pub struct Video {
     pub loop_playback: bool,
 }
 
+impl Video {
+    pub fn into_node(self) -> crate::ui::Node {
+        crate::ui::Node::Video(self)
+    }
+}
+
 impl Lower for Video {
     fn lower(&self, cx: &mut LoweringContext) -> NodeId {
         let widget_id = self
@@ -44,6 +50,8 @@ impl Lower for Video {
                 min_height: None,
                 max_height: None,
                 padding: [0.0; 4],
+                flex_grow: 0.0,
+                flex_shrink: 0.0,
             }),
         );
         layout_builder.add_child(embed_id);

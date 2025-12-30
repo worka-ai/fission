@@ -9,6 +9,13 @@ pub struct Spacer {
     pub id: Option<NodeId>,
     pub width: Option<f32>,
     pub height: Option<f32>,
+    pub flex_grow: f32,
+}
+
+impl Spacer {
+    pub fn into_node(self) -> Node {
+        Node::Spacer(self)
+    }
 }
 
 impl Lower for Spacer {
@@ -22,6 +29,8 @@ impl Lower for Spacer {
                 height: self.height,
                 min_width: None, max_width: None, min_height: None, max_height: None,
                 padding: [0.0; 4],
+                flex_grow: self.flex_grow,
+                flex_shrink: 0.0,
             }),
         )
         .build(cx)

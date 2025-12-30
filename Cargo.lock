@@ -964,9 +964,9 @@ dependencies = [
  "anyhow",
  "fission-core",
  "fission-diagnostics",
+ "fission-icons",
  "fission-ir",
  "fission-macros",
- "fission-theme",
  "lazy_static",
  "serde",
  "serde_json",
@@ -1293,8 +1293,11 @@ dependencies = [
  "fission",
  "fission-core",
  "fission-icons",
+ "fission-macros",
  "fission-shell-desktop",
  "fission-widgets",
+ "lazy_static",
+ "serde",
 ]
 
 [[package]]

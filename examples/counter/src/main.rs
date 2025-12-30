@@ -141,6 +141,8 @@ impl LowerDyn for StatusIndicatorLowerer {
                 height: Some(20.0),
                 min_width: None, max_width: None, min_height: None, max_height: None,
                 padding: [0.0; 4],
+                flex_grow: 0.0,
+                flex_shrink: 0.0,
             }),
         );
         layout_builder.add_child(paint_id);
@@ -627,6 +629,8 @@ impl LowerDyn for ModalBoxLowerer {
                 height: Some(120.0),
                 min_width: None, max_width: None, min_height: None, max_height: None,
                 padding: [16.0; 4],
+                flex_grow: 0.0,
+                flex_shrink: 0.0,
             }),
         );
         inner.add_child(content);

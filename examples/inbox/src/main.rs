@@ -248,13 +248,13 @@ impl Widget<InboxState> for EmailList {
                         label: "Filter".into(),
                         is_open: view.state.show_filter_dropdown,
                         on_toggle: Some(ctx.bind(ToggleFilterDropdown, |s, _| s.show_filter_dropdown = !s.show_filter_dropdown)),
-                        on_dismiss: Some(ctx.bind(DismissDropdown, |s, _| s.show_filter_dropdown = false)),
                         items: vec![
-                            MenuItem { label: "All".into(), on_select: Some(ctx.bind(DismissDropdown, |s, _| s.show_filter_dropdown = false)) },
-                            MenuItem { label: "Unread".into(), on_select: Some(ctx.bind(DismissDropdown, |s, _| s.show_filter_dropdown = false)) },
-                            MenuItem { label: "Flagged".into(), on_select: Some(ctx.bind(DismissDropdown, |s, _| s.show_filter_dropdown = false)) },
-                        ]
-                    }.build(ctx, view)
+                            MenuItem { label: "All".into(), icon: None, on_select: Some(ctx.bind(DismissDropdown, |s, _| s.show_filter_dropdown = false)) },
+                            MenuItem { label: "Unread".into(), icon: None, on_select: Some(ctx.bind(DismissDropdown, |s, _| s.show_filter_dropdown = false)) },
+                            MenuItem { label: "Flagged".into(), icon: None, on_select: Some(ctx.bind(DismissDropdown, |s, _| s.show_filter_dropdown = false)) },
+                        ],
+                    }
+                    .build(ctx, view),
                 ]
             }.build(ctx, view)
         );

@@ -28,6 +28,12 @@ pub struct Button {
     pub variant: ButtonVariant,
 }
 
+impl Button {
+    pub fn into_node(self) -> crate::ui::Node {
+        crate::ui::Node::Button(self)
+    }
+}
+
 #[derive(Debug, Default, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ButtonStyleOverride {}
 
@@ -155,6 +161,8 @@ impl Lower for Button {
                     0.0,
                     0.0,
                 ],
+                flex_grow: 0.0,
+                flex_shrink: 0.0,
             }),
         );
         button_builder.add_child(background_id);

@@ -1,89 +1,99 @@
-use fission_core::ui::{Button, ButtonVariant, Container, Node, Text, TextContent, Positioned};
+use fission_core::ui::{Button, ButtonVariant, Container, Node, Text, TextContent, Positioned, Row};
 use fission_core::{BuildCtx, View, Widget, ActionEnvelope, WidgetNodeId, NodeId};
 use fission_core::op::{Color, BoxShadow};
-use crate::stack::VStack;
+use crate::stack::{VStack, HStack};
+use crate::{flyout, Icon, Menu, MenuItem};
+use fission_icons::material;
 use serde::{Deserialize, Serialize};
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
-pub struct SelectItem<V> {
+pub struct SelectItem {
     pub label: String,
-    pub value: V,
+    pub icon: Option<String>,
+    pub on_select: ActionEnvelope,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
-pub struct Select<V> {
+pub struct Select {
     pub id: WidgetNodeId,
-    pub value: V,
-    // For now, simple string-based select or generic if we can serialize it.
-    // Making Widget generic over V requires V: Serialize + Deserialize + PartialEq + Clone.
-    // For simplicity, let's assume V is String for now or usize.
-    // But `Widget<S>` trait doesn't constrain V.
-    // We'll make `Select` struct generic but specialized impl or assume simple types.
-    // Let's stick to `Select` taking `items: Vec<(String, V)>` and `on_change: ActionEnvelope`.
-    // The action payload will need to carry the value.
-    // Fission Action system payload is `Vec<u8>`.
-    // We can't easily make a generic Widget without trait bounds on V spreading everywhere.
-    // Let's implement `Select` for String values for now.
-    pub items: Vec<(String, String)>,
-    pub on_change: Option<ActionEnvelope>, // Action(String)
+    pub selected_label: Option<String>,
+    pub items: Vec<SelectItem>,
     pub is_open: bool,
     pub on_toggle: Option<ActionEnvelope>,
+    pub placeholder: String,
+    pub width: Option<f32>,
 }
 
-impl<S: fission_core::AppState> Widget<S> for Select<String> {
+impl Default for Select {
+    fn default() -> Self {
+        Self {
+            id: WidgetNodeId::explicit("select"),
+            selected_label: None,
+            items: Vec::new(),
+            is_open: false,
+            on_toggle: None,
+            placeholder: "Select...".into(),
+            width: Some(200.0),
+        }
+    }
+}
+
+impl<S: fission_core::AppState> Widget<S> for Select {
     fn build(&self, ctx: &mut BuildCtx<S>, view: &View<S>) -> Node {
         let tokens = &view.env.theme.tokens;
         let anchor_id = NodeId::derived(self.id.as_u128(), &[]);
 
-        let selected_label = self.items.iter()
-            .find(|(_, v)| v == &self.value)
-            .map(|(l, _)| l.clone())
-            .unwrap_or_else(|| "Select...".into());
+        let display_label = self.selected_label.as_deref().unwrap_or(&self.placeholder);
+        let label_color = if self.selected_label.is_some() {
+            tokens.colors.text_primary
+        } else {
+            tokens.colors.text_secondary
+        };
 
-        // Trigger
+        // Trigger Button content
+        let trigger_content = HStack {
+            spacing: Some(8.0),
+            children: vec![
+                Text::new(display_label.to_string())
+                    .color(label_color)
+                    .into_node(),
+                // Spacer to push chevron to the right
+                fission_core::ui::widgets::spacer::Spacer::default().into_node(),
+                Icon::svg(material::navigation::expand_more::regular())
+                    .size(20.0)
+                    .color(tokens.colors.text_secondary)
+                    .into_node(),
+            ]
+        }.into_node();
+
         let trigger = Button {
             id: Some(anchor_id),
             variant: ButtonVariant::Outline,
-            child: Some(Box::new(
-                Text { 
-                    content: TextContent::Literal(selected_label), 
-                    color: Some(tokens.colors.primary),
-                    ..Default::default() 
-                }.into()
-            )),
+            child: Some(Box::new(trigger_content)),
             on_press: self.on_toggle.clone(),
+            width: self.width,
             ..Default::default()
         }.into();
 
-        // Dropdown
         if self.is_open {
-            if let Some(rect) = view.get_rect(self.id) {
-                let x = rect.origin.x;
-                let y = rect.bottom() + 4.0;
-
-                let mut options = Vec::new();
-                for (label, val) in &self.items {
-                    // We need to bind action with payload `val`.
-                    // But `on_change` is already an envelope.
-                    // We can't easily "clone and modify payload" of an envelope without knowing the Action type.
-                    // The caller should provide a way to generate envelopes?
-                    // Or `Select` takes `fn(V) -> ActionEnvelope`? No, closures not allowed.
-                    // `Select` takes `ActionId` and we serialize `val`?
-                    // We'll assume `on_change` is a "template" and we replace payload?
-                    // This is unsafe.
-                    
-                    // Better: `Select` takes `on_change: Box<dyn Fn(String) -> ActionEnvelope>`. Not serializable.
-                    
-                    // The idiomatic Fission way:
-                    // `items` contains `(Label, ActionEnvelope)`.
-                    // Caller constructs the envelope for each item.
-                    
-                    // So `Select` doesn't need to know about V.
-                    // `Select` just displays `label` and dispatches `action`.
+            let menu_items = self.items.iter().map(|item| {
+                MenuItem {
+                    label: item.label.clone(),
+                    icon: item.icon.clone(),
+                    on_select: Some(item.on_select.clone()),
                 }
-            }
+            }).collect();
+
+            let menu = Menu {
+                items: menu_items,
+                width: self.width,
+                max_height: Some(300.0),
+            }.build(ctx, view);
+
+            let flyout_node = flyout(anchor_id, menu);
+            ctx.register_portal(flyout_node);
         }
-        
+
         trigger
     }
 }

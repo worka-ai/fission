@@ -66,6 +66,8 @@ impl Lower for Scroll {
                     min_width: None, max_width: None,
                     min_height: None, max_height: None,
                     padding: [0.0; 4],
+                    flex_grow: 0.0,
+                    flex_shrink: 0.0,
                 })
             );
             content_box.add_child(child.lower(cx));

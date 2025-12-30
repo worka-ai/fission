@@ -18,6 +18,12 @@ pub struct Grid {
     pub padding: [f32; 4],
 }
 
+impl Grid {
+    pub fn into_node(self) -> crate::ui::Node {
+        crate::ui::Node::Grid(self)
+    }
+}
+
 impl Lower for Grid {
     fn lower(&self, cx: &mut LoweringContext) -> NodeId {
         let id = self.id.unwrap_or_else(|| cx.next_node_id());

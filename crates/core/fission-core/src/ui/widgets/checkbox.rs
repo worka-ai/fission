@@ -15,6 +15,12 @@ pub struct Checkbox {
     pub label: Option<String>,
 }
 
+impl Checkbox {
+    pub fn into_node(self) -> crate::ui::Node {
+        crate::ui::Node::Checkbox(self)
+    }
+}
+
 impl Lower for Checkbox {
     fn lower(&self, cx: &mut LoweringContext) -> NodeId {
         let id = self.id.unwrap_or_else(|| cx.next_node_id());
@@ -57,7 +63,8 @@ impl Lower for Checkbox {
             })).build(cx);
             let mut check_box = NodeBuilder::new(cx.next_node_id(), Op::Layout(LayoutOp::Box {
                 width: Some(10.0), height: Some(10.0), 
-                min_width: None, max_width: None, min_height: None, max_height: None, padding: [0.0;4]
+                min_width: None, max_width: None, min_height: None, max_height: None, padding: [0.0;4],
+                flex_grow: 0.0, flex_shrink: 0.0,
             }));
             check_box.add_child(check);
             Some(check_box.build(cx))
@@ -65,7 +72,7 @@ impl Lower for Checkbox {
 
         let mut square_box = NodeBuilder::new(
             square_id,
-            Op::Layout(LayoutOp::Box { width: Some(size), height: Some(size), min_width: None, max_width: None, min_height: None, max_height: None, padding: [0.0; 4] }),
+            Op::Layout(LayoutOp::Box { width: Some(size), height: Some(size), min_width: None, max_width: None, min_height: None, max_height: None, padding: [0.0; 4], flex_grow: 0.0, flex_shrink: 0.0 }),
         );
         square_box.add_child(bg_node);
         if let Some(c) = check_node { square_box.add_child(c); }
@@ -85,7 +92,7 @@ impl Lower for Checkbox {
             ).build(cx);
             let mut layout = NodeBuilder::new(
                 cx.next_node_id(),
-                Op::Layout(LayoutOp::Box { width: None, height: None, min_width: None, max_width: None, min_height: None, max_height: None, padding: [tokens.spacing.s, 0.0, 0.0, 0.0] }), 
+                Op::Layout(LayoutOp::Box { width: None, height: None, min_width: None, max_width: None, min_height: None, max_height: None, padding: [tokens.spacing.s, 0.0, 0.0, 0.0], flex_grow: 0.0, flex_shrink: 0.0 }), 
             );
             layout.add_child(text_id);
             Some(layout.build(cx))

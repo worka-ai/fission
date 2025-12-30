@@ -24,7 +24,7 @@ lazy_static! {
 
 pub struct VelloRenderer<'a> {
     scene: &'a mut Scene,
-    font_cx: Arc<Mutex<FontContext>>,
+    measurer: Arc<VelloTextMeasurer>,
     transform_stack: Vec<Affine>,
     current_transform: Affine,
     layer_count_stack: Vec<usize>,
@@ -32,10 +32,10 @@ pub struct VelloRenderer<'a> {
 }
 
 impl<'a> VelloRenderer<'a> {
-    pub fn new(scene: &'a mut Scene, font_cx: Arc<Mutex<FontContext>>, scale_factor: f64) -> Self {
+    pub fn new(scene: &'a mut Scene, measurer: Arc<VelloTextMeasurer>, scale_factor: f64) -> Self {
         Self {
             scene,
-            font_cx,
+            measurer,
             transform_stack: Vec::new(),
             current_transform: Affine::scale(scale_factor),
             layer_count_stack: Vec::new(),
@@ -76,28 +76,59 @@ impl<'a> VelloRenderer<'a> {
         caret_index: Option<usize>,
         styles: &[(std::ops::Range<usize>, RenderTextStyle)]
     ) {
-        let mut font_cx = self.font_cx.lock().unwrap();
-        let mut layout_cx = LayoutContext::new(); 
-        
-        let mut builder = layout_cx.ranged_builder(&mut font_cx, text, 1.0, false);
-        builder.push_default(StyleProperty::FontSize(base_size));
-        builder.push_default(StyleProperty::FontStack(FontStack::Source(Cow::Borrowed("system-ui"))));
-        let brush = ParleyBrush([base_color.r, base_color.g, base_color.b, base_color.a]);
-        builder.push_default(StyleProperty::Brush(brush));
-        
-        for (range, style) in styles {
-            let brush = ParleyBrush([style.color.r, style.color.g, style.color.b, style.color.a]);
-            builder.push(StyleProperty::Brush(brush), range.clone());
-            builder.push(StyleProperty::FontSize(style.font_size), range.clone());
-            if style.underline {
-                builder.push(StyleProperty::Underline(true), range.clone());
+        // Fast path for simple text using cache
+        if styles.is_empty() {
+            let layout = self.measurer.get_layout(text, base_size, if bounds.width() > 0.0 { Some(bounds.width() as f32) } else { None });
+            
+            // Draw Glyphs (Reused layout logic)
+            for line in layout.lines() {
+                for item in line.items() {
+                    if let PositionedLayoutItem::GlyphRun(glyph_run) = item {
+                        let run = glyph_run.run();
+                        let font = run.font();
+                        let font_size = run.font_size();
+                        
+                        // Override color from base_color since cached layout is color-agnostic
+                        let color = Color::from_rgba8(base_color.r, base_color.g, base_color.b, base_color.a);
+                        
+                        let mut x = glyph_run.offset();
+                        let y = glyph_run.baseline();
+
+                        let glyphs = glyph_run.glyphs().map(|g| {
+                            let gx = x + g.x;
+                            let gy = y - g.y;
+                            x += g.advance;
+                            Glyph {
+                                id: g.id as u32,
+                                x: gx,
+                                y: gy,
+                            }
+                        });
+                        
+                        self.scene.draw_glyphs(font)
+                            .font_size(font_size)
+                            .transform(self.current_transform * Affine::translate((bounds.origin.x as f64, bounds.origin.y as f64)))
+                            .brush(color)
+                            .draw(Fill::NonZero, glyphs);
+                    }
+                }
             }
+            if let Some(idx) = caret_index {
+                self.draw_caret(&layout, idx, bounds, text, base_size);
+            }
+            return;
         }
+
+        // Slow path for rich text
+        let layout = self.measurer.layout_rich(
+            text, 
+            base_size, 
+            base_color, 
+            styles, 
+            if bounds.width() > 0.0 { Some(bounds.width() as f32) } else { None }
+        );
         
-        let mut layout = builder.build(text);
-        layout.break_all_lines(if bounds.width() > 0.0 { Some(bounds.width() as f32) } else { None });
-        
-        // Draw Glyphs
+        // Draw Glyphs for rich text (uses brushes from layout)
         for line in layout.lines() {
             for item in line.items() {
                 if let PositionedLayoutItem::GlyphRun(glyph_run) = item {
@@ -106,7 +137,6 @@ impl<'a> VelloRenderer<'a> {
                     let font = run.font();
                     let font_size = run.font_size();
                     let brush_data = style.brush.clone();
-                    // Use from_rgba8 as per error message suggestion
                     let color = Color::from_rgba8(brush_data.0[0], brush_data.0[1], brush_data.0[2], brush_data.0[3]);
                     
                     let mut x = glyph_run.offset();
@@ -132,8 +162,12 @@ impl<'a> VelloRenderer<'a> {
             }
         }
 
-        // Draw Caret
         if let Some(idx) = caret_index {
+            self.draw_caret(&layout, idx, bounds, text, base_size);
+        }
+    }
+    
+    fn draw_caret(&mut self, layout: &parley::layout::Layout<ParleyBrush>, idx: usize, bounds: fission_render::LayoutRect, text: &str, base_size: f32) {
             let mut caret_drawn = false;
             let lines_count = layout.lines().count();
             
@@ -211,7 +245,6 @@ impl<'a> VelloRenderer<'a> {
                 );
                 self.scene.fill(Fill::NonZero, self.current_transform, Color::BLACK, None, &caret_rect);
             }
-        }
     }
 }
 

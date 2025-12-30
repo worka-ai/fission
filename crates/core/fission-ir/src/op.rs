@@ -70,6 +70,8 @@ pub enum LayoutOp {
         min_height: Option<LayoutUnit>,
         max_height: Option<LayoutUnit>,
         padding: [LayoutUnit; 4],
+        flex_grow: LayoutUnit,
+        flex_shrink: LayoutUnit,
     },
     Flex {
         direction: FlexDirection,

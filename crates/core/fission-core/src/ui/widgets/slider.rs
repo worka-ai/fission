@@ -17,6 +17,12 @@ pub struct Slider {
     pub on_change: Option<ActionEnvelope>,
 }
 
+impl Slider {
+    pub fn into_node(self) -> crate::ui::Node {
+        crate::ui::Node::Slider(self)
+    }
+}
+
 impl Default for Slider {
     fn default() -> Self {
         Self {
@@ -88,6 +94,8 @@ impl Lower for Slider {
                     height: Some(track_height),
                     min_width: None, max_width: None, min_height: None, max_height: None,
                     padding: [0.0; 4],
+                    flex_grow: 0.0,
+                    flex_shrink: 0.0,
                 })
             );
             track_box.add_child(track_paint);
@@ -132,6 +140,8 @@ impl Lower for Slider {
                     width: None, height: None, 
                     min_width: None, max_width: None, min_height: None, max_height: None,
                     padding: [0.0, 0.0, p_y, p_y],
+                    flex_grow: 0.0,
+                    flex_shrink: 0.0,
                 })
             );
             
@@ -188,6 +198,8 @@ impl Lower for Slider {
                     height: Some(thumb_size),
                     min_width: None, max_width: None, min_height: None, max_height: None,
                     padding: [0.0; 4],
+                    flex_grow: 0.0,
+                    flex_shrink: 0.0,
                 })
             );
             thumb_box.add_child(thumb_paint);

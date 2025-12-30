@@ -33,16 +33,25 @@ pub use spinner::Spinner;
 pub mod tabs;
 pub use tabs::{Tabs, TabItem};
 
+pub mod select;
+pub use select::{Select, SelectItem};
+
 pub mod accordion;
 pub use accordion::{Accordion, AccordionItem};
 
 pub mod tooltip;
 pub use tooltip::Tooltip;
 pub mod menu;
-pub use menu::{MenuButton, MenuItem};
+pub use menu::{Menu, MenuButton, MenuItem};
 
 pub mod popover;
 pub use popover::Popover;
+
+pub mod toast;
+pub use toast::{Toast, ToastKind};
+
+pub mod modal;
+pub use modal::{Modal, ModalAction};
 
 use fission_core::{lowering::NodeBuilder, op::StructuralOp, LowerDyn, LoweringContext, NodeId, Op};
 use std::sync::Arc;
@@ -72,6 +81,8 @@ impl LowerDyn for CanvasLowerer {
                 height: self.height,
                 min_width: None, max_width: None, min_height: None, max_height: None,
                 padding: [0.0; 4],
+                flex_grow: 0.0,
+                flex_shrink: 0.0,
             }),
         )
         .build(cx);

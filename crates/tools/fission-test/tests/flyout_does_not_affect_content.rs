@@ -39,17 +39,17 @@ impl Widget<AppState> for Root {
                             // A stable reference input whose geometry must not change
                             TextInput { width: Some(200.0), ..Default::default() }.into(),
                             // The menu under test
-                            MenuButton {
-                                id: WidgetNodeId::explicit("filter_menu"),
-                                label: "Filter".into(),
-                                is_open: view.state.open,
-                                on_toggle: None,
-                                on_dismiss: None,
-                                items: vec![
-                                    MenuItem { label: "All".into(), on_select: None },
-                                    MenuItem { label: "Unread".into(), on_select: None },
-                                ],
-                            }.build(ctx, view),
+                    MenuButton {
+                        id: WidgetNodeId::explicit("test_menu"),
+                        label: "Filter".into(),
+                        is_open: true,
+                        on_toggle: None,
+                        items: vec![
+                            MenuItem { label: "All".into(), icon: None, on_select: None },
+                            MenuItem { label: "Unread".into(), icon: None, on_select: None },
+                        ],
+                    }
+                    .build(ctx, view),
                         ]}.build(ctx, view),
                     ]}.build(ctx, view)
                 ).cell(1, 2).into(),

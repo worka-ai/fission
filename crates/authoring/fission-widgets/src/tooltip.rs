@@ -13,30 +13,20 @@ pub struct Tooltip {
 
 impl<S: fission_core::AppState> Widget<S> for Tooltip {
     fn build(&self, ctx: &mut BuildCtx<S>, view: &View<S>) -> Node {
-        let node_id = NodeId::derived(self.id.as_u128(), &[]);
+        let node_id: NodeId = self.id.into();
         
         let trigger = Container::new(*self.child.clone())
             .id(node_id)
             .into_node();
 
-        // Check hover state from RuntimeState
-        // View has access to interaction state?
-        // `view.interaction.is_hovered(node_id)`?
-        // `View` struct needs to expose `interaction`.
-        // `View` has `runtime_state`.
-        
         let is_hovered = view.runtime.interaction.is_hovered(node_id);
 
         if is_hovered {
-            // Use engine-level Flyout for robust positioning using previous snapshot
             let tooltip_node = Container::new(
-                    Text {
-                        content: TextContent::Literal(self.text.clone()),
-                        color: Some(Color::WHITE),
-                        font_size: Some(12.0),
-                        ..Default::default()
-                    }
-                    .into(),
+                    Text::new(self.text.clone())
+                        .color(Color::WHITE)
+                        .size(12.0)
+                        .into_node(),
                 )
                 .bg(Color { r: 50, g: 50, b: 50, a: 255 })
                 .border_radius(4.0)

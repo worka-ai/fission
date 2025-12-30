@@ -15,6 +15,12 @@ pub struct Image {
     pub fit: Option<ImageFit>,
 }
 
+impl Image {
+    pub fn into_node(self) -> crate::ui::Node {
+        crate::ui::Node::Image(self)
+    }
+}
+
 impl Lower for Image {
     fn lower(&self, cx: &mut LoweringContext) -> NodeId {
         let layout_id = self.id.unwrap_or_else(|| cx.next_node_id());
@@ -37,6 +43,8 @@ impl Lower for Image {
                 min_height: None,
                 max_height: None,
                 padding: [0.0; 4],
+                flex_grow: 0.0,
+                flex_shrink: 0.0,
             }),
         );
         layout_builder.add_child(paint_id);

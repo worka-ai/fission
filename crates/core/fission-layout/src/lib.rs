@@ -170,14 +170,39 @@ pub struct LayoutEngine {
 }
 
 impl LayoutEngine {
-    fn get_absolute_location(&self, taffy_id: TaffyNodeId) -> Result<Point<f32>> {
+    fn get_visual_absolute_location(
+        &self,
+        node_id: NodeId,
+        node_map: &HashMap<NodeId, &LayoutInputNode>,
+        scroll_source: &impl ScrollDataSource,
+    ) -> Result<Point<f32>> {
         let mut location = Point { x: 0.0, y: 0.0 };
-        let mut current_id_maybe = Some(taffy_id);
-        while let Some(current_id) = current_id_maybe {
-            let layout = self.taffy.layout(current_id)?;
-            location.x += layout.location.x;
-            location.y += layout.location.y;
-            current_id_maybe = self.taffy.parent(current_id);
+        let mut current_id = Some(node_id);
+        
+        while let Some(curr_id) = current_id {
+            if let Some(taffy_id) = self.taffy_map.get(&curr_id) {
+                let layout = self.taffy.layout(*taffy_id)?;
+                location.x += layout.location.x;
+                location.y += layout.location.y;
+                
+                // If parent is a Scroll container, subtract its offset from our absolute pos
+                if let Some(parent_id) = node_map.get(&curr_id).and_then(|n| n.parent_id) {
+                    if let Some(parent_node) = node_map.get(&parent_id) {
+                        if let LayoutOp::Scroll { direction, .. } = &parent_node.op {
+                            let offset = scroll_source.get_offset(parent_id);
+                            match direction {
+                                FlexDirection::Row => location.x -= offset,
+                                FlexDirection::Column => location.y -= offset,
+                            }
+                        }
+                    }
+                    current_id = Some(parent_id);
+                } else {
+                    current_id = None;
+                }
+            } else {
+                break;
+            }
         }
         Ok(location)
     }
@@ -431,6 +456,7 @@ impl LayoutEngine {
                 min_height,
                 max_height,
                 padding,
+                ..
             } => {
                 style.display = Display::Flex;
                 style.align_items = Some(AlignItems::Center);
@@ -683,7 +709,7 @@ impl LayoutEngine {
                         self.taffy_map.get(&anchor),
                         self.taffy_map.get(&content),
                     ) {
-                        let anchor_abs = self.get_absolute_location(*anchor_taffy_id)?;
+                        let anchor_abs = self.get_visual_absolute_location(anchor, &node_map, scroll_source)?;
                         let (anchor_w, anchor_h) = {
                             let l = self.taffy.layout(*anchor_taffy_id)?;
                             (l.size.width, l.size.height)

@@ -1,0 +1,35 @@
+use fission_core::{BuildCtx, View, Widget, WidgetNodeId, NodeId, AppState};
+use fission_core::ui::{Node, Text};
+use fission_widgets::{Tooltip, Container};
+use std::sync::Arc;
+
+#[derive(Default, Clone, Debug)]
+struct State;
+impl AppState for State {}
+
+#[test]
+fn test_tooltip_registers_portal_when_hovered() {
+    let mut runtime = fission_core::Runtime::default();
+    runtime.add_app_state(Box::new(State)).unwrap();
+    
+    let tooltip_id = WidgetNodeId::explicit("test_tooltip");
+    let node_id = NodeId::derived(tooltip_id.as_u128(), &[]);
+    
+    // Simulate hover
+    runtime.runtime_state.interaction.set_hovered(node_id, true);
+    
+    let mut ctx = BuildCtx::<State>::new();
+    let env = fission_core::Env::default();
+    let view = View::new(runtime.get_app_state::<State>().unwrap(), &runtime.runtime_state, &env, None);
+    
+    let tooltip = Tooltip {
+        id: tooltip_id,
+        child: Box::new(Text::new("Hover me").into_node()),
+        text: "I am a tooltip".into(),
+    };
+    
+    let _ = tooltip.build(&mut ctx, &view);
+    
+    let portals = ctx.take_portals();
+    assert_eq!(portals.len(), 1, "Tooltip should register a portal when hovered");
+}

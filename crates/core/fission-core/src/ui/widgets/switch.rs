@@ -14,6 +14,12 @@ pub struct Switch {
     pub on_toggle: Option<ActionEnvelope>,
 }
 
+impl Switch {
+    pub fn into_node(self) -> crate::ui::Node {
+        crate::ui::Node::Switch(self)
+    }
+}
+
 impl Lower for Switch {
     fn lower(&self, cx: &mut LoweringContext) -> NodeId {
         let id = self.id.unwrap_or_else(|| cx.next_node_id());
@@ -58,6 +64,8 @@ impl Lower for Switch {
                 width: Some(thumb_size), height: Some(thumb_size),
                 min_width: None, max_width: None, min_height: None, max_height: None,
                 padding: [0.0; 4],
+                flex_grow: 0.0,
+                flex_shrink: 0.0,
             })
         );
         thumb_wrapper.add_child(thumb_paint_node);
@@ -78,6 +86,8 @@ impl Lower for Switch {
                     width: Some(width), height: Some(height),
                     min_width: None, max_width: None, min_height: None, max_height: None,
                     padding: [left_padding, 0.0, padding, 0.0],
+                    flex_grow: 0.0,
+                    flex_shrink: 0.0,
                 })
             );
             thumb_track.add_child(thumb_id);
