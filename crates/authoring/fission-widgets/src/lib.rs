@@ -71,6 +71,9 @@ pub use number_input::NumberInput;
 pub mod alert;
 pub use alert::{Alert, AlertKind};
 
+pub mod skeleton;
+pub use skeleton::Skeleton;
+
 use fission_core::{lowering::NodeBuilder, op::StructuralOp, LowerDyn, LoweringContext, NodeId, Op};
 use std::sync::Arc;
 
