@@ -13,10 +13,31 @@ pub enum Role {
     Input,
     List,
     ListItem,
+    Generic,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum ActionTrigger {
+    Default, // Tap/Click
+    DragStart,
+    DragUpdate,
+    DragEnd,
+    HoverEnter,
+    HoverExit,
+    Focus,
+    Blur,
+    Change, // Value change (Slider, Input)
+}
+
+impl Default for ActionTrigger {
+    fn default() -> Self {
+        ActionTrigger::Default
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ActionEntry {
+    pub trigger: ActionTrigger,
     pub action_id: u128,               // Raw ActionId (u128)
     pub payload_data: Option<Vec<u8>>, // Serialized Action instance, if it has payload
 }

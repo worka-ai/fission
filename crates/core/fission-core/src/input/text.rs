@@ -400,7 +400,7 @@ impl TextInputController {
                 id: ActionId::from_u128(action_entry.action_id),
                 payload,
             };
-            ctx.dispatched_actions.push((node_id, envelope));
+            ctx.dispatched_actions.push((node_id, envelope, crate::ActionInput::None));
             
             // State update moved to handle_key to avoid double borrow
             

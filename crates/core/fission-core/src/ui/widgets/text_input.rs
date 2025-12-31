@@ -241,6 +241,7 @@ impl Lower for TextInput {
         };
         if let Some(env) = &self.on_change {
              semantics.actions.entries.push(fission_ir::ActionEntry {
+                 trigger: fission_ir::semantics::ActionTrigger::Change,
                  action_id: env.id.as_u128(),
                  payload_data: None,
              });

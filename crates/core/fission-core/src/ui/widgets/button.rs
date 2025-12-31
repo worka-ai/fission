@@ -119,6 +119,7 @@ impl Button {
 
         if let Some(action_envelope) = &self.on_press {
             semantics.actions.entries.push(ActionEntry {
+                trigger: fission_ir::semantics::ActionTrigger::Default,
                 action_id: action_envelope.id.as_u128(),
                 payload_data: Some(action_envelope.payload.clone()),
             });

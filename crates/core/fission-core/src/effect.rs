@@ -41,12 +41,20 @@ pub enum ActionInput {
     None,
     EffectOk { req_id: u64, payload: EffectPayload },
     EffectErr { req_id: u64, message: String },
+    Pointer { x: f32, y: f32, delta_x: f32, delta_y: f32 },
 }
 
 impl ActionInput {
     pub fn as_bytes(&self) -> Option<&[u8]> {
         match self {
             ActionInput::EffectOk { payload: EffectPayload::InlineBytes(b), .. } => Some(b),
+            _ => None,
+        }
+    }
+    
+    pub fn as_pointer(&self) -> Option<(f32, f32, f32, f32)> {
+        match self {
+            ActionInput::Pointer { x, y, delta_x, delta_y } => Some((*x, *y, *delta_x, *delta_y)),
             _ => None,
         }
     }

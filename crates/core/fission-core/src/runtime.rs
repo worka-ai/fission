@@ -387,8 +387,8 @@ impl Runtime {
             dispatched_actions = ctx.dispatched_actions;
         }
 
-        for (target, action) in dispatched_actions {
-            self.dispatch(action, target)?;
+        for (target, action, input) in dispatched_actions {
+            self.dispatch_with_input(action, target, &input)?;
         }
 
         if handled {

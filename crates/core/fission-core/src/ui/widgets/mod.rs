@@ -39,3 +39,6 @@ pub use spacer::Spacer;
 pub use slider::Slider;
 pub use lazy_column::LazyColumn;
 pub use icon::Icon;
+
+pub mod gesture_detector;
+pub use gesture_detector::GestureDetector;

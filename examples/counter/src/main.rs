@@ -183,6 +183,35 @@ impl Widget<CounterState> for CounterApp {
             }
             .into(),
             
+            canvas(Some(220.0), Some(60.0), |cx| {
+                use fission_core::op::{Color as IrColor, Fill};
+                let r1 = NodeBuilder::new(
+                    cx.next_node_id(),
+                    fission_core::Op::Paint(PaintOp::DrawRect {
+                        fill: Some(Fill {
+                            color: IrColor { r: 30, g: 144, b: 255, a: 255 },
+                        }),
+                        stroke: None,
+                        corner_radius: 6.0,
+                        shadow: None,
+                    }),
+                )
+                .build(cx);
+                let r2 = NodeBuilder::new(
+                    cx.next_node_id(),
+                    fission_core::Op::Paint(PaintOp::DrawRect {
+                        fill: Some(Fill {
+                            color: IrColor { r: 46, g: 204, b: 113, a: 255 },
+                        }),
+                        stroke: None,
+                        corner_radius: 6.0,
+                        shadow: None,
+                    }),
+                )
+                .build(cx);
+                vec![r1, r2]
+            }),
+            
             Spacer { width: Some(0.0), height: Some(8.0), ..Default::default() }.into(),
             
             Text {

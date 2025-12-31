@@ -1,6 +1,6 @@
 use super::traits::{Lower, LowerDyn};
 use super::widgets::{
-    Button, Checkbox, Column, Container, Grid, GridItem, Icon, Image, LazyColumn, Overlay, Positioned, Radio, Row, Scroll, Slider, Spacer,
+    Button, Checkbox, Column, Container, GestureDetector, Grid, GridItem, Icon, Image, LazyColumn, Overlay, Positioned, Radio, Row, Scroll, Slider, Spacer,
     Switch, Text, TextInput, Video, ZStack,
 };
 use crate::lowering::LoweringContext;
@@ -21,6 +21,7 @@ pub enum Node {
     ZStack(ZStack),
     Overlay(Overlay),
     Container(Container),
+    GestureDetector(GestureDetector),
     Grid(Grid),
     GridItem(GridItem),
     Checkbox(Checkbox),
@@ -48,6 +49,7 @@ impl Node {
             Node::ZStack(w) => w.lower(cx),
             Node::Overlay(w) => w.lower(cx),
             Node::Container(w) => w.lower(cx),
+            Node::GestureDetector(w) => w.lower(cx),
             Node::Grid(w) => w.lower(cx),
             Node::GridItem(w) => w.lower(cx),
             Node::Checkbox(w) => w.lower(cx),
@@ -123,6 +125,11 @@ impl From<Overlay> for Node {
 impl From<Container> for Node {
     fn from(w: Container) -> Self {
         Node::Container(w)
+    }
+}
+impl From<GestureDetector> for Node {
+    fn from(w: GestureDetector) -> Self {
+        Node::GestureDetector(w)
     }
 }
 impl From<Grid> for Node {

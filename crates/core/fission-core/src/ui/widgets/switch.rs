@@ -123,7 +123,11 @@ impl Lower for Switch {
             current_value: None,
         };
         if let Some(action) = &self.on_toggle {
-             semantics.actions.entries.push(fission_ir::ActionEntry { action_id: action.id.as_u128(), payload_data: Some(action.payload.clone()) });
+             semantics.actions.entries.push(fission_ir::ActionEntry { 
+                 trigger: fission_ir::semantics::ActionTrigger::Default,
+                 action_id: action.id.as_u128(), 
+                 payload_data: Some(action.payload.clone()) 
+             });
         }
         
         let mut sem_node = NodeBuilder::new(id, Op::Semantics(semantics));
