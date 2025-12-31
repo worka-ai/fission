@@ -28,7 +28,7 @@ impl Action for DataLoaded {
     fn static_id() -> ActionId { ActionId::from_name("DataLoaded") }
 }
 
-fn on_fetch<'a, 'b>(state: &mut TestState, _: FetchData, ctx: &mut ReducerContext<'a, 'b, TestState>) {
+fn on_fetch<'a, 'b, 'c>(state: &mut TestState, _: FetchData, ctx: &mut ReducerContext<'a, 'b, 'c, TestState>) {
     state.loading = true;
     let on_ok = ctx.effects.bind(DataLoaded, on_loaded as Handler<TestState, DataLoaded>);
     ctx.effects.http_get("https://example.com")
@@ -36,7 +36,7 @@ fn on_fetch<'a, 'b>(state: &mut TestState, _: FetchData, ctx: &mut ReducerContex
         .dispatch();
 }
 
-fn on_loaded<'a, 'b>(state: &mut TestState, _: DataLoaded, ctx: &mut ReducerContext<'a, 'b, TestState>) {
+fn on_loaded<'a, 'b, 'c>(state: &mut TestState, _: DataLoaded, ctx: &mut ReducerContext<'a, 'b, 'c, TestState>) {
     state.loading = false;
     if let Some(bytes) = ctx.input.as_bytes() {
         state.data = String::from_utf8(bytes.to_vec()).unwrap();

@@ -9,3 +9,6 @@ commit_msg.txt
 inbox.png
 debug.log
 tarpaulin-report.html
+LAYOUT_ANALYSIS.md
+TEST_AUDIT.md
+TEST_STRATEGY.md

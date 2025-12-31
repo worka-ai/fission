@@ -37,17 +37,54 @@ pub struct Text {
     pub semantics: Option<Semantics>,
     pub width: Option<f32>,
     pub height: Option<f32>,
+    pub min_width: Option<f32>,
+    pub max_width: Option<f32>,
+    pub min_height: Option<f32>,
+    pub max_height: Option<f32>,
     pub font_size: Option<f32>,
     pub color: Option<IrColor>,
     pub underline: bool,
+    pub flex_grow: f32,
+    pub flex_shrink: f32,
 }
 
 impl Text {
     pub fn new(content: impl Into<TextContent>) -> Self {
         Self {
             content: content.into(),
+            flex_shrink: 1.0,
             ..Default::default()
         }
+    }
+
+    pub fn min_width(mut self, w: f32) -> Self {
+        self.min_width = Some(w);
+        self
+    }
+    
+    pub fn max_width(mut self, w: f32) -> Self {
+        self.max_width = Some(w);
+        self
+    }
+
+    pub fn min_height(mut self, h: f32) -> Self {
+        self.min_height = Some(h);
+        self
+    }
+
+    pub fn max_height(mut self, h: f32) -> Self {
+        self.max_height = Some(h);
+        self
+    }
+
+    pub fn flex_grow(mut self, grow: f32) -> Self {
+        self.flex_grow = grow;
+        self
+    }
+
+    pub fn flex_shrink(mut self, shrink: f32) -> Self {
+        self.flex_shrink = shrink;
+        self
     }
 
     pub fn color(mut self, color: IrColor) -> Self {
@@ -107,13 +144,13 @@ impl Lower for Text {
             Op::Layout(LayoutOp::Box {
                 width: self.width,
                 height: self.height,
-                min_width: None,
-                max_width: None,
-                min_height: None,
-                max_height: None,
+                min_width: self.min_width,
+                max_width: self.max_width,
+                min_height: self.min_height,
+                max_height: self.max_height,
                 padding: [0.0; 4],
-                flex_grow: 0.0,
-                flex_shrink: 0.0,
+                flex_grow: self.flex_grow,
+                flex_shrink: self.flex_shrink,
                 aspect_ratio: None,
             }),
         );

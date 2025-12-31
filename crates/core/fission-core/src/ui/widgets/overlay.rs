@@ -47,12 +47,28 @@ impl Lower for Overlay {
         let overlay_fill_id = overlay_fill.build(cx);
 
         // Stack container: content first, overlay second.
-        let mut stack = NodeBuilder::new(id, Op::Layout(LayoutOp::ZStack));
+        let mut stack = NodeBuilder::new(cx.next_node_id(), Op::Layout(LayoutOp::ZStack));
         stack.add_child(self.content.lower(cx));
         stack.add_child(overlay_fill_id);
+        let stack_id = stack.build(cx);
+
+        // Wrap ZStack in a Flex container with flex_grow = 1.0
+        // Flex defaults to stretching children, unlike Box which centers.
+        let mut root = NodeBuilder::new(
+            id, 
+            Op::Layout(LayoutOp::Flex {
+                direction: fission_ir::FlexDirection::Column,
+                wrap: fission_ir::FlexWrap::NoWrap,
+                flex_grow: 1.0,
+                flex_shrink: 1.0,
+                padding: [0.0; 4],
+                gap: None,
+            })
+        );
+        root.add_child(stack_id);
         
         cx.pop_scope();
         
-        stack.build(cx)
+        root.build(cx)
     }
 }

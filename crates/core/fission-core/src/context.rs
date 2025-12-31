@@ -1,7 +1,7 @@
 use crate::action::{Action, ActionEnvelope, ActionId, AppState};
 use crate::effect::{ActionInput, Effect, EffectEnvelope, SystemEffect, EffectPayload};
 use crate::NodeId;
-use crate::ActionRegistry;
+use crate::registry::{ActionRegistry, IntoHandler};
 use std::collections::HashMap;
 use std::marker::PhantomData;
 use serde::Serialize;
@@ -34,6 +34,18 @@ impl<'a, S: AppState> Effects<'a, S> {
             next_req_id,
             registry: None,
             _phantom: PhantomData,
+        }
+    }
+
+    pub fn bind<A: Action, H>(&mut self, action: A, handler: H) -> ActionEnvelope 
+    where H: IntoHandler<S, A> + Send + Sync + 'static 
+    {
+        if let Some(registry) = &mut self.registry {
+            registry.register(handler);
+        }
+        ActionEnvelope {
+            id: A::static_id(),
+            payload: action.encode(),
         }
     }
 
@@ -96,7 +108,7 @@ pub struct EffectBuilder<'a, 'b, S: AppState> {
 }
 
 impl<'a, 'b, S: AppState> EffectBuilder<'a, 'b, S> {
-    pub fn on_ok<A: Action, H>(self, action: ActionEnvelope) -> Self {
+    pub fn on_ok(self, action: ActionEnvelope) -> Self {
         self.effects.out[self.index].on_ok = Some(action);
         self
     }

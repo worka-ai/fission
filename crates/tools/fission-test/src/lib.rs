@@ -29,17 +29,43 @@ impl Renderer for MockRenderer {
 
 struct MockTextMeasurer;
 impl TextMeasurer for MockTextMeasurer {
-    fn measure(&self, text: &str, _font_size: f32, _avail: Option<f32>) -> (f32, f32) {
-        (text.len() as f32 * 10.0, 20.0)
+    fn measure(&self, text: &str, _font_size: f32, avail: Option<f32>) -> (f32, f32) {
+        let char_width = 10.0;
+        let line_height = 20.0;
+        let full_width = text.len() as f32 * char_width;
+        
+        if let Some(w) = avail {
+            if full_width > w {
+                // Wrap
+                // Avoid division by zero
+                let safe_w = w.max(char_width); 
+                let lines = (full_width / safe_w).ceil();
+                return (w, lines * line_height);
+            }
+        }
+        (full_width, line_height)
     }
     fn hit_test(&self, _text: &str, _font_size: f32, _available_width: Option<f32>, _x: f32, _y: f32) -> usize {
         0
     }
-    fn measure_rich_text(&self, runs: &[fission_ir::op::TextRun], _available_width: Option<f32>) -> (f32, f32) {
-        let w: f32 = runs.iter().map(|r| r.text.len() as f32 * 10.0).sum();
-        (w.max(10.0), 20.0)
+    fn measure_rich_text(&self, runs: &[fission_ir::op::TextRun], available_width: Option<f32>) -> (f32, f32) {
+        let full_w: f32 = runs.iter().map(|r| r.text.len() as f32 * 10.0).sum();
+        let char_width = 10.0;
+        let line_height = 20.0;
+        
+        if let Some(w) = available_width {
+            if full_w > w {
+                 let safe_w = w.max(char_width);
+                 let lines = (full_w / safe_w).ceil();
+                 return (w, lines * line_height);
+            }
+        }
+        (full_w.max(10.0), line_height)
     }
 }
+
+pub mod linter;
+pub use linter::*;
 
 pub struct TestHarness<S: AppState> {
     pub runtime: Runtime,
@@ -54,6 +80,15 @@ pub struct TestHarness<S: AppState> {
 }
 
 impl<S: AppState> TestHarness<S> {
+// ...
+    pub fn lint(&self) -> Vec<LayoutViolation> {
+        if let (Some(ir), Some(snapshot)) = (&self.last_ir, &self.last_snapshot) {
+            LayoutLinter::new(ir, snapshot).check()
+        } else {
+            vec![]
+        }
+    }
+
     pub fn new(initial_state: S) -> Self {
         let mut runtime = Runtime::default();
         if std::any::TypeId::of::<S>() != std::any::TypeId::of::<Clock>() {

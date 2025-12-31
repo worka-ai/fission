@@ -19,16 +19,26 @@ impl Default for Column {
         Self {
             id: None,
             children: Vec::new(),
-            semantics: None,
-            flex_grow: 0.0,
-            flex_shrink: 0.0,
             gap: None,
+            flex_grow: 0.0,
+            flex_shrink: 1.0,
+            semantics: None,
             wrap: FlexWrap::NoWrap,
         }
     }
 }
 
 impl Column {
+    pub fn children(mut self, children: Vec<Node>) -> Self {
+        self.children = children;
+        self
+    }
+
+    pub fn flex_grow(mut self, flex_grow: f32) -> Self {
+        self.flex_grow = flex_grow;
+        self
+    }
+
     pub fn into_node(self) -> Node {
         Node::Column(self)
     }

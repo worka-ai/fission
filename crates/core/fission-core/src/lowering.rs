@@ -1,5 +1,6 @@
 use crate::env::{Env, RuntimeState};
 use blake3;
+use fission_diagnostics::prelude as diag;
 use fission_ir::{CoreIR, FlexDirection, LayoutOp, NodeId, Op, PaintOp, WidgetNodeId};
 use fission_ir::op::{TextRun, TextStyle};
 use fission_layout::{LayoutInputNode, LayoutPoint, LayoutSize, LayoutUnit, TextMeasurer};
@@ -260,7 +261,7 @@ pub fn build_layout_tree(ir: &CoreIR) -> Vec<LayoutInputNode> {
                         min_width: None, max_width: None, min_height: None, max_height: None,
                         padding: [0.0; 4],
                         flex_grow: 0.0,
-                        flex_shrink: 0.0,
+                        flex_shrink: 1.0,
                         aspect_ratio: None,
                     },
                     None,
@@ -278,7 +279,7 @@ pub fn build_layout_tree(ir: &CoreIR) -> Vec<LayoutInputNode> {
                         min_width: None, max_width: None, min_height: None, max_height: None,
                         padding: [0.0; 4],
                         flex_grow: 0.0,
-                        flex_shrink: 0.0,
+                        flex_shrink: 1.0,
                         aspect_ratio: None,
                     },
                     None,
@@ -351,7 +352,7 @@ pub fn build_layout_tree(ir: &CoreIR) -> Vec<LayoutInputNode> {
                     min_width: None, max_width: None, min_height: None, max_height: None,
                     padding: [0.0; 4],
                     flex_grow: 0.0,
-                    flex_shrink: 0.0,
+                    flex_shrink: 1.0,
                     aspect_ratio: None,
                 },
                 None,

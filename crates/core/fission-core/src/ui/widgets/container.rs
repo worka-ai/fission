@@ -7,7 +7,7 @@ use fission_ir::{
 };
 use serde::{Deserialize, Serialize};
 
-#[derive(Debug, Default, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Container {
     pub id: Option<NodeId>,
     pub child: Option<Box<Node>>,
@@ -31,6 +31,28 @@ pub struct Container {
     pub shadow: Option<BoxShadow>,
 }
 
+impl Default for Container {
+    fn default() -> Self {
+        Self {
+            id: None,
+            child: None,
+            width: None,
+            height: None,
+            min_width: None,
+            max_width: None,
+            min_height: None,
+            max_height: None,
+            padding: [0.0; 4],
+            flex_grow: 0.0,
+            flex_shrink: 1.0,
+            background_color: None,
+            border_color: None,
+            border_width: 0.0,
+            border_radius: 0.0,
+            shadow: None,
+        }
+    }
+}
 impl Container {
     pub fn new(child: Node) -> Self {
         Self {

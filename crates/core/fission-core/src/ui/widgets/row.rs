@@ -21,7 +21,7 @@ impl Default for Row {
             children: Vec::new(),
             semantics: None,
             flex_grow: 0.0,
-            flex_shrink: 0.0,
+            flex_shrink: 1.0,
             gap: None,
             wrap: FlexWrap::NoWrap,
         }
@@ -29,6 +29,21 @@ impl Default for Row {
 }
 
 impl Row {
+    pub fn children(mut self, children: Vec<Node>) -> Self {
+        self.children = children;
+        self
+    }
+
+    pub fn flex_grow(mut self, flex_grow: f32) -> Self {
+        self.flex_grow = flex_grow;
+        self
+    }
+
+    pub fn gap(mut self, gap: f32) -> Self {
+        self.gap = Some(gap);
+        self
+    }
+
     pub fn into_node(self) -> Node {
         Node::Row(self)
     }

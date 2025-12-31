@@ -105,6 +105,15 @@ pub enum DiagEventKind {
         h: f32,
         note: Option<String>,
     },
+    
+    NodeProps {
+        node: u128,
+        op_tag: String,
+        flex_grow: f32,
+        flex_shrink: f32,
+        width: Option<f32>,
+        height: Option<f32>,
+    },
 
     RasterSummary {
         cache_hits: u32,

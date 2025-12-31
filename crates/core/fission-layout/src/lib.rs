@@ -284,7 +284,9 @@ impl LayoutEngine {
                 let t_id = *self.taffy_map.get(id).unwrap();
                 let style = self.compute_style(node);
                 self.taffy.set_style(t_id, style).unwrap();
-                if let Some(runs) = &node.rich_text {
+        if let Some(runs) = &node.rich_text {
+            // We have rich text content, so we need to measure it.
+            // We clone the Arc<TextMeasurer> into the closure.
                     let runs: Vec<TextRun> = runs.clone();
                     let measurer_ref = self.measurer.clone();
                     self.taffy.set_measure(
@@ -460,8 +462,9 @@ impl LayoutEngine {
                 ..
             } => {
                 style.display = Display::Flex;
-                style.align_items = Some(AlignItems::Center);
-                style.justify_content = Some(JustifyContent::Center);
+                style.align_items = Some(AlignItems::Stretch);
+                style.justify_content = Some(JustifyContent::Start);
+                style.flex_direction = taffy::style::FlexDirection::Column;
                 style.aspect_ratio = *aspect_ratio;
                 style.padding = taffy::geometry::Rect {
                     left: points(padding[0]),
@@ -651,7 +654,7 @@ impl LayoutEngine {
                 };
             }
             LayoutOp::AbsoluteFill => {
-                style.display = Display::Flex;
+                style.display = Display::Grid;
                 style.position = Position::Absolute;
                 style.inset = taffy::geometry::Rect {
                     left: points(0.0),
@@ -663,6 +666,9 @@ impl LayoutEngine {
                     width: Dimension::Auto,
                     height: Dimension::Auto,
                 };
+                // Stretch children in both axes
+                style.align_items = Some(AlignItems::Stretch);
+                style.justify_items = Some(JustifyItems::Stretch);
             }
             LayoutOp::Positioned { left, top, right, bottom, width, height } => {
                 style.display = Display::Flex;
