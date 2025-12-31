@@ -122,3 +122,46 @@ pub struct SetDensity(pub String);
 pub struct SetStorageUsage(pub f32);
 
 impl Eq for SetStorageUsage {}
+
+#[derive(Action, Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SetAdvancedFiltersOpen(pub bool);
+
+#[derive(Action, Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SetSortOption(pub String);
+
+#[derive(Action, Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(transparent)]
+pub struct SetZoomLevel(pub f32);
+
+impl Eq for SetZoomLevel {}
+
+#[derive(Action, Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(transparent)]
+pub struct SetSignature(pub String);
+
+#[derive(Action, Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SetSignatureEditing(pub bool);
+
+#[derive(Action, Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SetSmartComposeEnabled(pub bool);
+
+#[derive(Action, Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SetOfflineEnabled(pub bool);
+
+#[derive(Action, Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SetAutoAdvanceEnabled(pub bool);
+
+#[derive(Action, Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SetHelpPopoverOpen(pub bool);
+
+#[derive(Action, Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct LabelDropped(pub String);
+
+#[derive(Action, Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SetMeetCameraOn(pub bool);
+
+#[derive(Action, Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SetMeetMicOn(pub bool);
+
+#[derive(Action, Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SetQuickTipOpen(pub bool);

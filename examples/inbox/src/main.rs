@@ -2,7 +2,8 @@ use fission_core::{BuildCtx, View, Widget, NodeId, WidgetNodeId, Env, Handler};
 use fission_core::ui::{Node, Text, Container};
 use fission_core::op::{Color, BoxShadow};
 use fission_widgets::{
-    Grid, GridItem, SplitView, SplitDirection, Router, Route, Toast, ToastKind, Drawer, DrawerSide, SafeArea
+    Grid, GridItem, SplitView, SplitDirection, Router, Route, Toast, ToastKind, Drawer, DrawerSide, SafeArea,
+    HStack, Overlay, Transition, Center
 };
 use fission_shell_desktop::DesktopApp;
 use fission_i18n::{I18nRegistry, Locale, TranslationBundle};
@@ -15,7 +16,7 @@ mod components;
 mod features;
 
 use model::*;
-use components::{Sidebar, EmailList, EmailDetail};
+use components::{Sidebar, EmailList, EmailDetail, RightSidebar};
 use features::{SettingsModal, ContactsModal, ComposeModal, BrowserModal};
 use fission_core::{SystemEffect, ReducerContext, ActionInput, Action, ActionRegistry};
 
@@ -97,50 +98,90 @@ impl Widget<InboxState> for InboxApp {
             );
         }
 
-        // Use SplitView for Main Layout
-        SafeArea {
+        let main_content = SafeArea {
             id: None,
             child: Box::new(
                 SplitView {
                     id: WidgetNodeId::explicit("main_split"),
                     direction: SplitDirection::Horizontal,
-                    split_ratio: 0.25,
+                    split_ratio: 0.22,
                     on_resize: None,
                     first: Box::new(Sidebar.build(ctx, view)),
                     second: Box::new(
-                        Router {
-                            current_path: view.state.current_path.clone(),
-                            routes: vec![
-                                Route {
-                                    path: "/inbox".into(),
-                                    builder: Arc::new(|c, v, p| {
-                                        EmailList { folder: "Inbox".into() }.build(c, v)
-                                    }),
-                                },
-                                Route {
-                                    path: "/:folder".into(),
-                                    builder: Arc::new(|c, v, p| {
-                                        let folder = p.get("folder").unwrap_or(&"Inbox".to_string()).clone();
-                                        EmailList { folder }.build(c, v)
-                                    }),
-                                },
-                                Route {
-                                    path: "/:folder/:id".into(),
-                                    builder: Arc::new(|c, v, p| {
-                                        let folder = p.get("folder").unwrap_or(&"Inbox".to_string()).clone();
-                                        let id = p.get("id").unwrap_or(&"0".to_string()).parse().unwrap_or(0);
-                                        EmailDetail { folder, id }.build(c, v)
-                                    }),
-                                },
+                        HStack {
+                            spacing: None,
+                            children: vec![
+                                Router {
+                                    current_path: view.state.current_path.clone(),
+                                    routes: vec![
+                                        Route {
+                                            path: "/inbox".into(),
+                                            builder: Arc::new(|c, v, _p| {
+                                                EmailList { folder: "Inbox".into() }.build(c, v)
+                                            }),
+                                        },
+                                        Route {
+                                            path: "/:folder".into(),
+                                            builder: Arc::new(|c, v, p| {
+                                                let folder = p.get("folder").unwrap_or(&"Inbox".to_string()).clone();
+                                                EmailList { folder }.build(c, v)
+                                            }),
+                                        },
+                                        Route {
+                                            path: "/:folder/:id".into(),
+                                            builder: Arc::new(|c, v, p| {
+                                                let folder = p.get("folder").unwrap_or(&"Inbox".to_string()).clone();
+                                                let id = p.get("id").unwrap_or(&"0".to_string()).parse().unwrap_or(0);
+                                                EmailDetail { folder, id }.build(c, v)
+                                            }),
+                                        },
+                                    ],
+                                    not_found: Some(Arc::new(|_c, _v, _| {
+                                        fission_core::ui::Text::new("Folder not found").into_node()
+                                    })),
+                                }.build(ctx, view),
+                                RightSidebar.build(ctx, view),
                             ],
-                            not_found: Some(Arc::new(|c, v, _| {
-                                // Redirect or show 404
-                                fission_core::ui::Text::new("Folder not found").into_node()
-                            })),
                         }.build(ctx, view)
                     ),
                 }.build(ctx, view)
             )
+        }.into();
+
+        let overlay_tip = if view.state.show_quick_tip {
+            Transition {
+                id: WidgetNodeId::explicit("quick_tip_fade"),
+                value: 1.0,
+                property: fission_core::AnimationPropertyId::Opacity,
+                duration: 300,
+                delay: 0,
+                child: Box::new(
+                    Center {
+                        child: Box::new(
+                            fission_widgets::Card {
+                                child: Box::new(
+                                    fission_widgets::VStack {
+                                        spacing: Some(6.0),
+                                        children: vec![
+                                            fission_core::ui::Text::new("Tip: press ? for shortcuts").into_node(),
+                                            fission_core::ui::Text::new("You can pin labels and drag to reorder.").size(12.0).into_node(),
+                                        ],
+                                    }.into_node()
+                                ),
+                                ..Default::default()
+                            }.build(ctx, view)
+                        )
+                    }.build(ctx, view)
+                ),
+            }.build(ctx, view)
+        } else {
+            fission_core::ui::widgets::Spacer::default().into_node()
+        };
+
+        Overlay {
+            id: None,
+            content: Box::new(main_content),
+            overlay: Box::new(overlay_tip),
         }.into()
     }
 }

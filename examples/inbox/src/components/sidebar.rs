@@ -1,7 +1,7 @@
 use fission_core::{BuildCtx, View, Widget, Handler, ActionEnvelope};
 use fission_core::ui::{Container, Node, Text, Button, ButtonVariant};
 use fission_core::op::Color;
-use fission_widgets::{VStack, HStack, TreeView, TreeItem, Divider, Icon};
+use fission_widgets::{VStack, HStack, TreeView, TreeItem, Divider, Icon, Tag, Wrap, ProgressBar, Link};
 use crate::model::{
     InboxState, Folder, SelectFolder, SetSettingsOpen, SetContactsOpen, ToggleBrowserDemo
 };
@@ -28,6 +28,18 @@ impl Widget<InboxState> for Sidebar {
                             TreeItem { id: "sent".into(), label: "Sent".into(), icon: None, children: vec![], on_toggle: None, on_select: Some(ctx.bind(SelectFolder(Folder::Sent), (|s: &mut InboxState, a: SelectFolder, _| s.selected_folder = a.0) as Handler<InboxState, SelectFolder>)) },
                         ],
                     }.build(ctx, view),
+
+                    Text::new("Labels").size(12.0).into_node(),
+                    Wrap {
+                        direction: fission_ir::op::FlexDirection::Row,
+                        spacing: Some(6.0),
+                        children: vec![
+                            Tag { label: "Work".into(), on_close: None }.build(ctx, view),
+                            Tag { label: "Personal".into(), on_close: None }.build(ctx, view),
+                            Tag { label: "Travel".into(), on_close: None }.build(ctx, view),
+                            Tag { label: "Receipts".into(), on_close: None }.build(ctx, view),
+                        ],
+                    }.build(ctx, view),
                     
                     Button {
                         variant: ButtonVariant::Ghost,
@@ -47,6 +59,16 @@ impl Widget<InboxState> for Sidebar {
                     fission_core::ui::widgets::Spacer { flex_grow: 1.0, ..Default::default() }.into_node(),
                     
                     Divider { orientation: fission_widgets::divider::Orientation::Horizontal }.build(ctx, view),
+
+                    Text::new("Storage").size(12.0).into_node(),
+                    ProgressBar {
+                        value: view.state.storage_usage,
+                        ..Default::default()
+                    }.build(ctx, view),
+                    Link {
+                        text: "Manage storage".into(),
+                        on_click: None,
+                    }.build(ctx, view),
                     
                     Button {
                         variant: ButtonVariant::Ghost,

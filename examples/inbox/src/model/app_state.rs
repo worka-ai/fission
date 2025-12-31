@@ -30,6 +30,27 @@ pub struct InboxState {
     pub schedule_time: Option<(u32, u32)>,
     pub is_date_picker_open: bool,
     pub is_time_picker_open: bool, // Not used by standard TimePicker (inline) but maybe for modal?
+
+    // Filters / Toolbar
+    pub sort_option: String,
+    pub show_advanced_filters: bool,
+    pub zoom_level: f32,
+
+    // Settings / Labs
+    pub signature: String,
+    pub signature_editing: bool,
+    pub smart_compose_enabled: bool,
+    pub offline_enabled: bool,
+    pub auto_advance_enabled: bool,
+
+    // Right Sidebar / Meet
+    pub meet_camera_on: bool,
+    pub meet_mic_on: bool,
+
+    // UX
+    pub show_help_popover: bool,
+    pub last_drag_label: Option<String>,
+    pub show_quick_tip: bool,
     
     // UI State
     pub search_query: String,
@@ -79,6 +100,19 @@ impl Default for InboxState {
             schedule_time: None,
             is_date_picker_open: false,
             is_time_picker_open: false,
+            sort_option: "Newest".into(),
+            show_advanced_filters: false,
+            zoom_level: 1.0,
+            signature: "Best regards,\nFission Team".into(),
+            signature_editing: false,
+            smart_compose_enabled: true,
+            offline_enabled: false,
+            auto_advance_enabled: true,
+            meet_camera_on: true,
+            meet_mic_on: true,
+            show_help_popover: false,
+            last_drag_label: None,
+            show_quick_tip: true,
             
             search_query: "".into(),
             show_filter_dropdown: false,
