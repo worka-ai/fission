@@ -11,6 +11,11 @@ pub struct ZStack {
 }
 
 impl ZStack {
+    pub fn children(mut self, children: Vec<Node>) -> Self {
+        self.children = children;
+        self
+    }
+
     pub fn into_node(self) -> Node {
         Node::ZStack(self)
     }

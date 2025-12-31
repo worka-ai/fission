@@ -57,6 +57,16 @@ impl Text {
         }
     }
 
+    pub fn width(mut self, w: f32) -> Self {
+        self.width = Some(w);
+        self
+    }
+
+    pub fn height(mut self, h: f32) -> Self {
+        self.height = Some(h);
+        self
+    }
+
     pub fn min_width(mut self, w: f32) -> Self {
         self.min_width = Some(w);
         self

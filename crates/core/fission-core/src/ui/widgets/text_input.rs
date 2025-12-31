@@ -26,6 +26,11 @@ pub struct TextInput {
 }
 
 impl TextInput {
+    pub fn value(mut self, v: impl Into<String>) -> Self {
+        self.value = v.into();
+        self
+    }
+
     pub fn into_node(self) -> crate::ui::Node {
         crate::ui::Node::TextInput(self)
     }

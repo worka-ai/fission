@@ -39,6 +39,11 @@ impl Column {
         self
     }
 
+    pub fn gap(mut self, gap: Option<f32>) -> Self {
+        self.gap = gap;
+        self
+    }
+
     pub fn into_node(self) -> Node {
         Node::Column(self)
     }
