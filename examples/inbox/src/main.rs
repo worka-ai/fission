@@ -16,7 +16,8 @@ mod features;
 
 use model::*;
 use components::{Sidebar, EmailList, EmailDetail};
-use features::{SettingsModal, ContactsModal, ComposeModal};
+use features::{SettingsModal, ContactsModal, ComposeModal, BrowserModal};
+use fission_core::{SystemEffect, ReducerContext, ActionInput, Action, ActionRegistry};
 
 // --- APP ---
 
@@ -35,6 +36,10 @@ impl Widget<InboxState> for InboxApp {
         }
         if view.state.show_compose {
             let node = ComposeModal.build(ctx, view);
+            ctx.register_portal(node);
+        }
+        if view.state.show_browser_demo {
+            let node = BrowserModal.build(ctx, view);
             ctx.register_portal(node);
         }
         
@@ -140,6 +145,25 @@ impl Widget<InboxState> for InboxApp {
     }
 }
 
+// Handlers for Browser Demo
+fn on_open_system_link(_state: &mut InboxState, action: OpenSystemLink, ctx: &mut ReducerContext<InboxState>) {
+    println!("[Demo] Dispatching SystemEffect::OpenUrl(system) for {}", action.0);
+    ctx.effects.add(SystemEffect::OpenUrl { url: action.0, in_app: false });
+}
+
+fn on_open_in_app_link(_state: &mut InboxState, action: OpenInAppLink, ctx: &mut ReducerContext<InboxState>) {
+    println!("[Demo] Dispatching SystemEffect::OpenUrl(in-app) for {}", action.0);
+    ctx.effects.add(SystemEffect::OpenUrl { url: action.0, in_app: true });
+}
+
+fn on_start_auth(_state: &mut InboxState, _action: StartAuth, ctx: &mut ReducerContext<InboxState>) {
+    println!("[Demo] Dispatching SystemEffect::Authenticate");
+    ctx.effects.add(SystemEffect::Authenticate { 
+        url: "https://auth.example.com/login".into(),
+        callback_scheme: "fission-inbox://callback".into()
+    });
+}
+
 // --- SETUP ---
 
 fn create_env() -> Env {
@@ -177,10 +201,19 @@ fn create_env() -> Env {
 }
 
 fn main() -> anyhow::Result<()> {
-    DesktopApp::new(InboxApp)
+    let mut app = DesktopApp::new(InboxApp)
         .with_env(create_env())
         .with_sync_env(|state: &InboxState, env: &mut Env| {
             env.locale = state.locale.clone();
-        })
-        .run()
+        });
+        
+    // Register global handlers
+    let mut registry = ActionRegistry::new();
+    registry.register(on_open_system_link as Handler<InboxState, OpenSystemLink>);
+    registry.register(on_open_in_app_link as Handler<InboxState, OpenInAppLink>);
+    registry.register(on_start_auth as Handler<InboxState, StartAuth>);
+    
+    app.absorb_registry(registry);
+        
+    app.run()
 }

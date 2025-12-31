@@ -104,6 +104,18 @@ impl<S: AppState + Default, W: Widget<S> + 'static> DesktopApp<S, W> {
         self
     }
 
+    pub fn register_reducer(
+        &mut self,
+        action_id: ActionId,
+        reducer: fn(&mut S, &fission_core::ActionEnvelope, NodeId) -> Result<()>,
+    ) -> Result<()> {
+        self.runtime.register_reducer::<S>(action_id, reducer)
+    }
+
+    pub fn absorb_registry(&mut self, registry: fission_core::ActionRegistry<S>) {
+        self.runtime.absorb_registry(registry);
+    }
+
     pub fn run(mut self) -> Result<()> { 
         diag::emit(
             diag::DiagCategory::Frame,
@@ -310,13 +322,14 @@ impl<S: AppState + Default, W: Widget<S> + 'static> DesktopApp<S, W> {
                                         sync(state, &mut env);
                                     }
 
-                                    let (node_tree, registry, anims, videos, portals) = {
+                                    let (node_tree, registry, anims, videos, web_views, portals) = {
                                         let state = runtime.get_app_state::<S>().unwrap();
                                         let view = View::new(state, &runtime.runtime_state, &env, pipeline.last_snapshot.as_ref());
                                         let mut ctx = BuildCtx::new();
                                         let node = root_widget.build(&mut ctx, &view);
                                         let anims = ctx.take_animation_requests();
                                         let videos = ctx.take_video_registrations();
+                                        let web_views = ctx.take_web_registrations();
                                         let portals = ctx.take_portals();
                                         // Emit portal summary to diagnostics
                                         {
@@ -327,7 +340,7 @@ impl<S: AppState + Default, W: Widget<S> + 'static> DesktopApp<S, W> {
                                                 diag::DiagEventKind::PortalsComposed { portal_count: portals.len() as u32 },
                                             );
                                         }
-                                        (node, ctx.registry, anims, videos, portals)
+                                        (node, ctx.registry, anims, videos, web_views, portals)
                                     };
 
                                     runtime.clear_reducers();
@@ -336,6 +349,7 @@ impl<S: AppState + Default, W: Widget<S> + 'static> DesktopApp<S, W> {
                                         runtime.enqueue_animation(target, req);
                                     }
                                     runtime.sync_video_nodes(&videos);
+                                    runtime.sync_web_nodes(&web_views);
 
                                     // Always compose an overlay layer above content.
                                     // Portals are injected into that layer and never

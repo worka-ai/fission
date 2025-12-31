@@ -15,23 +15,23 @@ use std::collections::{BTreeMap, HashMap};
 use std::sync::Arc;
 
 // The canonical handler signature
-pub type Handler<S, A> = for<'a, 'b> fn(&mut S, A, &mut ReducerContext<'a, 'b, S>);
+pub type Handler<S, A> = for<'a, 'b, 'c> fn(&mut S, A, &mut ReducerContext<'a, 'b, 'c, S>);
 
 // The trait for backward compatibility
 pub trait IntoHandler<S: AppState, A> {
-    fn call<'a, 'b>(&self, state: &mut S, action: A, ctx: &mut ReducerContext<'a, 'b, S>);
+    fn call<'a, 'b, 'c>(&self, state: &mut S, action: A, ctx: &mut ReducerContext<'a, 'b, 'c, S>);
 }
 
 // Impl for Legacy (2-arg)
 impl<S: AppState, A> IntoHandler<S, A> for fn(&mut S, A) {
-    fn call<'a, 'b>(&self, state: &mut S, action: A, _ctx: &mut ReducerContext<'a, 'b, S>) {
+    fn call<'a, 'b, 'c>(&self, state: &mut S, action: A, _ctx: &mut ReducerContext<'a, 'b, 'c, S>) {
         (self)(state, action);
     }
 }
 
 // Impl for Modern (3-arg)
-impl<S: AppState, A> IntoHandler<S, A> for for<'a, 'b> fn(&mut S, A, &mut ReducerContext<'a, 'b, S>) {
-    fn call<'a, 'b>(&self, state: &mut S, action: A, ctx: &mut ReducerContext<'a, 'b, S>) {
+impl<S: AppState, A> IntoHandler<S, A> for for<'a, 'b, 'c> fn(&mut S, A, &mut ReducerContext<'a, 'b, 'c, S>) {
+    fn call<'a, 'b, 'c>(&self, state: &mut S, action: A, ctx: &mut ReducerContext<'a, 'b, 'c, S>) {
         (self)(state, action, ctx);
     }
 }
@@ -59,8 +59,8 @@ impl<S: AppState> ActionRegistry<S> {
     pub fn register<A: Action, H: IntoHandler<S, A> + Send + Sync + 'static>(&mut self, handler: H) {
         let action_id = A::static_id();
 
-        let typed_reducer = Box::new(
-            move |state: &mut S, envelope: &ActionEnvelope, effects: &mut Effects<S>, input: &ActionInput| -> Result<()> {
+        let typed_reducer: TypedReducer<S> = Box::new(
+            move |state: &mut S, envelope: &ActionEnvelope, effects, input| -> Result<()> {
                 let action: A = serde_json::from_slice(&envelope.payload)
                     .map_err(|e| anyhow!("Failed to deserialize action: {}", e))?;
                 
@@ -167,10 +167,18 @@ pub struct VideoRegistration {
     pub loop_playback: bool,
 }
 
+#[derive(Clone, Debug)]
+pub struct WebRegistration {
+    pub node_id: WidgetNodeId,
+    pub url: String,
+    pub user_agent: Option<String>,
+}
+
 pub struct BuildCtx<S: AppState> {
     pub registry: ActionRegistry<S>,
     pub animation_requests: Vec<(WidgetNodeId, AnimationRequest)>,
     pub video_nodes: Vec<VideoRegistration>,
+    pub web_nodes: Vec<WebRegistration>,
     pub portals: Vec<Node>,
 }
 
@@ -180,6 +188,7 @@ impl<S: AppState> BuildCtx<S> {
             registry: ActionRegistry::new(),
             animation_requests: Vec::new(),
             video_nodes: Vec::new(),
+            web_nodes: Vec::new(),
             portals: Vec::new(),
         }
     }
@@ -203,12 +212,20 @@ impl<S: AppState> BuildCtx<S> {
         self.video_nodes.push(registration);
     }
 
+    pub fn register_web_view(&mut self, registration: WebRegistration) {
+        self.web_nodes.push(registration);
+    }
+
     pub fn take_animation_requests(&mut self) -> Vec<(WidgetNodeId, AnimationRequest)> {
         std::mem::take(&mut self.animation_requests)
     }
 
     pub fn take_video_registrations(&mut self) -> Vec<VideoRegistration> {
         std::mem::take(&mut self.video_nodes)
+    }
+
+    pub fn take_web_registrations(&mut self) -> Vec<WebRegistration> {
+        std::mem::take(&mut self.web_nodes)
     }
 
     pub fn register_portal(&mut self, node: Node) {

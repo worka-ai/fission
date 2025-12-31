@@ -47,6 +47,8 @@ pub struct InboxState {
     pub show_toast: bool,
     pub show_mobile_menu: bool,
     pub toast_message: Option<String>,
+    pub show_browser_demo: bool,
+    pub browser_url: String,
     
     // Preferences
     pub theme_mode: String,
@@ -90,6 +92,8 @@ impl Default for InboxState {
             show_compose: false,
             show_toast: false,
             show_mobile_menu: false,
+            show_browser_demo: false,
+            browser_url: "https://example.com".into(),
             toast_message: None,
             theme_mode: "Light".into(),
             density_mode: "Comfortable".into(),

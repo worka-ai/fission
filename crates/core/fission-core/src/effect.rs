@@ -7,13 +7,41 @@ pub struct ReqId(pub u64);
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct ResourceId(pub u64);
 
-#[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
+use std::collections::HashMap;
+
+// ...
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum SystemEffect {
-    HttpGet { url: String, headers: Vec<(String, String)> },
-    FileRead { path: String },
-    FileOpenDialog { extensions: Vec<String> }, // Returns path as InlineBytes (utf8)
-    Cancel { req_id: u64 },
-    ReleaseResource { resource_id: u64 },
+    Alert {
+        title: String,
+        message: String,
+    },
+    HttpGet {
+        url: String,
+        headers: HashMap<String, String>,
+    },
+    FileRead {
+        path: String,
+    },
+    Cancel {
+        req_id: u64,
+    },
+    ReleaseResource {
+        resource_id: u64,
+    },
+    // Mechanism 2: System Browser / Custom Tabs
+    OpenUrl {
+        url: String,
+        // true = Custom Tab / SFSafariViewController (Overlay)
+        // false = Kick to external browser app
+        in_app: bool, 
+    },
+    // Mechanism 3: OAuth / Secure Session
+    Authenticate {
+        url: String,
+        callback_scheme: String,
+    },
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]

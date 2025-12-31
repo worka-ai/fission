@@ -36,10 +36,11 @@ pub trait ImeHandler: Send + Sync {
 // Runtime state managed by framework (Interaction)
 #[derive(Clone, Debug, Default)]
 pub struct RuntimeState {
-    pub interaction: InteractionStateMap,
     pub scroll: ScrollStateMap,
-    pub animation: AnimationStateMap,
     pub video: VideoStateMap,
+    pub web: WebStateMap,
+    pub animation: AnimationStateMap,
+    pub interaction: InteractionStateMap,
     pub ime_preedit: Option<(NodeId, String)>,
     pub text_edit: TextEditStateMap,
     pub clipboard: String,
@@ -236,6 +237,23 @@ impl InteractionStateMap {
 pub struct VideoStateMap {
     pub states: HashMap<WidgetNodeId, VideoState>,
 }
+
+#[derive(Clone, Debug, Default)]
+pub struct WebState {
+    pub url: String,
+    pub user_agent: Option<String>,
+    pub loading: bool,
+    pub can_go_back: bool,
+    pub can_go_forward: bool,
+    pub title: Option<String>,
+}
+
+#[derive(Clone, Debug, Default)]
+pub struct WebStateMap {
+    pub states: HashMap<WidgetNodeId, WebState>,
+}
+
+// Static environment data (Theme, I18n)
 
 impl AppState for VideoStateMap {}
 

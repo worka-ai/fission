@@ -29,6 +29,18 @@ pub struct FileSelected;
 pub struct SetLocale(pub fission_i18n::Locale);
 
 #[derive(Action, Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
+pub struct ToggleBrowserDemo(pub bool);
+
+#[derive(Action, Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
+pub struct OpenSystemLink(pub String);
+
+#[derive(Action, Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
+pub struct OpenInAppLink(pub String);
+
+#[derive(Action, Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
+pub struct StartAuth;
+
+#[derive(Action, Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
 pub struct SelectFolder(pub Folder);
 
 #[derive(Action, Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]

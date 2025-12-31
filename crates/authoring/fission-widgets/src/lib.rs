@@ -98,6 +98,9 @@ pub use timeline::{Timeline, TimelineItem};
 pub mod hero;
 pub use hero::Hero;
 
+pub mod web_view;
+pub use web_view::WebView;
+
 pub mod draggable;
 pub use draggable::{Draggable, DragTarget};
 

@@ -341,6 +341,32 @@ impl Runtime {
             .retain(|node_id, _| seen.contains(node_id));
     }
 
+    pub fn sync_web_nodes(&mut self, registrations: &[crate::registry::WebRegistration]) {
+        let mut seen: HashSet<WidgetNodeId> = HashSet::new();
+
+        for reg in registrations {
+            seen.insert(reg.node_id);
+            let entry = self
+                .runtime_state
+                .web
+                .states
+                .entry(reg.node_id)
+                .or_insert_with(crate::env::WebState::default);
+            
+            // Only update URL if it changes to avoid reload loops
+            if entry.url != reg.url {
+                entry.url = reg.url.clone();
+                entry.loading = true; // Assume loading starts
+            }
+            entry.user_agent = reg.user_agent.clone();
+        }
+
+        self.runtime_state
+            .web
+            .states
+            .retain(|node_id, _| seen.contains(node_id));
+    }
+
     pub fn post_layout_hook(&mut self, ir: &CoreIR, layout: &LayoutSnapshot) {
         let mut current_heroes = HashMap::new();
         
