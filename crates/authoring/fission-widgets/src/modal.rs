@@ -126,21 +126,45 @@ impl<S: fission_core::AppState> Widget<S> for Modal {
         let root = Container::new(
             ZStack {
                 children: vec![
+                    // Full-screen backdrop button
                     fission_core::ui::Positioned {
                         left: Some(0.0), right: Some(0.0), top: Some(0.0), bottom: Some(0.0),
                         child: Some(Box::new(backdrop_btn)),
                         ..Default::default()
                     }.into_node(),
-                    
-                    // Wrap modal_card in Centered (LayoutOp::Align)
-                    Node::Custom(CustomNode {
-                        debug_tag: "CenteredModal".into(),
-                        lowerer: Some(Arc::new(Centered { child: modal_card })),
-                    })
+
+                    // Full-screen container with flex spacers to center the modal card
+                    fission_core::ui::Positioned {
+                        left: Some(0.0), right: Some(0.0), top: Some(0.0), bottom: Some(0.0),
+                        child: Some(Box::new(
+                            VStack {
+                                spacing: None,
+                                children: vec![
+                                    // Top spacer
+                                    fission_core::ui::widgets::spacer::Spacer { flex_grow: 1.0, ..Default::default() }.into_node(),
+
+                                    // Middle row: left spacer, card, right spacer
+                                    HStack {
+                                        spacing: None,
+                                        children: vec![
+                                            fission_core::ui::widgets::spacer::Spacer { flex_grow: 1.0, ..Default::default() }.into_node(),
+                                            modal_card.clone(),
+                                            fission_core::ui::widgets::spacer::Spacer { flex_grow: 1.0, ..Default::default() }.into_node(),
+                                        ],
+                                    }.into_node(),
+
+                                    // Bottom spacer
+                                    fission_core::ui::widgets::spacer::Spacer { flex_grow: 1.0, ..Default::default() }.into_node(),
+                                ],
+                            }.into_node()
+                        )),
+                        ..Default::default()
+                    }.into_node(),
                 ],
                 ..Default::default()
             }.into_node()
         )
+        .flex_grow(1.0)
         .into_node();
         
         let positioned_root = fission_core::ui::Positioned {
@@ -149,7 +173,7 @@ impl<S: fission_core::AppState> Widget<S> for Modal {
             ..Default::default()
         }.into_node();
 
-        ctx.register_portal(positioned_root);
+        ctx.register_portal_with_layer(fission_core::PortalLayer::Modal, positioned_root);
 
         fission_core::ui::widgets::spacer::Spacer::default().into_node()
     }

@@ -179,7 +179,23 @@ pub struct BuildCtx<S: AppState> {
     pub animation_requests: Vec<(WidgetNodeId, AnimationRequest)>,
     pub video_nodes: Vec<VideoRegistration>,
     pub web_nodes: Vec<WebRegistration>,
-    pub portals: Vec<Node>,
+    pub portals: Vec<PortalEntry>,
+    portal_seq: u64,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
+pub enum PortalLayer {
+    Default = 0,
+    Modal = 100,
+    Flyout = 200,
+    Toast = 300,
+}
+
+#[derive(Clone, Debug)]
+pub struct PortalEntry {
+    pub layer: PortalLayer,
+    pub seq: u64,
+    pub node: Node,
 }
 
 impl<S: AppState> BuildCtx<S> {
@@ -190,6 +206,7 @@ impl<S: AppState> BuildCtx<S> {
             video_nodes: Vec::new(),
             web_nodes: Vec::new(),
             portals: Vec::new(),
+            portal_seq: 0,
         }
     }
 
@@ -229,11 +246,19 @@ impl<S: AppState> BuildCtx<S> {
     }
 
     pub fn register_portal(&mut self, node: Node) {
-        self.portals.push(node);
+        self.register_portal_with_layer(PortalLayer::Default, node);
+    }
+
+    pub fn register_portal_with_layer(&mut self, layer: PortalLayer, node: Node) {
+        let seq = self.portal_seq;
+        self.portal_seq = self.portal_seq.wrapping_add(1);
+        self.portals.push(PortalEntry { layer, seq, node });
     }
 
     pub fn take_portals(&mut self) -> Vec<Node> {
-        std::mem::take(&mut self.portals)
+        let mut entries = std::mem::take(&mut self.portals);
+        entries.sort_by(|a, b| (a.layer, a.seq).cmp(&(b.layer, b.seq)));
+        entries.into_iter().map(|e| e.node).collect()
     }
 
     pub fn anim_for(&mut self, target: WidgetNodeId) -> AnimCtx<'_, S> {

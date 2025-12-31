@@ -185,18 +185,22 @@ impl<S: AppState> TestHarness<S> {
                 if portals.is_empty() {
                     tree
                 } else {
-                    // Wrap tree in Container(AbsoluteFill) to ensure it fills ZStack
-                    let content = fission_core::ui::Container::new(tree)
-                        .width(800.0) // Match viewport
-                        .height(600.0)
-                        .into_node();
-                        
-                    // Wrap in ZStack: Root + Portals
-                    let mut children = vec![content];
-                    children.extend(portals);
-                    fission_core::ui::Node::ZStack(fission_core::ui::ZStack {
+                    // Match the desktop shell overlay composition: always wrap content
+                    // in an Overlay so portals render in a separate AbsoluteFill layer
+                    // and do not participate in normal layout.
+                    fission_core::ui::Node::Overlay(fission_core::ui::Overlay {
                         id: None,
-                        children,
+                        // Ensure content establishes a viewport-sized containing block so
+                        // the overlay AbsoluteFill has a concrete size in tests.
+                        content: Box::new(
+                            fission_core::ui::Container::new(tree)
+                                .width(800.0)
+                                .height(600.0)
+                                .into_node()
+                        ),
+                        overlay: Box::new(fission_core::ui::Node::ZStack(
+                            fission_core::ui::ZStack { id: None, children: portals }
+                        )),
                     })
                 }
             };

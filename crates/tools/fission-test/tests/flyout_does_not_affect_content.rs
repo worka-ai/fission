@@ -80,7 +80,15 @@ fn flyout_does_not_shift_content() -> Result<()> {
     let ir1 = cx.ir;
 
     let viewport = fission_layout::LayoutSize { width: 1024.0, height: 768.0 };
-    let _ = pipe.render(ir1.clone(), viewport, &mut layout, &runtime.runtime_state.scroll, &mut MockRenderer, &runtime.runtime_state.video)?;
+    let _ = pipe.render(
+        ir1.clone(),
+        viewport,
+        &mut layout,
+        &runtime.runtime_state.scroll,
+        &mut MockRenderer,
+        &runtime.runtime_state.video,
+        &runtime.runtime_state.web,
+    )?;
     let snap1 = pipe.last_snapshot.clone().expect("snapshot1");
 
     let anchor_node = NodeId::derived(WidgetNodeId::explicit("test_menu").as_u128(), &[]);
@@ -116,7 +124,15 @@ fn flyout_does_not_shift_content() -> Result<()> {
         cx.ir.root = Some(root_id);
         let ir2 = cx.ir;
 
-        let _ = pipe.render(ir2.clone(), viewport, &mut layout, &runtime.runtime_state.scroll, &mut MockRenderer, &runtime.runtime_state.video)?;
+        let _ = pipe.render(
+            ir2.clone(),
+            viewport,
+            &mut layout,
+            &runtime.runtime_state.scroll,
+            &mut MockRenderer,
+            &runtime.runtime_state.video,
+            &runtime.runtime_state.web,
+        )?;
         let snap2 = pipe.last_snapshot.clone().expect("snapshot2");
 
         let anchor_rect2 = snap2.get_node_rect(anchor_node).expect("anchor rect2");

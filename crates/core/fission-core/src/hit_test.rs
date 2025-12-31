@@ -1,6 +1,7 @@
 use crate::env::ScrollStateMap;
 use fission_ir::{CoreIR, LayoutOp, NodeId, Op, PaintOp};
 use fission_layout::{LayoutPoint, LayoutRect, LayoutSnapshot, LayoutUnit};
+use fission_diagnostics::prelude as diag;
 
 pub fn hit_test(ir: &CoreIR, layout: &LayoutSnapshot, point: LayoutPoint) -> Option<NodeId> {
     hit_test_internal(ir, layout, None, point)
@@ -21,13 +22,23 @@ fn hit_test_internal(
     scroll_map: Option<&ScrollStateMap>,
     point: LayoutPoint,
 ) -> Option<NodeId> {
-    let mut last_hit: Option<NodeId> = None;
+    let result = ir
+        .root
+        .and_then(|root| hit_test_recursive(root, ir, layout, scroll_map, point));
 
-    if let Some(root) = ir.root {
-        hit_test_recursive(root, ir, layout, scroll_map, point, &mut last_hit);
+    if let Some(id) = result {
+        diag::emit(
+            diag::DiagCategory::Input,
+            diag::DiagLevel::Debug,
+            diag::DiagEventKind::InputEvent {
+                kind: "HitTestResult".into(),
+                target: Some(id.as_u128()),
+                position: Some((point.x, point.y)),
+            },
+        );
     }
 
-    last_hit
+    result
 }
 
 fn hit_test_recursive(
@@ -36,51 +47,73 @@ fn hit_test_recursive(
     layout: &LayoutSnapshot,
     scroll_map: Option<&ScrollStateMap>,
     point: LayoutPoint,
-    last_hit: &mut Option<NodeId>,
-) {
+) -> Option<NodeId> {
+    let node = ir.nodes.get(&node_id)?;
+    let geom = layout.get_node_geometry(node_id)?;
+
+    // For Clip and Scroll, we must restrict hit testing to within the node's rect
+    // (viewport/clip region). For other nodes, we still allow children to be hit
+    // even if parent doesn't contain the point.
+    let is_clip_container = matches!(
+        node.op,
+        Op::Layout(LayoutOp::Clip { .. }) | Op::Layout(LayoutOp::Scroll { .. })
+    );
+
+    if is_clip_container && !geom.rect.contains(point) {
+        return None;
+    }
+
+    // Compute child_point applying scroll offset and transforms
+    let mut child_point = point;
+
+    if let (Some(map), Op::Layout(LayoutOp::Scroll { direction, .. })) = (scroll_map, &node.op) {
+        let offset = map.get_offset(node_id);
+        match direction {
+            fission_ir::FlexDirection::Column => {
+                child_point.y += offset;
+            }
+            fission_ir::FlexDirection::Row => {
+                child_point.x += offset;
+            }
+        }
+    }
+
+    if let Op::Layout(LayoutOp::Transform { transform }) = &node.op {
+        // Transform child point into the pre-transform space of children
+        let mat = glam::Mat4::from_cols_array(transform);
+        let inv = mat.inverse();
+        let local_x = point.x - geom.rect.origin.x;
+        let local_y = point.y - geom.rect.origin.y;
+        let p = glam::Vec4::new(local_x, local_y, 0.0, 1.0);
+        let transformed = inv * p;
+        child_point = LayoutPoint::new(
+            transformed.x + geom.rect.origin.x,
+            transformed.y + geom.rect.origin.y,
+        );
+    }
+
+    // Visit children in reverse order (front to back) and return on first hit.
+    for child_id in node.children.iter().rev() {
+        if let Some(hit) = hit_test_recursive(*child_id, ir, layout, scroll_map, child_point) {
+            return Some(hit);
+        }
+    }
+
+    // If no child was hit, check if this node itself is hit-worthy.
     let mut current_is_hit = false;
-    if let Some(geom) = layout.get_node_geometry(node_id) {
-        if geom.rect.contains(point) {
-            if let Some(node_ir) = ir.nodes.get(&node_id) {
-                match &node_ir.op {
-                    Op::Paint(PaintOp::DrawRect { corner_radius, .. }) => {
-                        current_is_hit = is_point_in_rounded_rect(point, geom.rect, *corner_radius);
-                    }
-                    Op::Paint(_) | Op::Layout(LayoutOp::Scroll { .. }) | Op::Layout(LayoutOp::Embed { .. }) => {
-                        current_is_hit = true;
-                    }
-                    _ => {
-                        current_is_hit = false;
-                    }
-                }
+    if geom.rect.contains(point) {
+        match &node.op {
+            Op::Paint(PaintOp::DrawRect { corner_radius, .. }) => {
+                current_is_hit = is_point_in_rounded_rect(point, geom.rect, *corner_radius);
             }
-        }
-    }
-
-    if current_is_hit {
-        *last_hit = Some(node_id);
-    }
-
-    if let Some(node) = ir.nodes.get(&node_id) {
-        let mut child_point = point;
-
-        if let (Some(map), Op::Layout(LayoutOp::Scroll { direction, .. })) = (scroll_map, &node.op)
-        {
-            let offset = map.get_offset(node_id);
-            match direction {
-                fission_ir::FlexDirection::Column => {
-                    child_point.y += offset;
-                }
-                fission_ir::FlexDirection::Row => {
-                    child_point.x += offset;
-                }
+            Op::Paint(_) | Op::Layout(LayoutOp::Scroll { .. }) | Op::Layout(LayoutOp::Embed { .. }) => {
+                current_is_hit = true;
             }
-        }
-
-        for child_id in &node.children {
-            hit_test_recursive(*child_id, ir, layout, scroll_map, child_point, last_hit);
+            _ => {}
         }
     }
+
+    if current_is_hit { Some(node_id) } else { None }
 }
 
 fn is_point_in_rounded_rect(p: LayoutPoint, r: LayoutRect, radius: LayoutUnit) -> bool {

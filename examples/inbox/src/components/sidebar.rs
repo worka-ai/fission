@@ -3,7 +3,7 @@ use fission_core::ui::{Container, Node, Text, Button, ButtonVariant};
 use fission_core::op::Color;
 use fission_widgets::{VStack, HStack, TreeView, TreeItem, Divider, Icon};
 use crate::model::{
-    InboxState, Folder, SelectFolder, ToggleSettings, ToggleContacts, ToggleBrowserDemo
+    InboxState, Folder, SelectFolder, SetSettingsOpen, SetContactsOpen, ToggleBrowserDemo
 };
 
 pub struct Sidebar;
@@ -51,14 +51,14 @@ impl Widget<InboxState> for Sidebar {
                     Button {
                         variant: ButtonVariant::Ghost,
                         child: Some(Box::new(Text::new("Contacts").into_node())),
-                        on_press: Some(ctx.bind(ToggleContacts, (|s: &mut InboxState, _: ToggleContacts, _| s.show_contacts = true) as Handler<InboxState, ToggleContacts>)),
+                        on_press: Some(ctx.bind(SetContactsOpen(true), (|s: &mut InboxState, a: SetContactsOpen, _| s.show_contacts = a.0) as Handler<InboxState, SetContactsOpen>)),
                         ..Default::default()
                     }.into_node(),
                     
                     Button {
                         variant: ButtonVariant::Ghost,
                         child: Some(Box::new(Text::new("Settings").into_node())),
-                        on_press: Some(ctx.bind(ToggleSettings, (|s: &mut InboxState, _: ToggleSettings, _| s.show_settings = true) as Handler<InboxState, ToggleSettings>)),
+                        on_press: Some(ctx.bind(SetSettingsOpen(true), (|s: &mut InboxState, a: SetSettingsOpen, _| s.show_settings = a.0) as Handler<InboxState, SetSettingsOpen>)),
                         ..Default::default()
                     }.into_node(),
                 ],

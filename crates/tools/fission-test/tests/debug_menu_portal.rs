@@ -102,6 +102,7 @@ fn menu_portal_position_near_anchor() -> Result<()> {
         &runtime.runtime_state.scroll,
         &mut MockRenderer,
         &runtime.runtime_state.video,
+        &runtime.runtime_state.web,
     )?;
     let snap = pipe.last_snapshot.clone().expect("snapshot");
 
@@ -143,6 +144,7 @@ fn menu_portal_position_near_anchor() -> Result<()> {
             &runtime.runtime_state.scroll,
             &mut MockRenderer,
             &runtime.runtime_state.video,
+            &runtime.runtime_state.web,
         )?;
         let snap2 = pipe.last_snapshot.clone().expect("snapshot2");
 

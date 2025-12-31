@@ -26,7 +26,7 @@ impl<S: fission_core::AppState> Widget<S> for FileUpload {
                             spacing: Some(4.0),
                             children: vec![
                                 Icon::svg(material::file::folder_open::regular()).size(16.0).into_node(),
-                                Text::new(self.label.clone()).into_node(),
+                                Text::new(self.label.clone()).flex_shrink(0.0).into_node(),
                             ]
                         }.into_node()
                     )),

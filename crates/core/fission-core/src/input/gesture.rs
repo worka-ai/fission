@@ -119,17 +119,14 @@ impl GestureController {
         let mut current_id = Some(start_node);
         while let Some(node_id) = current_id {
             if let Some(node) = ctx.ir.nodes.get(&node_id) {
-                println!("[drag] Checking node {:?} for payload. op: {:?}", node_id, node.op);
                 if let Op::Semantics(sem) = &node.op {
                     if let Some(p) = &sem.drag_payload {
-                        println!("[drag] Found payload on node {:?}", node_id);
                         return Some(p.clone());
                     }
                 }
                 current_id = node.parent;
             } else { break; }
         }
-        println!("[drag] No payload found starting from {:?}", start_node);
         None
     }
 

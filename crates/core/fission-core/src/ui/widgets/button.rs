@@ -190,7 +190,12 @@ impl Lower for Button {
             } else {
                 child_widget.lower(cx)
             };
-            button_builder.add_child(child_id);
+            // Center the content within the button's box (vertically + horizontally).
+            let mut align_builder =
+                NodeBuilder::new(cx.next_node_id(), Op::Layout(LayoutOp::Align));
+            align_builder.add_child(child_id);
+            let align_id = align_builder.build(cx);
+            button_builder.add_child(align_id);
         }
         
         cx.pop_scope();

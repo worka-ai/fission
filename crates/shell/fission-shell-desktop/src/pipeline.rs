@@ -4,7 +4,7 @@ use fission_diagnostics::{SnapshotProvider, SnapshotKind, SnapshotBlob};
 use std::fs::File;
 use std::io::Write as _;
 use fission_core::diff::diff_ir;
-use fission_core::env::VideoStateMap;
+use fission_core::env::{VideoStateMap, WebStateMap};
 use fission_core::lowering::{build_layout_tree, LoweringContext};
 use fission_core::{LayoutPoint, ScrollStateMap};
 use fission_ir::op::EmbedKind;
@@ -59,6 +59,7 @@ impl Pipeline {
         scroll_map: &ScrollStateMap,
         renderer: &mut (impl Renderer + 'r + ?Sized),
         video_map: &VideoStateMap,
+        web_map: &WebStateMap,
     ) -> Result<PipelineStats> {
         if let Some(cycle) = detect_ir_cycle(&next_ir) {
             diag::emit(
@@ -289,6 +290,7 @@ impl Pipeline {
             &mut paint_misses,
             &mut paint_hits,
             video_map,
+            web_map,
             LayoutPoint::new(0.0, 0.0),
         );
         diag::emit(
@@ -322,18 +324,19 @@ impl Pipeline {
         std::mem::take(&mut self.video_surfaces)
     }
 
-    fn generate_display_list_recursive(
-        &mut self,
-        node_id: NodeId,
-        ir: &CoreIR,
-        snapshot: &LayoutSnapshot,
-        scroll_map: &ScrollStateMap,
-        out_list: &mut DisplayList,
-        miss_count: &mut usize,
-        hit_count: &mut usize,
-        video_map: &VideoStateMap,
-        accumulated_offset: LayoutPoint,
-    ) {
+	    fn generate_display_list_recursive(
+	        &mut self,
+	        node_id: NodeId,
+	        ir: &CoreIR,
+	        snapshot: &LayoutSnapshot,
+	        scroll_map: &ScrollStateMap,
+	        out_list: &mut DisplayList,
+	        miss_count: &mut usize,
+	        hit_count: &mut usize,
+	        video_map: &VideoStateMap,
+	        web_map: &WebStateMap,
+	        accumulated_offset: LayoutPoint,
+	    ) {
         use std::collections::HashSet;
         // Gather Flyout content ids for this frame (once per root walk)
         let mut flyout_contents: HashSet<NodeId> = HashSet::new();
@@ -343,35 +346,37 @@ impl Pipeline {
             }
         }
         let mut visited = HashSet::new();
-        self.generate_display_list_recursive_with_visited(
-            node_id,
-            ir,
-            snapshot,
-            scroll_map,
-            out_list,
-            miss_count,
-            hit_count,
-            video_map,
-            accumulated_offset,
-            &mut visited,
-            &flyout_contents,
-        );
-    }
+	        self.generate_display_list_recursive_with_visited(
+	            node_id,
+	            ir,
+	            snapshot,
+	            scroll_map,
+	            out_list,
+	            miss_count,
+	            hit_count,
+	            video_map,
+	            web_map,
+	            accumulated_offset,
+	            &mut visited,
+	            &flyout_contents,
+	        );
+	    }
 
-    fn generate_display_list_recursive_with_visited(
-        &mut self,
-        node_id: NodeId,
-        ir: &CoreIR,
-        snapshot: &LayoutSnapshot,
-        scroll_map: &ScrollStateMap,
-        out_list: &mut DisplayList,
-        miss_count: &mut usize,
-        hit_count: &mut usize,
-        video_map: &VideoStateMap,
-        accumulated_offset: LayoutPoint,
-        visited: &mut std::collections::HashSet<NodeId>,
-        flyout_contents: &std::collections::HashSet<NodeId>,
-    ) {
+	    fn generate_display_list_recursive_with_visited(
+	        &mut self,
+	        node_id: NodeId,
+	        ir: &CoreIR,
+	        snapshot: &LayoutSnapshot,
+	        scroll_map: &ScrollStateMap,
+	        out_list: &mut DisplayList,
+	        miss_count: &mut usize,
+	        hit_count: &mut usize,
+	        video_map: &VideoStateMap,
+	        web_map: &WebStateMap,
+	        accumulated_offset: LayoutPoint,
+	        visited: &mut std::collections::HashSet<NodeId>,
+	        flyout_contents: &std::collections::HashSet<NodeId>,
+	    ) {
         if !visited.insert(node_id) {
             return;
         }
@@ -628,6 +633,58 @@ impl Pipeline {
                         node_id: Some(node_id),
                     });
                 }
+                fission_ir::Op::Layout(fission_ir::LayoutOp::Embed {
+                    kind: EmbedKind::Web,
+                    widget_id,
+                    ..
+                }) => {
+                    let label = web_map
+                        .states
+                        .get(widget_id)
+                        .map(|s| format!("WebView: {}", s.url))
+                        .unwrap_or_else(|| "WebView".into());
+
+                    segment.push(DisplayOp::DrawRect {
+                        rect: geom.rect,
+                        fill: Some(Fill {
+                            color: RenderColor {
+                                r: 245,
+                                g: 245,
+                                b: 245,
+                                a: 255,
+                            },
+                        }),
+                        stroke: Some(Stroke {
+                            color: RenderColor {
+                                r: 160,
+                                g: 160,
+                                b: 160,
+                                a: 255,
+                            },
+                            width: 1.0,
+                        }),
+                        corner_radius: 0.0,
+                        shadow: None,
+                        bounds: geom.rect,
+                        node_id: Some(node_id),
+                    });
+
+                    segment.push(DisplayOp::DrawText {
+                        text: label,
+                        position: LayoutPoint::new(geom.rect.x() + 8.0, geom.rect.y() + 18.0),
+                        size: 12.0,
+                        color: fission_render::Color {
+                            r: 80,
+                            g: 80,
+                            b: 80,
+                            a: 255,
+                        },
+                        bounds: geom.rect,
+                        node_id: Some(node_id),
+                        underline: false,
+                        caret_index: None,
+                    });
+                }
                 _ => {}
             }
 
@@ -658,21 +715,22 @@ impl Pipeline {
                 bounds: out_list.bounds,
             };
 
-            for child in &node.children {
-                self.generate_display_list_recursive_with_visited(
-                    *child,
-                    ir,
-                    snapshot,
-                    scroll_map,
-                    &mut temp_dl,
-                    miss_count,
-                    hit_count,
-                    video_map,
-                    child_offset,
-                    visited,
-                    flyout_contents,
-                );
-            }
+	            for child in &node.children {
+	                self.generate_display_list_recursive_with_visited(
+	                    *child,
+	                    ir,
+	                    snapshot,
+	                    scroll_map,
+	                    &mut temp_dl,
+	                    miss_count,
+	                    hit_count,
+	                    video_map,
+	                    web_map,
+	                    child_offset,
+	                    visited,
+	                    flyout_contents,
+	                );
+	            }
 
             segment.extend(temp_dl.ops);
 

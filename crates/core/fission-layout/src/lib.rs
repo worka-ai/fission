@@ -291,13 +291,17 @@ impl LayoutEngine {
                     let measurer_ref = self.measurer.clone();
                     self.taffy.set_measure(
                         t_id,
-                        Some(taffy::node::MeasureFunc::Boxed(Box::new(move |_known_dims, available_space| {
+                        Some(taffy::node::MeasureFunc::Boxed(Box::new(move |known_dims, available_space| {
                             let measurer = measurer_ref.as_ref().expect("Measurer not set for rich text");
-                            let avail_width = match available_space.width {
+                            // IMPORTANT: rich-text height depends on the final resolved width.
+                            // Taffy may call the measurer with `MaxContent` during intrinsic
+                            // sizing and later resolve a definite width. Prefer `known_dims`
+                            // when present so we reflow/wrap to the resolved width.
+                            let avail_width = known_dims.width.or_else(|| match available_space.width {
                                 AvailableSpace::Definite(w) => Some(w),
                                 AvailableSpace::MaxContent => None,
                                 AvailableSpace::MinContent => Some(0.0),
-                            };
+                            });
                             let (w, h) = measurer.measure_rich_text(&runs, avail_width);
                             taffy::geometry::Size { width: w, height: h }
                         }))),
@@ -375,13 +379,13 @@ impl LayoutEngine {
                 let measurer_ref = self.measurer.clone();
                 self.taffy.set_measure(
                     t_id,
-                    Some(taffy::node::MeasureFunc::Boxed(Box::new(move |_known_dims, available_space| {
+                    Some(taffy::node::MeasureFunc::Boxed(Box::new(move |known_dims, available_space| {
                         let measurer = measurer_ref.as_ref().expect("Measurer not set for rich text");
-                        let avail_width = match available_space.width {
+                        let avail_width = known_dims.width.or_else(|| match available_space.width {
                             AvailableSpace::Definite(w) => Some(w),
                             AvailableSpace::MaxContent => None,
                             AvailableSpace::MinContent => Some(0.0),
-                        };
+                        });
                         let (w, h) = measurer.measure_rich_text(&runs, avail_width);
                         taffy::geometry::Size { width: w, height: h }
                     }))),
@@ -662,6 +666,10 @@ impl LayoutEngine {
                 // Ensure absolutely-positioned overlay children (e.g., AbsoluteFill)
                 // are positioned relative to this stack, not some outer container.
                 style.position = Position::Relative;
+                // Stacks should allow children to stretch to the container's size
+                // so overlay children (e.g., Align) can center within the viewport.
+                style.align_items = Some(AlignItems::Stretch);
+                style.justify_items = Some(JustifyItems::Stretch);
                 style.size = taffy::geometry::Size {
                     width: node.width.map(Dimension::Points).unwrap_or(Dimension::Auto),
                     height: node.height.map(Dimension::Points).unwrap_or(Dimension::Auto),
@@ -685,7 +693,10 @@ impl LayoutEngine {
                 style.justify_items = Some(JustifyItems::Stretch);
             }
             LayoutOp::Positioned { left, top, right, bottom, width, height } => {
-                style.display = Display::Flex;
+                // Positioned is an absolutely-positioned container that typically wraps
+                // a single child. Treat it as a stretch container so children (e.g.
+                // full-screen backdrops, centering wrappers) fill the positioned rect.
+                style.display = Display::Grid;
                 style.position = Position::Absolute;
                 style.inset = taffy::geometry::Rect {
                     left: left.map(LengthPercentageAuto::Points).unwrap_or(LengthPercentageAuto::Auto),
@@ -697,11 +708,21 @@ impl LayoutEngine {
                     width: width.map(Dimension::Points).unwrap_or(Dimension::Auto),
                     height: height.map(Dimension::Points).unwrap_or(Dimension::Auto),
                 };
+                style.align_items = Some(AlignItems::Stretch);
+                style.justify_items = Some(JustifyItems::Stretch);
             }
             LayoutOp::Align => {
                 style.display = Display::Flex;
                 style.align_items = Some(AlignItems::Center);
                 style.justify_content = Some(JustifyContent::Center);
+                // Align containers are generally used to center within available space;
+                // allow them to expand to fill their parent so centering works as intended.
+                if style.flex_grow == 0.0 {
+                    style.flex_grow = 1.0;
+                }
+                if style.flex_shrink == 0.0 {
+                    style.flex_shrink = 1.0;
+                }
             }
             LayoutOp::Flyout { .. } => {
                 style.display = Display::None;

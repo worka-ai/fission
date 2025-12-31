@@ -65,6 +65,7 @@ impl<S: fission_core::AppState> Widget<S> for Accordion {
                     Container::new(item.content.clone())
                         .padding_all(tokens.spacing.m)
                         .bg(tokens.colors.background)
+                        .border(tokens.colors.border, 1.0)
                         .into_node()
                 );
             }

@@ -2,7 +2,7 @@ use fission_core::{BuildCtx, View, Widget, WidgetNodeId, NodeId, Handler};
 use fission_core::ui::{Container, Node, Text, TextContent, Button, ButtonVariant, Scroll, Checkbox};
 use fission_core::op::Color;
 use fission_widgets::{VStack, HStack, LazyColumn, Tabs, TabItem, TextInput, MenuButton, MenuItem, Badge, Divider, Icon, Skeleton, SegmentedControl, Pagination, EmptyState, Hero};
-use crate::model::{InboxState, SelectTab, UpdateSearch, ToggleFilterDropdown, DismissDropdown, SelectEmail, ToggleEmailSelection, ToggleCompose, Navigate, ToggleMobileMenu, SetFilterMode, SetPage};
+use crate::model::{InboxState, SelectTab, UpdateSearch, ToggleFilterDropdown, DismissDropdown, SelectEmail, ToggleEmailSelection, SetComposeOpen, Navigate, SetMobileMenuOpen, SetFilterMode, SetPage};
 use fission_icons::material;
 use std::sync::Arc;
 use serde_json;
@@ -28,7 +28,7 @@ impl Widget<InboxState> for EmailList {
                     Button {
                         variant: ButtonVariant::Ghost,
                         child: Some(Box::new(Icon::svg(material::navigation::menu::regular()).size(24.0).into_node())),
-                        on_press: Some(ctx.bind(ToggleMobileMenu, (|s: &mut InboxState, _: ToggleMobileMenu, _| s.show_mobile_menu = true) as Handler<InboxState, ToggleMobileMenu>)),
+                        on_press: Some(ctx.bind(SetMobileMenuOpen(true), (|s: &mut InboxState, a: SetMobileMenuOpen, _| s.show_mobile_menu = a.0) as Handler<InboxState, SetMobileMenuOpen>)),
                         ..Default::default()
                     }.into_node(),
                     Text::new(self.folder.clone()).size(24.0).into_node(), 
@@ -36,7 +36,7 @@ impl Widget<InboxState> for EmailList {
                     Button {
                         variant: ButtonVariant::Filled,
                         child: Some(Box::new(Text::new(TextContent::Key("button.compose".into())).color(Color::WHITE).into_node())),
-                        on_press: Some(ctx.bind(ToggleCompose, (|s: &mut InboxState, _: ToggleCompose, _| s.show_compose = true) as Handler<InboxState, ToggleCompose>)),
+                        on_press: Some(ctx.bind(SetComposeOpen(true), (|s: &mut InboxState, a: SetComposeOpen, _| s.show_compose = a.0) as Handler<InboxState, SetComposeOpen>)),
                         ..Default::default()
                     }.into_node()
                 ]
@@ -80,6 +80,18 @@ impl Widget<InboxState> for EmailList {
             for i in 0..10 {
                 let id = i + (view.state.page * 10);
                 let path = format!("/{}/{}", self.folder, id);
+
+                // Demo filter behavior (until we have a real email store in state):
+                // - Unread: even ids
+                // - Starred: ids divisible by 3
+                let is_unread = id % 2 == 0;
+                let is_starred = id % 3 == 0;
+                match view.state.filter_mode {
+                    0 => {} // All
+                    1 if !is_unread => continue,
+                    2 if !is_starred => continue,
+                    _ => {}
+                }
                 
                 let item_content = HStack {
                     spacing: Some(12.0),
@@ -93,7 +105,10 @@ impl Widget<InboxState> for EmailList {
                                                                             Hero {
                                                                                 tag: format!("email_subject_{}", id),
                                                                                 child: Box::new(Text {
-                                                                                    content: TextContent::Literal(format!("Subject {}", id)),
+                                                                                    content: TextContent::Literal(format!(
+                                                                                        "Subject {} — This is a longer subject line to exercise wrapping in layout",
+                                                                                        id
+                                                                                    )),
                                                                                     font_size: Some(16.0),
                                                                                     ..Default::default()
                                                                                 }.into()),
@@ -134,29 +149,31 @@ impl Widget<InboxState> for EmailList {
                 LazyColumn {
                     id: Some(node_id),
                     children: email_nodes,
-                    item_height: 80.0, 
+                    item_height: 100.0, 
                 }.into()
             );
         }
         
         // Pagination
-        list_items.push(
-            fission_core::ui::widgets::Spacer { height: Some(16.0), ..Default::default() }.into_node()
-        );
-        list_items.push(
-            fission_widgets::center::Center {
-                child: Box::new(Pagination {
-                    current_page: view.state.page,
-                    total_pages: view.state.total_pages,
-                    on_change: Some(Arc::new(move |page| {
-                        ActionEnvelope {
-                            id: page_id,
-                            payload: serde_json::to_vec(&SetPage(page)).unwrap(),
-                        }
-                    })),
-                }.build(ctx, view))
-            }.build(ctx, view)
-        );
+        if !view.state.show_compose {
+            list_items.push(
+                fission_core::ui::widgets::Spacer { height: Some(16.0), ..Default::default() }.into_node()
+            );
+            list_items.push(
+                fission_widgets::center::Center {
+                    child: Box::new(Pagination {
+                        current_page: view.state.page,
+                        total_pages: view.state.total_pages,
+                        on_change: Some(Arc::new(move |page| {
+                            ActionEnvelope {
+                                id: page_id,
+                                payload: serde_json::to_vec(&SetPage(page)).unwrap(),
+                            }
+                        })),
+                    }.build(ctx, view))
+                }.build(ctx, view)
+            );
+        }
 
         Container::new(
             VStack {
@@ -168,5 +185,54 @@ impl Widget<InboxState> for EmailList {
         .padding_all(16.0)
         .flex_grow(1.0)
         .into_node()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use anyhow::Result;
+    use fission_test::TestHarness;
+
+    fn count_subject_text_nodes(h: &TestHarness<InboxState>) -> usize {
+        let ir = h.last_ir.as_ref().unwrap();
+        ir.nodes
+            .values()
+            .filter(|n| {
+                matches!(
+                    &n.op,
+                    fission_ir::Op::Paint(fission_ir::PaintOp::DrawText { text, .. })
+                        if text.starts_with("Subject ")
+                )
+            })
+            .count()
+    }
+
+    #[test]
+    fn filter_mode_changes_list_contents() -> Result<()> {
+        struct Root;
+        impl Widget<InboxState> for Root {
+            fn build(&self, ctx: &mut BuildCtx<InboxState>, view: &View<InboxState>) -> Node {
+                EmailList { folder: "inbox".into() }.build(ctx, view)
+            }
+        }
+
+        let mut h = TestHarness::new(InboxState::default()).with_root_widget(Root);
+        h.pump()?;
+
+        let all_count = count_subject_text_nodes(&h);
+        assert!(all_count > 0, "expected some subjects in All mode");
+
+        h.dispatch(SetFilterMode(1))?; // Unread
+        h.pump()?;
+        let unread_count = count_subject_text_nodes(&h);
+        assert!(unread_count < all_count, "Unread should show fewer items than All");
+
+        h.dispatch(SetFilterMode(2))?; // Starred
+        h.pump()?;
+        let starred_count = count_subject_text_nodes(&h);
+        assert!(starred_count < all_count, "Starred should show fewer items than All");
+
+        Ok(())
     }
 }

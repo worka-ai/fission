@@ -23,21 +23,25 @@ fn test_scroll_input_updates_display_list() {
 
     harness.pump().expect("Initial pump failed");
 
+    let debug = std::env::var("FISSION_TEST_DEBUG").is_ok();
+
     // Verify hit test finds something at (5,5)
-    if let (Some(ir), Some(snap)) = (&harness.last_ir, &harness.last_snapshot) {
+    if debug {
+        if let (Some(ir), Some(snap)) = (&harness.last_ir, &harness.last_snapshot) {
         let pre_hit = fission_core::hit_test::hit_test_with_scroll(
             ir,
             snap,
             &harness.runtime.runtime_state.scroll,
             LayoutPoint::new(5.0, 5.0),
         );
-        eprintln!("Debug: pre_hit={:?}", pre_hit);
+            eprintln!("Debug: pre_hit={:?}", pre_hit);
 
         // List scroll nodes present
         for (id, node) in &ir.nodes {
             if let fission_core::Op::Layout(fission_core::LayoutOp::Scroll { .. }) = node.op {
                 eprintln!("Debug: scroll_node id={:?}", id);
             }
+        }
         }
     }
 
@@ -55,10 +59,12 @@ fn test_scroll_input_updates_display_list() {
 
     // Inspect updated offset before pumping
     // Dump any non-zero scroll offsets for nodes in the current IR
-    if let Some(ir) = &harness.last_ir {
+    if debug {
+        if let Some(ir) = &harness.last_ir {
         for (id, _node) in &ir.nodes {
             let off = harness.runtime.runtime_state.scroll.get_offset(*id);
             if off != 0.0 { eprintln!("Debug: node {:?} offset {}", id, off); }
+        }
         }
     }
 

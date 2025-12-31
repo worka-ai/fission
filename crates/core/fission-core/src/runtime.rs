@@ -16,6 +16,7 @@ use serde_json;
 
 pub struct Runtime {
     pub reducers: HashMap<ActionId, Vec<BoxedReducer>>,
+    pub persistent_reducers: HashMap<ActionId, Vec<BoxedReducer>>,
     pub app_states: HashMap<TypeId, Box<dyn AppState>>,
     pub runtime_state: RuntimeState,
     pub measurer: Option<Arc<dyn TextMeasurer>>,
@@ -32,6 +33,7 @@ impl Default for Runtime {
     fn default() -> Self {
         let mut runtime = Self {
             reducers: HashMap::new(),
+            persistent_reducers: HashMap::new(),
             app_states: HashMap::new(),
             runtime_state: RuntimeState::default(),
             measurer: None,
@@ -150,6 +152,18 @@ impl Runtime {
         }
     }
 
+    /// Registers reducers that should survive `clear_reducers()` calls.
+    ///
+    /// This is intended for app-level "global" handlers (e.g. system effects) that
+    /// are installed once at app startup, while per-frame widget handlers are
+    /// regenerated every frame via `BuildCtx` and `absorb_registry`.
+    pub fn absorb_persistent_registry<S: AppState>(&mut self, registry: ActionRegistry<S>) {
+        let new_reducers = registry.into_runtime_reducers();
+        for (id, mut list) in new_reducers {
+            self.persistent_reducers.entry(id).or_default().append(&mut list);
+        }
+    }
+
     pub fn clock(&self) -> &Clock {
         self.get_app_state::<Clock>()
             .expect("Clock state must always be present")
@@ -192,31 +206,44 @@ impl Runtime {
         }
 
         let action_id = action.id;
+
+        // Collect effects from this dispatch (both persistent and per-frame reducers).
+        let mut effects = Vec::new();
+
+        if let Some(reducers) = self.persistent_reducers.get_mut(&action_id) {
+            diag::emit(
+                diag::DiagCategory::Input,
+                diag::DiagLevel::Debug,
+                diag::DiagEventKind::InputEvent { kind: format!("persistent_reducers:{}", reducers.len()), target: Some(target.as_u128()), position: None },
+            );
+
+            let mut temp_reducers: Vec<BoxedReducer> = reducers.drain(..).collect();
+            for reducer_wrapper in temp_reducers.iter_mut() {
+                reducer_wrapper(&mut self.app_states, &action, target, &mut effects, input)?;
+            }
+            reducers.extend(temp_reducers);
+        }
+
         if let Some(reducers) = self.reducers.get_mut(&action_id) {
             diag::emit(
                 diag::DiagCategory::Input,
                 diag::DiagLevel::Debug,
                 diag::DiagEventKind::InputEvent { kind: format!("reducers:{}", reducers.len()), target: Some(target.as_u128()), position: None },
             );
-            
-            // Collect effects from this dispatch
-            let mut effects = Vec::new();
-            
-            let mut temp_reducers: Vec<BoxedReducer> = reducers.drain(..).collect();
 
+            let mut temp_reducers: Vec<BoxedReducer> = reducers.drain(..).collect();
             for reducer_wrapper in temp_reducers.iter_mut() {
-                // Pass accumulated effects list
                 reducer_wrapper(&mut self.app_states, &action, target, &mut effects, input)?;
             }
             reducers.extend(temp_reducers);
-            
-            // Process effects: Assign ReqIds and queue them
-            for mut envelope in effects {
-                // Assign deterministic ReqId
-                envelope.req_id = self.next_req_id;
-                self.next_req_id += 1;
-                self.pending_effects.push(envelope);
-            }
+        }
+
+        // Process effects: Assign ReqIds and queue them
+        for mut envelope in effects {
+            // Assign deterministic ReqId
+            envelope.req_id = self.next_req_id;
+            self.next_req_id += 1;
+            self.pending_effects.push(envelope);
         }
         
         diag::emit(

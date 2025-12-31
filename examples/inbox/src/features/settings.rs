@@ -2,7 +2,7 @@ use fission_core::{BuildCtx, View, Widget, WidgetNodeId, NodeId, Handler, Action
 use fission_core::ui::{Text, Node};
 use fission_core::op::Color;
 use fission_widgets::{Modal, ModalAction, VStack, HStack, Select, NumberInput, FormControl, SegmentedControl};
-use crate::model::{InboxState, ToggleSettings, SetLocale};
+use crate::model::{InboxState, SetSettingsOpen, SetLocale};
 use fission_i18n::{Locale};
 use std::sync::Arc;
 use serde_json;
@@ -17,7 +17,7 @@ impl Widget<InboxState> for SettingsModal {
             id: WidgetNodeId::explicit("settings_modal"),
             title: "Settings".into(),
             is_open: true,
-            on_dismiss: Some(ctx.bind(ToggleSettings, (|s, _, _| s.show_settings = false) as Handler<InboxState, ToggleSettings>)),
+            on_dismiss: Some(ctx.bind(SetSettingsOpen(false), (|s, a, _| s.show_settings = a.0) as Handler<InboxState, SetSettingsOpen>)),
             width: Some(400.0),
             content: Box::new(
                 VStack {
@@ -79,7 +79,7 @@ impl Widget<InboxState> for SettingsModal {
                 }.into_node()
             ),
             actions: vec![
-                ModalAction { label: "Close".into(), is_primary: true, on_press: Some(ctx.bind(ToggleSettings, (|s, _, _| s.show_settings = false) as Handler<InboxState, ToggleSettings>)) }
+                ModalAction { label: "Close".into(), is_primary: true, on_press: Some(ctx.bind(SetSettingsOpen(false), (|s, a, _| s.show_settings = a.0) as Handler<InboxState, SetSettingsOpen>)) }
             ]
         }.build(ctx, view)
     }

@@ -25,6 +25,17 @@ impl InputController for TextInputController {
                     if let Some(node) = ctx.ir.nodes.get(&focused_id) {
                         if let Op::Semantics(sem) = &node.op {
                             if sem.role == fission_ir::semantics::Role::TextInput {
+                                // Only handle pointer-down as a caret/selection update when the
+                                // pointer is inside the currently focused TextInput.
+                                //
+                                // Otherwise, allow the generic focus logic in `Runtime::handle_input`
+                                // to run so clicks can move focus to other widgets (including other
+                                // TextInputs, buttons, etc).
+                                if let Some(geom) = ctx.layout.get_node_geometry(focused_id) {
+                                    if !geom.rect.contains(*point) {
+                                        return false;
+                                    }
+                                }
                                 if let Some((scroll_id, _text_op_node_id, scroll_direction)) = Self::find_scroll_container_and_text_op(ctx.ir, focused_id, sem.multiline) {
                                     if let Some(scroll_geom) = ctx.layout.get_node_geometry(scroll_id) {
                                         let value = sem.value.as_deref().unwrap_or("");

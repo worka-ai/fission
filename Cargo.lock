@@ -1319,6 +1319,7 @@ dependencies = [
  "fission-macros",
  "fission-render",
  "fission-shell-desktop",
+ "fission-test",
  "fission-widgets",
  "lazy_static",
  "serde",

@@ -118,7 +118,6 @@ fn test_email_list_width() {
 }
 
 #[test]
-#[ignore] // FIXME: Modal backdrop hit test issue (likely layout/geometry)
 fn test_modal_backdrop_dismiss() {
     use fission_widgets::Modal;
     use fission_core::Handler;
@@ -156,4 +155,64 @@ fn test_modal_backdrop_dismiss() {
     
     let state = h.runtime.get_app_state::<State>().unwrap();
     assert!(!state.modal_open, "Modal should be closed (modal_open = false)");
+}
+
+#[test]
+fn test_modal_close_button_dismiss() {
+    use fission_widgets::Modal;
+    use fission_core::Handler;
+    use fission_core::event::{PointerButton, PointerEvent};
+
+    struct ModalTest;
+    impl Widget<State> for ModalTest {
+        fn build(&self, ctx: &mut BuildCtx<State>, view: &View<State>) -> Node {
+            Modal {
+                id: fission_core::WidgetNodeId::explicit("test_modal"),
+                title: "Test".into(),
+                content: Box::new(Text::new("Content").into_node()),
+                is_open: true,
+                on_dismiss: Some(ctx.bind(DismissAction, (|s: &mut State, _, _| {
+                    s.modal_open = false;
+                }) as Handler<State, DismissAction>)),
+                actions: vec![],
+                width: Some(300.0),
+            }.build(ctx, view)
+        }
+    }
+
+    let mut h = TestHarness::new(State { modal_open: true, ..Default::default() });
+    h = h.with_root_widget(ModalTest);
+    h.pump().unwrap();
+
+    // Find the smallest Button semantics node; backdrop is full-screen, close is small.
+    let snap = h.last_snapshot.as_ref().unwrap();
+    let ir = h.last_ir.as_ref().unwrap();
+    let mut buttons = Vec::new();
+    for (id, node) in &ir.nodes {
+        if let fission_ir::Op::Semantics(s) = &node.op {
+            if s.role == fission_ir::Role::Button {
+                if let Some(r) = snap.get_node_rect(*id) {
+                    buttons.push((*id, r));
+                }
+            }
+        }
+    }
+    assert!(!buttons.is_empty(), "Expected at least one button in modal");
+    buttons.sort_by(|a, b| (a.1.width() * a.1.height()).partial_cmp(&(b.1.width() * b.1.height())).unwrap());
+    let (_id, r) = buttons[0];
+
+    let center = fission_core::LayoutPoint::new(r.x() + r.width() / 2.0, r.y() + r.height() / 2.0);
+    h.send_event(fission_core::InputEvent::Pointer(PointerEvent::Down {
+        point: center,
+        button: PointerButton::Primary,
+    })).unwrap();
+    h.pump().unwrap();
+    h.send_event(fission_core::InputEvent::Pointer(PointerEvent::Up {
+        point: center,
+        button: PointerButton::Primary,
+    })).unwrap();
+    h.pump().unwrap();
+
+    let state = h.runtime.get_app_state::<State>().unwrap();
+    assert!(!state.modal_open, "Modal should be closed via close button");
 }

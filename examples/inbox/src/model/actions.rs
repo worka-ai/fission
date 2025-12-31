@@ -14,13 +14,21 @@ pub struct SetFilterMode(pub usize);
 pub struct SetComposeTo(pub String);
 
 #[derive(Action, Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
+#[serde(transparent)]
+pub struct SetComposeSubject(pub String);
+
+#[derive(Action, Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
+#[serde(transparent)]
+pub struct SetComposeBody(pub String);
+
+#[derive(Action, Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
 pub struct SetScheduleDate(pub NaiveDate);
 
 #[derive(Action, Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
 pub struct SetScheduleTime(pub u32, pub u32);
 
 #[derive(Action, Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
-pub struct ToggleDatePicker;
+pub struct SetDatePickerOpen(pub bool);
 
 #[derive(Action, Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
 pub struct FileSelected;
@@ -87,16 +95,16 @@ pub struct ToggleFolderExpand(pub String);
 
 // Modals
 #[derive(Action, Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct ToggleSettings;
+pub struct SetSettingsOpen(pub bool);
 
 #[derive(Action, Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct ToggleContacts;
+pub struct SetContactsOpen(pub bool);
 
 #[derive(Action, Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct ToggleCompose;
+pub struct SetComposeOpen(pub bool);
 
 #[derive(Action, Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct ToggleMobileMenu;
+pub struct SetMobileMenuOpen(pub bool);
 
 // Toast
 #[derive(Action, Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

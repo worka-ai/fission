@@ -47,7 +47,7 @@ use hit_test::{find_next_focus_node, hit_test, hit_test_with_scroll};
 pub use lowering::{LoweringContext, NodeBuilder};
 pub use registry::{
     ActionRegistry, AnimationPropertyId, AnimationRequest, AnimationStartValue, BuildCtx, Handler,
-    VideoRegistration,
+    PortalLayer, VideoRegistration,
 };
 pub use time::{Clock, CurrentTime};
 pub use ui::{Button, Column, CustomNode, Lower, LowerDyn, Node, Row, Text};
@@ -94,4 +94,3 @@ pub type BoxedReducer = Box<
         + Send
         + Sync,
 >;
-

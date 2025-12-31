@@ -51,7 +51,7 @@ impl Widget<InboxState> for InboxApp {
             id: WidgetNodeId::explicit("mobile_drawer"),
             side: DrawerSide::Left,
             is_open: view.state.show_mobile_menu,
-            on_dismiss: Some(ctx.bind(ToggleMobileMenu, (|s, _, _| s.show_mobile_menu = false) as Handler<InboxState, ToggleMobileMenu>)),
+            on_dismiss: Some(ctx.bind(SetMobileMenuOpen(false), (|s, a, _| s.show_mobile_menu = a.0) as Handler<InboxState, SetMobileMenuOpen>)),
             content: Box::new(Sidebar.build(ctx, view)),
             width: Some(250.0),
         }.build(ctx, view);
@@ -147,17 +147,14 @@ impl Widget<InboxState> for InboxApp {
 
 // Handlers for Browser Demo
 fn on_open_system_link(_state: &mut InboxState, action: OpenSystemLink, ctx: &mut ReducerContext<InboxState>) {
-    println!("[Demo] Dispatching SystemEffect::OpenUrl(system) for {}", action.0);
     ctx.effects.add(SystemEffect::OpenUrl { url: action.0, in_app: false });
 }
 
 fn on_open_in_app_link(_state: &mut InboxState, action: OpenInAppLink, ctx: &mut ReducerContext<InboxState>) {
-    println!("[Demo] Dispatching SystemEffect::OpenUrl(in-app) for {}", action.0);
     ctx.effects.add(SystemEffect::OpenUrl { url: action.0, in_app: true });
 }
 
 fn on_start_auth(_state: &mut InboxState, _action: StartAuth, ctx: &mut ReducerContext<InboxState>) {
-    println!("[Demo] Dispatching SystemEffect::Authenticate");
     ctx.effects.add(SystemEffect::Authenticate { 
         url: "https://auth.example.com/login".into(),
         callback_scheme: "fission-inbox://callback".into()
@@ -216,4 +213,81 @@ fn main() -> anyhow::Result<()> {
     app.absorb_registry(registry);
         
     app.run()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use anyhow::Result;
+    use fission_core::event::{InputEvent, PointerButton, PointerEvent};
+    use fission_test::TestHarness;
+
+    fn click(h: &mut TestHarness<InboxState>, x: f32, y: f32) -> Result<()> {
+        let point = fission_core::LayoutPoint::new(x, y);
+        h.send_event(InputEvent::Pointer(PointerEvent::Down {
+            point,
+            button: PointerButton::Primary,
+        }))?;
+        h.send_event(InputEvent::Pointer(PointerEvent::Up {
+            point,
+            button: PointerButton::Primary,
+        }))?;
+        Ok(())
+    }
+
+    #[test]
+    fn settings_modal_backdrop_closes() -> Result<()> {
+        let mut state = InboxState::default();
+        state.show_settings = true;
+        let mut h = TestHarness::new(state).with_root_widget(InboxApp);
+        h.pump()?;
+
+        click(&mut h, 10.0, 10.0)?;
+
+        let state = h.runtime.get_app_state::<InboxState>().unwrap();
+        assert!(!state.show_settings, "settings modal should close on backdrop click");
+        Ok(())
+    }
+
+    #[test]
+    fn contacts_modal_backdrop_closes() -> Result<()> {
+        let mut state = InboxState::default();
+        state.show_contacts = true;
+        let mut h = TestHarness::new(state).with_root_widget(InboxApp);
+        h.pump()?;
+
+        click(&mut h, 10.0, 10.0)?;
+
+        let state = h.runtime.get_app_state::<InboxState>().unwrap();
+        assert!(!state.show_contacts, "contacts modal should close on backdrop click");
+        Ok(())
+    }
+
+    #[test]
+    fn compose_modal_backdrop_closes() -> Result<()> {
+        let mut state = InboxState::default();
+        state.show_compose = true;
+        let mut h = TestHarness::new(state).with_root_widget(InboxApp);
+        h.pump()?;
+
+        click(&mut h, 10.0, 10.0)?;
+
+        let state = h.runtime.get_app_state::<InboxState>().unwrap();
+        assert!(!state.show_compose, "compose modal should close on backdrop click");
+        Ok(())
+    }
+
+    #[test]
+    fn mobile_drawer_backdrop_closes() -> Result<()> {
+        let mut state = InboxState::default();
+        state.show_mobile_menu = true;
+        let mut h = TestHarness::new(state).with_root_widget(InboxApp);
+        h.pump()?;
+
+        click(&mut h, 700.0, 20.0)?;
+
+        let state = h.runtime.get_app_state::<InboxState>().unwrap();
+        assert!(!state.show_mobile_menu, "mobile drawer should close on backdrop click");
+        Ok(())
+    }
 }

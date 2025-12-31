@@ -115,7 +115,7 @@ impl<S: fission_core::AppState> Widget<S> for Drawer {
             ..Default::default()
         }.into_node();
 
-        ctx.register_portal(overlay_root);
+        ctx.register_portal_with_layer(fission_core::PortalLayer::Modal, overlay_root);
 
         fission_core::ui::widgets::Spacer::default().into_node()
     }

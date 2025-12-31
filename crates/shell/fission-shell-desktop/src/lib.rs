@@ -17,6 +17,7 @@ use fission_core::{Action, ActionId, AppState, BuildCtx, Clock, Env, InputEvent,
     KeyEvent as FissionKeyEvent, Lower, Node, PointerButton, PointerEvent, Runtime, ScrollStateMap,
     View, Widget,
 };
+use fission_core::{ActionInput, Effect, EffectPayload, SystemEffect};
 use fission_ir::{op::Color as IrColor, CoreIR, FlexDirection, NodeId, Op, PaintOp, WidgetNodeId};
 use fission_layout::{LayoutEngine, LayoutSize};
 use fission_render::{
@@ -52,6 +53,124 @@ struct ActivePlayer {
     last_rate: Option<f32>,
     last_volume: Option<f32>,
     last_muted: Option<bool>,
+}
+
+fn process_pending_effects(runtime: &mut Runtime) -> bool {
+    use std::process::Command;
+
+    let execute = std::env::var("FISSION_DESKTOP_EXECUTE_SYSTEM_EFFECTS")
+        .ok()
+        .as_deref()
+        == Some("1");
+
+    let pending = std::mem::take(&mut runtime.pending_effects);
+    if pending.is_empty() {
+        return false;
+    }
+
+    let mut dispatched_callback = false;
+
+    for env in pending {
+        match env.effect {
+            Effect::System(system) => {
+                match &system {
+                    SystemEffect::OpenUrl { url, in_app } => {
+                        diag::emit(
+                            diag::DiagCategory::Input,
+                            diag::DiagLevel::Info,
+                            diag::DiagEventKind::InputEvent {
+                                kind: format!("system_effect:OpenUrl in_app={}", in_app),
+                                target: None,
+                                position: None,
+                            },
+                        );
+
+                        if execute {
+                            let result = if cfg!(target_os = "macos") {
+                                Command::new("open").arg(url).spawn().map(|_| ())
+                            } else if cfg!(target_os = "windows") {
+                                Command::new("cmd")
+                                    .args(["/C", "start", url])
+                                    .spawn()
+                                    .map(|_| ())
+                            } else {
+                                Command::new("xdg-open").arg(url).spawn().map(|_| ())
+                            };
+
+                            if let Err(e) = result {
+                                diag::emit(
+                                    diag::DiagCategory::Input,
+                                    diag::DiagLevel::Error,
+                                    diag::DiagEventKind::InputEvent {
+                                        kind: format!("system_effect:OpenUrl failed: {}", e),
+                                        target: None,
+                                        position: None,
+                                    },
+                                );
+                            }
+                        }
+                    }
+                    SystemEffect::Authenticate { url, .. } => {
+                        diag::emit(
+                            diag::DiagCategory::Input,
+                            diag::DiagLevel::Info,
+                            diag::DiagEventKind::InputEvent {
+                                kind: "system_effect:Authenticate".into(),
+                                target: None,
+                                position: None,
+                            },
+                        );
+                        if execute {
+                            let _ = if cfg!(target_os = "macos") {
+                                Command::new("open").arg(url).spawn()
+                            } else if cfg!(target_os = "windows") {
+                                Command::new("cmd").args(["/C", "start", url]).spawn()
+                            } else {
+                                Command::new("xdg-open").arg(url).spawn()
+                            };
+                        }
+                    }
+                    other => {
+                        diag::emit(
+                            diag::DiagCategory::Input,
+                            diag::DiagLevel::Warn,
+                            diag::DiagEventKind::InputEvent {
+                                kind: format!("system_effect:unhandled:{:?}", other),
+                                target: None,
+                                position: None,
+                            },
+                        );
+                    }
+                }
+
+                // Optionally dispatch immediate callbacks (if provided).
+                if let Some(on_ok) = env.on_ok {
+                    let _ = runtime.dispatch_with_input(
+                        on_ok,
+                        NodeId::derived(0, &[0]),
+                        &ActionInput::EffectOk {
+                            req_id: env.req_id,
+                            payload: EffectPayload::Empty,
+                        },
+                    );
+                    dispatched_callback = true;
+                }
+            }
+            Effect::App(_) => {
+                diag::emit(
+                    diag::DiagCategory::Input,
+                    diag::DiagLevel::Warn,
+                    diag::DiagEventKind::InputEvent {
+                        kind: "app_effect:unhandled".into(),
+                        target: None,
+                        position: None,
+                    },
+                );
+            }
+        }
+    }
+
+    dispatched_callback
 }
 
 pub struct DesktopApp<S: AppState, W: Widget<S>> {
@@ -113,7 +232,7 @@ impl<S: AppState + Default, W: Widget<S> + 'static> DesktopApp<S, W> {
     }
 
     pub fn absorb_registry(&mut self, registry: fission_core::ActionRegistry<S>) {
-        self.runtime.absorb_registry(registry);
+        self.runtime.absorb_persistent_registry(registry);
     }
 
     pub fn run(mut self) -> Result<()> { 
@@ -303,6 +422,11 @@ impl<S: AppState + Default, W: Widget<S> + 'static> DesktopApp<S, W> {
                         match event {
                             WindowEvent::RedrawRequested => {
                                 diag::begin_frame(None);
+                                // Drain pending effects before building the next frame.
+                                // This prevents the effect queue from growing unbounded.
+                                if process_pending_effects(&mut runtime) {
+                                    window.request_redraw();
+                                }
                                 let size = window.inner_size();
                                 if size.width > 0 && size.height > 0 {
                                     if size.width != surface.config.width || size.height != surface.config.height {
@@ -389,6 +513,7 @@ impl<S: AppState + Default, W: Widget<S> + 'static> DesktopApp<S, W> {
                                         &runtime.runtime_state.scroll,
                                         &mut renderer_wrapper,
                                         &runtime.runtime_state.video,
+                                        &runtime.runtime_state.web,
                                     ) {
                                         Ok(_stats) => {
                                             let surface_texture = surface.surface.get_current_texture().expect("failed to get texture");
@@ -450,6 +575,9 @@ impl<S: AppState + Default, W: Widget<S> + 'static> DesktopApp<S, W> {
                                     if let Err(e) = runtime.handle_input(event, ir, layout) {
                                         eprintln!("Input handling error: {:?}", e);
                                     }
+                                    if process_pending_effects(&mut runtime) {
+                                        window.request_redraw();
+                                    }
                                     window.request_redraw();
                                 }
                             }
@@ -462,28 +590,15 @@ impl<S: AppState + Default, W: Widget<S> + 'static> DesktopApp<S, W> {
                                             y: (position.y / scale_factor) as f32,
                                         };
                                         if let Some(btn) = map_mouse_button(button) {
-                                            // Debug Hit Test
-                                            if let Some(hit) = fission_core::hit_test::hit_test_with_scroll(ir, layout, &runtime.runtime_state.scroll, point) {
-                                                // println!("Debug: Hit Node {:?}", hit);
-                                                if let Some(node) = ir.nodes.get(&hit) {
-                                                    // println!("Debug: Node Op: {:?}", node.op);
-                                                }
-                                            } else {
-                                                println!("Debug: Hit Nothing at {:?}", point);
-                                                // Dump layout to see where nodes are
-                                                println!("--- Layout Dump ---");
-                                                for (id, geom) in &layout.nodes {
-                                                    println!("Node {:?}: Rect {:?}", id, geom.rect);
-                                                }
-                                                println!("--- End Dump ---");
-                                            }
-
                                             if let Some(event) = build_pointer_event(state, btn, point) {
                                                 // println!("Dispatching input: {:?} at {:?}", event, point);
                                                 if let Err(e) = runtime.handle_input(event, ir, layout) {
                                                     eprintln!("Input handling error: {:?}", e);
                                                 } else {
                                                     // println!("Input dispatched successfully");
+                                                }
+                                                if process_pending_effects(&mut runtime) {
+                                                    window.request_redraw();
                                                 }
                                                 window.request_redraw();
                                             }
@@ -511,6 +626,9 @@ impl<S: AppState + Default, W: Widget<S> + 'static> DesktopApp<S, W> {
                                         let event = InputEvent::Pointer(PointerEvent::Scroll { point, delta: scroll_delta });
                                         if let Err(e) = runtime.handle_input(event, ir, layout) {
                                             eprintln!("Scroll error: {:?}", e);
+                                        }
+                                        if process_pending_effects(&mut runtime) {
+                                            window.request_redraw();
                                         }
                                         window.request_redraw();
                                     }
@@ -552,6 +670,9 @@ impl<S: AppState + Default, W: Widget<S> + 'static> DesktopApp<S, W> {
                                         if let Err(e) = runtime.handle_input(input_event, ir, layout) {
                                             eprintln!("Keyboard error: {:?}", e);
                                         }
+                                        if process_pending_effects(&mut runtime) {
+                                            window.request_redraw();
+                                        }
                                         window.request_redraw();
                                     }
                                 }
@@ -566,6 +687,9 @@ impl<S: AppState + Default, W: Widget<S> + 'static> DesktopApp<S, W> {
                                     
                                     if let Some(e) = input_event {
                                         runtime.handle_input(e, ir, layout).ok();
+                                        if process_pending_effects(&mut runtime) {
+                                            window.request_redraw();
+                                        }
                                         window.request_redraw();
                                     }
                                 }

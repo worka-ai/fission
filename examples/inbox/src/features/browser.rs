@@ -1,4 +1,4 @@
-use fission_core::{BuildCtx, View, Widget, WidgetNodeId, NodeId, Handler, ActionEnvelope, ActionId};
+use fission_core::{BuildCtx, View, Widget, WidgetNodeId, Handler};
 use fission_core::ui::{Text, Node, Container, Button as CoreButton, ButtonVariant};
 use fission_core::op::Color;
 use fission_widgets::{Modal, ModalAction, VStack, HStack, TextInput, WebView};
@@ -56,14 +56,14 @@ impl Widget<InboxState> for BrowserModal {
                                         fission_widgets::Button {
                                             variant: fission_widgets::ButtonVariant::Outline,
                                             child: Some(Box::new(Text::new("Open System Browser").into_node())),
-                                            on_press: Some(ctx.bind(OpenSystemLink("https://google.com".into()), (|_, _, _| {}) as Handler<InboxState, OpenSystemLink>)),
+                                            on_press: Some(OpenSystemLink("https://google.com".into()).into()),
                                             ..Default::default()
                                         }.build(ctx, view),
                                         
                                         fission_widgets::Button {
                                             variant: fission_widgets::ButtonVariant::Filled,
                                             child: Some(Box::new(Text::new("Open In-App (Custom Tab)").color(Color::WHITE).into_node())),
-                                            on_press: Some(ctx.bind(OpenInAppLink("https://fission.rs".into()), (|_, _, _| {}) as Handler<InboxState, OpenInAppLink>)),
+                                            on_press: Some(OpenInAppLink("https://fission.rs".into()).into()),
                                             ..Default::default()
                                         }.build(ctx, view),
                                     ]
@@ -79,7 +79,7 @@ impl Widget<InboxState> for BrowserModal {
                                 fission_widgets::Button {
                                     variant: fission_widgets::ButtonVariant::Filled,
                                     child: Some(Box::new(Text::new("Log in with Provider").color(Color::WHITE).into_node())),
-                                    on_press: Some(ctx.bind(StartAuth, (|_, _, _| {}) as Handler<InboxState, StartAuth>)),
+                                    on_press: Some(StartAuth.into()),
                                     ..Default::default()
                                 }.build(ctx, view),
                             ]

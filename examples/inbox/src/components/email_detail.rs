@@ -104,16 +104,21 @@ impl Widget<InboxState> for EmailDetail {
                     
                     // Body
                     Container::new(
-                        Scroll {
-                            child: Some(Box::new(
-                                Text {
-                                    content: TextContent::Literal(
-                                        "Hey there,\n\nThis is the latest message body.\n\nLorem ipsum dolor sit amet...".into()
-                                    ),
+                        VStack {
+                            children: vec![
+                                Scroll {
+                                    child: Some(Box::new(
+                                        Text {
+                                            content: TextContent::Literal(
+                                                "Hey there,\n\nThis is the latest message body.\n\nLorem ipsum dolor sit amet...".into()
+                                            ),
+                                            ..Default::default()
+                                        }.into()
+                                    )),
+                                    show_scrollbar: true,
                                     ..Default::default()
-                                }.into()
-                            )),
-                            show_scrollbar: true,
+                                }.into_node()
+                            ],
                             ..Default::default()
                         }.into_node()
                     ).flex_grow(1.0).into_node(),

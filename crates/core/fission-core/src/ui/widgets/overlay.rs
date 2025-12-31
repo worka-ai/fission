@@ -52,6 +52,26 @@ impl Lower for Overlay {
         stack.add_child(overlay_fill_id);
         let stack_id = stack.build(cx);
 
+        // Ensure the stack fills available space so overlay AbsoluteFill can cover
+        // the full viewport even when content is small.
+        let mut stack_wrapper = NodeBuilder::new(
+            cx.next_node_id(),
+            Op::Layout(LayoutOp::Box {
+                width: None,
+                height: None,
+                min_width: None,
+                max_width: None,
+                min_height: None,
+                max_height: None,
+                padding: [0.0; 4],
+                flex_grow: 1.0,
+                flex_shrink: 1.0,
+                aspect_ratio: None,
+            }),
+        );
+        stack_wrapper.add_child(stack_id);
+        let stack_wrapper_id = stack_wrapper.build(cx);
+
         // Wrap ZStack in a Flex container with flex_grow = 1.0
         // Flex defaults to stretching children, unlike Box which centers.
         let mut root = NodeBuilder::new(
@@ -67,7 +87,7 @@ impl Lower for Overlay {
                 justify_content: fission_ir::op::JustifyContent::Start,
             })
         );
-        root.add_child(stack_id);
+        root.add_child(stack_wrapper_id);
         
         cx.pop_scope();
         

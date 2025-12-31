@@ -349,6 +349,13 @@ pub fn build_layout_tree(ir: &CoreIR) -> Vec<LayoutInputNode> {
                 0.0,
                 0.0,
             ),
+            Op::Layout(LayoutOp::Align) => (
+                LayoutOp::Align,
+                None,
+                None,
+                1.0,
+                1.0,
+            ),
             _ => (
                 LayoutOp::Box {
                     width: None,
