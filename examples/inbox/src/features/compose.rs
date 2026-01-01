@@ -1,9 +1,11 @@
-use fission_core::{BuildCtx, View, Widget, WidgetNodeId, NodeId, Handler, ActionEnvelope, ActionId};
+use fission_core::{BuildCtx, View, Widget, WidgetNodeId, NodeId, Handler, ActionEnvelope};
 use fission_core::ui::Node;
 use fission_widgets::{Modal, ModalAction, VStack, HStack, TextInput, FormControl, Combobox, DatePicker, TimePicker, FileUpload, Dropzone, FocusScope};
-use crate::model::{InboxState, SetComposeOpen, ToggleToast, SetComposeTo, SetComposeSubject, SetComposeBody, SetScheduleDate, SetScheduleTime, SetDatePickerOpen, FileSelected};
+use crate::model::{InboxState, Email, EmailMessage, Folder, SendCompose, SetComposeOpen, SetComposeTo, SetComposeSubject, SetComposeBody, SetScheduleDate, SetScheduleTime, SetDatePickerOpen, FileSelected};
 use std::sync::Arc;
 use serde_json;
+use chrono::Local;
+use std::collections::HashSet;
 
 pub struct ComposeModal;
 
@@ -16,6 +18,67 @@ impl Widget<InboxState> for ComposeModal {
         let date_id = ctx.bind(SetScheduleDate(chrono::Local::now().date_naive()), (|s: &mut InboxState, a: SetScheduleDate, _| { s.schedule_date = Some(a.0); s.is_date_picker_open = false; }) as Handler<InboxState, SetScheduleDate>).id;
         let time_id = ctx.bind(SetScheduleTime(0, 0), (|s: &mut InboxState, a: SetScheduleTime, _| s.schedule_time = Some((a.0, a.1))) as Handler<InboxState, SetScheduleTime>).id;
         let date_picker_open_id = ctx.bind(SetDatePickerOpen(false), (|s: &mut InboxState, a: SetDatePickerOpen, _| s.is_date_picker_open = a.0) as Handler<InboxState, SetDatePickerOpen>).id;
+        let send_id = ctx.bind(SendCompose, (|s: &mut InboxState, _: SendCompose, _| {
+            let subject = if s.compose_subject.trim().is_empty() {
+                "(no subject)".to_string()
+            } else {
+                s.compose_subject.trim().to_string()
+            };
+            let body = if s.compose_body.trim().is_empty() {
+                "(empty message)".to_string()
+            } else {
+                s.compose_body.trim().to_string()
+            };
+            let to: Vec<String> = s
+                .compose_to
+                .split(',')
+                .map(|v| v.trim().to_string())
+                .filter(|v| !v.is_empty())
+                .collect();
+
+            let msg_id = s.next_message_id;
+            s.next_message_id += 1;
+            let thread_id = s.next_email_id;
+            s.next_email_id += 1;
+
+            let message = EmailMessage {
+                id: msg_id,
+                from: "You".into(),
+                to: if to.is_empty() { vec!["team@fission.rs".into()] } else { to },
+                cc: Vec::new(),
+                body,
+                sent_at: Local::now().naive_local(),
+            };
+
+            let mut folders = HashSet::new();
+            folders.insert(Folder::Sent);
+
+            let mut email = Email {
+                id: thread_id,
+                subject,
+                sender: "You".into(),
+                preview: String::new(),
+                folders,
+                is_read: true,
+                is_flagged: false,
+                labels: vec!["Sent".into()],
+                messages: vec![message],
+            };
+            email.refresh_preview();
+            s.emails.insert(0, email);
+
+            s.compose_to.clear();
+            s.compose_subject.clear();
+            s.compose_body.clear();
+            s.compose_attachments.clear();
+            s.schedule_date = None;
+            s.schedule_time = None;
+            s.is_date_picker_open = false;
+
+            s.show_compose = false;
+            s.show_toast = true;
+            s.toast_message = Some("Message sent".into());
+        }) as Handler<InboxState, SendCompose>).id;
 
         let subject_node_id = NodeId::derived(WidgetNodeId::explicit("compose_subject_input").as_u128(), &[]);
         let body_node_id = NodeId::derived(WidgetNodeId::explicit("compose_body_input").as_u128(), &[]);
@@ -162,7 +225,10 @@ impl Widget<InboxState> for ComposeModal {
                 ModalAction { 
                     label: "Send".into(),
                     is_primary: true, 
-                    on_press: Some(ctx.bind(ToggleToast(true), (|s: &mut InboxState, _: ToggleToast, _| { s.show_compose = false; s.show_toast = true; }) as Handler<InboxState, ToggleToast>))
+                    on_press: Some(ActionEnvelope {
+                        id: send_id,
+                        payload: serde_json::to_vec(&SendCompose).unwrap(),
+                    })
                 },
             ]
         }.build(ctx, view)

@@ -38,6 +38,26 @@ impl Default for ColorTokens {
     }
 }
 
+impl ColorTokens {
+    pub fn dark() -> Self {
+        Self {
+            primary: Color { r: 187, g: 134, b: 252, a: 255 },
+            on_primary: Color { r: 0, g: 0, b: 0, a: 255 },
+            secondary: Color { r: 3, g: 218, b: 197, a: 255 },
+            on_secondary: Color { r: 0, g: 0, b: 0, a: 255 },
+            surface: Color { r: 30, g: 30, b: 30, a: 255 },
+            on_surface: Color { r: 230, g: 230, b: 230, a: 255 },
+            background: Color { r: 18, g: 18, b: 18, a: 255 },
+            on_background: Color { r: 230, g: 230, b: 230, a: 255 },
+            error: Color { r: 207, g: 102, b: 121, a: 255 },
+            on_error: Color { r: 0, g: 0, b: 0, a: 255 },
+            border: Color { r: 60, g: 60, b: 60, a: 255 },
+            text_primary: Color { r: 230, g: 230, b: 230, a: 255 },
+            text_secondary: Color { r: 160, g: 160, b: 160, a: 255 },
+        }
+    }
+}
+
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct SpacingTokens {
     pub none: f32, // 0
@@ -130,6 +150,18 @@ pub struct Tokens {
     pub typography: TypographyTokens,
     pub radii: RadiusTokens,
     pub elevations: ElevationTokens,
+}
+
+impl Tokens {
+    pub fn dark() -> Self {
+        Self {
+            colors: ColorTokens::dark(),
+            spacing: SpacingTokens::default(),
+            typography: TypographyTokens::default(),
+            radii: RadiusTokens::default(),
+            elevations: ElevationTokens::default(),
+        }
+    }
 }
 
 // --- Component Themes ---
@@ -444,6 +476,14 @@ pub struct Theme {
 impl Default for Theme {
     fn default() -> Self {
         let tokens = Tokens::default();
+        let components = ComponentTheme::from_tokens(&tokens);
+        Self { tokens, components }
+    }
+}
+
+impl Theme {
+    pub fn dark() -> Self {
+        let tokens = Tokens::dark();
         let components = ComponentTheme::from_tokens(&tokens);
         Self { tokens, components }
     }

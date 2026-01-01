@@ -67,7 +67,18 @@ impl Lower for Radio {
                 aspect_ratio: None,
             }));
             dot_box.add_child(dot);
-            Some(dot_box.build(cx))
+            let dot_box_id = dot_box.build(cx);
+            let mut dot_align = NodeBuilder::new(cx.next_node_id(), Op::Layout(LayoutOp::Align));
+            dot_align.add_child(dot_box_id);
+            let dot_align_id = dot_align.build(cx);
+            let mut dot_container = NodeBuilder::new(cx.next_node_id(), Op::Layout(LayoutOp::Box {
+                width: Some(size), height: Some(size),
+                min_width: None, max_width: None, min_height: None, max_height: None, padding: [0.0;4],
+                flex_grow: 0.0, flex_shrink: 0.0,
+                aspect_ratio: None,
+            }));
+            dot_container.add_child(dot_align_id);
+            Some(dot_container.build(cx))
         } else { None };
 
         let mut radio_box = NodeBuilder::new(
@@ -100,7 +111,7 @@ impl Lower for Radio {
 
         let layout_id = cx.next_node_id();
         let mut row = NodeBuilder::new(
-            id,
+            layout_id,
             Op::Layout(LayoutOp::Flex { direction: fission_ir::FlexDirection::Row, wrap: fission_ir::op::FlexWrap::NoWrap, flex_grow: 0.0, flex_shrink: 1.0, padding: [0.0; 4], gap: Some(8.0), align_items: fission_ir::op::AlignItems::Center, justify_content: fission_ir::op::JustifyContent::Start }),
         );
         row.add_child(radio_final);
@@ -146,5 +157,3 @@ impl Lower for Radio {
         sem_node.build(cx)
     }
 }
-
-

@@ -1,10 +1,10 @@
-use fission_core::{BuildCtx, View, Widget, Handler};
+use fission_core::{BuildCtx, View, Widget, Handler, WidgetNodeId};
 use fission_core::ui::{Container, Node, Text, TextContent, Button, ButtonVariant, Row, Column, Switch};
 use fission_core::op::Color;
 use fission_widgets::{
-    VStack, HStack, Card, Divider, Icon, Calendar, Menu, MenuItem, Stat, CircularProgress, Stepper, Tooltip,
+    VStack, HStack, Card, Divider, Icon, Calendar, Menu, MenuItem, Stat, CircularProgress, Stepper, Tooltip, Skeleton,
 };
-use crate::model::{InboxState, SetMeetCameraOn, SetMeetMicOn};
+use crate::model::{InboxState, Folder, SetMeetCameraOn, SetMeetMicOn, SetCalendarSelected, ShowToast};
 use fission_icons::material;
 use chrono::{Datelike, Local};
 use serde_json;
@@ -17,12 +17,46 @@ impl Widget<InboxState> for RightSidebar {
 
         let meet_camera_id = ctx.bind(SetMeetCameraOn(false), (|s: &mut InboxState, a: SetMeetCameraOn, _| s.meet_camera_on = a.0) as Handler<InboxState, SetMeetCameraOn>).id;
         let meet_mic_id = ctx.bind(SetMeetMicOn(false), (|s: &mut InboxState, a: SetMeetMicOn, _| s.meet_mic_on = a.0) as Handler<InboxState, SetMeetMicOn>).id;
+        let calendar_id = ctx.bind(SetCalendarSelected(today), (|s: &mut InboxState, a: SetCalendarSelected, _| s.calendar_selected = Some(a.0)) as Handler<InboxState, SetCalendarSelected>).id;
+        let toast_id = ctx.bind(ShowToast("".into()), (|s: &mut InboxState, a: ShowToast, _| {
+            s.toast_message = Some(a.0);
+            s.show_toast = true;
+        }) as Handler<InboxState, ShowToast>).id;
+
+        let unread_total = view
+            .state
+            .emails
+            .iter()
+            .filter(|e| e.folders.contains(&Folder::Inbox) && !e.is_read)
+            .count();
+        let starred_total = view.state.emails.iter().filter(|e| e.is_flagged).count();
 
         let quick_actions = Menu {
             items: vec![
-                MenuItem { label: "New event".into(), icon: None, on_select: None },
-                MenuItem { label: "New task".into(), icon: None, on_select: None },
-                MenuItem { label: "Add reminder".into(), icon: None, on_select: None },
+                MenuItem {
+                    label: "New event".into(),
+                    icon: None,
+                    on_select: Some(fission_core::ActionEnvelope {
+                        id: toast_id,
+                        payload: serde_json::to_vec(&ShowToast("Created a new event".into())).unwrap(),
+                    }),
+                },
+                MenuItem {
+                    label: "New task".into(),
+                    icon: None,
+                    on_select: Some(fission_core::ActionEnvelope {
+                        id: toast_id,
+                        payload: serde_json::to_vec(&ShowToast("Created a new task".into())).unwrap(),
+                    }),
+                },
+                MenuItem {
+                    label: "Add reminder".into(),
+                    icon: None,
+                    on_select: Some(fission_core::ActionEnvelope {
+                        id: toast_id,
+                        payload: serde_json::to_vec(&ShowToast("Added a reminder".into())).unwrap(),
+                    }),
+                },
             ],
             width: Some(220.0),
             max_height: Some(200.0),
@@ -42,6 +76,12 @@ impl Widget<InboxState> for RightSidebar {
                                         children: vec![
                                             Text::new("Syncing").size(12.0).into_node(),
                                             Text::new("Last update 2 min ago").size(10.0).color(Color { r: 120, g: 120, b: 120, a: 255 }).into_node(),
+                                            Skeleton {
+                                                id: WidgetNodeId::explicit("sync_skeleton"),
+                                                width: Some(120.0),
+                                                height: Some(6.0),
+                                                circle: false,
+                                            }.build(ctx, view),
                                         ],
                                     }.into_node(),
                                 ],
@@ -54,8 +94,13 @@ impl Widget<InboxState> for RightSidebar {
                     Calendar {
                         year: today.year(),
                         month: today.month(),
-                        selected_date: Some(today),
-                        on_select: None,
+                        selected_date: view.state.calendar_selected.or(Some(today)),
+                        on_select: Some(std::sync::Arc::new(move |d| {
+                            fission_core::ActionEnvelope {
+                                id: calendar_id,
+                                payload: serde_json::to_vec(&SetCalendarSelected(d)).unwrap(),
+                            }
+                        })),
                         on_navigate: None,
                     }.build(ctx, view),
 
@@ -142,8 +187,8 @@ impl Widget<InboxState> for RightSidebar {
                                     HStack {
                                         spacing: Some(8.0),
                                         children: vec![
-                                            Stat { label: "Unread".into(), value: "128".into(), help_text: Some("This week".into()) }.build(ctx, view),
-                                            Stat { label: "Starred".into(), value: "24".into(), help_text: Some("Pinned".into()) }.build(ctx, view),
+                                            Stat { label: "Unread".into(), value: unread_total.to_string(), help_text: Some("In Inbox".into()) }.build(ctx, view),
+                                            Stat { label: "Starred".into(), value: starred_total.to_string(), help_text: Some("All folders".into()) }.build(ctx, view),
                                         ],
                                     }.into_node(),
                                 ],

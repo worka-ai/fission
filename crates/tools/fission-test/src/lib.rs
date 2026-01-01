@@ -67,6 +67,14 @@ impl TextMeasurer for MockTextMeasurer {
 pub mod linter;
 pub use linter::*;
 
+pub mod prelude {
+    pub use crate::{detect_ir_cycle, MockRenderer, TestHarness};
+    pub use crate::linter::{LayoutLinter, LayoutViolation};
+    pub use fission_ir::{EmbedKind, LayoutOp, Op, PaintOp};
+    pub use fission_ir::semantics::{ActionTrigger, Role};
+    pub use fission_render::{DisplayList, DisplayOp};
+}
+
 pub struct TestHarness<S: AppState> {
     pub runtime: Runtime,
     pub renderer: MockRenderer,

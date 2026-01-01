@@ -1320,6 +1320,7 @@ dependencies = [
  "fission-render",
  "fission-shell-desktop",
  "fission-test",
+ "fission-theme",
  "fission-widgets",
  "lazy_static",
  "serde",

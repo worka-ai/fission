@@ -1,7 +1,7 @@
 use serde::{Deserialize, Serialize};
 use fission_core::AppState;
 use std::collections::HashSet;
-use super::email::Folder;
+use super::email::{Folder, Email, seed_mailbox};
 use chrono::NaiveDate;
 use fission_i18n::Locale;
 
@@ -15,6 +15,11 @@ pub struct InboxState {
     pub selected_folder: Folder,
     pub selected_email_id: Option<usize>,
     pub selected_emails: Vec<usize>,
+
+    // Mail data
+    pub emails: Vec<Email>,
+    pub next_email_id: usize,
+    pub next_message_id: usize,
     
     // List View
     pub page: usize,
@@ -35,6 +40,7 @@ pub struct InboxState {
     pub sort_option: String,
     pub show_advanced_filters: bool,
     pub zoom_level: f32,
+    pub inbox_type: String,
 
     // Settings / Labs
     pub signature: String,
@@ -42,10 +48,14 @@ pub struct InboxState {
     pub smart_compose_enabled: bool,
     pub offline_enabled: bool,
     pub auto_advance_enabled: bool,
+    pub show_inbox_type_select: bool,
+    pub show_theme_select: bool,
+    pub show_density_select: bool,
 
     // Right Sidebar / Meet
     pub meet_camera_on: bool,
     pub meet_mic_on: bool,
+    pub calendar_selected: Option<NaiveDate>,
 
     // UX
     pub show_help_popover: bool,
@@ -57,6 +67,7 @@ pub struct InboxState {
     pub show_filter_dropdown: bool,
     pub active_tab: usize, 
     pub reply_mode: usize, 
+    pub reply_body: String,
     pub notifications_enabled: bool,
     pub details_expanded: bool,
     pub storage_usage: f32,
@@ -77,19 +88,26 @@ pub struct InboxState {
     
     // Tree View State
     pub expanded_folders: HashSet<String>,
+    pub contact_selected_ids: Vec<String>,
+    pub drag_in_progress: bool,
 }
 
 impl Default for InboxState {
     fn default() -> Self {
+        let seeded = seed_mailbox();
+        let total_pages = ((seeded.emails.len() + 7) / 8).max(1);
         Self {
             locale: Locale("en-US".into()),
             current_path: "/inbox".into(),
             selected_folder: Folder::Inbox,
             selected_email_id: None,
             selected_emails: vec![],
+            emails: seeded.emails,
+            next_email_id: seeded.next_email_id,
+            next_message_id: seeded.next_message_id,
             
             page: 1,
-            total_pages: 5,
+            total_pages,
             filter_mode: 0,
             
             compose_to: "".into(),
@@ -103,21 +121,27 @@ impl Default for InboxState {
             sort_option: "Newest".into(),
             show_advanced_filters: false,
             zoom_level: 1.0,
+            inbox_type: "Default".into(),
             signature: "Best regards,\nFission Team".into(),
             signature_editing: false,
             smart_compose_enabled: true,
             offline_enabled: false,
             auto_advance_enabled: true,
+            show_inbox_type_select: false,
+            show_theme_select: false,
+            show_density_select: false,
             meet_camera_on: true,
             meet_mic_on: true,
+            calendar_selected: None,
             show_help_popover: false,
             last_drag_label: None,
-            show_quick_tip: true,
+            show_quick_tip: false,
             
             search_query: "".into(),
             show_filter_dropdown: false,
             active_tab: 0,
             reply_mode: 0,
+            reply_body: "".into(),
             notifications_enabled: true,
             details_expanded: true,
             storage_usage: 0.3,
@@ -132,8 +156,28 @@ impl Default for InboxState {
             theme_mode: "Light".into(),
             density_mode: "Comfortable".into(),
             expanded_folders: HashSet::new(),
+            contact_selected_ids: Vec::new(),
+            drag_in_progress: false,
         }
     }
 }
 
 impl AppState for InboxState {}
+
+impl InboxState {
+    pub fn navigate_to(&mut self, path: String) {
+        self.current_path = path.clone();
+        let mut parts = path.split('/').filter(|p| !p.is_empty());
+        if let Some(folder_part) = parts.next() {
+            self.selected_folder = match folder_part.to_lowercase().as_str() {
+                "inbox" => Folder::Inbox,
+                "starred" => Folder::Starred,
+                "sent" => Folder::Sent,
+                "drafts" => Folder::Drafts,
+                "trash" => Folder::Trash,
+                other => Folder::Custom(other.to_string()),
+            };
+        }
+        self.selected_email_id = parts.next().and_then(|p| p.parse::<usize>().ok());
+    }
+}

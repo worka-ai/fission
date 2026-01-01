@@ -6,6 +6,8 @@ use serde::{Deserialize, Serialize};
 pub struct Draggable {
     pub payload: Vec<u8>,
     pub child: Box<Node>,
+    pub on_drag_start: Option<ActionEnvelope>,
+    pub on_drag_end: Option<ActionEnvelope>,
 }
 
 impl<S: fission_core::AppState> Widget<S> for Draggable {
@@ -13,6 +15,8 @@ impl<S: fission_core::AppState> Widget<S> for Draggable {
         GestureDetector {
             child: self.child.clone(),
             drag_payload: Some(self.payload.clone()),
+            on_drag_start: self.on_drag_start.clone(),
+            on_drag_end: self.on_drag_end.clone(),
             ..Default::default()
         }.into_node()
     }

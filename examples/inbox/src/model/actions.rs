@@ -106,9 +106,25 @@ pub struct SetComposeOpen(pub bool);
 #[derive(Action, Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct SetMobileMenuOpen(pub bool);
 
+// Mail actions
+#[derive(Action, Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SendCompose;
+
+#[derive(Action, Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SetReplyBody(pub String);
+
+#[derive(Action, Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SendReply(pub usize);
+
+#[derive(Action, Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ToggleEmailRead(pub usize);
+
 // Toast
 #[derive(Action, Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ToggleToast(pub bool);
+
+#[derive(Action, Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ShowToast(pub String);
 
 // Settings
 #[derive(Action, Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -116,6 +132,18 @@ pub struct SetTheme(pub String);
 
 #[derive(Action, Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct SetDensity(pub String);
+
+#[derive(Action, Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SetInboxType(pub String);
+
+#[derive(Action, Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SetInboxTypeSelectOpen(pub bool);
+
+#[derive(Action, Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SetThemeSelectOpen(pub bool);
+
+#[derive(Action, Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SetDensitySelectOpen(pub bool);
 
 #[derive(Action, Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(transparent)]
@@ -165,3 +193,12 @@ pub struct SetMeetMicOn(pub bool);
 
 #[derive(Action, Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct SetQuickTipOpen(pub bool);
+
+#[derive(Action, Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SetCalendarSelected(pub NaiveDate);
+
+#[derive(Action, Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ToggleContactSelection(pub String);
+
+#[derive(Action, Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SetDragInProgress(pub bool);

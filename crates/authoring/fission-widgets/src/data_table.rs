@@ -5,6 +5,7 @@ use crate::stack::{VStack, HStack};
 use crate::{Icon, MenuButton, MenuItem};
 use fission_icons::material;
 use serde::{Deserialize, Serialize};
+use std::sync::Arc;
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct TableColumn {
@@ -20,13 +21,24 @@ pub struct TableRow {
     pub cells: Vec<String>,
 }
 
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Clone)]
 pub struct DataTable {
     pub id: WidgetNodeId,
     pub columns: Vec<TableColumn>,
     pub rows: Vec<TableRow>,
     pub selected_ids: Vec<String>,
-    pub on_selection_change: Option<ActionEnvelope>,
+    pub on_selection_change: Option<Arc<dyn Fn(String) -> ActionEnvelope + Send + Sync>>,
+}
+
+impl std::fmt::Debug for DataTable {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("DataTable")
+            .field("id", &self.id)
+            .field("columns", &self.columns)
+            .field("rows_len", &self.rows.len())
+            .field("selected_ids_len", &self.selected_ids.len())
+            .finish()
+    }
 }
 
 impl<S: fission_core::AppState> Widget<S> for DataTable {
@@ -95,12 +107,13 @@ impl<S: fission_core::AppState> Widget<S> for DataTable {
             let mut row_cells = Vec::new();
             
             // Checkbox
+            let toggle = self.on_selection_change.clone();
             row_cells.push(
                 Container::new(
-                    Checkbox { 
+                    Checkbox {
                         checked: is_selected,
                         label: None,
-                        on_toggle: None, 
+                        on_toggle: toggle.map(|f| f(row.id.clone())),
                         ..Default::default()
                     }.into_node()
                 )
@@ -129,11 +142,21 @@ impl<S: fission_core::AppState> Widget<S> for DataTable {
                 children: row_cells,
             }.into_node();
 
-            row_nodes.push(
-                Container::new(row_content)
-                    .bg(if is_selected { tokens.colors.primary.with_alpha(20) } else { Color::WHITE })
-                    .into_node()
-            );
+            let row_toggle = self.on_selection_change.clone().map(|f| f(row.id.clone()));
+            let row_body = Container::new(row_content)
+                .bg(if is_selected { tokens.colors.primary.with_alpha(20) } else { Color::WHITE })
+                .into_node();
+            let row_node = if let Some(action) = row_toggle {
+                Button {
+                    variant: ButtonVariant::Ghost,
+                    child: Some(Box::new(row_body)),
+                    on_press: Some(action),
+                    ..Default::default()
+                }.into_node()
+            } else {
+                row_body
+            };
+            row_nodes.push(row_node);
             
             // Divider
             row_nodes.push(

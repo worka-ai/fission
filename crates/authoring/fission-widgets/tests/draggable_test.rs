@@ -44,6 +44,8 @@ fn test_internal_drag_drop_flow() {
         children: vec![
             Draggable {
                 payload: "hello".as_bytes().to_vec(),
+                on_drag_start: None,
+                on_drag_end: None,
                 child: Box::new(Button { on_press: Some(ActionEnvelope { id: ActionId::from_u128(100), payload: vec![] }), ..Default::default() }.into_node()),
             }.build(&mut build_ctx, &view),
             

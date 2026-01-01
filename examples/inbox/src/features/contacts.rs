@@ -1,12 +1,24 @@
 use fission_core::{BuildCtx, View, Widget, WidgetNodeId, NodeId, Handler};
 use fission_core::ui::Node;
 use fission_widgets::{Modal, ModalAction, DataTable, TableColumn, TableRow};
-use crate::model::{InboxState, SetContactsOpen};
+use crate::model::{InboxState, SetContactsOpen, ToggleContactSelection};
+use std::sync::Arc;
+use serde_json;
 
 pub struct ContactsModal;
 
 impl Widget<InboxState> for ContactsModal {
     fn build(&self, ctx: &mut BuildCtx<InboxState>, view: &View<InboxState>) -> Node {
+        let toggle_id = ctx.bind(
+            ToggleContactSelection("".into()),
+            (|s: &mut InboxState, a: ToggleContactSelection, _| {
+                if let Some(pos) = s.contact_selected_ids.iter().position(|id| id == &a.0) {
+                    s.contact_selected_ids.remove(pos);
+                } else {
+                    s.contact_selected_ids.push(a.0);
+                }
+            }) as Handler<InboxState, ToggleContactSelection>,
+        ).id;
         let data = vec![
             TableRow { id: "1".into(), cells: vec!["Alice".into(), "alice@example.com".into()] },
             TableRow { id: "2".into(), cells: vec!["Bob".into(), "bob@example.com".into()] },
@@ -27,8 +39,13 @@ impl Widget<InboxState> for ContactsModal {
                         TableColumn { id: "email".into(), title: "Email".into(), width: 250.0, sortable: true },
                     ],
                     rows: data,
-                    selected_ids: vec![],
-                    on_selection_change: None,
+                    selected_ids: view.state.contact_selected_ids.clone(),
+                    on_selection_change: Some(Arc::new(move |row_id| {
+                        fission_core::ActionEnvelope {
+                            id: toggle_id,
+                            payload: serde_json::to_vec(&ToggleContactSelection(row_id)).unwrap(),
+                        }
+                    })),
                 }.build(ctx, view)
             ),
             actions: vec![

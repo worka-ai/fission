@@ -7,9 +7,10 @@ use fission_widgets::{
     Slider, Switch, Editable, Draggable, DragTarget, Tag, Wrap, Card, Divider, Icon, Badge,
 };
 use crate::model::{
-    InboxState, SetSettingsOpen, SetLocale, SetTheme, SetDensity, SetZoomLevel, SetSignature,
+    InboxState, SetSettingsOpen, SetLocale, SetTheme, SetDensity, SetInboxType, SetZoomLevel, SetSignature,
     SetSignatureEditing, SetSmartComposeEnabled, SetOfflineEnabled, SetAutoAdvanceEnabled,
-    LabelDropped, SetQuickTipOpen,
+    LabelDropped, SetQuickTipOpen, SetInboxTypeSelectOpen, SetThemeSelectOpen, SetDensitySelectOpen,
+    SetDragInProgress,
 };
 use fission_i18n::Locale;
 use fission_icons::material;
@@ -93,15 +94,56 @@ fn theme_preview(
 impl Widget<InboxState> for SettingsModal {
     fn build(&self, ctx: &mut BuildCtx<InboxState>, view: &View<InboxState>) -> Node {
         let locale_id = ctx.bind(SetLocale(Locale("".into())), (|s: &mut InboxState, a: SetLocale, _| s.locale = a.0) as Handler<InboxState, SetLocale>).id;
-        let theme_id = ctx.bind(SetTheme("".into()), (|s: &mut InboxState, a: SetTheme, _| s.theme_mode = a.0) as Handler<InboxState, SetTheme>).id;
-        let density_id = ctx.bind(SetDensity("".into()), (|s: &mut InboxState, a: SetDensity, _| s.density_mode = a.0) as Handler<InboxState, SetDensity>).id;
+        let theme_id = ctx.bind(SetTheme("".into()), (|s: &mut InboxState, a: SetTheme, _| {
+            s.theme_mode = a.0;
+            s.show_theme_select = false;
+        }) as Handler<InboxState, SetTheme>).id;
+        let density_id = ctx.bind(SetDensity("".into()), (|s: &mut InboxState, a: SetDensity, _| {
+            s.density_mode = a.0;
+            s.show_density_select = false;
+        }) as Handler<InboxState, SetDensity>).id;
+        let inbox_type_id = ctx.bind(SetInboxType("".into()), (|s: &mut InboxState, a: SetInboxType, _| {
+            s.inbox_type = a.0;
+            s.show_inbox_type_select = false;
+        }) as Handler<InboxState, SetInboxType>).id;
         let zoom_id = ctx.bind(SetZoomLevel(1.0), (|s: &mut InboxState, a: SetZoomLevel, _| s.zoom_level = a.0) as Handler<InboxState, SetZoomLevel>).id;
         let signature_id = ctx.bind(SetSignature("".into()), (|s: &mut InboxState, a: SetSignature, _| s.signature = a.0) as Handler<InboxState, SetSignature>).id;
         let signature_edit_id = ctx.bind(SetSignatureEditing(false), (|s: &mut InboxState, a: SetSignatureEditing, _| s.signature_editing = a.0) as Handler<InboxState, SetSignatureEditing>).id;
         let smart_compose_id = ctx.bind(SetSmartComposeEnabled(false), (|s: &mut InboxState, a: SetSmartComposeEnabled, _| s.smart_compose_enabled = a.0) as Handler<InboxState, SetSmartComposeEnabled>).id;
         let offline_id = ctx.bind(SetOfflineEnabled(false), (|s: &mut InboxState, a: SetOfflineEnabled, _| s.offline_enabled = a.0) as Handler<InboxState, SetOfflineEnabled>).id;
         let auto_advance_id = ctx.bind(SetAutoAdvanceEnabled(false), (|s: &mut InboxState, a: SetAutoAdvanceEnabled, _| s.auto_advance_enabled = a.0) as Handler<InboxState, SetAutoAdvanceEnabled>).id;
-        let label_drop_id = ctx.bind(LabelDropped("".into()), (|s: &mut InboxState, a: LabelDropped, _| s.last_drag_label = Some(a.0) ) as Handler<InboxState, LabelDropped>).id;
+        let label_drop_id = ctx.bind(LabelDropped("".into()), (|s: &mut InboxState, a: LabelDropped, ctx| {
+            let mut label = None;
+            if let Some(payload) = ctx.input.as_internal_drop() {
+                if let Ok(parsed) = String::from_utf8(payload.to_vec()) {
+                    label = Some(parsed);
+                }
+            }
+            s.last_drag_label = label.or_else(|| Some(a.0));
+            s.drag_in_progress = false;
+        }) as Handler<InboxState, LabelDropped>).id;
+        let inbox_type_open_id = ctx.bind(SetInboxTypeSelectOpen(false), (|s: &mut InboxState, a: SetInboxTypeSelectOpen, _| {
+            s.show_inbox_type_select = a.0;
+            if a.0 {
+                s.show_theme_select = false;
+                s.show_density_select = false;
+            }
+        }) as Handler<InboxState, SetInboxTypeSelectOpen>).id;
+        let theme_open_id = ctx.bind(SetThemeSelectOpen(false), (|s: &mut InboxState, a: SetThemeSelectOpen, _| {
+            s.show_theme_select = a.0;
+            if a.0 {
+                s.show_inbox_type_select = false;
+                s.show_density_select = false;
+            }
+        }) as Handler<InboxState, SetThemeSelectOpen>).id;
+        let density_open_id = ctx.bind(SetDensitySelectOpen(false), (|s: &mut InboxState, a: SetDensitySelectOpen, _| {
+            s.show_density_select = a.0;
+            if a.0 {
+                s.show_inbox_type_select = false;
+                s.show_theme_select = false;
+            }
+        }) as Handler<InboxState, SetDensitySelectOpen>).id;
+        let drag_active_id = ctx.bind(SetDragInProgress(false), (|s: &mut InboxState, a: SetDragInProgress, _| s.drag_in_progress = a.0) as Handler<InboxState, SetDragInProgress>).id;
         let tip_id = ctx.bind(SetQuickTipOpen(true), (|s: &mut InboxState, a: SetQuickTipOpen, _| s.show_quick_tip = a.0) as Handler<InboxState, SetQuickTipOpen>).id;
 
         let theme_items = vec![
@@ -163,6 +205,14 @@ impl Widget<InboxState> for SettingsModal {
             .map(|label| {
                 Draggable {
                     payload: label.as_bytes().to_vec(),
+                    on_drag_start: Some(ActionEnvelope {
+                        id: drag_active_id,
+                        payload: serde_json::to_vec(&SetDragInProgress(true)).unwrap(),
+                    }),
+                    on_drag_end: Some(ActionEnvelope {
+                        id: drag_active_id,
+                        payload: serde_json::to_vec(&SetDragInProgress(false)).unwrap(),
+                    }),
                     child: Box::new(Tag { label: (*label).into(), on_close: None }.build(ctx, view)),
                 }.build(ctx, view)
             })
@@ -178,6 +228,7 @@ impl Widget<InboxState> for SettingsModal {
                     Text::new("Drop label here to pin").size(12.0).into_node()
                 )
                 .padding_all(8.0)
+                .bg(if view.state.drag_in_progress { Color { r: 245, g: 245, b: 255, a: 255 } } else { Color { r: 0, g: 0, b: 0, a: 0 } })
                 .border(Color { r: 210, g: 210, b: 210, a: 255 }, 1.0)
                 .border_radius(8.0)
                 .into_node()
@@ -243,20 +294,23 @@ impl Widget<InboxState> for SettingsModal {
                             helper: Some("Choose a default layout".into()),
                             child: Box::new(Select {
                                 id: WidgetNodeId::explicit("inbox_type_select"),
-                                selected_label: Some("Default".into()),
+                                selected_label: Some(view.state.inbox_type.clone()),
                                 placeholder: "Select type".into(),
-                                is_open: false,
-                                on_toggle: None,
+                                is_open: view.state.show_inbox_type_select,
+                                on_toggle: Some(ActionEnvelope {
+                                    id: inbox_type_open_id,
+                                    payload: serde_json::to_vec(&SetInboxTypeSelectOpen(!view.state.show_inbox_type_select)).unwrap(),
+                                }),
                                 items: vec![
                                     SelectItem {
                                         label: "Default".into(),
                                         icon: None,
-                                        on_select: ActionEnvelope { id: density_id, payload: serde_json::to_vec(&SetDensity("Comfortable".into())).unwrap() },
+                                        on_select: ActionEnvelope { id: inbox_type_id, payload: serde_json::to_vec(&SetInboxType("Default".into())).unwrap() },
                                     },
                                     SelectItem {
                                         label: "Priority Inbox".into(),
                                         icon: None,
-                                        on_select: ActionEnvelope { id: density_id, payload: serde_json::to_vec(&SetDensity("Compact".into())).unwrap() },
+                                        on_select: ActionEnvelope { id: inbox_type_id, payload: serde_json::to_vec(&SetInboxType("Priority Inbox".into())).unwrap() },
                                     },
                                 ],
                                 ..Default::default()
@@ -276,8 +330,11 @@ impl Widget<InboxState> for SettingsModal {
                                 id: WidgetNodeId::explicit("theme_select"),
                                 selected_label: Some(view.state.theme_mode.clone()),
                                 placeholder: "Select Theme".into(),
-                                is_open: false,
-                                on_toggle: None,
+                                is_open: view.state.show_theme_select,
+                                on_toggle: Some(ActionEnvelope {
+                                    id: theme_open_id,
+                                    payload: serde_json::to_vec(&SetThemeSelectOpen(!view.state.show_theme_select)).unwrap(),
+                                }),
                                 items: theme_items,
                                 ..Default::default()
                             }.build(ctx, view)),
@@ -293,8 +350,11 @@ impl Widget<InboxState> for SettingsModal {
                                 id: WidgetNodeId::explicit("density_select"),
                                 selected_label: Some(view.state.density_mode.clone()),
                                 placeholder: "Select Density".into(),
-                                is_open: false,
-                                on_toggle: None,
+                                is_open: view.state.show_density_select,
+                                on_toggle: Some(ActionEnvelope {
+                                    id: density_open_id,
+                                    payload: serde_json::to_vec(&SetDensitySelectOpen(!view.state.show_density_select)).unwrap(),
+                                }),
                                 items: density_items,
                                 ..Default::default()
                             }.build(ctx, view)),

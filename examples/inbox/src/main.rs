@@ -7,6 +7,7 @@ use fission_widgets::{
 };
 use fission_shell_desktop::DesktopApp;
 use fission_i18n::{I18nRegistry, Locale, TranslationBundle};
+use fission_theme::Theme;
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
@@ -84,7 +85,11 @@ impl Widget<InboxState> for InboxApp {
             let toast = Toast {
                 id: WidgetNodeId::explicit("app_toast"),
                 kind: ToastKind::Success,
-                message: "Action completed successfully".into(),
+                message: view
+                    .state
+                    .toast_message
+                    .clone()
+                    .unwrap_or_else(|| "Action completed successfully".into()),
                 on_close: Some(ctx.bind(ToggleToast(false), (|s, _, _| s.show_toast = false) as Handler<InboxState, ToggleToast>)),
             }.build(ctx, view);
             
@@ -214,7 +219,14 @@ fn create_env() -> Env {
     en_messages.insert("folder.drafts".into(), "Drafts".into());
     en_messages.insert("folder.trash".into(), "Trash".into());
     en_messages.insert("button.compose".into(), "Compose".into());
+    en_messages.insert("search.placeholder".into(), "Search mail".into());
     en_messages.insert("app.title".into(), "Fission Inbox".into());
+    en_messages.insert("nav.browser_demo".into(), "Browser Demo".into());
+    en_messages.insert("nav.contacts".into(), "Contacts".into());
+    en_messages.insert("nav.settings".into(), "Settings".into());
+    en_messages.insert("labels.title".into(), "Labels".into());
+    en_messages.insert("storage.title".into(), "Storage".into());
+    en_messages.insert("storage.manage".into(), "Manage storage".into());
     
     env.i18n.add_bundle(TranslationBundle {
         locale: Locale("en-US".into()),
@@ -228,7 +240,14 @@ fn create_env() -> Env {
     es_messages.insert("folder.drafts".into(), "Borradores".into());
     es_messages.insert("folder.trash".into(), "Papelera".into());
     es_messages.insert("button.compose".into(), "Redactar".into());
+    es_messages.insert("search.placeholder".into(), "Buscar correo".into());
     es_messages.insert("app.title".into(), "Buzón Fission".into());
+    es_messages.insert("nav.browser_demo".into(), "Navegador".into());
+    es_messages.insert("nav.contacts".into(), "Contactos".into());
+    es_messages.insert("nav.settings".into(), "Configuración".into());
+    es_messages.insert("labels.title".into(), "Etiquetas".into());
+    es_messages.insert("storage.title".into(), "Almacenamiento".into());
+    es_messages.insert("storage.manage".into(), "Administrar almacenamiento".into());
     
     env.i18n.add_bundle(TranslationBundle {
         locale: Locale("es-ES".into()),
@@ -243,6 +262,11 @@ fn main() -> anyhow::Result<()> {
         .with_env(create_env())
         .with_sync_env(|state: &InboxState, env: &mut Env| {
             env.locale = state.locale.clone();
+            env.theme = if state.theme_mode == "Dark" {
+                Theme::dark()
+            } else {
+                Theme::default()
+            };
         });
         
     // Register global handlers
@@ -257,78 +281,4 @@ fn main() -> anyhow::Result<()> {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-    use anyhow::Result;
-    use fission_core::event::{InputEvent, PointerButton, PointerEvent};
-    use fission_test::TestHarness;
-
-    fn click(h: &mut TestHarness<InboxState>, x: f32, y: f32) -> Result<()> {
-        let point = fission_core::LayoutPoint::new(x, y);
-        h.send_event(InputEvent::Pointer(PointerEvent::Down {
-            point,
-            button: PointerButton::Primary,
-        }))?;
-        h.send_event(InputEvent::Pointer(PointerEvent::Up {
-            point,
-            button: PointerButton::Primary,
-        }))?;
-        Ok(())
-    }
-
-    #[test]
-    fn settings_modal_backdrop_closes() -> Result<()> {
-        let mut state = InboxState::default();
-        state.show_settings = true;
-        let mut h = TestHarness::new(state).with_root_widget(InboxApp);
-        h.pump()?;
-
-        click(&mut h, 10.0, 10.0)?;
-
-        let state = h.runtime.get_app_state::<InboxState>().unwrap();
-        assert!(!state.show_settings, "settings modal should close on backdrop click");
-        Ok(())
-    }
-
-    #[test]
-    fn contacts_modal_backdrop_closes() -> Result<()> {
-        let mut state = InboxState::default();
-        state.show_contacts = true;
-        let mut h = TestHarness::new(state).with_root_widget(InboxApp);
-        h.pump()?;
-
-        click(&mut h, 10.0, 10.0)?;
-
-        let state = h.runtime.get_app_state::<InboxState>().unwrap();
-        assert!(!state.show_contacts, "contacts modal should close on backdrop click");
-        Ok(())
-    }
-
-    #[test]
-    fn compose_modal_backdrop_closes() -> Result<()> {
-        let mut state = InboxState::default();
-        state.show_compose = true;
-        let mut h = TestHarness::new(state).with_root_widget(InboxApp);
-        h.pump()?;
-
-        click(&mut h, 10.0, 10.0)?;
-
-        let state = h.runtime.get_app_state::<InboxState>().unwrap();
-        assert!(!state.show_compose, "compose modal should close on backdrop click");
-        Ok(())
-    }
-
-    #[test]
-    fn mobile_drawer_backdrop_closes() -> Result<()> {
-        let mut state = InboxState::default();
-        state.show_mobile_menu = true;
-        let mut h = TestHarness::new(state).with_root_widget(InboxApp);
-        h.pump()?;
-
-        click(&mut h, 700.0, 20.0)?;
-
-        let state = h.runtime.get_app_state::<InboxState>().unwrap();
-        assert!(!state.show_mobile_menu, "mobile drawer should close on backdrop click");
-        Ok(())
-    }
-}
+mod tests;
