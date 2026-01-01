@@ -48,13 +48,21 @@ impl<S: fission_core::AppState> Widget<S> for Tabs {
             );
         }
 
+        let tab_bar = Container::new(
+            HStack {
+                spacing: Some(16.0),
+                children: tab_buttons,
+            }.into_node()
+        )
+        .bg(theme.background)
+        .border(theme.divider_color, 1.0)
+        .padding_all(4.0)
+        .into_node();
+
         VStack {
             spacing: Some(16.0),
             children: vec![
-                HStack {
-                    spacing: Some(16.0),
-                    children: tab_buttons,
-                }.into_node(),
+                tab_bar,
                 if let Some(tab) = self.items.get(self.active_index) {
                     tab.content.clone()
                 } else {

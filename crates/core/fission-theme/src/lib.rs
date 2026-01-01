@@ -346,6 +346,8 @@ pub struct TabsTheme {
     pub active_color: Color,
     pub inactive_color: Color,
     pub indicator_height: f32,
+    pub background: Color,
+    pub divider_color: Color,
 }
 
 impl TabsTheme {
@@ -354,6 +356,8 @@ impl TabsTheme {
             active_color: tokens.colors.primary,
             inactive_color: tokens.colors.text_secondary,
             indicator_height: 2.0,
+            background: tokens.colors.background,
+            divider_color: tokens.colors.border,
         }
     }
 }

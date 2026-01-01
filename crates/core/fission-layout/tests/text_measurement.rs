@@ -90,12 +90,20 @@ fn make_text_node(id: u128, parent_id: NodeId, text: &str, max_width: Option<f32
     }
 }
 
-fn run_layout(nodes: &[LayoutInputNode], root_id: NodeId) -> fission_layout::LayoutSnapshot {
-    let mut engine = LayoutEngine::new().with_measurer(Arc::new(FixedMeasurer));
+fn run_layout_with_measurer(
+    nodes: &[LayoutInputNode],
+    root_id: NodeId,
+    measurer: Arc<dyn TextMeasurer>,
+) -> fission_layout::LayoutSnapshot {
+    let mut engine = LayoutEngine::new().with_measurer(measurer);
     engine.rebuild(nodes).unwrap();
     engine
         .compute_layout(nodes, root_id, LayoutSize::new(800.0, 600.0), &|_| 0.0)
         .unwrap()
+}
+
+fn run_layout(nodes: &[LayoutInputNode], root_id: NodeId) -> fission_layout::LayoutSnapshot {
+    run_layout_with_measurer(nodes, root_id, Arc::new(FixedMeasurer))
 }
 
 #[test]
@@ -144,4 +152,78 @@ fn text_max_width_limits_measure() {
 
     assert_eq!(text_geom.rect.width(), 40.0);
     assert_eq!(text_geom.rect.height(), 60.0);
+}
+
+struct ZeroWidthGuardMeasurer;
+
+impl TextMeasurer for ZeroWidthGuardMeasurer {
+    fn measure(&self, text: &str, _font_size: f32, available_width: Option<f32>) -> (f32, f32) {
+        if available_width == Some(0.0) {
+            panic!("text measurer received zero available width");
+        }
+        let char_width = 10.0;
+        let line_height = 20.0;
+        (text.len() as f32 * char_width, line_height)
+    }
+
+    fn measure_rich_text(&self, runs: &[TextRun], available_width: Option<f32>) -> (f32, f32) {
+        let text: String = runs.iter().map(|r| r.text.clone()).collect();
+        self.measure(&text, 16.0, available_width)
+    }
+}
+
+#[test]
+fn text_measure_does_not_pass_zero_width() {
+    let root_id = NodeId::from_u128(30);
+    let row_id = NodeId::from_u128(31);
+    let text_id = NodeId::from_u128(32);
+
+    let root = LayoutInputNode {
+        id: root_id,
+        parent_id: None,
+        op: IrLayoutOp::Flex {
+            direction: fission_ir::FlexDirection::Row,
+            wrap: fission_ir::op::FlexWrap::NoWrap,
+            flex_grow: 0.0,
+            flex_shrink: 1.0,
+            padding: [0.0; 4],
+            gap: None,
+            align_items: fission_ir::op::AlignItems::Start,
+            justify_content: fission_ir::op::JustifyContent::Start,
+        },
+        children_ids: vec![row_id],
+        debug_name: "root".into(),
+        width: Some(200.0),
+        height: Some(40.0),
+        flex_grow: 0.0,
+        flex_shrink: 1.0,
+        rich_text: None,
+    };
+
+    let row = LayoutInputNode {
+        id: row_id,
+        parent_id: Some(root_id),
+        op: IrLayoutOp::Flex {
+            direction: fission_ir::FlexDirection::Row,
+            wrap: fission_ir::op::FlexWrap::NoWrap,
+            flex_grow: 1.0,
+            flex_shrink: 1.0,
+            padding: [0.0; 4],
+            gap: None,
+            align_items: fission_ir::op::AlignItems::Start,
+            justify_content: fission_ir::op::JustifyContent::Start,
+        },
+        children_ids: vec![text_id],
+        debug_name: "row".into(),
+        width: None,
+        height: None,
+        flex_grow: 1.0,
+        flex_shrink: 1.0,
+        rich_text: None,
+    };
+
+    let text = make_text_node(32, row_id, "New event", None);
+    let nodes = vec![root, row, text];
+
+    let _ = run_layout_with_measurer(&nodes, root_id, Arc::new(ZeroWidthGuardMeasurer));
 }

@@ -477,6 +477,7 @@ impl Widget<InboxState> for EmailList {
         )
         .padding_all(16.0)
         .flex_grow(1.0)
+        .bg(tokens.colors.background)
         .into_node()
     }
 }

@@ -27,6 +27,7 @@ struct InboxApp;
 
 impl Widget<InboxState> for InboxApp {
     fn build(&self, ctx: &mut BuildCtx<InboxState>, view: &View<InboxState>) -> Node {
+        let tokens = &view.env.theme.tokens;
         // Register Modals
         if view.state.show_settings {
             let node = SettingsModal.build(ctx, view);
@@ -45,41 +46,18 @@ impl Widget<InboxState> for InboxApp {
             ctx.register_portal(node);
         }
         
-        // Register Mobile Drawer
-        // Note: We always build it but control visibility via state passed to Drawer
-        // Actually Drawer takes `is_open`.
-        // We put Sidebar inside it.
-        let drawer_node = Drawer {
-            id: WidgetNodeId::explicit("mobile_drawer"),
-            side: DrawerSide::Left,
-            is_open: view.state.show_mobile_menu,
-            on_dismiss: Some(ctx.bind(SetMobileMenuOpen(false), (|s, a, _| s.show_mobile_menu = a.0) as Handler<InboxState, SetMobileMenuOpen>)),
-            content: Box::new(Sidebar.build(ctx, view)),
-            width: Some(250.0),
-        }.build(ctx, view);
-        
-        // We register portal if open? Or Drawer handles it?
-        // Drawer handles portal registration internally if open.
-        // But wait, Drawer `build` returns Spacer if closed?
-        // Yes. So we can just call build.
-        // Wait, if Drawer `build` registers portal, it modifies `ctx`.
-        // So we just call it.
-        // BUT `build` returns a Node. We must include that Node in the tree?
-        // Drawer returns a Spacer.
-        // So we can ignore it? No, we must return a single Root node.
-        // We can't just call it and discard.
-        // We can put it in a ZStack?
-        // Or just let it register portal and discard the spacer?
-        // `ctx.register_portal` is side-effect.
-        // So `let _ = drawer_node;` works?
-        // Yes.
-        // BUT strict widget rules: "build" should be pure?
-        // `build` mutates `ctx`.
-        // So we should include the returned node in the tree or just drop it if it's spacer.
-        // Let's drop it.
-        
-        let _ = drawer_node; 
-        
+        if view.state.show_mobile_menu {
+            let drawer_node = Drawer {
+                id: WidgetNodeId::explicit("mobile_drawer"),
+                side: DrawerSide::Left,
+                is_open: view.state.show_mobile_menu,
+                on_dismiss: Some(ctx.bind(SetMobileMenuOpen(false), (|s, a, _| s.show_mobile_menu = a.0) as Handler<InboxState, SetMobileMenuOpen>)),
+                content: Box::new(Text::new("Drawer").build(ctx, view)),
+                width: Some(250.0),
+            }.build(ctx, view);
+
+            let _ = drawer_node; 
+        }
         // Register Toast
         if view.state.show_toast {
             let toast = Toast {
@@ -152,6 +130,10 @@ impl Widget<InboxState> for InboxApp {
                 }.build(ctx, view)
             )
         }.into();
+        let main_content = Container::new(main_content)
+            .bg(tokens.colors.background)
+            .flex_grow(1.0)
+            .into_node();
 
         let overlay_tip = if view.state.show_quick_tip {
             Transition {

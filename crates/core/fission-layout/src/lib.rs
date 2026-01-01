@@ -305,7 +305,9 @@ impl LayoutEngine {
                             let avail_width = known_dims.width.or_else(|| match available_space.width {
                                 AvailableSpace::Definite(w) => Some(w),
                                 AvailableSpace::MaxContent => None,
-                                AvailableSpace::MinContent => Some(0.0),
+                                // MinContent is not a reliable width for wrapping. Treat as unconstrained to
+                                // avoid forcing pathological wraps (e.g. word-by-word).
+                                AvailableSpace::MinContent => None,
                             }).or(max_width);
                             let (w, h) = measurer.measure_rich_text(&runs, avail_width);
                             taffy::geometry::Size { width: w, height: h }
@@ -389,7 +391,9 @@ impl LayoutEngine {
                         let avail_width = known_dims.width.or_else(|| match available_space.width {
                             AvailableSpace::Definite(w) => Some(w),
                             AvailableSpace::MaxContent => None,
-                            AvailableSpace::MinContent => Some(0.0),
+                            // MinContent is not a reliable width for wrapping. Treat as unconstrained to
+                            // avoid forcing pathological wraps (e.g. word-by-word).
+                            AvailableSpace::MinContent => None,
                         });
                         let (w, h) = measurer.measure_rich_text(&runs, avail_width);
                         taffy::geometry::Size { width: w, height: h }

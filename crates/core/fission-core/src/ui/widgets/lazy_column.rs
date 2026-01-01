@@ -22,14 +22,15 @@ impl Lower for LazyColumn {
         let scroll_id = self.id.unwrap_or_else(|| cx.next_node_id());
         
         // Get layout info from previous frame
-        let viewport_height = if let Some(layout) = cx.layout {
+        let (viewport_width, viewport_height) = if let Some(layout) = cx.layout {
             if let Some(geom) = layout.get_node_geometry(scroll_id) {
-                geom.rect.height()
+                let w = geom.rect.width();
+                (if w > 0.0 { Some(w) } else { None }, geom.rect.height())
             } else {
-                600.0 // Default/Fallback
+                (None, 600.0) // Default/Fallback
             }
         } else {
-            600.0
+            (None, 600.0)
         };
         
         let scroll_offset = cx.runtime_state.scroll.get_offset(scroll_id);
@@ -91,7 +92,7 @@ impl Lower for LazyColumn {
             Op::Layout(LayoutOp::Scroll {
                 direction: FlexDirection::Column,
                 show_scrollbar: true,
-                width: None,
+                width: viewport_width,
                 height: None,
                 min_width: None,
                 max_width: None,
@@ -104,5 +105,3 @@ impl Lower for LazyColumn {
         scroll.build(cx)
     }
 }
-
-
