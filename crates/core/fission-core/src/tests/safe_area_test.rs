@@ -40,10 +40,10 @@ fn test_safe_area_layout() {
         &|_| 0.0
     ).unwrap();
 
-    // Verify root (SafeArea) geometry
+    // Verify root (SafeArea) geometry (fills the viewport)
     let safe_area_geom = snapshot.get_node_geometry(root_id).unwrap();
-    assert_eq!(safe_area_geom.rect.width(), 100.0);
-    assert_eq!(safe_area_geom.rect.height(), 178.0);
+    assert_eq!(safe_area_geom.rect.width(), 375.0);
+    assert_eq!(safe_area_geom.rect.height(), 812.0);
 
     // Verify child (Container) geometry
     // The child should be inset by the SafeArea's padding.
