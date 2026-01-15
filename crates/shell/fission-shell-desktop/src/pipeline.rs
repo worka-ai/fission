@@ -337,7 +337,10 @@ impl Pipeline {
             self.last_snapshot = Some(snapshot);
         }
 
-        let snapshot = self.last_snapshot.clone().expect("layout snapshot missing");
+        let snapshot = self
+            .last_snapshot
+            .take()
+            .expect("layout snapshot missing");
 
         let mut display_list =
             DisplayList::new(LayoutRect::new(0.0, 0.0, viewport.width, viewport.height));
@@ -357,6 +360,7 @@ impl Pipeline {
             web_map,
             LayoutPoint::new(0.0, 0.0),
         );
+        self.last_snapshot = Some(snapshot);
         diag::emit(
             diag::DiagCategory::Paint,
             diag::DiagLevel::Debug,
@@ -366,6 +370,97 @@ impl Pipeline {
                 paint_ops_total: display_list.ops.len() as u32,
             },
         );
+
+        if std::env::var("FISSION_PAINT_TRACE").ok().as_deref() == Some("1") {
+            let mut draw_ops = 0usize;
+            let mut visible_ops = 0usize;
+            let mut min_x = f32::INFINITY;
+            let mut min_y = f32::INFINITY;
+            let mut max_x = f32::NEG_INFINITY;
+            let mut max_y = f32::NEG_INFINITY;
+            let viewport = display_list.bounds;
+            let mut non_finite_reported = 0usize;
+
+            let mut track_bounds = |rect: LayoutRect, node_id: Option<NodeId>, op_label: &str| {
+                draw_ops += 1;
+                if !rect.x().is_finite()
+                    || !rect.y().is_finite()
+                    || !rect.width().is_finite()
+                    || !rect.height().is_finite()
+                {
+                    if non_finite_reported < 10 {
+                        let op_desc = node_id
+                            .and_then(|id| next_ir.nodes.get(&id))
+                            .map(|n| format!("{:?}", n.op))
+                            .unwrap_or_else(|| "unknown".to_string());
+                        eprintln!(
+                            "[paint-trace] non_finite {} node={:?} rect=({:.2},{:.2},{:.2},{:.2}) op={}",
+                            op_label,
+                            node_id,
+                            rect.x(),
+                            rect.y(),
+                            rect.width(),
+                            rect.height(),
+                            op_desc
+                        );
+                        non_finite_reported += 1;
+                    }
+                    return;
+                }
+                min_x = min_x.min(rect.x());
+                min_y = min_y.min(rect.y());
+                max_x = max_x.max(rect.right());
+                max_y = max_y.max(rect.bottom());
+                if rect.right() > viewport.x()
+                    && rect.x() < viewport.right()
+                    && rect.bottom() > viewport.y()
+                    && rect.y() < viewport.bottom()
+                {
+                    visible_ops += 1;
+                }
+            };
+
+            for op in &display_list.ops {
+                match op {
+                    DisplayOp::DrawRect { bounds, .. }
+                    | DisplayOp::DrawText { bounds, .. }
+                    | DisplayOp::DrawRichText { bounds, .. }
+                    | DisplayOp::DrawImage { bounds, .. }
+                    | DisplayOp::DrawPath { bounds, .. }
+                    | DisplayOp::DrawSvg { bounds, .. } => {
+                        let node_id = match op {
+                            DisplayOp::DrawRect { node_id, .. }
+                            | DisplayOp::DrawText { node_id, .. }
+                            | DisplayOp::DrawRichText { node_id, .. }
+                            | DisplayOp::DrawImage { node_id, .. }
+                            | DisplayOp::DrawPath { node_id, .. }
+                            | DisplayOp::DrawSvg { node_id, .. } => *node_id,
+                            _ => None,
+                        };
+                        track_bounds(*bounds, node_id, "bounds");
+                    }
+                    _ => {}
+                }
+            }
+
+            if draw_ops == 0 {
+                eprintln!("[paint-trace] no draw ops in display list");
+            } else {
+                eprintln!(
+                    "[paint-trace] draw_ops={} visible_ops={} bounds=({:.1},{:.1})..({:.1},{:.1}) viewport=({:.1},{:.1})..({:.1},{:.1})",
+                    draw_ops,
+                    visible_ops,
+                    min_x,
+                    min_y,
+                    max_x,
+                    max_y,
+                    viewport.x(),
+                    viewport.y(),
+                    viewport.right(),
+                    viewport.bottom(),
+                );
+            }
+        }
 
         renderer.render(&display_list)?;
 

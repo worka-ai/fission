@@ -13,7 +13,7 @@ use fission_render::{
 use fission_render_vello::VelloTextMeasurer;
 use fission_render_vello::parley::FontContext;
 use fission_theme::fonts;
-use fontique::{Blob, FontInfoOverride};
+use fontique::{Blob, Collection, CollectionOptions, FontInfoOverride, SourceCache};
 use std::collections::HashSet;
 use std::sync::{Arc, Mutex};
 
@@ -84,7 +84,7 @@ fn should_use_mock_measurer() -> bool {
 }
 
 fn build_vello_measurer() -> Arc<dyn TextMeasurer> {
-    let font_cx = Arc::new(Mutex::new(FontContext::default()));
+    let font_cx = Arc::new(Mutex::new(build_font_context()));
     {
         let mut font_cx = font_cx.lock().unwrap();
         let font_data = fonts::default_font_bytes().to_vec();
@@ -100,6 +100,20 @@ fn build_vello_measurer() -> Arc<dyn TextMeasurer> {
         font_cx,
         DEFAULT_TEST_FONT_FAMILY,
     ))
+}
+
+fn build_font_context() -> FontContext {
+    let use_system_fonts = std::env::var("FISSION_USE_SYSTEM_FONTS")
+        .map(|v| matches!(v.to_ascii_lowercase().as_str(), "1" | "true" | "yes"))
+        .unwrap_or(false);
+    let options = CollectionOptions {
+        shared: false,
+        system_fonts: use_system_fonts,
+    };
+    FontContext {
+        collection: Collection::new(options),
+        source_cache: SourceCache::default(),
+    }
 }
 
 pub mod linter;
@@ -213,11 +227,28 @@ impl<S: AppState> TestHarness<S> {
     }
 
     pub fn pump(&mut self) -> Result<()> {
+        let trace = std::env::var("FISSION_TEST_TRACE").ok().as_deref() == Some("1");
+        let mut viewport = LayoutSize {
+            width: 800.0,
+            height: 600.0,
+        };
+        if self.env.viewport_size.width > 0.0
+            && self.env.viewport_size.height > 0.0
+            && self.env.viewport_size.width.is_finite()
+            && self.env.viewport_size.height.is_finite()
+        {
+            viewport = self.env.viewport_size;
+        } else {
+            self.env.viewport_size = viewport;
+        }
         // 1. Build & Lower
         let mut layout_input_nodes = Vec::new();
 
         if let Some(root) = &self.root_widget {
             // Build
+            if trace {
+                eprintln!("[test-trace] build start");
+            }
             let node_tree = {
                 let state = self
                     .runtime
@@ -249,8 +280,8 @@ impl<S: AppState> TestHarness<S> {
                         // the overlay AbsoluteFill has a concrete size in tests.
                         content: Box::new(
                             fission_core::ui::Container::new(tree)
-                                .width(800.0)
-                                .height(600.0)
+                                .width(viewport.width)
+                                .height(viewport.height)
                                 .into_node()
                         ),
                         overlay: Box::new(fission_core::ui::Node::ZStack(
@@ -259,31 +290,45 @@ impl<S: AppState> TestHarness<S> {
                     })
                 }
             };
+            if trace {
+                eprintln!("[test-trace] build done");
+            }
 
             // Lower
+            if trace {
+                eprintln!("[test-trace] lower start");
+            }
             let mut cx = LoweringContext::new(&self.env, &self.runtime.runtime_state, Some(&self.measurer), self.last_snapshot.as_ref());
             let root_id = node_tree.lower(&mut cx);
             cx.ir.root = Some(root_id);
 
             layout_input_nodes = build_layout_tree(&cx.ir);
             self.last_ir = Some(cx.ir);
+            if trace {
+                eprintln!("[test-trace] lower done nodes={}", layout_input_nodes.len());
+            }
 
             // 2. Layout
-            let viewport = LayoutSize {
-                width: 800.0,
-                height: 600.0,
-            };
+            if trace {
+                eprintln!("[test-trace] layout start");
+            }
             let dirty: HashSet<_> = layout_input_nodes.iter().map(|n| n.id).collect();
             self.layout_engine.update(&layout_input_nodes, &dirty);
             self.layout_engine.verify_post_update(&layout_input_nodes, root_id)?;
             let snapshot =
                 self.layout_engine
                     .compute_layout(&layout_input_nodes, root_id, viewport, &|id| self.runtime.runtime_state.scroll.get_offset(id))?;
-            self.last_snapshot = Some(snapshot.clone());
+            self.last_snapshot = Some(snapshot);
+            if trace {
+                eprintln!("[test-trace] layout done");
+            }
         }
 
         // 3. Render
-        let mut display_list = DisplayList::new(LayoutRect::new(0.0, 0.0, 800.0, 600.0));
+        if trace {
+            eprintln!("[test-trace] render start");
+        }
+        let mut display_list = DisplayList::new(LayoutRect::new(0.0, 0.0, viewport.width, viewport.height));
 
         if let (Some(ir), Some(snapshot)) = (&self.last_ir, &self.last_snapshot) {
             if let Some(root_id) = ir.root {
@@ -293,6 +338,9 @@ impl<S: AppState> TestHarness<S> {
         }
 
         self.renderer.render(&display_list)?;
+        if trace {
+            eprintln!("[test-trace] render done");
+        }
 
         Ok(())
     }

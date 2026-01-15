@@ -24,6 +24,8 @@ use fission_render::{
     Color as RenderColor, DisplayList, LayoutPoint, LayoutRect, LayoutUnit, Renderer,
 };
 use fission_render_vello::{VelloRenderer, VelloTextMeasurer};
+use fission_theme::fonts;
+use fontique::{Blob, Collection, CollectionOptions, FontInfoOverride, SourceCache};
 use fission_render_vello::parley::FontContext;
 use fission_shell::{Platform, VideoBackend, VideoEvent, VideoPlayer};
 use fission_diagnostics::prelude as diag;
@@ -191,8 +193,23 @@ impl<S: AppState + Default, W: Widget<S> + 'static> DesktopApp<S, W> {
 
         let env = Env::default();
 
-        let font_cx = Arc::new(Mutex::new(FontContext::default()));
-        let measurer = Arc::new(VelloTextMeasurer::new(font_cx.clone()));
+        const DEFAULT_FONT_FAMILY: &str = "Fission Default";
+        let font_cx = Arc::new(Mutex::new(build_font_context()));
+        {
+            let mut font_cx = font_cx.lock().unwrap();
+            let font_data = fonts::default_font_bytes().to_vec();
+            let info_override = FontInfoOverride {
+                family_name: Some(DEFAULT_FONT_FAMILY),
+                ..Default::default()
+            };
+            font_cx
+                .collection
+                .register_fonts(Blob::from(font_data), Some(info_override));
+        }
+        let measurer = Arc::new(VelloTextMeasurer::new_with_default_family(
+            font_cx.clone(),
+            DEFAULT_FONT_FAMILY,
+        ));
         let clipboard: Arc<dyn fission_core::env::Clipboard> = Arc::new(DesktopClipboard::new());
 
         let layout_engine = LayoutEngine::new().with_measurer(measurer.clone());
@@ -715,6 +732,20 @@ impl<S: AppState + Default, W: Widget<S> + 'static> DesktopApp<S, W> {
                 }
             })
             .map_err(|e| anyhow::anyhow!("Event loop error: {}", e))
+    }
+}
+
+fn build_font_context() -> FontContext {
+    let use_system_fonts = std::env::var("FISSION_USE_SYSTEM_FONTS")
+        .map(|v| matches!(v.to_ascii_lowercase().as_str(), "1" | "true" | "yes"))
+        .unwrap_or(false);
+    let options = CollectionOptions {
+        shared: false,
+        system_fonts: use_system_fonts,
+    };
+    FontContext {
+        collection: Collection::new(options),
+        source_cache: SourceCache::default(),
     }
 }
 
