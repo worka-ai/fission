@@ -1,11 +1,11 @@
 use fission_layout::{TextMeasurer, LineMetric};
 use fission_ir::op::TextRun;
-use parley::layout::Layout;
+use parley::layout::{Layout, PositionedLayoutItem};
 use parley::style::{FontStack, StyleProperty};
 use parley::{FontContext, LayoutContext};
-use std::sync::{Arc, Mutex};
 use std::borrow::Cow;
 use std::collections::HashMap;
+use std::sync::{Arc, Mutex};
 use fission_render::TextStyle as RenderTextStyle;
 
 #[derive(Clone, Debug, PartialEq)]
@@ -15,18 +15,13 @@ impl Default for ParleyBrush {
     fn default() -> Self { Self([0, 0, 0, 255]) }
 }
 
-#[derive(Hash, PartialEq, Eq)]
-struct SimpleLayoutKey {
-    text: String,
-    font_size_bits: u32,
-    width_bits: Option<u32>,
-}
+const SIMPLE_CACHE_CAP: usize = 4096;
 
 pub struct VelloTextMeasurer {
     font_cx: Arc<Mutex<FontContext>>,
     layout_cx: Mutex<LayoutContext<ParleyBrush>>,
-    // Simple cache for single-style text
-    simple_cache: Mutex<HashMap<SimpleLayoutKey, Arc<Layout<ParleyBrush>>>>,
+    // Simple cache for single-style text grouped by metrics key.
+    simple_cache: Mutex<HashMap<(u32, Option<u32>), HashMap<String, Arc<Layout<ParleyBrush>>>>>,
     default_family: String,
 }
 
@@ -53,16 +48,20 @@ impl VelloTextMeasurer {
         self.font_cx.clone()
     }
 
-    pub fn get_layout(&self, text: &str, font_size: f32, width: Option<f32>) -> Arc<Layout<ParleyBrush>> {
-        let key = SimpleLayoutKey {
-            text: text.to_string(),
-            font_size_bits: font_size.to_bits(),
-            width_bits: width.map(|w| w.to_bits()),
-        };
+    fn width_bits(width: Option<f32>) -> Option<u32> {
+        width.map(|w| ((w * 4.0).round() / 4.0).to_bits())
+    }
 
-        let mut cache = self.simple_cache.lock().unwrap();
-        if let Some(layout) = cache.get(&key) {
-            return layout.clone();
+    pub fn get_layout(&self, text: &str, font_size: f32, width: Option<f32>) -> Arc<Layout<ParleyBrush>> {
+        let cache_key = (font_size.to_bits(), Self::width_bits(width));
+
+        {
+            let cache = self.simple_cache.lock().unwrap();
+            if let Some(bucket) = cache.get(&cache_key) {
+                if let Some(layout) = bucket.get(text) {
+                    return layout.clone();
+                }
+            }
         }
 
         let mut font_cx = self.font_cx.lock().unwrap();
@@ -78,13 +77,35 @@ impl VelloTextMeasurer {
         
         let layout_arc = Arc::new(layout);
         
-        // Simple eviction: if too big, clear.
-        if cache.len() > 500 {
-            cache.clear();
+        let mut cache = self.simple_cache.lock().unwrap();
+        let total_entries: usize = cache.values().map(|bucket| bucket.len()).sum();
+        if total_entries >= SIMPLE_CACHE_CAP {
+            if let Some((_k, bucket)) = cache.iter_mut().find(|(_, bucket)| !bucket.is_empty()) {
+                if let Some(first_key) = bucket.keys().next().cloned() {
+                    bucket.remove(&first_key);
+                }
+            }
+            cache.retain(|_, bucket| !bucket.is_empty());
         }
-        cache.insert(key, layout_arc.clone());
+        cache
+            .entry(cache_key)
+            .or_default()
+            .insert(text.to_string(), layout_arc.clone());
         
         layout_arc
+    }
+
+    fn next_char_boundary(text: &str, idx: usize) -> usize {
+        if idx >= text.len() {
+            return text.len();
+        }
+        let mut iter = text[idx..].char_indices();
+        let _ = iter.next();
+        if let Some((next_off, _)) = iter.next() {
+            idx + next_off
+        } else {
+            text.len()
+        }
     }
 
     pub fn layout_rich(&self, text: &str, base_size: f32, base_color: fission_render::Color, styles: &[(std::ops::Range<usize>, RenderTextStyle)], width: Option<f32>) -> Layout<ParleyBrush> {
@@ -155,11 +176,87 @@ impl TextMeasurer for VelloTextMeasurer {
         (layout.width(), layout.height())
     }
 
-    fn hit_test(&self, text: &str, font_size: f32, available_width: Option<f32>, _x: f32, _y: f32) -> usize {
-        let _layout = self.get_layout(text, font_size, available_width);
-        // Simplified hit test: find line, then glyph. 
-        // For now, return 0 or implement properly if needed for selection.
-        0
+    fn hit_test(&self, text: &str, font_size: f32, available_width: Option<f32>, x: f32, y: f32) -> usize {
+        if text.is_empty() {
+            return 0;
+        }
+
+        let layout = self.get_layout(text, font_size, available_width);
+        let mut target_line: Option<(usize, usize)> = None;
+        let mut best_distance = f32::INFINITY;
+
+        for line in layout.lines() {
+            let range = line.text_range();
+            let metrics = line.metrics();
+            let top = metrics.baseline - metrics.ascent;
+            let bottom = metrics.baseline + metrics.descent;
+
+            if y >= top && y <= bottom {
+                target_line = Some((range.start, range.end));
+                break;
+            }
+
+            let distance = if y < top { top - y } else { y - bottom };
+            if distance < best_distance {
+                best_distance = distance;
+                target_line = Some((range.start, range.end));
+            }
+        }
+
+        let Some((line_start, line_end)) = target_line else {
+            return text.len();
+        };
+
+        if x <= 0.0 {
+            return line_start;
+        }
+
+        let mut fallback_idx = line_start;
+
+        for line in layout.lines() {
+            let line_range = line.text_range();
+            if line_range.start != line_start || line_range.end != line_end {
+                continue;
+            }
+
+            for item in line.items() {
+                if let PositionedLayoutItem::GlyphRun(glyph_run) = item {
+                    let style_range = glyph_run.run().text_range();
+                    let run_start = style_range.start.max(line_range.start);
+                    let run_end = style_range.end.min(line_range.end);
+                    if run_end <= run_start {
+                        continue;
+                    }
+
+                    let mut cursor_x = glyph_run.offset();
+                    if x <= cursor_x {
+                        return run_start;
+                    }
+
+                    let mut idx = run_start;
+                    for glyph in glyph_run.glyphs() {
+                        if idx >= run_end {
+                            break;
+                        }
+                        let mid = cursor_x + (glyph.advance * 0.5);
+                        if x < mid {
+                            return idx;
+                        }
+                        cursor_x += glyph.advance;
+                        idx = Self::next_char_boundary(text, idx).min(run_end);
+                    }
+
+                    if x <= cursor_x {
+                        return idx.min(run_end);
+                    }
+
+                    fallback_idx = run_end;
+                }
+            }
+            break;
+        }
+
+        fallback_idx.min(text.len())
     }
 
     fn get_line_metrics(&self, text: &str, font_size: f32, available_width: Option<f32>) -> Vec<LineMetric> {
@@ -176,8 +273,59 @@ impl TextMeasurer for VelloTextMeasurer {
         }).collect()
     }
 
-    fn get_caret_position(&self, text: &str, font_size: f32, available_width: Option<f32>, _caret_index: usize) -> (f32, f32) {
-        let _layout = self.get_layout(text, font_size, available_width);
+    fn get_caret_position(&self, text: &str, font_size: f32, available_width: Option<f32>, caret_index: usize) -> (f32, f32) {
+        if text.is_empty() {
+            return (0.0, 0.0);
+        }
+
+        let layout = self.get_layout(text, font_size, available_width);
+        let idx = caret_index.min(text.len());
+        let line_count = layout.lines().count();
+
+        for (line_idx, line) in layout.lines().enumerate() {
+            let line_range = line.text_range();
+            let is_last_line = line_idx + 1 == line_count;
+            if !((idx >= line_range.start && idx < line_range.end)
+                || (is_last_line && idx == line_range.end))
+            {
+                continue;
+            }
+
+            let mut x_pos = 0.0;
+            for item in line.items() {
+                if let PositionedLayoutItem::GlyphRun(glyph_run) = item {
+                    let style_range = glyph_run.run().text_range();
+                    let run_start = style_range.start.max(line_range.start);
+                    let run_end = style_range.end.min(line_range.end);
+                    if run_end <= run_start {
+                        continue;
+                    }
+
+                    if idx < run_start {
+                        break;
+                    }
+
+                    if idx >= run_start && idx <= run_end {
+                        let mut local_x = glyph_run.offset();
+                        let mut current = run_start;
+                        for glyph in glyph_run.glyphs() {
+                            if current >= idx || current >= run_end {
+                                break;
+                            }
+                            local_x += glyph.advance;
+                            current = Self::next_char_boundary(text, current).min(run_end);
+                        }
+                        x_pos = local_x;
+                        break;
+                    }
+
+                    x_pos = glyph_run.offset() + glyph_run.advance();
+                }
+            }
+
+            return (x_pos, line.metrics().baseline);
+        }
+
         (0.0, 0.0)
     }
 }

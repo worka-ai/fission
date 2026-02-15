@@ -1,18 +1,24 @@
 use crate::action::{Action, ActionEnvelope, ActionId, AppState};
-use crate::env::{Env, RuntimeState, VideoStatus, VideoStateMap, AnimationStateMap, ActiveAnimation, InteractionStateMap, ScrollStateMap}; 
+use crate::effect::{ActionInput, EffectEnvelope};
+use crate::env::{
+    ActiveAnimation, AnimationStateMap, Env, InteractionStateMap, RuntimeState, ScrollStateMap,
+    VideoStateMap, VideoStatus,
+};
 use crate::registry::{ActionRegistry, AnimationRequest, AnimationStartValue, VideoRegistration};
 use crate::BoxedReducer;
-use crate::effect::{EffectEnvelope, ActionInput};
-use crate::{Clock, CurrentTime, InputEvent, PointerEvent, PointerButton, KeyCode, KeyEvent, Clipboard, ImeHandler};
-use fission_ir::{CoreIR, NodeId, Op, LayoutOp, WidgetNodeId, FlexDirection};
-use fission_layout::{LayoutSnapshot, LayoutPoint, LayoutRect, TextMeasurer, LayoutUnit};
+use crate::{
+    Clipboard, Clock, CurrentTime, ImeHandler, InputEvent, KeyCode, KeyEvent, PointerButton,
+    PointerEvent,
+};
+use anyhow::{anyhow, Result};
 use fission_diagnostics::prelude as diag;
+use fission_ir::{CoreIR, FlexDirection, LayoutOp, NodeId, Op, WidgetNodeId};
+use fission_layout::{LayoutPoint, LayoutRect, LayoutSnapshot, LayoutUnit, TextMeasurer};
 use glam::{Mat4, Vec4};
+use serde_json;
 use std::any::{Any, TypeId};
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
-use anyhow::{anyhow, Result};
-use serde_json;
 
 pub struct Runtime {
     pub reducers: HashMap<ActionId, Vec<BoxedReducer>>,
@@ -22,7 +28,7 @@ pub struct Runtime {
     pub measurer: Option<Arc<dyn TextMeasurer>>,
     pub clipboard_backend: Option<Arc<dyn Clipboard>>,
     pub ime_handler: Option<Arc<dyn ImeHandler>>,
-    
+
     // Effects
     pub pending_effects: Vec<EffectEnvelope>,
     // For ReqId generation (seeded/deterministic)
@@ -69,7 +75,16 @@ impl Runtime {
         self
     }
 
-    pub fn caret_from_point_in_text(&self, value: &str, font_size: f32, viewport_x: f32, viewport_w: f32, content_w: f32, scroll_offset: f32, point_x: f32) -> usize {
+    pub fn caret_from_point_in_text(
+        &self,
+        value: &str,
+        font_size: f32,
+        viewport_x: f32,
+        viewport_w: f32,
+        content_w: f32,
+        scroll_offset: f32,
+        point_x: f32,
+    ) -> usize {
         crate::input::text::caret_from_point_in_text(
             self.measurer.as_ref(),
             value,
@@ -78,7 +93,7 @@ impl Runtime {
             viewport_w,
             content_w,
             scroll_offset,
-            point_x
+            point_x,
         )
     }
 
@@ -117,8 +132,8 @@ impl Runtime {
     }
 
     pub fn register_base_reducers(&mut self) {
-        use crate::{Tick, AdvanceTo, TICK_ACTION_ID, ADVANCE_TO_ACTION_ID};
-        
+        use crate::{AdvanceTo, Tick, ADVANCE_TO_ACTION_ID, TICK_ACTION_ID};
+
         self.register_reducer::<Clock>(
             *TICK_ACTION_ID,
             |state: &mut Clock, action: &ActionEnvelope, _target| {
@@ -160,7 +175,10 @@ impl Runtime {
     pub fn absorb_persistent_registry<S: AppState>(&mut self, registry: ActionRegistry<S>) {
         let new_reducers = registry.into_runtime_reducers();
         for (id, mut list) in new_reducers {
-            self.persistent_reducers.entry(id).or_default().append(&mut list);
+            self.persistent_reducers
+                .entry(id)
+                .or_default()
+                .append(&mut list);
         }
     }
 
@@ -192,14 +210,23 @@ impl Runtime {
     pub fn dispatch(&mut self, action: ActionEnvelope, target: NodeId) -> Result<()> {
         self.dispatch_with_input(action, target, &ActionInput::None)
     }
-    
-    pub fn dispatch_with_input(&mut self, action: ActionEnvelope, target: NodeId, input: &ActionInput) -> Result<()> {
+
+    pub fn dispatch_with_input(
+        &mut self,
+        action: ActionEnvelope,
+        target: NodeId,
+        input: &ActionInput,
+    ) -> Result<()> {
         diag::emit(
             diag::DiagCategory::Input,
             diag::DiagLevel::Debug,
-            diag::DiagEventKind::InputEvent { kind: "dispatch_start".into(), target: Some(target.as_u128()), position: None },
+            diag::DiagEventKind::InputEvent {
+                kind: "dispatch_start".into(),
+                target: Some(target.as_u128()),
+                position: None,
+            },
         );
-        
+
         // Delegate video actions to media module
         if crate::media::handle_video_action(&mut self.runtime_state.video, &action)? {
             return Ok(());
@@ -214,7 +241,11 @@ impl Runtime {
             diag::emit(
                 diag::DiagCategory::Input,
                 diag::DiagLevel::Debug,
-                diag::DiagEventKind::InputEvent { kind: format!("persistent_reducers:{}", reducers.len()), target: Some(target.as_u128()), position: None },
+                diag::DiagEventKind::InputEvent {
+                    kind: format!("persistent_reducers:{}", reducers.len()),
+                    target: Some(target.as_u128()),
+                    position: None,
+                },
             );
 
             let mut temp_reducers: Vec<BoxedReducer> = reducers.drain(..).collect();
@@ -228,7 +259,11 @@ impl Runtime {
             diag::emit(
                 diag::DiagCategory::Input,
                 diag::DiagLevel::Debug,
-                diag::DiagEventKind::InputEvent { kind: format!("reducers:{}", reducers.len()), target: Some(target.as_u128()), position: None },
+                diag::DiagEventKind::InputEvent {
+                    kind: format!("reducers:{}", reducers.len()),
+                    target: Some(target.as_u128()),
+                    position: None,
+                },
             );
 
             let mut temp_reducers: Vec<BoxedReducer> = reducers.drain(..).collect();
@@ -245,11 +280,15 @@ impl Runtime {
             self.next_req_id += 1;
             self.pending_effects.push(envelope);
         }
-        
+
         diag::emit(
             diag::DiagCategory::Input,
             diag::DiagLevel::Debug,
-            diag::DiagEventKind::InputEvent { kind: "dispatch_end".into(), target: Some(target.as_u128()), position: None },
+            diag::DiagEventKind::InputEvent {
+                kind: "dispatch_end".into(),
+                target: Some(target.as_u128()),
+                position: None,
+            },
         );
         Ok(())
     }
@@ -270,9 +309,9 @@ impl Runtime {
             } else {
                 (elapsed as f32 / anim.duration as f32)
             };
-            
+
             if anim.repeat && progress >= 1.0 {
-                progress = progress % 1.0; 
+                progress = progress % 1.0;
             } else {
                 progress = progress.clamp(0.0, 1.0);
             }
@@ -282,7 +321,7 @@ impl Runtime {
                 .animation
                 .values
                 .insert((*target, property.clone()), value);
-            
+
             if !anim.repeat && (elapsed >= anim.duration || anim.duration == 0) {
                 finished.push((*target, property.clone()));
             }
@@ -297,11 +336,14 @@ impl Runtime {
 
     pub fn enqueue_animation(&mut self, target: WidgetNodeId, request: AnimationRequest) {
         let key = (target, request.property.clone());
-        
+
         // Declarative deduplication: If we are already animating to this target, ignore the new request.
         if let Some(active) = self.runtime_state.animation.active.get(&key) {
             // Fuzzy float comparison
-            if (active.end_value - request.to).abs() < 0.001 && active.duration == request.duration_ms && active.repeat == request.repeat {
+            if (active.end_value - request.to).abs() < 0.001
+                && active.duration == request.duration_ms
+                && active.repeat == request.repeat
+            {
                 // Continue existing animation
                 return;
             }
@@ -314,11 +356,11 @@ impl Runtime {
             .get(&key)
             .copied()
             .unwrap_or_else(|| request.property.default_value());
-            
+
         // If we are already at the target value and no animation is running, do we need to start one?
         // Yes, because we might want to ensure it's "set" or trigger completion events (if we had them).
         // But if start == end and duration > 0, it's a no-op animation?
-        // Optimization: if current == to, maybe skip? 
+        // Optimization: if current == to, maybe skip?
         // But if we want to "hold" the value, active animation keeps it?
         // Let's simpler logic: Start new if target changed.
 
@@ -379,7 +421,7 @@ impl Runtime {
                 .states
                 .entry(reg.node_id)
                 .or_insert_with(crate::env::WebState::default);
-            
+
             // Only update URL if it changes to avoid reload loops
             if entry.url != reg.url {
                 entry.url = reg.url.clone();
@@ -396,7 +438,7 @@ impl Runtime {
 
     pub fn post_layout_hook(&mut self, ir: &CoreIR, layout: &LayoutSnapshot) {
         let mut current_heroes = HashMap::new();
-        
+
         for (id, node) in &ir.nodes {
             if let Op::Semantics(s) = &node.op {
                 if let Some(tag) = &s.hero_tag {
@@ -406,7 +448,7 @@ impl Runtime {
                 }
             }
         }
-        
+
         // Detection logic for future flight animations
         for (tag, (_new_id, new_rect)) in &current_heroes {
             if let Some((_old_id, old_rect)) = self.runtime_state.hero.positions.get(tag) {
@@ -430,7 +472,7 @@ impl Runtime {
                 }
             }
         }
-        
+
         self.runtime_state.hero.positions = current_heroes;
     }
 
@@ -440,11 +482,13 @@ impl Runtime {
         ir: &CoreIR,
         layout: &LayoutSnapshot,
     ) -> Result<()> {
-        use crate::input::{ControllerContext, InputController};
-        use crate::input::text::TextInputController;
-        use crate::input::slider::SliderController;
+        use crate::hit_test::{
+            find_neighbor_focus_node, find_next_focus_node, hit_test_with_scroll, FocusDirection,
+        };
         use crate::input::gesture::GestureController;
-        use crate::hit_test::{hit_test_with_scroll, find_next_focus_node, find_neighbor_focus_node, FocusDirection};
+        use crate::input::slider::SliderController;
+        use crate::input::text::TextInputController;
+        use crate::input::{ControllerContext, InputController};
 
         let mut dispatched_actions = Vec::new();
         let mut handled = false;
@@ -458,7 +502,7 @@ impl Runtime {
                 scroll: &mut self.runtime_state.scroll,
                 ime_preedit: &mut self.runtime_state.ime_preedit,
                 gesture: &mut self.runtime_state.gesture,
-                clipboard: self.clipboard_backend.as_ref(), 
+                clipboard: self.clipboard_backend.as_ref(),
                 measurer: self.measurer.as_ref(),
                 dispatched_actions: Vec::new(),
             };
@@ -485,15 +529,17 @@ impl Runtime {
         }
 
         if handled {
+            if matches!(event, InputEvent::Pointer(PointerEvent::Up { .. })) {
+                self.runtime_state.interaction.pressed.clear();
+                self.runtime_state.interaction.last_down_point = None;
+            }
             return Ok(());
         }
 
         match event {
             InputEvent::Pointer(PointerEvent::Scroll { point, delta }) => {
-                let trace_scroll = std::env::var("FISSION_SCROLL_TRACE")
-                    .ok()
-                    .as_deref()
-                    == Some("1");
+                let trace_scroll =
+                    std::env::var("FISSION_SCROLL_TRACE").ok().as_deref() == Some("1");
                 if trace_scroll {
                     eprintln!(
                         "[scroll-trace] event point=({:.1},{:.1}) delta=({:.1},{:.1})",
@@ -511,7 +557,10 @@ impl Runtime {
                         if let Some(node) = ir.nodes.get(&node_id) {
                             if let Op::Layout(LayoutOp::Scroll { direction, .. }) = &node.op {
                                 let current_offset = self.runtime_state.scroll.get_offset(node_id);
-                                let delta_val = match direction { FlexDirection::Row => delta.x, FlexDirection::Column => delta.y };
+                                let delta_val = match direction {
+                                    FlexDirection::Row => delta.x,
+                                    FlexDirection::Column => delta.y,
+                                };
                                 let mut new_offset = current_offset + delta_val;
 
                                 let mut max_offset = 0.0f32;
@@ -554,7 +603,10 @@ impl Runtime {
                                         diag::DiagLevel::Debug,
                                         diag::DiagEventKind::ScrollUpdate {
                                             node: node_id.as_u128(),
-                                            axis: match direction { FlexDirection::Row => "x".into(), FlexDirection::Column => "y".into() },
+                                            axis: match direction {
+                                                FlexDirection::Row => "x".into(),
+                                                FlexDirection::Column => "y".into(),
+                                            },
                                             point_x: point.x,
                                             point_y: point.y,
                                             delta: delta_val,
@@ -587,9 +639,12 @@ impl Runtime {
             }) => match key_code {
                 KeyCode::Tab => {
                     let reverse = (modifiers & 1) != 0;
-                    let next = find_next_focus_node(ir, self.runtime_state.interaction.focused, reverse);
-                    if next != self.runtime_state.interaction.focused {
+                    let old_focus = self.runtime_state.interaction.focused;
+                    let next =
+                        find_next_focus_node(ir, self.runtime_state.interaction.focused, reverse);
+                    if next != old_focus {
                         self.runtime_state.ime_preedit = None;
+                        self.clear_text_pending_on_blur(old_focus, next);
                     }
                     self.runtime_state.interaction.set_focused(next);
                 }
@@ -604,6 +659,7 @@ impl Runtime {
                         };
                         if let Some(next) = find_neighbor_focus_node(ir, layout, focused, dir) {
                             self.runtime_state.ime_preedit = None;
+                            self.clear_text_pending_on_blur(Some(focused), Some(next));
                             self.runtime_state.interaction.set_focused(Some(next));
                         }
                     }
@@ -640,7 +696,11 @@ impl Runtime {
                     diag::emit(
                         diag::DiagCategory::Input,
                         diag::DiagLevel::Debug,
-                        diag::DiagEventKind::InputEvent { kind: "pointer_down_hit".into(), target: Some(hit_node_id.as_u128()), position: Some((point.x, point.y)) },
+                        diag::DiagEventKind::InputEvent {
+                            kind: "pointer_down_hit".into(),
+                            target: Some(hit_node_id.as_u128()),
+                            position: Some((point.x, point.y)),
+                        },
                     );
                     let mut focus_candidate = Some(hit_node_id);
                     while let Some(node_id) = focus_candidate {
@@ -650,6 +710,10 @@ impl Runtime {
                                     let old_focused_id = self.runtime_state.interaction.focused;
                                     if Some(node_id) != old_focused_id {
                                         self.runtime_state.ime_preedit = None;
+                                        self.clear_text_pending_on_blur(
+                                            old_focused_id,
+                                            Some(node_id),
+                                        );
 
                                         if s.role == fission_ir::semantics::Role::TextInput {
                                             if let Some(ime_handler) = &self.ime_handler {
@@ -669,6 +733,7 @@ impl Runtime {
                         }
                     }
                     if focus_candidate.is_none() {
+                        let old_focused_id = self.runtime_state.interaction.focused;
                         if let Some(old_focused_id) = self.runtime_state.interaction.focused {
                             if let Some(old_node) = ir.nodes.get(&old_focused_id) {
                                 if let Op::Semantics(s) = &old_node.op {
@@ -680,6 +745,7 @@ impl Runtime {
                                 }
                             }
                         }
+                        self.clear_text_pending_on_blur(old_focused_id, None);
                         self.runtime_state.interaction.set_focused(None);
                     }
 
@@ -699,13 +765,16 @@ impl Runtime {
                             if let Op::Semantics(s) = &node.op {
                                 if s.role == fission_ir::semantics::Role::TextInput {
                                     if let Some(ime_handler) = &self.ime_handler {
-                                        ime_handler.set_ime_cursor_area(LayoutRect::new(point.x, point.y, 2.0, 16.0));
+                                        ime_handler.set_ime_cursor_area(LayoutRect::new(
+                                            point.x, point.y, 2.0, 16.0,
+                                        ));
                                     }
                                 }
                             }
                         }
                     }
                 } else {
+                    let old_focused_id = self.runtime_state.interaction.focused;
                     if let Some(old_focused_id) = self.runtime_state.interaction.focused {
                         if let Some(old_node) = ir.nodes.get(&old_focused_id) {
                             if let Op::Semantics(s) = &old_node.op {
@@ -717,22 +786,24 @@ impl Runtime {
                             }
                         }
                     }
+                    self.clear_text_pending_on_blur(old_focused_id, None);
                     self.runtime_state.interaction.set_focused(None);
                 }
             }
             InputEvent::Pointer(PointerEvent::Up { point, .. }) => {
+                self.runtime_state.interaction.pressed.clear();
+                self.runtime_state.interaction.last_down_point = None;
                 if let Some(hit_node_id) =
                     hit_test_with_scroll(ir, layout, &self.runtime_state.scroll, point)
                 {
-                    self.runtime_state.interaction.pressed.clear();
-
                     let mut current_id = Some(hit_node_id);
                     while let Some(node_id) = current_id {
                         if let Some(node) = ir.nodes.get(&node_id) {
                             if let Op::Semantics(semantics) = &node.op {
                                 if semantics.role == fission_ir::semantics::Role::TextInput {
                                     // No action
-                                } else if let Some(action_entry) = semantics.actions.entries.first() {
+                                } else if let Some(action_entry) = semantics.actions.entries.first()
+                                {
                                     if let Some(payload) = &action_entry.payload_data {
                                         let envelope = ActionEnvelope {
                                             id: ActionId::from_u128(action_entry.action_id),
@@ -741,7 +812,11 @@ impl Runtime {
                                         diag::emit(
                                             diag::DiagCategory::Input,
                                             diag::DiagLevel::Debug,
-                                            diag::DiagEventKind::InputEvent { kind: "pointer_up_dispatch".into(), target: Some(node_id.as_u128()), position: Some((point.x, point.y)) },
+                                            diag::DiagEventKind::InputEvent {
+                                                kind: "pointer_up_dispatch".into(),
+                                                target: Some(node_id.as_u128()),
+                                                position: Some((point.x, point.y)),
+                                            },
                                         );
                                         return self.dispatch(envelope, node_id);
                                     }
@@ -752,35 +827,53 @@ impl Runtime {
                             break;
                         }
                     }
-
-                    self.runtime_state.interaction.last_down_point = None;
                 }
-            }
-            InputEvent::Pointer(PointerEvent::Up { point: _, .. }) => {
-                self.runtime_state.interaction.pressed.clear();
-                self.runtime_state.interaction.last_down_point = None;
             }
             _ => {}
         }
         Ok(())
     }
 
-    pub fn hit_test(&self, point: LayoutPoint, ir: &CoreIR, snapshot: &LayoutSnapshot) -> Option<NodeId> {
+    fn clear_text_pending_on_blur(&mut self, old_focus: Option<NodeId>, new_focus: Option<NodeId>) {
+        if old_focus == new_focus {
+            return;
+        }
+        if let Some(old_id) = old_focus {
+            if let Some(st) = self.runtime_state.text_edit.states.get_mut(&old_id) {
+                st.pending_model_sync = false;
+            }
+        }
+    }
+
+    pub fn hit_test(
+        &self,
+        point: LayoutPoint,
+        ir: &CoreIR,
+        snapshot: &LayoutSnapshot,
+    ) -> Option<NodeId> {
         if let Some(root) = ir.root {
             return self.hit_test_recursive(root, point, ir, snapshot);
         }
         None
     }
 
-    fn hit_test_recursive(&self, node_id: NodeId, point: LayoutPoint, ir: &CoreIR, snapshot: &LayoutSnapshot) -> Option<NodeId> {
+    fn hit_test_recursive(
+        &self,
+        node_id: NodeId,
+        point: LayoutPoint,
+        ir: &CoreIR,
+        snapshot: &LayoutSnapshot,
+    ) -> Option<NodeId> {
         if let Some(geom) = snapshot.nodes.get(&node_id) {
             if geom.rect.contains(point) {
                 if let Some(node) = ir.nodes.get(&node_id) {
                     for child in node.children.iter().rev() {
                         let mut child_point = point;
-                        
+
                         if let Op::Layout(LayoutOp::Scroll { direction, .. }) = &node.op {
-                            if !geom.rect.contains(point) { continue; }
+                            if !geom.rect.contains(point) {
+                                continue;
+                            }
                             let offset = self.runtime_state.scroll.get_offset(node_id);
                             match direction {
                                 FlexDirection::Row => child_point.x += offset,
@@ -795,13 +888,13 @@ impl Runtime {
                             // In hit_test_recursive, `point` is relative to current `node_id`?
                             // No, `point` is relative to the `geom.rect.origin` of `node_id`?
                             // Let's check recursion.
-                            
+
                             // hit_test starts at root with absolute point.
                             // recursion: `child_point = point`.
                             // wait, `hit_test_recursive` doesn't subtract location?
                             // Ah, I see: `if geom.rect.contains(point)`.
                             // This implies `point` is ABSOLUTE.
-                            
+
                             // If `point` is absolute, and we want to transform into child local space:
                             // 1. Move point to node local space: `point - node_pos`.
                             // 2. Apply inverse transform.
@@ -809,45 +902,47 @@ impl Runtime {
                             // Recursive call expects absolute point?
                             // No, `hit_test_recursive` calls itself with `child_point`.
                             // If it expects absolute point, then `Transform` node doesn't work well with absolute recursion.
-                            
+
                             // Actually, my `hit_test_recursive` impl seems to assume absolute points for all nodes?
                             // `if geom.rect.contains(point)` confirms it.
-                            
+
                             // So if I have a Transform, I MUST return a point that looks "absolute" to the child
-                            // but is logically transformed. 
+                            // but is logically transformed.
                             // Absolute child rect is NOT transformed by LayoutEngine.
-                            
+
                             // This means `geom.rect` for children of a Transform is WRONG if they are visually moved.
                             // BUT LayoutEngine doesn't know about Matrix4.
                             // So the children think they are at `(0,0)` relative to parent.
-                            
+
                             // To make hit test work:
                             // 1. Convert absolute `point` to `node_local_point`.
                             // 2. Apply inverse transform to `node_local_point` -> `transformed_local_point`.
                             // 3. Convert `transformed_local_point` back to absolute for children -> `transformed_absolute_point`.
-                            
+
                             let local_x = point.x - geom.rect.origin.x;
                             let local_y = point.y - geom.rect.origin.y;
-                            
+
                             let p = Vec4::new(local_x, local_y, 0.0, 1.0);
                             let inv = mat.inverse();
                             let transformed = inv * p;
-                            
+
                             child_point = LayoutPoint::new(
                                 transformed.x + geom.rect.origin.x,
-                                transformed.y + geom.rect.origin.y
+                                transformed.y + geom.rect.origin.y,
                             );
                         }
-                        
-                        if let Some(hit) = self.hit_test_recursive(*child, child_point, ir, snapshot) {
+
+                        if let Some(hit) =
+                            self.hit_test_recursive(*child, child_point, ir, snapshot)
+                        {
                             return Some(hit);
                         }
                     }
-                    
+
                     match &node.op {
-                        Op::Paint(_) | 
-                        Op::Layout(LayoutOp::Scroll { .. }) | 
-                        Op::Layout(LayoutOp::Embed { .. }) => return Some(node_id),
+                        Op::Paint(_)
+                        | Op::Layout(LayoutOp::Scroll { .. })
+                        | Op::Layout(LayoutOp::Embed { .. }) => return Some(node_id),
                         _ => return None,
                     }
                 }

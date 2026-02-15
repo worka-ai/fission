@@ -353,6 +353,22 @@ impl<'a> VelloRenderer<'a> {
         }
     }
     
+    fn next_char_boundary(text: &str, idx: usize) -> usize {
+        if idx >= text.len() {
+            return text.len();
+        }
+        if !text.is_char_boundary(idx) {
+            return text.len();
+        }
+        let mut it = text[idx..].char_indices();
+        let _ = it.next();
+        if let Some((off, _)) = it.next() {
+            idx + off
+        } else {
+            text.len()
+        }
+    }
+
     fn draw_caret(&mut self, layout: &parley::layout::Layout<ParleyBrush>, idx: usize, position: fission_render::LayoutPoint, text: &str, base_size: f32) {
             let mut caret_drawn = false;
             let lines_count = layout.lines().count();
@@ -381,7 +397,9 @@ impl<'a> VelloRenderer<'a> {
                                 for glyph in glyph_run.glyphs() {
                                     if current_char_idx >= idx { break; }
                                     local_x += glyph.advance;
-                                    current_char_idx += 1;
+                                    current_char_idx =
+                                        Self::next_char_boundary(text, current_char_idx)
+                                            .min(run_range.end);
                                 }
                                 x_pos = local_x;
                             } else if idx > run_range.end {
@@ -391,16 +409,8 @@ impl<'a> VelloRenderer<'a> {
                     }
                     
                     let metrics = line.metrics();
-                    let line_height = metrics.ascent + metrics.descent;
-                    
-                    let baseline_y = if let Some(item) = line.items().next() {
-                        match item {
-                            PositionedLayoutItem::GlyphRun(gr) => gr.baseline(),
-                            _ => 0.0, 
-                        }
-                    } else {
-                        0.0
-                    };
+                    let line_height = metrics.line_height.max(metrics.ascent + metrics.descent).max(1.0);
+                    let baseline_y = metrics.baseline;
 
                     let top_y = baseline_y - metrics.ascent;
                     
@@ -423,11 +433,18 @@ impl<'a> VelloRenderer<'a> {
                 }
             }
             if !caret_drawn && idx == 0 && text.is_empty() {
+                let mut top_y = position.y as f64;
+                let mut height = base_size as f64 * 1.2;
+                if let Some(line) = layout.lines().next() {
+                    let metrics = line.metrics();
+                    top_y = position.y as f64 + (metrics.baseline - metrics.ascent) as f64;
+                    height = metrics.line_height.max(metrics.ascent + metrics.descent).max(1.0) as f64;
+                }
                  let caret_rect = Rect::new(
                     position.x as f64,
-                    position.y as f64,
+                    top_y,
                     position.x as f64 + 2.0,
-                    position.y as f64 + base_size as f64 * 1.2
+                    top_y + height
                 );
                 self.scene.fill(Fill::NonZero, self.current_transform, Color::BLACK, None, &caret_rect);
             }
@@ -531,6 +548,26 @@ impl<'a> Renderer for VelloRenderer<'a> {
                     self.render_text(text, *size, *color, *underline, *position, *bounds, *caret_index, &[]);
                 }
                 DisplayOp::DrawRichText { runs, position, bounds, caret_index, .. } => {
+                    if let Some(first) = runs.first() {
+                        if runs.iter().all(|run| run.style == first.style) {
+                            let mut full_text = String::new();
+                            for run in runs {
+                                full_text.push_str(&run.text);
+                            }
+                            self.render_text(
+                                &full_text,
+                                first.style.font_size,
+                                first.style.color,
+                                first.style.underline,
+                                *position,
+                                *bounds,
+                                *caret_index,
+                                &[],
+                            );
+                            continue;
+                        }
+                    }
+
                     let mut full_text = String::new();
                     let mut styles = Vec::new();
                     let mut start = 0;

@@ -1,8 +1,8 @@
 use super::*;
 use anyhow::Result;
 use fission_core::env::RuntimeState;
-use fission_core::event::{InputEvent, PointerButton, PointerEvent};
-use fission_core::{AnimationPropertyId, BuildCtx, Env, NodeId, WidgetNodeId};
+use fission_core::event::{InputEvent, KeyCode, KeyEvent, PointerButton, PointerEvent};
+use fission_core::{Action, AnimationPropertyId, BuildCtx, Env, NodeId, WidgetNodeId};
 use fission_ir::op::{FlexDirection, FlexWrap, GridTrack};
 use fission_ir::semantics::{ActionTrigger, Role};
 use fission_ir::{EmbedKind, LayoutOp, Op, PaintOp};
@@ -161,6 +161,18 @@ fn find_text_node_rects(h: &TestHarness<InboxState>, needle: &str) -> Vec<Layout
     rects
 }
 
+fn find_text_node_id(h: &TestHarness<InboxState>, needle: &str) -> Option<NodeId> {
+    let ir = h.last_ir.as_ref()?;
+    for (node_id, node) in &ir.nodes {
+        if let Op::Paint(PaintOp::DrawText { text, .. }) = &node.op {
+            if text == needle {
+                return Some(*node_id);
+            }
+        }
+    }
+    None
+}
+
 fn find_text_node_rect(h: &TestHarness<InboxState>, needle: &str) -> Option<LayoutRect> {
     let mut rects = find_text_node_rects(h, needle);
     rects.sort_by(|a, b| {
@@ -196,7 +208,11 @@ fn find_text_node_rect_rightmost(h: &TestHarness<InboxState>, needle: &str) -> O
     rects.into_iter().next()
 }
 
-fn find_text_node_rect_near(h: &TestHarness<InboxState>, needle: &str, target: LayoutRect) -> Option<LayoutRect> {
+fn find_text_node_rect_near(
+    h: &TestHarness<InboxState>,
+    needle: &str,
+    target: LayoutRect,
+) -> Option<LayoutRect> {
     let rects = find_text_node_rects(h, needle);
     rects.into_iter().min_by(|a, b| {
         let da = (a.x() - target.x()).powi(2) + (a.y() - target.y()).powi(2);
@@ -240,7 +256,10 @@ fn has_text_exact(h: &TestHarness<InboxState>, needle: &str) -> bool {
 }
 
 fn count_text_exact(h: &TestHarness<InboxState>, needle: &str) -> usize {
-    display_texts(h).iter().filter(|t| t.as_str() == needle).count()
+    display_texts(h)
+        .iter()
+        .filter(|t| t.as_str() == needle)
+        .count()
 }
 
 fn ir_has_layout_op<F>(h: &TestHarness<InboxState>, pred: F) -> bool
@@ -248,7 +267,9 @@ where
     F: Fn(&LayoutOp) -> bool,
 {
     h.last_ir.as_ref().map_or(false, |ir| {
-        ir.nodes.values().any(|n| matches!(&n.op, Op::Layout(op) if pred(op)))
+        ir.nodes
+            .values()
+            .any(|n| matches!(&n.op, Op::Layout(op) if pred(op)))
     })
 }
 
@@ -281,7 +302,10 @@ fn ir_has_node_id(h: &TestHarness<InboxState>, node_id: NodeId) -> bool {
 }
 
 fn ir_has_embed_kind(h: &TestHarness<InboxState>, kind: EmbedKind) -> bool {
-    ir_has_layout_op(h, |op| matches!(op, LayoutOp::Embed { kind: k, .. } if *k == kind))
+    ir_has_layout_op(
+        h,
+        |op| matches!(op, LayoutOp::Embed { kind: k, .. } if *k == kind),
+    )
 }
 
 fn runtime_has_animation(
@@ -298,7 +322,9 @@ fn runtime_has_animation(
 
 fn display_has_image(h: &TestHarness<InboxState>) -> bool {
     h.get_last_display_list().map_or(false, |list| {
-        list.ops.iter().any(|op| matches!(op, DisplayOp::DrawImage { .. }))
+        list.ops
+            .iter()
+            .any(|op| matches!(op, DisplayOp::DrawImage { .. }))
     })
 }
 
@@ -385,7 +411,10 @@ fn settings_modal_backdrop_closes() -> Result<()> {
     let mut h = pump_state(state_settings())?;
     click(&mut h, 10.0, 10.0)?;
     let state = h.runtime.get_app_state::<InboxState>().unwrap();
-    assert!(!state.show_settings, "settings modal should close on backdrop click");
+    assert!(
+        !state.show_settings,
+        "settings modal should close on backdrop click"
+    );
     Ok(())
 }
 
@@ -394,7 +423,10 @@ fn contacts_modal_backdrop_closes() -> Result<()> {
     let mut h = pump_state(state_contacts())?;
     click(&mut h, 10.0, 10.0)?;
     let state = h.runtime.get_app_state::<InboxState>().unwrap();
-    assert!(!state.show_contacts, "contacts modal should close on backdrop click");
+    assert!(
+        !state.show_contacts,
+        "contacts modal should close on backdrop click"
+    );
     Ok(())
 }
 
@@ -403,7 +435,129 @@ fn compose_modal_backdrop_closes() -> Result<()> {
     let mut h = pump_state(state_compose())?;
     click(&mut h, 10.0, 10.0)?;
     let state = h.runtime.get_app_state::<InboxState>().unwrap();
-    assert!(!state.show_compose, "compose modal should close on backdrop click");
+    assert!(
+        !state.show_compose,
+        "compose modal should close on backdrop click"
+    );
+    Ok(())
+}
+
+#[test]
+fn compose_combobox_popup_is_bounded_and_clickable() -> Result<()> {
+    let mut h = pump_state(state_compose())?;
+
+    let to_input_id = NodeId::derived(WidgetNodeId::explicit("compose_to").as_u128(), &[1]);
+    click_node(&mut h, to_input_id)?;
+    h.send_event(InputEvent::Keyboard(KeyEvent::Down {
+        key_code: KeyCode::Char('a'),
+        modifiers: 0,
+    }))?;
+    h.pump()?;
+
+    let state = h.runtime.get_app_state::<InboxState>().unwrap();
+    assert_eq!(state.compose_to, "a");
+
+    let alice_text_id = find_text_node_id(&h, "alice@example.com").expect("alice suggestion");
+    let ir = h.last_ir.as_ref().expect("ir");
+    let snapshot = h.last_snapshot.as_ref().expect("snapshot");
+
+    let mut popup_scroll: Option<NodeId> = None;
+    let mut current = Some(alice_text_id);
+    while let Some(id) = current {
+        if let Some(node) = ir.nodes.get(&id) {
+            if matches!(
+                node.op,
+                Op::Layout(LayoutOp::Scroll {
+                    direction: FlexDirection::Column,
+                    ..
+                })
+            ) {
+                popup_scroll = Some(id);
+                break;
+            }
+            current = node.parent;
+        } else {
+            break;
+        }
+    }
+
+    let popup_rect = snapshot
+        .get_node_rect(popup_scroll.expect("popup scroll ancestor"))
+        .expect("popup rect");
+    assert!(
+        popup_rect.height() <= 220.0,
+        "combobox popup unexpectedly tall: {}",
+        popup_rect.height()
+    );
+
+    let alice_rect = find_text_node_rect(&h, "alice@example.com").expect("alice text rect");
+    click_rect(&mut h, alice_rect)?;
+    h.pump()?;
+
+    let state = h.runtime.get_app_state::<InboxState>().unwrap();
+    assert_eq!(state.compose_to, "alice@example.com");
+    assert!(
+        !has_text_exact(&h, "bob@example.com"),
+        "suggestion popup should close after selecting exact match"
+    );
+
+    Ok(())
+}
+
+#[test]
+fn compose_combobox_popup_does_not_block_modal_close_button() -> Result<()> {
+    let mut h = pump_state(state_compose())?;
+
+    let to_input_id = NodeId::derived(WidgetNodeId::explicit("compose_to").as_u128(), &[1]);
+    click_node(&mut h, to_input_id)?;
+    h.send_event(InputEvent::Keyboard(KeyEvent::Down {
+        key_code: KeyCode::Char('a'),
+        modifiers: 0,
+    }))?;
+    h.pump()?;
+
+    let title_rect = find_text_node_rect(&h, "New Message").expect("modal title rect");
+    let ir = h.last_ir.as_ref().expect("ir");
+    let snapshot = h.last_snapshot.as_ref().expect("snapshot");
+
+    let close_action_id = SetComposeOpen::static_id().as_u128();
+    let close_button = ir
+        .nodes
+        .iter()
+        .filter_map(|(id, node)| {
+            let Op::Semantics(sem) = &node.op else {
+                return None;
+            };
+            if !sem
+                .actions
+                .entries
+                .iter()
+                .any(|entry| entry.action_id == close_action_id)
+            {
+                return None;
+            }
+            let rect = snapshot.get_node_rect(*id)?;
+            let in_header_band =
+                rect.y() <= title_rect.bottom() + 8.0 && rect.bottom() >= title_rect.y() - 8.0;
+            let likely_icon_button = rect.width() <= 72.0 && rect.height() <= 72.0;
+            if in_header_band && likely_icon_button && rect.x() > title_rect.right() {
+                Some((*id, rect.width() * rect.height()))
+            } else {
+                None
+            }
+        })
+        .min_by(|a, b| a.1.partial_cmp(&b.1).unwrap_or(std::cmp::Ordering::Equal))
+        .map(|(id, _)| id)
+        .expect("modal close button node");
+
+    click_node(&mut h, close_button)?;
+
+    let state = h.runtime.get_app_state::<InboxState>().unwrap();
+    assert!(
+        !state.show_compose,
+        "compose modal should close even while combobox popup is open"
+    );
+
     Ok(())
 }
 
@@ -412,7 +566,10 @@ fn mobile_drawer_backdrop_closes() -> Result<()> {
     let mut h = pump_state(state_drawer())?;
     click(&mut h, 700.0, 20.0)?;
     let state = h.runtime.get_app_state::<InboxState>().unwrap();
-    assert!(!state.show_mobile_menu, "mobile drawer should close on backdrop click");
+    assert!(
+        !state.show_mobile_menu,
+        "mobile drawer should close on backdrop click"
+    );
     Ok(())
 }
 
@@ -422,11 +579,17 @@ fn mobile_drawer_opens_and_closes_from_header() -> Result<()> {
     let menu_id = NodeId::derived(WidgetNodeId::explicit("mobile_menu_button").as_u128(), &[]);
     click_node(&mut h, menu_id)?;
     let state = h.runtime.get_app_state::<InboxState>().unwrap();
-    assert!(state.show_mobile_menu, "drawer should open from header button");
+    assert!(
+        state.show_mobile_menu,
+        "drawer should open from header button"
+    );
     h.pump()?;
     click(&mut h, 700.0, 20.0)?;
     let state = h.runtime.get_app_state::<InboxState>().unwrap();
-    assert!(!state.show_mobile_menu, "drawer should close on backdrop click");
+    assert!(
+        !state.show_mobile_menu,
+        "drawer should close on backdrop click"
+    );
     Ok(())
 }
 
@@ -436,7 +599,10 @@ fn compose_button_opens_modal() -> Result<()> {
     let compose_id = NodeId::derived(WidgetNodeId::explicit("compose_button").as_u128(), &[]);
     click_node(&mut h, compose_id)?;
     let state = h.runtime.get_app_state::<InboxState>().unwrap();
-    assert!(state.show_compose, "compose button should open compose modal");
+    assert!(
+        state.show_compose,
+        "compose button should open compose modal"
+    );
     Ok(())
 }
 
@@ -468,7 +634,10 @@ fn calendar_select_updates_state() -> Result<()> {
         .expect("calendar date");
     click_rect(&mut h, rect)?;
     let state = h.runtime.get_app_state::<InboxState>().unwrap();
-    assert!(state.calendar_selected.is_some(), "calendar selection should update state");
+    assert!(
+        state.calendar_selected.is_some(),
+        "calendar selection should update state"
+    );
     Ok(())
 }
 
@@ -488,7 +657,9 @@ fn drag_tag_updates_pinned_label() -> Result<()> {
         point: start_point,
         button: PointerButton::Primary,
     }))?;
-    h.send_event(InputEvent::Pointer(PointerEvent::Move { point: target_point }))?;
+    h.send_event(InputEvent::Pointer(PointerEvent::Move {
+        point: target_point,
+    }))?;
     h.send_event(InputEvent::Pointer(PointerEvent::Up {
         point: target_point,
         button: PointerButton::Primary,
@@ -532,16 +703,15 @@ fn layout_children_exist_after_navigation() -> Result<()> {
                     .height(600.0)
                     .into_node(),
             ),
-            overlay: Box::new(fission_core::ui::Node::ZStack(
-                fission_core::ui::ZStack {
-                    id: None,
-                    children: portals,
-                },
-            )),
+            overlay: Box::new(fission_core::ui::Node::ZStack(fission_core::ui::ZStack {
+                id: None,
+                children: portals,
+            })),
         })
     };
 
-    let mut lower_cx = fission_core::lowering::LoweringContext::new(&env, &runtime_state, None, None);
+    let mut lower_cx =
+        fission_core::lowering::LoweringContext::new(&env, &runtime_state, None, None);
     let root_id = node_tree.lower(&mut lower_cx);
     lower_cx.ir.root = Some(root_id);
     let input_nodes = fission_core::lowering::build_layout_tree(&lower_cx.ir);
@@ -594,12 +764,32 @@ text_test!(segmented_control_unread_present, state_default(), "Unread");
 text_test!(tabs_primary_present, state_default(), "Primary");
 text_test!(menu_button_more_present, state_default(), "More");
 text_test!(dropdown_selected_present, state_default(), "Newest");
-text_test!(menu_items_present_when_open, state_menu_open(), "Mark all as read");
-text_test!(popover_content_present_when_open, state_filters_open(), "Size (MB)");
+text_test!(
+    menu_items_present_when_open,
+    state_menu_open(),
+    "Mark all as read"
+);
+text_test!(
+    popover_content_present_when_open,
+    state_filters_open(),
+    "Size (MB)"
+);
 text_test!(accordion_details_present, state_detail(), "Details");
-text_test!(alert_external_sender_present, state_detail(), "External Sender");
-text_test!(breadcrumb_email_present, state_detail(), "Quarterly planning sync");
-text_test!(code_text_present, state_detail(), "label:important after:2025/01/01");
+text_test!(
+    alert_external_sender_present,
+    state_detail(),
+    "External Sender"
+);
+text_test!(
+    breadcrumb_email_present,
+    state_detail(),
+    "Quarterly planning sync"
+);
+text_test!(
+    code_text_present,
+    state_detail(),
+    "label:important after:2025/01/01"
+);
 text_test!(timeline_received_present, state_detail(), "From Dana Wu");
 text_test!(tag_label_present, state_detail(), "Work");
 text_test!(wrap_tag_present, state_default(), "Planning");
@@ -613,25 +803,42 @@ text_test!(modal_title_settings_present, state_settings(), "Settings");
 text_test!(modal_title_contacts_present, state_contacts(), "Contacts");
 text_test!(modal_title_compose_present, state_compose(), "New Message");
 text_test!(modal_title_browser_present, state_browser(), "Browser Demo");
-text_test!(toast_message_present, state_toast(), "Action completed successfully");
+text_test!(
+    toast_message_present,
+    state_toast(),
+    "Action completed successfully"
+);
 text_test!(data_table_header_present, state_contacts(), "Email");
 text_test!(select_placeholder_present, state_settings(), "Default");
 text_test!(file_upload_label_present, state_compose(), "Attach File");
 text_test!(form_control_label_present, state_compose(), "Message");
-text_test!(combobox_item_present, state_compose_with_combobox_open(), "alice@example.com");
+text_test!(
+    combobox_item_present,
+    state_compose_with_combobox_open(),
+    "alice@example.com"
+);
 text_test!(date_picker_text_present, state_compose(), "Select Date");
-text_test!(router_not_found_present, state_not_found(), "Folder not found");
+text_test!(
+    router_not_found_present,
+    state_not_found(),
+    "Folder not found"
+);
 
 exact_text_test!(avatar_initials_present, state_detail(), "DW");
 exact_text_test!(kbd_text_present, state_detail(), "g");
-exact_text_test!(pagination_ellipsis_present, state_pagination_ellipsis(), "...");
+exact_text_test!(
+    pagination_ellipsis_present,
+    state_pagination_ellipsis(),
+    "..."
+);
 exact_text_test!(time_picker_separator_present, state_compose(), ":");
 
 #[test]
 fn number_input_value_present() -> Result<()> {
     let h = pump_state(state_settings())?;
     assert!(
-        ir_has_semantics(&h, |s| s.role == Role::TextInput && s.value.as_deref() == Some("50")),
+        ir_has_semantics(&h, |s| s.role == Role::TextInput
+            && s.value.as_deref() == Some("50")),
         "expected number input text value"
     );
     Ok(())
@@ -702,7 +909,13 @@ layout_test!(
 layout_test!(
     aspect_ratio_present,
     state_detail(),
-    |op| matches!(op, LayoutOp::Box { aspect_ratio: Some(_), .. }),
+    |op| matches!(
+        op,
+        LayoutOp::Box {
+            aspect_ratio: Some(_),
+            ..
+        }
+    ),
     "expected aspect ratio box"
 );
 
@@ -730,14 +943,26 @@ layout_test!(
 layout_test!(
     row_layout_present,
     state_default(),
-    |op| matches!(op, LayoutOp::Flex { direction: FlexDirection::Row, .. }),
+    |op| matches!(
+        op,
+        LayoutOp::Flex {
+            direction: FlexDirection::Row,
+            ..
+        }
+    ),
     "expected row flex layout"
 );
 
 layout_test!(
     column_layout_present,
     state_default(),
-    |op| matches!(op, LayoutOp::Flex { direction: FlexDirection::Column, .. }),
+    |op| matches!(
+        op,
+        LayoutOp::Flex {
+            direction: FlexDirection::Column,
+            ..
+        }
+    ),
     "expected column flex layout"
 );
 
@@ -821,14 +1046,22 @@ semantics_test!(
 semantics_test!(
     drag_target_drop_action_present,
     state_settings(),
-    |s| s.actions.entries.iter().any(|a| a.trigger == ActionTrigger::Drop),
+    |s| s
+        .actions
+        .entries
+        .iter()
+        .any(|a| a.trigger == ActionTrigger::Drop),
     "expected drop action in drag target"
 );
 
 semantics_test!(
     dropzone_drop_action_present,
     state_compose(),
-    |s| s.actions.entries.iter().any(|a| a.trigger == ActionTrigger::Drop),
+    |s| s
+        .actions
+        .entries
+        .iter()
+        .any(|a| a.trigger == ActionTrigger::Drop),
     "expected drop action in dropzone"
 );
 
@@ -843,7 +1076,10 @@ semantics_test!(
 fn tooltip_anchor_present() -> Result<()> {
     let h = pump_state(state_default())?;
     let anchor_id = NodeId::derived(WidgetNodeId::explicit("compose_tooltip").as_u128(), &[]);
-    assert!(ir_has_node_id(&h, anchor_id), "expected tooltip anchor node");
+    assert!(
+        ir_has_node_id(&h, anchor_id),
+        "expected tooltip anchor node"
+    );
     Ok(())
 }
 
@@ -851,7 +1087,10 @@ fn tooltip_anchor_present() -> Result<()> {
 fn menu_button_anchor_present() -> Result<()> {
     let h = pump_state(state_default())?;
     let anchor_id = NodeId::derived(WidgetNodeId::explicit("list_more_menu").as_u128(), &[]);
-    assert!(ir_has_node_id(&h, anchor_id), "expected menu button anchor node");
+    assert!(
+        ir_has_node_id(&h, anchor_id),
+        "expected menu button anchor node"
+    );
     Ok(())
 }
 
@@ -859,7 +1098,10 @@ fn menu_button_anchor_present() -> Result<()> {
 fn popover_anchor_present() -> Result<()> {
     let h = pump_state(state_default())?;
     let anchor_id = NodeId::derived(WidgetNodeId::explicit("advanced_filters").as_u128(), &[0]);
-    assert!(ir_has_node_id(&h, anchor_id), "expected popover anchor node");
+    assert!(
+        ir_has_node_id(&h, anchor_id),
+        "expected popover anchor node"
+    );
     Ok(())
 }
 
@@ -868,8 +1110,14 @@ fn date_range_picker_anchors_present() -> Result<()> {
     let h = pump_state(state_filters_open())?;
     let start_id = NodeId::derived(WidgetNodeId::explicit("filter_date_start").as_u128(), &[0]);
     let end_id = NodeId::derived(WidgetNodeId::explicit("filter_date_end").as_u128(), &[0]);
-    assert!(ir_has_node_id(&h, start_id), "expected start date picker anchor");
-    assert!(ir_has_node_id(&h, end_id), "expected end date picker anchor");
+    assert!(
+        ir_has_node_id(&h, start_id),
+        "expected start date picker anchor"
+    );
+    assert!(
+        ir_has_node_id(&h, end_id),
+        "expected end date picker anchor"
+    );
     Ok(())
 }
 
@@ -888,7 +1136,10 @@ fn lazy_column_node_present() -> Result<()> {
 fn drawer_renders_second_sidebar() -> Result<()> {
     let h = pump_state(state_drawer())?;
     let count = count_text_exact(&h, "Fission Inbox");
-    assert!(count >= 2, "expected drawer to render a second sidebar title");
+    assert!(
+        count >= 2,
+        "expected drawer to render a second sidebar title"
+    );
     Ok(())
 }
 
@@ -971,9 +1222,6 @@ fn video_embed_present() -> Result<()> {
 #[test]
 fn web_embed_present() -> Result<()> {
     let h = pump_state(state_browser())?;
-    assert!(
-        ir_has_embed_kind(&h, EmbedKind::Web),
-        "expected web embed"
-    );
+    assert!(ir_has_embed_kind(&h, EmbedKind::Web), "expected web embed");
     Ok(())
 }
