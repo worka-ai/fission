@@ -1,8 +1,10 @@
-use fission_core::ui::{Button, ButtonVariant, ButtonContentAlign, Container, Node, Text, TextContent, Positioned, Row};
-use fission_core::{BuildCtx, View, Widget, ActionEnvelope, WidgetNodeId, NodeId};
-use fission_core::op::{Color, BoxShadow};
-use crate::stack::{VStack, HStack};
+use crate::stack::{HStack, VStack};
 use crate::{flyout, Icon, Menu, MenuItem};
+use fission_core::op::{BoxShadow, Color};
+use fission_core::ui::{
+    Button, ButtonContentAlign, ButtonVariant, Container, Node, Positioned, Row, Text, TextContent,
+};
+use fission_core::{ActionEnvelope, BuildCtx, NodeId, View, Widget, WidgetNodeId};
 use fission_icons::material;
 use serde::{Deserialize, Serialize};
 
@@ -58,13 +60,18 @@ impl<S: fission_core::AppState> Widget<S> for Select {
                     .color(label_color)
                     .into_node(),
                 // Spacer to push chevron to the right
-                fission_core::ui::widgets::spacer::Spacer { flex_grow: 1.0, ..Default::default() }.into_node(),
+                fission_core::ui::widgets::spacer::Spacer {
+                    flex_grow: 1.0,
+                    ..Default::default()
+                }
+                .into_node(),
                 Icon::svg(material::navigation::expand_more::regular())
                     .size(20.0)
                     .color(tokens.colors.text_secondary)
                     .into_node(),
-            ]
-        }.into_node();
+            ],
+        }
+        .into_node();
 
         let trigger = Button {
             id: Some(anchor_id),
@@ -74,22 +81,26 @@ impl<S: fission_core::AppState> Widget<S> for Select {
             on_press: self.on_toggle.clone(),
             width: self.width,
             ..Default::default()
-        }.into();
+        }
+        .into();
 
         if self.is_open {
-            let menu_items = self.items.iter().map(|item| {
-                MenuItem {
+            let menu_items = self
+                .items
+                .iter()
+                .map(|item| MenuItem {
                     label: item.label.clone(),
                     icon: item.icon.clone(),
                     on_select: Some(item.on_select.clone()),
-                }
-            }).collect();
+                })
+                .collect();
 
             let menu = Menu {
                 items: menu_items,
                 width: self.width,
                 max_height: Some(300.0),
-            }.build(ctx, view);
+            }
+            .build(ctx, view);
 
             let flyout_node = flyout(anchor_id, menu);
             ctx.register_portal_with_layer(fission_core::PortalLayer::Flyout, flyout_node);

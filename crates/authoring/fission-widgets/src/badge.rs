@@ -1,6 +1,6 @@
-use fission_core::ui::{Align, Container, Text, TextContent, Node};
-use fission_core::{BuildCtx, View, Widget};
 use fission_core::op::Color;
+use fission_core::ui::{Align, Container, Node, Text, TextContent};
+use fission_core::{BuildCtx, View, Widget};
 use serde::{Deserialize, Serialize};
 
 #[derive(Default, Clone, Debug, Serialize, Deserialize)]
@@ -16,18 +16,19 @@ impl<S: fission_core::AppState> Widget<S> for Badge {
         let tokens = &view.env.theme.tokens;
         let bg_color = self.color.unwrap_or(tokens.colors.secondary);
         let text_color = self.text_color.unwrap_or(tokens.colors.on_secondary);
-        
+
         Container::new(
             Align::new(
                 Text::new(self.text.clone())
-                    .size(11.0)
+                    .size(13.0)
                     .color(text_color)
-                    .into_node()
-            ).into_node()
+                    .into_node(),
+            )
+            .into_node(),
         )
         .bg(bg_color)
         .border_radius(theme.radius)
-        .padding_all(3.0)
+        .padding_all(5.0)
         .into_node()
     }
 }

@@ -1,10 +1,10 @@
-use fission_core::ui::{Button, ButtonVariant, Container, Node, Text};
-use fission_core::{BuildCtx, View, Widget, ActionEnvelope};
-use fission_core::op::Color;
 use crate::stack::{HStack, VStack};
-use std::sync::Arc;
+use chrono::{Datelike, Local, NaiveDate, Weekday};
+use fission_core::op::Color;
+use fission_core::ui::{Button, ButtonVariant, Container, Node, Text};
+use fission_core::{ActionEnvelope, BuildCtx, View, Widget};
 use serde::{Deserialize, Serialize};
-use chrono::{Datelike, NaiveDate, Weekday, Local};
+use std::sync::Arc;
 
 pub struct Calendar {
     pub year: i32,
@@ -29,22 +29,32 @@ impl<S: fission_core::AppState> Widget<S> for Calendar {
     fn build(&self, _ctx: &mut BuildCtx<S>, view: &View<S>) -> Node {
         let theme = &view.env.theme.components.calendar;
         let tokens = &view.env.theme.tokens;
-        
+
         let first_day = NaiveDate::from_ymd_opt(self.year, self.month, 1).unwrap();
         let days_in_month = if self.month == 12 {
             NaiveDate::from_ymd_opt(self.year + 1, 1, 1).unwrap()
         } else {
             NaiveDate::from_ymd_opt(self.year, self.month + 1, 1).unwrap()
-        }.signed_duration_since(first_day).num_days() as u32;
-        
+        }
+        .signed_duration_since(first_day)
+        .num_days() as u32;
+
         let start_weekday = first_day.weekday().num_days_from_sunday(); // 0 = Sun
-        
+
         // Header
         let prev_cb = self.on_navigate.clone();
         let next_cb = self.on_navigate.clone();
-        let (prev_y, prev_m) = if self.month == 1 { (self.year - 1, 12) } else { (self.year, self.month - 1) };
-        let (next_y, next_m) = if self.month == 12 { (self.year + 1, 1) } else { (self.year, self.month + 1) };
-        
+        let (prev_y, prev_m) = if self.month == 1 {
+            (self.year - 1, 12)
+        } else {
+            (self.year, self.month - 1)
+        };
+        let (next_y, next_m) = if self.month == 12 {
+            (self.year + 1, 1)
+        } else {
+            (self.year, self.month + 1)
+        };
+
         let header = HStack {
             spacing: Some(8.0),
             children: vec![
@@ -52,43 +62,65 @@ impl<S: fission_core::AppState> Widget<S> for Calendar {
                     variant: ButtonVariant::Ghost,
                     child: Some(Box::new(Text::new("<").into_node())),
                     on_press: prev_cb.map(|f| f(prev_y, prev_m)),
-                    width: Some(32.0), height: Some(32.0),
+                    width: Some(36.0),
+                    height: Some(36.0),
                     ..Default::default()
-                }.into_node(),
-                fission_core::ui::widgets::Spacer { flex_grow: 1.0, ..Default::default() }.into_node(),
+                }
+                .into_node(),
+                fission_core::ui::widgets::Spacer {
+                    flex_grow: 1.0,
+                    ..Default::default()
+                }
+                .into_node(),
                 Text::new(first_day.format("%B %Y").to_string())
                     .size(tokens.typography.body_large_size)
                     .into_node(),
-                fission_core::ui::widgets::Spacer { flex_grow: 1.0, ..Default::default() }.into_node(),
+                fission_core::ui::widgets::Spacer {
+                    flex_grow: 1.0,
+                    ..Default::default()
+                }
+                .into_node(),
                 Button {
                     variant: ButtonVariant::Ghost,
                     child: Some(Box::new(Text::new(">").into_node())),
                     on_press: next_cb.map(|f| f(next_y, next_m)),
-                    width: Some(32.0), height: Some(32.0),
+                    width: Some(36.0),
+                    height: Some(36.0),
                     ..Default::default()
-                }.into_node(),
-            ]
-        }.into_node();
-        
+                }
+                .into_node(),
+            ],
+        }
+        .into_node();
+
         // Weekday labels
         let weekdays = ["S", "M", "T", "W", "T", "F", "S"];
         let labels = HStack {
             spacing: Some(0.0),
-            children: weekdays.iter().map(|d| {
-                Container::new(Text::new(d.to_string()).size(12.0).color(tokens.colors.text_secondary).into_node())
-                    .width(32.0)
-                    .height(32.0)
+            children: weekdays
+                .iter()
+                .map(|d| {
+                    Container::new(
+                        Text::new(d.to_string())
+                            .size(13.0)
+                            .color(tokens.colors.text_secondary)
+                            .into_node(),
+                    )
+                    .width(36.0)
+                    .height(36.0)
                     .into_node()
-            }).collect(),
-        }.into_node();
-        
+                })
+                .collect(),
+        }
+        .into_node();
+
         // Days
         let mut days = Vec::new();
         // Padding for start
         for _ in 0..start_weekday {
             days.push(fission_core::ui::widgets::spacer::Spacer::default().into_node());
         }
-        
+
         for d in 1..=days_in_month {
             let date = NaiveDate::from_ymd_opt(self.year, self.month, d).unwrap();
             let is_selected = self.selected_date == Some(date);
@@ -96,21 +128,33 @@ impl<S: fission_core::AppState> Widget<S> for Calendar {
             let cb = self.on_select.clone();
 
             let day_button = Button {
-                variant: if is_selected { ButtonVariant::Filled } else { ButtonVariant::Ghost },
-                child: Some(Box::new(Text::new(d.to_string())
-                    .color(if is_selected { theme.selected_text } else { tokens.colors.text_primary })
-                    .into_node()
+                variant: if is_selected {
+                    ButtonVariant::Filled
+                } else {
+                    ButtonVariant::Ghost
+                },
+                child: Some(Box::new(
+                    Text::new(d.to_string())
+                        .size(14.0)
+                        .color(if is_selected {
+                            theme.selected_text
+                        } else {
+                            tokens.colors.text_primary
+                        })
+                        .into_node(),
                 )),
                 on_press: cb.map(|f| f(date)),
-                width: Some(32.0), height: Some(32.0),
+                width: Some(36.0),
+                height: Some(36.0),
                 padding: Some([0.0; 4]),
                 ..Default::default()
-            }.into_node();
+            }
+            .into_node();
 
             let day_node = if is_today && !is_selected {
                 Container::new(day_button)
                     .border(theme.today_outline, 1.0)
-                    .border_radius(16.0)
+                    .border_radius(18.0)
                     .into_node()
             } else {
                 day_button
@@ -118,33 +162,35 @@ impl<S: fission_core::AppState> Widget<S> for Calendar {
 
             days.push(day_node);
         }
-        
+
         // Grid with 7 columns
         let day_grid = fission_core::ui::Grid {
-            columns: vec![fission_ir::op::GridTrack::Points(32.0); 7],
+            columns: vec![fission_ir::op::GridTrack::Points(36.0); 7],
             rows: vec![],
             children: days,
             column_gap: Some(0.0),
             row_gap: Some(0.0),
             padding: [0.0; 4],
             ..Default::default()
-        }.into_node();
+        }
+        .into_node();
 
         let mut c = Container::new(
             VStack {
                 spacing: Some(8.0),
                 children: vec![header, labels, day_grid],
-            }.into_node()
+            }
+            .into_node(),
         )
         .padding_all(16.0)
         .bg(theme.bg_color)
         .border(theme.border_color, 1.0)
         .border_radius(theme.radius);
-        
+
         if let Some(s) = tokens.elevations.level2 {
             c = c.shadow(s);
         }
-        
+
         c.into_node()
     }
 }

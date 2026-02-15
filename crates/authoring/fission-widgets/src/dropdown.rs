@@ -1,8 +1,8 @@
-use fission_core::action::{Action, ActionEnvelope, AppState};
-use fission_core::ui::{Button, ButtonContentAlign, Text, TextContent};
-use fission_core::{Node, Widget, BuildCtx, View};
 use crate::stack::HStack;
 use crate::Icon;
+use fission_core::action::{Action, ActionEnvelope, AppState};
+use fission_core::ui::{Button, ButtonContentAlign, Text, TextContent};
+use fission_core::{BuildCtx, Node, View, Widget};
 use fission_icons::material;
 
 #[derive(Default, Clone)]
@@ -26,6 +26,7 @@ impl<S: AppState + 'static> Widget<S> for DropDown {
                     children: vec![
                         Text {
                             content: TextContent::Literal(button_text.into()),
+                            font_size: Some(14.0),
                             color: Some(tokens.colors.text_primary),
                             flex_grow: 1.0,
                             ..Default::default()
@@ -41,6 +42,8 @@ impl<S: AppState + 'static> Widget<S> for DropDown {
             )),
             on_press: self.on_toggle.clone(),
             content_align: ButtonContentAlign::Start,
+            height: Some(40.0),
+            padding: Some([12.0, 12.0, 0.0, 0.0]),
             ..Default::default()
         }
         .into()

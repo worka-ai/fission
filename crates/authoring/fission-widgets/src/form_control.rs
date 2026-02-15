@@ -1,7 +1,7 @@
+use crate::stack::VStack;
+use fission_core::op::Color;
 use fission_core::ui::{Container, Node, Text, TextContent};
 use fission_core::{BuildCtx, View, Widget, WidgetNodeId};
-use fission_core::op::Color;
-use crate::stack::VStack;
 use serde::{Deserialize, Serialize};
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -25,12 +25,12 @@ impl<S: fission_core::AppState> Widget<S> for FormControl {
             } else {
                 label_text.clone()
             };
-            
+
             children.push(
                 Text::new(display_text)
                     .size(tokens.typography.label_large_size)
                     .color(tokens.colors.text_primary)
-                    .into_node()
+                    .into_node(),
             );
         }
 
@@ -41,20 +41,21 @@ impl<S: fission_core::AppState> Widget<S> for FormControl {
                 Text::new(err.clone())
                     .size(12.0)
                     .color(tokens.colors.error)
-                    .into_node()
+                    .into_node(),
             );
         } else if let Some(help) = &self.helper {
             children.push(
                 Text::new(help.clone())
                     .size(12.0)
                     .color(tokens.colors.text_secondary)
-                    .into_node()
+                    .into_node(),
             );
         }
 
         VStack {
             spacing: Some(4.0),
             children,
-        }.build(ctx, view)
+        }
+        .build(ctx, view)
     }
 }

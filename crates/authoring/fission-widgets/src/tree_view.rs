@@ -1,8 +1,10 @@
-use fission_core::ui::{Button, ButtonContentAlign, ButtonVariant, Container, Node, Text, TextContent};
-use fission_core::{BuildCtx, View, Widget, ActionEnvelope};
-use fission_core::op::Color;
-use crate::stack::{VStack, HStack};
+use crate::stack::{HStack, VStack};
 use crate::Icon;
+use fission_core::op::Color;
+use fission_core::ui::{
+    Button, ButtonContentAlign, ButtonVariant, Container, Node, Text, TextContent,
+};
+use fission_core::{ActionEnvelope, BuildCtx, View, Widget};
 use fission_icons::material;
 use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
@@ -34,7 +36,8 @@ impl<S: fission_core::AppState> Widget<S> for TreeView {
         crate::stack::VStack {
             spacing: Some(0.0),
             children: nodes,
-        }.build(ctx, view)
+        }
+        .build(ctx, view)
     }
 }
 
@@ -54,10 +57,14 @@ impl TreeView {
         let has_children = !item.children.is_empty();
 
         let mut row_children = Vec::new();
-        
+
         // Indentation
         row_children.push(
-            fission_core::ui::widgets::Spacer { width: Some(depth as f32 * theme.indent), ..Default::default() }.into_node()
+            fission_core::ui::widgets::Spacer {
+                width: Some(depth as f32 * theme.indent),
+                ..Default::default()
+            }
+            .into_node(),
         );
 
         // Chevron
@@ -66,55 +73,97 @@ impl TreeView {
         } else {
             material::navigation::chevron_right::regular()
         };
-        
+
         if has_children {
-             row_children.push(
+            row_children.push(
                 Button {
                     variant: ButtonVariant::Ghost,
-                    child: Some(Box::new(Icon::svg(chevron_icon).size(16.0).color(tokens.colors.text_secondary).into_node())),
+                    child: Some(Box::new(
+                        Icon::svg(chevron_icon)
+                            .size(16.0)
+                            .color(tokens.colors.text_secondary)
+                            .into_node(),
+                    )),
                     on_press: item.on_toggle.clone(),
-                    width: Some(20.0), height: Some(20.0),
+                    width: Some(20.0),
+                    height: Some(20.0),
                     ..Default::default()
-                }.into_node()
+                }
+                .into_node(),
             );
         } else {
-             row_children.push(fission_core::ui::widgets::Spacer { width: Some(20.0), ..Default::default() }.into_node());
+            row_children.push(
+                fission_core::ui::widgets::Spacer {
+                    width: Some(20.0),
+                    ..Default::default()
+                }
+                .into_node(),
+            );
         }
 
         // Icon
         if let Some(icon) = &item.icon {
-            row_children.push(Icon::svg(icon.clone()).size(18.0).color(tokens.colors.text_secondary).into_node());
-            row_children.push(fission_core::ui::widgets::Spacer { width: Some(8.0), ..Default::default() }.into_node());
+            row_children.push(
+                Icon::svg(icon.clone())
+                    .size(18.0)
+                    .color(tokens.colors.text_secondary)
+                    .into_node(),
+            );
+            row_children.push(
+                fission_core::ui::widgets::Spacer {
+                    width: Some(8.0),
+                    ..Default::default()
+                }
+                .into_node(),
+            );
         }
 
         // Label
         row_children.push(
             Text::new(item.label.clone())
-                .color(if is_selected { tokens.colors.primary } else { tokens.colors.text_primary })
+                .size(15.0)
+                .color(if is_selected {
+                    tokens.colors.primary
+                } else {
+                    tokens.colors.text_primary
+                })
                 .flex_grow(1.0)
-                .into_node()
+                .into_node(),
         );
 
         let row_content = Container::new(
             HStack {
                 spacing: Some(0.0),
                 children: row_children,
-            }.into_node()
+            }
+            .into_node(),
         )
-        .bg(if is_selected { theme.selected_bg } else { fission_core::op::Color { r:0,g:0,b:0,a:0 } })
+        .bg(if is_selected {
+            theme.selected_bg
+        } else {
+            fission_core::op::Color {
+                r: 0,
+                g: 0,
+                b: 0,
+                a: 0,
+            }
+        })
+        .border_radius(tokens.radii.medium)
         .padding_all(8.0)
-        .height(36.0)
+        .height(40.0)
         .flex_grow(1.0)
         .into_node();
-        
+
         nodes.push(
             Button {
                 variant: ButtonVariant::Ghost,
                 content_align: ButtonContentAlign::Start,
                 child: Some(Box::new(row_content)),
                 on_press: item.on_select.clone(),
+                padding: Some([0.0; 4]),
                 ..Default::default()
-            }.into_node()
+            }
+            .into_node(),
         );
 
         if is_expanded {

@@ -1,8 +1,10 @@
-use fission_core::ui::{Button, ButtonVariant, Checkbox, Container, Node, Text, Scroll, Row, Column};
-use fission_core::{BuildCtx, View, Widget, ActionEnvelope, WidgetNodeId, NodeId};
-use fission_core::op::{Color, BoxShadow};
-use crate::stack::{VStack, HStack};
+use crate::stack::{HStack, VStack};
 use crate::{Icon, MenuButton, MenuItem};
+use fission_core::op::{BoxShadow, Color};
+use fission_core::ui::{
+    Button, ButtonVariant, Checkbox, Column, Container, Node, Row, Scroll, Text,
+};
+use fission_core::{ActionEnvelope, BuildCtx, NodeId, View, Widget, WidgetNodeId};
 use fission_icons::material;
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
@@ -44,22 +46,23 @@ impl std::fmt::Debug for DataTable {
 impl<S: fission_core::AppState> Widget<S> for DataTable {
     fn build(&self, ctx: &mut BuildCtx<S>, view: &View<S>) -> Node {
         let tokens = &view.env.theme.tokens;
-        
+
         // Header
         let mut header_cells = Vec::new();
         // Checkbox column
         header_cells.push(
             Container::new(
-                Checkbox { 
-                    checked: false, 
+                Checkbox {
+                    checked: false,
                     label: None,
                     on_toggle: None,
                     ..Default::default()
-                }.into_node()
+                }
+                .into_node(),
             )
             .width(40.0)
             .padding_all(8.0)
-            .into_node()
+            .into_node(),
         );
 
         for col in &self.columns {
@@ -79,14 +82,19 @@ impl<S: fission_core::AppState> Widget<S> for DataTable {
                                     .color(tokens.colors.text_secondary)
                                     .into_node()
                             } else {
-                                fission_core::ui::widgets::Spacer { width: Some(16.0), ..Default::default() }.into_node()
-                            }
-                        ]
-                    }.into_node()
+                                fission_core::ui::widgets::Spacer {
+                                    width: Some(16.0),
+                                    ..Default::default()
+                                }
+                                .into_node()
+                            },
+                        ],
+                    }
+                    .into_node(),
                 )
                 .width(col.width)
                 .padding_all(8.0)
-                .into_node()
+                .into_node(),
             );
         }
 
@@ -94,7 +102,8 @@ impl<S: fission_core::AppState> Widget<S> for DataTable {
             HStack {
                 spacing: Some(0.0),
                 children: header_cells,
-            }.into_node()
+            }
+            .into_node(),
         )
         .bg(tokens.colors.surface)
         .flex_shrink(0.0) // Header shouldn't shrink
@@ -105,7 +114,7 @@ impl<S: fission_core::AppState> Widget<S> for DataTable {
         for row in &self.rows {
             let is_selected = self.selected_ids.contains(&row.id);
             let mut row_cells = Vec::new();
-            
+
             // Checkbox
             let toggle = self.on_selection_change.clone();
             row_cells.push(
@@ -115,11 +124,12 @@ impl<S: fission_core::AppState> Widget<S> for DataTable {
                         label: None,
                         on_toggle: toggle.map(|f| f(row.id.clone())),
                         ..Default::default()
-                    }.into_node()
+                    }
+                    .into_node(),
                 )
                 .width(40.0)
                 .padding_all(8.0)
-                .into_node()
+                .into_node(),
             );
 
             for (i, cell_text) in row.cells.iter().enumerate() {
@@ -129,22 +139,27 @@ impl<S: fission_core::AppState> Widget<S> for DataTable {
                         Text::new(cell_text.clone())
                             .size(14.0)
                             .color(tokens.colors.text_primary)
-                            .into_node()
+                            .into_node(),
                     )
                     .width(width)
                     .padding_all(8.0)
-                    .into_node()
+                    .into_node(),
                 );
             }
 
             let row_content = HStack {
                 spacing: Some(0.0),
                 children: row_cells,
-            }.into_node();
+            }
+            .into_node();
 
             let row_toggle = self.on_selection_change.clone().map(|f| f(row.id.clone()));
             let row_body = Container::new(row_content)
-                .bg(if is_selected { tokens.colors.primary.with_alpha(20) } else { Color::WHITE })
+                .bg(if is_selected {
+                    tokens.colors.primary.with_alpha(20)
+                } else {
+                    Color::WHITE
+                })
                 .into_node();
             let row_node = if let Some(action) = row_toggle {
                 Button {
@@ -152,18 +167,19 @@ impl<S: fission_core::AppState> Widget<S> for DataTable {
                     child: Some(Box::new(row_body)),
                     on_press: Some(action),
                     ..Default::default()
-                }.into_node()
+                }
+                .into_node()
             } else {
                 row_body
             };
             row_nodes.push(row_node);
-            
+
             // Divider
             row_nodes.push(
                 Container::new(fission_core::ui::widgets::Spacer::default().into_node())
                     .height(1.0)
                     .bg(tokens.colors.border)
-                    .into_node()
+                    .into_node(),
             );
         }
 
@@ -172,17 +188,20 @@ impl<S: fission_core::AppState> Widget<S> for DataTable {
                 VStack {
                     spacing: Some(0.0),
                     children: row_nodes,
-                }.into_node()
+                }
+                .into_node(),
             )),
             show_scrollbar: true,
             ..Default::default()
-        }.into_node();
+        }
+        .into_node();
 
         Container::new(
             VStack {
                 spacing: Some(0.0),
                 children: vec![header, content],
-            }.into_node()
+            }
+            .into_node(),
         )
         .border(tokens.colors.border, 1.0)
         .border_radius(tokens.radii.small)

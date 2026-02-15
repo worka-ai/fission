@@ -1,6 +1,6 @@
+use arboard::Clipboard as Arboard;
 use fission_core::env::Clipboard;
 use std::sync::{Arc, Mutex};
-use arboard::Clipboard as Arboard;
 
 pub struct DesktopClipboard {
     inner: Arc<Mutex<Option<Arboard>>>,

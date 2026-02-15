@@ -31,9 +31,9 @@ impl Default for ColorTokens {
             on_background: Color { r: 28, g: 27, b: 31, a: 255 },
             error: Color { r: 179, g: 38, b: 30, a: 255 },
             on_error: Color::WHITE,
-            border: Color { r: 200, g: 200, b: 200, a: 255 },
+            border: Color { r: 188, g: 188, b: 188, a: 255 },
             text_primary: Color { r: 28, g: 27, b: 31, a: 255 },
-            text_secondary: Color { r: 100, g: 100, b: 100, a: 255 },
+            text_secondary: Color { r: 86, g: 86, b: 86, a: 255 },
         }
     }
 }
@@ -92,10 +92,10 @@ pub struct TypographyTokens {
 impl Default for TypographyTokens {
     fn default() -> Self {
         Self {
-            label_large_size: 14.0,
-            body_medium_size: 14.0,
-            body_large_size: 16.0,
-            heading_size: 24.0,
+            label_large_size: 15.0,
+            body_medium_size: 15.0,
+            body_large_size: 17.0,
+            heading_size: 28.0,
         }
     }
 }
@@ -181,7 +181,7 @@ pub struct ButtonTheme {
 impl ButtonTheme {
     pub fn from_tokens(tokens: &Tokens) -> Self {
         Self {
-            height: 40.0,
+            height: 42.0,
             padding_horizontal: tokens.spacing.m,
             radius: tokens.radii.full,
             text_size: tokens.typography.label_large_size,
@@ -212,7 +212,7 @@ pub struct TextInputTheme {
 impl TextInputTheme {
     pub fn from_tokens(tokens: &Tokens) -> Self {
         Self {
-            height: 36.0,
+            height: 40.0,
             padding_h: tokens.spacing.m,
             radius: tokens.radii.small,
             font_size: tokens.typography.body_large_size,
@@ -355,9 +355,9 @@ impl TabsTheme {
         Self {
             active_color: tokens.colors.primary,
             inactive_color: tokens.colors.text_secondary,
-            indicator_height: 2.0,
+            indicator_height: 3.0,
             background: tokens.colors.background,
-            divider_color: tokens.colors.border,
+            divider_color: tokens.colors.border.with_alpha(120),
         }
     }
 }
@@ -392,7 +392,7 @@ impl TreeViewTheme {
     pub fn from_tokens(tokens: &Tokens) -> Self {
         Self {
             indent: 16.0,
-            selected_bg: tokens.colors.primary.with_alpha(40),
+            selected_bg: tokens.colors.primary.with_alpha(52),
             hover_bg: tokens.colors.surface,
         }
     }

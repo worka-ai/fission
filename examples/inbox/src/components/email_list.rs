@@ -1,12 +1,11 @@
 use fission_core::{BuildCtx, View, Widget, WidgetNodeId, NodeId, Handler};
-use fission_core::ui::{Button, ButtonContentAlign, ButtonVariant, Checkbox, Container, Node, Row, Scroll, Text, TextContent};
-use fission_core::op::Color;
-use fission_widgets::{VStack, HStack, LazyColumn, Tabs, TabItem, TextInput, MenuButton, MenuItem, Badge, Divider, Icon, Skeleton, SegmentedControl, Pagination, EmptyState, Hero, DropDown, Tooltip, Popover, DateRangePicker, RangeSlider, Wrap, Tag};
+use fission_core::ui::{Button, ButtonContentAlign, ButtonVariant, Checkbox, Container, Node, Row, Text, TextContent};
+use fission_widgets::{VStack, HStack, LazyColumn, Tabs, TabItem, TextInput, MenuButton, MenuItem, Badge, Divider, Icon, SegmentedControl, Pagination, EmptyState, Hero, DropDown, Tooltip, Popover, DateRangePicker, RangeSlider, Wrap, Tag};
 use crate::model::{InboxState, Folder, SelectTab, UpdateSearch, ToggleFilterDropdown, ToggleEmailSelection, ToggleFlag, SetComposeOpen, Navigate, SetMobileMenuOpen, SetFilterMode, SetPage, SetAdvancedFiltersOpen, SetSortOption, SetHelpPopoverOpen};
 use fission_icons::material;
 use std::sync::Arc;
 use serde_json;
-use fission_core::{ActionEnvelope, ActionId};
+use fission_core::ActionEnvelope;
 
 pub struct EmailList {
     pub folder: String,
@@ -97,7 +96,7 @@ impl Widget<InboxState> for EmailList {
         // Header
         list_items.push(
             Row {
-                gap: Some(8.0),
+                gap: Some(10.0),
                 children: vec![
                     Button {
                         id: Some(NodeId::derived(WidgetNodeId::explicit("mobile_menu_button").as_u128(), &[])),
@@ -106,7 +105,7 @@ impl Widget<InboxState> for EmailList {
                         on_press: Some(ctx.bind(SetMobileMenuOpen(true), (|s: &mut InboxState, a: SetMobileMenuOpen, _| s.show_mobile_menu = a.0) as Handler<InboxState, SetMobileMenuOpen>)),
                         ..Default::default()
                     }.into_node(),
-                    Text::new(folder_label).size(24.0).into_node(),
+                    Text::new(folder_label).size(28.0).into_node(),
                     Badge { text: format!("{} {}", unread_count, t("badge.new")), ..Default::default() }.build(ctx, view),
                     fission_core::ui::widgets::Spacer { flex_grow: 1.0, ..Default::default() }.into_node(),
                     Tooltip {
@@ -169,7 +168,7 @@ impl Widget<InboxState> for EmailList {
         };
         list_items.push(
             HStack {
-                spacing: Some(12.0),
+                spacing: Some(14.0),
                 children: vec![
                     SegmentedControl {
                         options: vec!["All".into(), "Unread".into(), "Starred".into()],
@@ -186,7 +185,7 @@ impl Widget<InboxState> for EmailList {
                         value: view.state.search_query.clone(),
                         placeholder: Some(TextContent::Key("search.placeholder".into())),
                         on_change: Some(ActionEnvelope { id: search_id, payload: Vec::new() }),
-                        width: Some(220.0),
+                        width: Some(300.0),
                         ..Default::default()
                     }.into_node(),
                     DropDown {
@@ -338,7 +337,7 @@ impl Widget<InboxState> for EmailList {
                         );
         } else {
             let mut email_nodes = Vec::new();
-            for email in &emails[start_idx..end_idx] {
+            for (idx, email) in emails[start_idx..end_idx].iter().enumerate() {
                 let path = format!("/{}/{}", folder_path, email.id);
                 let is_selected = view.state.selected_emails.contains(&email.id);
                 let star_icon = if email.is_flagged {
@@ -371,10 +370,10 @@ impl Widget<InboxState> for EmailList {
                                 HStack {
                                     spacing: Some(8.0),
                                     children: vec![
-                                        Text::new(email.sender.clone()).size(14.0).into_node(),
+                                        Text::new(email.sender.clone()).size(16.0).into_node(),
                                         fission_core::ui::widgets::Spacer { flex_grow: 1.0, ..Default::default() }.into_node(),
                                         Text::new(email.last_message().sent_at.format("%b %d").to_string())
-                                            .size(12.0)
+                                            .size(14.0)
                                             .color(tokens.colors.text_secondary)
                                             .into_node(),
                                         Button {
@@ -395,14 +394,14 @@ impl Widget<InboxState> for EmailList {
                                     tag: format!("email_subject_{}", email.id),
                                     child: Box::new(Text {
                                         content: TextContent::Literal(email.subject.clone()),
-                                        font_size: Some(16.0),
+                                        font_size: Some(18.0),
                                         color: Some(subject_color),
                                         ..Default::default()
                                     }.into()),
                                 }.build(ctx, view),
                                 Text {
                                     content: TextContent::Literal(email.preview.clone()),
-                                    font_size: Some(12.0),
+                                    font_size: Some(14.0),
                                     color: Some(tokens.colors.text_secondary),
                                     ..Default::default()
                                 }.into(),
@@ -426,11 +425,15 @@ impl Widget<InboxState> for EmailList {
                     spacing: Some(0.0),
                     children: vec![
                         Container::new(item_content)
-                            .padding_all(12.0)
+                            .padding_all(18.0)
                             .bg(if is_selected { tokens.colors.primary.with_alpha(20) } else { tokens.colors.surface })
                             .flex_grow(1.0)
                             .into_node(),
-                        Divider { orientation: fission_widgets::divider::Orientation::Horizontal }.build(ctx, view),
+                        if idx + 1 < end_idx - start_idx {
+                            Divider { orientation: fission_widgets::divider::Orientation::Horizontal }.build(ctx, view)
+                        } else {
+                            fission_core::ui::widgets::Spacer::default().into_node()
+                        },
                     ],
                 }.build(ctx, view);
 
@@ -443,6 +446,7 @@ impl Widget<InboxState> for EmailList {
                             id: navigate_id,
                             payload: serde_json::to_vec(&Navigate(path)).unwrap(),
                         }),
+                        padding: Some([0.0; 4]),
                         ..Default::default()
                     }
                     .into()
@@ -464,7 +468,7 @@ impl Widget<InboxState> for EmailList {
         // Pagination
         if !view.state.show_compose {
             list_items.push(
-                fission_core::ui::widgets::Spacer { height: Some(16.0), ..Default::default() }.into_node()
+                fission_core::ui::widgets::Spacer { height: Some(20.0), ..Default::default() }.into_node()
             );
             list_items.push(
                 fission_widgets::center::Center {

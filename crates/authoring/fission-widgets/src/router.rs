@@ -1,10 +1,11 @@
-use fission_core::{BuildCtx, View, Widget, NodeId};
 use fission_core::ui::Node;
+use fission_core::{BuildCtx, NodeId, View, Widget};
 use std::collections::HashMap;
 use std::sync::Arc;
 
 pub type RouteParams = HashMap<String, String>;
-pub type PageBuilder<S> = Arc<dyn Fn(&mut BuildCtx<S>, &View<S>, &RouteParams) -> Node + Send + Sync>;
+pub type PageBuilder<S> =
+    Arc<dyn Fn(&mut BuildCtx<S>, &View<S>, &RouteParams) -> Node + Send + Sync>;
 
 pub struct Route<S: fission_core::AppState> {
     pub path: String,

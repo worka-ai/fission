@@ -1,6 +1,5 @@
 use fission_core::{BuildCtx, View, Widget, Handler};
 use fission_core::ui::{Container, Node, Text, TextContent, Button, ButtonVariant, Row, Column, Switch};
-use fission_core::op::Color;
 use fission_widgets::{
     VStack, HStack, Card, Icon, Calendar, Menu, MenuItem, Stat, Stepper,
 };
@@ -66,7 +65,7 @@ impl Widget<InboxState> for RightSidebar {
                     }),
                 },
             ],
-            width: Some(220.0),
+            width: Some(252.0),
             max_height: Some(200.0),
         }.build(ctx, view);
 
@@ -76,14 +75,14 @@ impl Widget<InboxState> for RightSidebar {
                     Card {
                         child: Box::new(
                             Row {
-                                gap: Some(8.0),
+                                gap: Some(12.0),
                                 children: vec![
-                                    Icon::svg(material::action::check_circle::regular()).size(20.0).color(tokens.colors.text_secondary).into_node(),
+                                    Icon::svg(material::action::check_circle::regular()).size(20.0).color(tokens.colors.primary).into_node(),
                                     VStack {
-                                        spacing: Some(2.0),
+                                        spacing: Some(4.0),
                                         children: vec![
-                                            Text::new(TextContent::Key("quick.syncing".into())).size(12.0).into_node(),
-                                            Text::new(TextContent::Key("quick.last_update".into())).size(10.0).color(tokens.colors.text_secondary).into_node(),
+                                            Text::new(TextContent::Key("quick.syncing".into())).size(14.0).into_node(),
+                                            Text::new(TextContent::Key("quick.last_update".into())).size(12.0).color(tokens.colors.text_secondary).into_node(),
                                         ],
                                     }.into_node(),
                                 ],
@@ -109,9 +108,9 @@ impl Widget<InboxState> for RightSidebar {
                     Card {
                         child: Box::new(
                             VStack {
-                                spacing: Some(8.0),
+                                spacing: Some(10.0),
                                 children: vec![
-                                    Text::new(TextContent::Key("quick.actions".into())).size(14.0).into_node(),
+                                    Text::new(TextContent::Key("quick.actions".into())).size(16.0).into_node(),
                                     quick_actions,
                                 ],
                             }.into_node()
@@ -122,13 +121,13 @@ impl Widget<InboxState> for RightSidebar {
                     Card {
                         child: Box::new(
                             VStack {
-                                spacing: Some(8.0),
+                                spacing: Some(10.0),
                                 children: vec![
-                                    Text::new(TextContent::Key("quick.meet".into())).size(14.0).into_node(),
+                                    Text::new(TextContent::Key("quick.meet".into())).size(16.0).into_node(),
                                     HStack {
                                         spacing: Some(8.0),
                                         children: vec![
-                                            Text::new(TextContent::Key("quick.camera".into())).size(12.0).into_node(),
+                                            Text::new(TextContent::Key("quick.camera".into())).size(14.0).into_node(),
                                             fission_core::ui::widgets::Spacer { flex_grow: 1.0, ..Default::default() }.into_node(),
                                             Switch {
                                                 checked: view.state.meet_camera_on,
@@ -143,7 +142,7 @@ impl Widget<InboxState> for RightSidebar {
                                     HStack {
                                         spacing: Some(8.0),
                                         children: vec![
-                                            Text::new(TextContent::Key("quick.microphone".into())).size(12.0).into_node(),
+                                            Text::new(TextContent::Key("quick.microphone".into())).size(14.0).into_node(),
                                             fission_core::ui::widgets::Spacer { flex_grow: 1.0, ..Default::default() }.into_node(),
                                             Switch {
                                                 checked: view.state.meet_mic_on,
@@ -155,6 +154,7 @@ impl Widget<InboxState> for RightSidebar {
                                             }.into_node(),
                                         ],
                                     }.into_node(),
+                                    fission_core::ui::widgets::Spacer { height: Some(4.0), ..Default::default() }.into_node(),
                                     Button {
                                         variant: ButtonVariant::Filled,
                                         child: Some(Box::new(
@@ -178,9 +178,9 @@ impl Widget<InboxState> for RightSidebar {
                     Card {
                         child: Box::new(
                             VStack {
-                                spacing: Some(8.0),
+                                spacing: Some(10.0),
                                 children: vec![
-                                    Text::new(TextContent::Key("quick.mailbox_stats".into())).size(14.0).into_node(),
+                                    Text::new(TextContent::Key("quick.mailbox_stats".into())).size(16.0).into_node(),
                                     HStack {
                                         spacing: Some(8.0),
                                         children: vec![
@@ -203,7 +203,7 @@ impl Widget<InboxState> for RightSidebar {
                             VStack {
                                 spacing: Some(12.0),
                                 children: vec![
-                                    Text::new(TextContent::Key("quick.setup".into())).size(14.0).into_node(),
+                                    Text::new(TextContent::Key("quick.setup".into())).size(16.0).into_node(),
                                     Stepper {
                                         steps: vec![t("quick.import"), t("quick.customize"), t("quick.invite")],
                                         active_index: 1,
@@ -218,7 +218,7 @@ impl Widget<InboxState> for RightSidebar {
             }.into_node()
         )
         .padding_all(16.0)
-        .width(280.0)
+        .width(300.0)
         .bg(tokens.colors.surface)
         .into_node()
     }

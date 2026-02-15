@@ -1,5 +1,5 @@
-use fission_core::{BuildCtx, View, Widget, Node, ActionEnvelope};
 use fission_core::ui::widgets::GestureDetector;
+use fission_core::{ActionEnvelope, BuildCtx, Node, View, Widget};
 use serde::{Deserialize, Serialize};
 
 #[derive(Clone, Debug)]
@@ -18,7 +18,8 @@ impl<S: fission_core::AppState> Widget<S> for Draggable {
             on_drag_start: self.on_drag_start.clone(),
             on_drag_end: self.on_drag_end.clone(),
             ..Default::default()
-        }.into_node()
+        }
+        .into_node()
     }
 }
 
@@ -34,6 +35,7 @@ impl<S: fission_core::AppState> Widget<S> for DragTarget {
             child: self.child.clone(),
             on_drop: self.on_drop.clone(),
             ..Default::default()
-        }.into_node()
+        }
+        .into_node()
     }
 }

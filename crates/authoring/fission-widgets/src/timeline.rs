@@ -1,6 +1,6 @@
+use crate::stack::VStack;
 use fission_core::ui::{Container, Node, Text};
 use fission_core::{BuildCtx, View, Widget};
-use crate::stack::VStack;
 use serde::{Deserialize, Serialize};
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -20,20 +20,20 @@ impl<S: fission_core::AppState> Widget<S> for Timeline {
         let theme = &view.env.theme.components.timeline;
         let tokens = &view.env.theme.tokens;
         let mut children = Vec::new();
-        
+
         for (i, item) in self.items.iter().enumerate() {
             let is_last = i == self.items.len() - 1;
-            
+
             let marker = VStack {
                 spacing: Some(0.0),
                 children: vec![
                     // Dot
                     Container::new(fission_core::ui::widgets::Spacer::default().into_node())
-                        .width(theme.dot_size).height(theme.dot_size)
+                        .width(theme.dot_size)
+                        .height(theme.dot_size)
                         .border_radius(theme.dot_size / 2.0)
                         .bg(theme.dot_color)
                         .into_node(),
-                    
                     // Line
                     if !is_last {
                         Container::new(fission_core::ui::widgets::Spacer::default().into_node())
@@ -43,68 +43,73 @@ impl<S: fission_core::AppState> Widget<S> for Timeline {
                             .into_node()
                     } else {
                         fission_core::ui::widgets::Spacer::default().into_node()
-                    }
-                ]
-            }.into_node();
-            
+                    },
+                ],
+            }
+            .into_node();
+
             // Content
-            let mut content_children = vec![
-                Text::new(item.title.clone())
-                    .size(tokens.typography.body_large_size)
-                    .color(tokens.colors.text_primary)
-                    .into_node()
-            ];
-            
+            let mut content_children = vec![Text::new(item.title.clone())
+                .size(tokens.typography.body_large_size)
+                .color(tokens.colors.text_primary)
+                .into_node()];
+
             if let Some(ts) = &item.timestamp {
                 content_children.push(
                     Text::new(ts.clone())
                         .size(12.0)
                         .color(tokens.colors.text_secondary)
-                        .into_node()
+                        .into_node(),
                 );
             }
-            
+
             if let Some(desc) = &item.description {
                 content_children.push(
                     Text::new(desc.clone())
                         .color(tokens.colors.text_secondary)
-                        .into_node()
+                        .into_node(),
                 );
             }
-            
+
             let content = Container::new(
                 VStack {
                     spacing: Some(4.0),
                     children: content_children,
-                }.into_node()
+                }
+                .into_node(),
             )
             .padding_all(0.0) // padding-bottom handled by item spacing?
             .flex_grow(1.0)
             .into_node();
-            
+
             // Item Row
             // We need to constrain marker width.
             use fission_core::ui::Row;
             children.push(
                 Row {
-                    children: vec![
-                        Container::new(marker).width(20.0).into_node(),
-                        content
-                    ],
+                    children: vec![Container::new(marker).width(20.0).into_node(), content],
                     // Align items start?
                     ..Default::default()
-                }.into_node()
+                }
+                .into_node(),
             );
-            
+
             // Spacing between items
             if !is_last {
-                children.push(fission_core::ui::widgets::Spacer { height: Some(16.0), ..Default::default() }.into_node());
+                children.push(
+                    fission_core::ui::widgets::Spacer {
+                        height: Some(16.0),
+                        ..Default::default()
+                    }
+                    .into_node(),
+                );
             }
         }
 
         VStack {
             spacing: Some(0.0),
             children,
-        }.into_node()
+        }
+        .into_node()
     }
 }

@@ -1,7 +1,7 @@
-use fission_core::{BuildCtx, View, Widget, Node, WidgetNodeId};
+use fission_core::lowering::{LoweringContext, NodeBuilder};
 use fission_core::ui::{CustomNode, LowerDyn};
-use fission_core::lowering::{NodeBuilder, LoweringContext};
-use fission_ir::{LayoutOp, Op, EmbedKind, NodeId};
+use fission_core::{BuildCtx, Node, View, Widget, WidgetNodeId};
+use fission_ir::{EmbedKind, LayoutOp, NodeId, Op};
 use serde::{Deserialize, Serialize};
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -18,7 +18,7 @@ impl<S: fission_core::AppState> Widget<S> for WebView {
             url: self.url.clone(),
             user_agent: self.user_agent.clone(),
         });
-        
+
         Node::Custom(CustomNode {
             debug_tag: "WebView".into(),
             lowerer: Some(std::sync::Arc::new(WebViewLowerer {
@@ -38,14 +38,17 @@ struct WebViewLowerer {
 impl LowerDyn for WebViewLowerer {
     fn lower_dyn(&self, cx: &mut LoweringContext) -> NodeId {
         let id = cx.widget_node_id(self.id);
-        
-        let mut builder = NodeBuilder::new(id, Op::Layout(LayoutOp::Embed {
-            kind: EmbedKind::Web,
-            widget_id: self.id,
-            width: None,
-            height: None,
-        }));
-        
+
+        let mut builder = NodeBuilder::new(
+            id,
+            Op::Layout(LayoutOp::Embed {
+                kind: EmbedKind::Web,
+                widget_id: self.id,
+                width: None,
+                height: None,
+            }),
+        );
+
         builder.build(cx)
     }
 

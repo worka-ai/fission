@@ -1,7 +1,9 @@
-use fission_core::ui::{Button, ButtonVariant, ButtonContentAlign, Container, Node, Row, Text, TextContent};
-use fission_core::{BuildCtx, View, Widget, ActionEnvelope};
-use fission_core::op::Color;
 use crate::Icon;
+use fission_core::op::Color;
+use fission_core::ui::{
+    Button, ButtonContentAlign, ButtonVariant, Container, Node, Row, Text, TextContent,
+};
+use fission_core::{ActionEnvelope, BuildCtx, View, Widget};
 use fission_icons::material;
 use serde::{Deserialize, Serialize};
 
@@ -23,19 +25,23 @@ impl<S: fission_core::AppState> Widget<S> for Breadcrumb {
 
         for (i, item) in self.items.iter().enumerate() {
             let is_last = i == self.items.len() - 1;
-            
+
             if i > 0 {
                 children.push(
                     Icon::svg(material::navigation::chevron_right::regular())
                         .size(16.0)
                         .color(tokens.colors.text_secondary)
-                        .into_node()
+                        .into_node(),
                 );
             }
 
             if is_last || item.on_click.is_none() {
                 let mut text = Text::new(item.label.clone())
-                    .color(if is_last { tokens.colors.text_primary } else { tokens.colors.text_secondary })
+                    .color(if is_last {
+                        tokens.colors.text_primary
+                    } else {
+                        tokens.colors.text_secondary
+                    })
                     .flex_shrink(0.0);
                 if is_last {
                     text = text.flex_grow(1.0);
@@ -43,7 +49,7 @@ impl<S: fission_core::AppState> Widget<S> for Breadcrumb {
                 children.push(
                     text
                         // .weight(if is_last { Bold } else { Normal })
-                        .into_node()
+                        .into_node(),
                 );
             } else {
                 let button = Button {
@@ -53,17 +59,14 @@ impl<S: fission_core::AppState> Widget<S> for Breadcrumb {
                         Text::new(item.label.clone())
                             .color(tokens.colors.text_secondary)
                             .flex_shrink(0.0)
-                            .into_node()
+                            .into_node(),
                     )),
                     on_press: item.on_click.clone(),
                     ..Default::default()
-                }.into_node();
+                }
+                .into_node();
 
-                children.push(
-                    Container::new(button)
-                        .flex_shrink(0.0)
-                        .into_node()
-                );
+                children.push(Container::new(button).flex_shrink(0.0).into_node());
             }
         }
 
@@ -72,6 +75,7 @@ impl<S: fission_core::AppState> Widget<S> for Breadcrumb {
             align_items: fission_ir::op::AlignItems::Center,
             children,
             ..Default::default()
-        }.into_node()
+        }
+        .into_node()
     }
 }

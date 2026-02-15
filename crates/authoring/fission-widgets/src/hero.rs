@@ -1,4 +1,6 @@
-use fission_core::{BuildCtx, View, Widget, Node, NodeId, Lower, LoweringContext, NodeBuilder, LowerDyn};
+use fission_core::{
+    BuildCtx, Lower, LowerDyn, LoweringContext, Node, NodeBuilder, NodeId, View, Widget,
+};
 use fission_ir::{semantics::Role, Op, Semantics};
 use serde::{Deserialize, Serialize};
 
@@ -30,7 +32,7 @@ impl LowerDyn for HeroLowerer {
     fn lower_dyn(&self, cx: &mut LoweringContext) -> NodeId {
         let child_id = self.child.lower(cx);
         let id = cx.next_node_id();
-        
+
         let semantics = Semantics {
             role: Role::Generic,
             label: None,
@@ -55,12 +57,12 @@ impl LowerDyn for HeroLowerer {
             hero_tag: Some(self.tag.clone()),
             focus_index: None,
         };
-        
+
         let mut builder = NodeBuilder::new(id, Op::Semantics(semantics));
         builder.add_child(child_id);
         builder.build(cx)
     }
-    
+
     fn stable_key(&self) -> u64 {
         use std::hash::{Hash, Hasher};
         let mut h = std::collections::hash_map::DefaultHasher::new();

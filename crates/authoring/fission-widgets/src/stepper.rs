@@ -1,7 +1,6 @@
+use crate::stack::{HStack, VStack};
 use fission_core::ui::{Align, Container, Node, Text};
 use fission_core::{BuildCtx, View, Widget};
-use fission_core::op::Color;
-use crate::stack::{HStack, VStack};
 use serde::{Deserialize, Serialize};
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -13,61 +12,110 @@ pub struct Stepper {
 impl<S: fission_core::AppState> Widget<S> for Stepper {
     fn build(&self, _ctx: &mut BuildCtx<S>, view: &View<S>) -> Node {
         let tokens = &view.env.theme.tokens;
-        let mut children = Vec::new();
-        
+        if self.steps.is_empty() {
+            return fission_core::ui::widgets::Spacer::default().into_node();
+        }
+
+        let last_index = self.steps.len().saturating_sub(1);
+        let node_slot = 62.0;
+        let connector_width = 22.0;
+        let mut indicator_row = Vec::new();
+        let mut label_row = Vec::new();
+
         for (i, label) in self.steps.iter().enumerate() {
             let is_active = i == self.active_index;
             let is_completed = i < self.active_index;
-            
-            let color = if is_active || is_completed { tokens.colors.primary } else { tokens.colors.border };
-            let text_color = if is_active || is_completed { tokens.colors.on_primary } else { tokens.colors.text_secondary };
-            
-            // Connector line
-            if i > 0 {
-                children.push(
+            let is_emphasized = is_active || is_completed;
+
+            let mut circle = Container::new(
+                Align::new(
+                    Text::new(format!("{}", i + 1))
+                        .size(12.0)
+                        .color(if is_emphasized {
+                            tokens.colors.on_primary
+                        } else {
+                            tokens.colors.text_secondary
+                        })
+                        .into_node(),
+                )
+                .into_node(),
+            )
+            .width(24.0)
+            .height(24.0)
+            .border_radius(12.0)
+            .bg(if is_emphasized {
+                tokens.colors.primary
+            } else {
+                tokens.colors.surface
+            });
+
+            if !is_emphasized {
+                circle = circle.border(tokens.colors.border, 1.0);
+            }
+
+            indicator_row.push(
+                Container::new(circle.into_node())
+                    .width(node_slot)
+                    .into_node(),
+            );
+
+            label_row.push(
+                Container::new(
+                    Align::new(
+                        Text::new(label.clone())
+                            .size(11.0)
+                            .color(if is_emphasized {
+                                tokens.colors.text_primary
+                            } else {
+                                tokens.colors.text_secondary
+                            })
+                            .into_node(),
+                    )
+                    .into_node(),
+                )
+                .width(node_slot)
+                .into_node(),
+            );
+
+            if i < last_index {
+                let line_color = if i < self.active_index {
+                    tokens.colors.primary
+                } else {
+                    tokens.colors.border
+                };
+
+                indicator_row.push(
                     Container::new(fission_core::ui::widgets::Spacer::default().into_node())
-                        .width(40.0) // Fixed line length
+                        .width(connector_width)
                         .height(2.0)
-                        .bg(if is_completed { tokens.colors.primary } else { tokens.colors.border })
-                        .into_node()
+                        .bg(line_color)
+                        .into_node(),
+                );
+                label_row.push(
+                    fission_core::ui::widgets::Spacer {
+                        width: Some(connector_width),
+                        ..Default::default()
+                    }
+                    .into_node(),
                 );
             }
-            
-            // Circle + Label
-            children.push(
-                VStack {
-                    spacing: Some(4.0),
-                    children: vec![
-                        // Circle
-                        Container::new(
-                            Align::new(
-                                if is_completed {
-                                    Text::new("✓").color(text_color).into_node()
-                                } else {
-                                    Text::new(format!("{}", i + 1)).color(text_color).into_node()
-                                }
-                            )
-                            .into_node()
-                        )
-                        .width(24.0)
-                        .height(24.0)
-                        .border_radius(12.0)
-                        .bg(color)
-                        // .border?
-                        .into_node(),
-                        
-                        Text::new(label.clone())
-                            .size(12.0)
-                            .color(text_color)
-                            .into_node()
-                    ]
-                }.into_node()
-            );
         }
 
-        HStack {
+        VStack {
             spacing: Some(8.0),
-            children,
-        }.into_node()
+            children: vec![
+                HStack {
+                    spacing: Some(0.0),
+                    children: indicator_row,
+                }
+                .into_node(),
+                HStack {
+                    spacing: Some(0.0),
+                    children: label_row,
+                }
+                .into_node(),
+            ],
+        }
+        .into_node()
     }
 }

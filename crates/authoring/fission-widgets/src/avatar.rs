@@ -1,6 +1,6 @@
-use fission_core::ui::{Container, Image, Text, TextContent, Node};
-use fission_core::{BuildCtx, View, Widget};
 use fission_core::op::Color;
+use fission_core::ui::{Container, Image, Node, Text, TextContent};
+use fission_core::{BuildCtx, View, Widget};
 use serde::{Deserialize, Serialize};
 
 #[derive(Default, Clone, Debug, Serialize, Deserialize)]
@@ -15,7 +15,7 @@ impl<S: fission_core::AppState> Widget<S> for Avatar {
         let tokens = &view.env.theme.tokens;
         let size = self.size.unwrap_or(40.0);
         let radius = size / 2.0;
-        
+
         let content = if let Some(src) = &self.src {
             Image {
                 source: src.clone(),
@@ -23,19 +23,29 @@ impl<S: fission_core::AppState> Widget<S> for Avatar {
                 height: Some(size),
                 fit: Some(fission_core::op::ImageFit::Cover),
                 ..Default::default()
-            }.into()
+            }
+            .into()
         } else {
-            let initials = self.name.as_deref()
-                .map(|n| n.split_whitespace().take(2).map(|s| s.chars().next().unwrap_or(' ')).collect::<String>().to_uppercase())
+            let initials = self
+                .name
+                .as_deref()
+                .map(|n| {
+                    n.split_whitespace()
+                        .take(2)
+                        .map(|s| s.chars().next().unwrap_or(' '))
+                        .collect::<String>()
+                        .to_uppercase()
+                })
                 .unwrap_or("?".into());
-                
+
             Container::new(
                 Text {
                     content: TextContent::Literal(initials),
                     font_size: Some(size * 0.4),
                     color: Some(tokens.colors.on_primary),
                     ..Default::default()
-                }.into()
+                }
+                .into(),
             )
             // Center text? Container doesn't center automatically without flex props.
             // Text inside Container is flow.

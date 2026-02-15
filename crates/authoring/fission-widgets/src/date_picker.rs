@@ -1,10 +1,10 @@
-use fission_core::ui::{Node, TextInput};
-use fission_core::{BuildCtx, View, Widget, ActionEnvelope, WidgetNodeId};
-use crate::popover::Popover;
 use crate::calendar::Calendar;
+use crate::popover::Popover;
 use chrono::{Datelike, NaiveDate};
-use std::sync::Arc;
+use fission_core::ui::{Node, TextInput};
+use fission_core::{ActionEnvelope, BuildCtx, View, Widget, WidgetNodeId};
 use serde::{Deserialize, Serialize};
+use std::sync::Arc;
 
 pub struct DatePicker {
     pub id: WidgetNodeId,
@@ -27,8 +27,11 @@ impl std::fmt::Debug for DatePicker {
 
 impl<S: fission_core::AppState> Widget<S> for DatePicker {
     fn build(&self, _ctx: &mut BuildCtx<S>, view: &View<S>) -> Node {
-        let text = self.value.map(|d| d.format("%Y-%m-%d").to_string()).unwrap_or_default();
-        
+        let text = self
+            .value
+            .map(|d| d.format("%Y-%m-%d").to_string())
+            .unwrap_or_default();
+
         let trigger = TextInput {
             value: text.clone(),
             placeholder: Some("YYYY-MM-DD".into()),
@@ -40,37 +43,49 @@ impl<S: fission_core::AppState> Widget<S> for DatePicker {
             // Or TextInput with `on_focus` triggering open?
             // Let's use Button for Trigger for MVP stability.
             ..Default::default()
-        }.into_node();
-        
+        }
+        .into_node();
+
         // Wrap trigger in GestureDetector to handle click if TextInput consumes it?
         // Actually, let's use a Button for the trigger to ensure click works.
         use fission_core::ui::{Button, ButtonVariant, Text};
         let trigger_btn = Button {
             variant: ButtonVariant::Outline,
-            child: Some(Box::new(Text::new(if text.is_empty() { "Select Date".to_string() } else { text }).into_node())),
+            child: Some(Box::new(
+                Text::new(if text.is_empty() {
+                    "Select Date".to_string()
+                } else {
+                    text
+                })
+                .into_node(),
+            )),
             on_press: self.on_toggle.clone(),
             width: Some(150.0),
             ..Default::default()
-        }.into_node();
+        }
+        .into_node();
 
         let content = if self.is_open {
             let today = chrono::Local::now().date_naive();
             let display_date = self.value.unwrap_or(today);
-            
-            Box::new(Calendar {
-                year: display_date.year(),
-                month: display_date.month(),
-                selected_date: self.value,
-                on_select: self.on_change.clone(), // When selected, close? logic handles that
-                on_navigate: None, // TODO: Wiring navigation state requires DatePicker to own month state?
-                // Yes, DatePicker needs `view_month` state separate from `value`.
-                // For MVP, we navigate relative to `value` or `today`.
-                // Calendar needs `on_navigate` to update `view_month`.
-                // DatePicker doesn't store `view_month` in this struct.
-                // It relies on AppState.
-                // User must provide `view_month` in AppState?
-                // Yes, standard Fission pattern.
-            }.build(_ctx, view))
+
+            Box::new(
+                Calendar {
+                    year: display_date.year(),
+                    month: display_date.month(),
+                    selected_date: self.value,
+                    on_select: self.on_change.clone(), // When selected, close? logic handles that
+                    on_navigate: None, // TODO: Wiring navigation state requires DatePicker to own month state?
+                                       // Yes, DatePicker needs `view_month` state separate from `value`.
+                                       // For MVP, we navigate relative to `value` or `today`.
+                                       // Calendar needs `on_navigate` to update `view_month`.
+                                       // DatePicker doesn't store `view_month` in this struct.
+                                       // It relies on AppState.
+                                       // User must provide `view_month` in AppState?
+                                       // Yes, standard Fission pattern.
+                }
+                .build(_ctx, view),
+            )
         } else {
             Box::new(fission_core::ui::widgets::spacer::Spacer::default().into_node())
         };
@@ -82,6 +97,7 @@ impl<S: fission_core::AppState> Widget<S> for DatePicker {
             on_close: self.on_close.clone(),
             trigger: Box::new(trigger_btn),
             content,
-        }.build(_ctx, view)
+        }
+        .build(_ctx, view)
     }
 }

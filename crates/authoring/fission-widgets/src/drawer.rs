@@ -1,8 +1,11 @@
-use fission_core::ui::{Container, GestureDetector, Node, ZStack};
-use fission_core::{BuildCtx, View, Widget, ActionEnvelope, WidgetNodeId, NodeId, AnimationPropertyId, AnimationRequest, AnimationStartValue};
-use fission_core::op::{Color, BoxShadow};
 use crate::stack::VStack;
 use crate::{Icon, Portal};
+use fission_core::op::{BoxShadow, Color};
+use fission_core::ui::{Container, GestureDetector, Node, ZStack};
+use fission_core::{
+    ActionEnvelope, AnimationPropertyId, AnimationRequest, AnimationStartValue, BuildCtx, NodeId,
+    View, Widget, WidgetNodeId,
+};
 use serde::{Deserialize, Serialize};
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -32,25 +35,31 @@ impl<S: fission_core::AppState> Widget<S> for Drawer {
         // Let's implement simple enter animation if is_open changes from false to true.
         // Since Widget `build` is stateless (re-run), we rely on `view` state.
         // But `is_open` is passed in.
-        
+
         if !self.is_open {
             return fission_core::ui::widgets::Spacer::default().into_node();
         }
 
         let tokens = &view.env.theme.tokens;
         let width = self.width.unwrap_or(300.0);
-        
+
         // Backdrop
         let backdrop = GestureDetector {
             on_tap: self.on_dismiss.clone(),
             child: Box::new(
                 Container::new(fission_core::ui::widgets::Spacer::default().into_node())
-                    .bg(Color { r: 0, g: 0, b: 0, a: 128 })
+                    .bg(Color {
+                        r: 0,
+                        g: 0,
+                        b: 0,
+                        a: 128,
+                    })
                     .flex_grow(1.0)
-                    .into_node()
+                    .into_node(),
             ),
             ..Default::default()
-        }.into_node();
+        }
+        .into_node();
 
         // Drawer Content
         let content_node = Container::new(*self.content.clone())
@@ -58,7 +67,12 @@ impl<S: fission_core::AppState> Widget<S> for Drawer {
             .width(width)
             // Height fills parent (Positioned top/bottom 0)
             .shadow(tokens.elevations.level3.unwrap_or(BoxShadow {
-                color: Color { r: 0, g: 0, b: 0, a: 60 },
+                color: Color {
+                    r: 0,
+                    g: 0,
+                    b: 0,
+                    a: 60,
+                },
                 blur_radius: 16.0,
                 offset: (0.0, 0.0),
             }))
@@ -67,18 +81,25 @@ impl<S: fission_core::AppState> Widget<S> for Drawer {
 
         let positioned_content = match self.side {
             DrawerSide::Left => fission_core::ui::Positioned {
-                left: Some(0.0), top: Some(0.0), bottom: Some(0.0), right: None,
+                left: Some(0.0),
+                top: Some(0.0),
+                bottom: Some(0.0),
+                right: None,
                 width: Some(width),
                 child: Some(Box::new(content_node)),
                 ..Default::default()
             },
             DrawerSide::Right => fission_core::ui::Positioned {
-                right: Some(0.0), top: Some(0.0), bottom: Some(0.0), left: None,
+                right: Some(0.0),
+                top: Some(0.0),
+                bottom: Some(0.0),
+                left: None,
                 width: Some(width),
                 child: Some(Box::new(content_node)),
                 ..Default::default()
             },
-        }.into_node();
+        }
+        .into_node();
 
         // Animation Hook
         let anim_prop = AnimationPropertyId::TranslateX;
@@ -87,33 +108,42 @@ impl<S: fission_core::AppState> Widget<S> for Drawer {
             DrawerSide::Left => -width,
             DrawerSide::Right => width,
         };
-        
-        // Trigger animation if newly opened? 
+
+        // Trigger animation if newly opened?
         // We don't track "prev_is_open" easily here without extra state.
         // But we can request animation to 0.0. If already 0.0, it does nothing?
         // Actually `ctx.anim_for(...).request(...)` queues it.
         // If we queue it every frame, it might restart or continue.
         // Fission Animation system handles "current value" start.
-        
+
         // For now, static placement (no slide animation) to ensure correctness first.
 
         let root = ZStack {
             children: vec![
                 fission_core::ui::Positioned {
-                    left: Some(0.0), right: Some(0.0), top: Some(0.0), bottom: Some(0.0),
+                    left: Some(0.0),
+                    right: Some(0.0),
+                    top: Some(0.0),
+                    bottom: Some(0.0),
                     child: Some(Box::new(backdrop)),
                     ..Default::default()
-                }.into_node(),
+                }
+                .into_node(),
                 positioned_content,
             ],
             id: None,
-        }.into_node();
-        
+        }
+        .into_node();
+
         let overlay_root = fission_core::ui::Positioned {
-            left: Some(0.0), right: Some(0.0), top: Some(0.0), bottom: Some(0.0),
+            left: Some(0.0),
+            right: Some(0.0),
+            top: Some(0.0),
+            bottom: Some(0.0),
             child: Some(Box::new(root)),
             ..Default::default()
-        }.into_node();
+        }
+        .into_node();
         ctx.register_portal_with_layer(fission_core::PortalLayer::Modal, overlay_root);
 
         fission_core::ui::widgets::Spacer::default().into_node()

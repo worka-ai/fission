@@ -11,12 +11,12 @@ mod mac {
     use super::{VideoBackend, VideoEvent, VideoPlayer};
     use cocoa::base::{id, nil, YES};
     use cocoa::foundation::{NSString, NSURL};
-    use core_graphics::geometry::{CGPoint, CGRect, CGSize};
     use core_graphics::color::CGColor;
+    use core_graphics::geometry::{CGPoint, CGRect, CGSize};
+    use fission_diagnostics::prelude as diag;
     use fission_ir::WidgetNodeId;
     use fission_render::LayoutRect;
     use fission_shell::VideoSurfaceFrame;
-    use fission_diagnostics::prelude as diag;
     use objc::rc::StrongPtr;
     use objc::{class, msg_send, sel, sel_impl};
     use raw_window_handle::{HasWindowHandle, RawWindowHandle};
@@ -170,8 +170,7 @@ mod mac {
                     false
                 }
             });
-
-                    }
+        }
     }
 
     impl Drop for MacVideoBackend {
@@ -200,18 +199,19 @@ mod mac {
                 let layer: id =
                     msg_send![class!(AVPlayerLayer), playerLayerWithPlayer: player.as_id()];
                 let gravity = NSString::alloc(nil).init_str("AVLayerVideoGravityResizeAspect");
-                                                let () = msg_send![layer, setVideoGravity: gravity];
-                                                let () = msg_send![layer, setMasksToBounds: YES];
-                                                let () = msg_send![layer, setContentsScale: ctx.scale_factor];
-                                
-                                                // let red = CGColor::rgb(1.0, 0.0, 0.0, 1.0);
-                                                // let () = msg_send![layer, setBackgroundColor: red];
-                                                let () = msg_send![layer, setZPosition: 1.0f64];
-                                
-                                                let () = msg_send![ctx.root_layer, addSublayer: layer];
-                                                Self {
-                                                    layer: RetainedId::new(layer),
-                                                }            }
+                let () = msg_send![layer, setVideoGravity: gravity];
+                let () = msg_send![layer, setMasksToBounds: YES];
+                let () = msg_send![layer, setContentsScale: ctx.scale_factor];
+
+                // let red = CGColor::rgb(1.0, 0.0, 0.0, 1.0);
+                // let () = msg_send![layer, setBackgroundColor: red];
+                let () = msg_send![layer, setZPosition: 1.0f64];
+
+                let () = msg_send![ctx.root_layer, addSublayer: layer];
+                Self {
+                    layer: RetainedId::new(layer),
+                }
+            }
         }
 
         fn update(&mut self, player: &RetainedId, ctx: &LayerContext, rect: LayoutRect) {

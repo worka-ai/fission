@@ -1,6 +1,6 @@
-use fission_core::ui::{Container, Node};
-use fission_core::{BuildCtx, View, Widget, ActionEnvelope};
 use fission_core::ui::widgets::GestureDetector;
+use fission_core::ui::{Container, Node};
+use fission_core::{ActionEnvelope, BuildCtx, View, Widget};
 use serde::{Deserialize, Serialize};
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -19,6 +19,7 @@ impl<S: fission_core::AppState> Widget<S> for Dropzone {
             on_drag_enter: self.on_drag_enter.clone(),
             on_drag_leave: self.on_drag_leave.clone(),
             ..Default::default()
-        }.into_node()
+        }
+        .into_node()
     }
 }

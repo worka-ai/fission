@@ -1,5 +1,8 @@
-use fission_core::{BuildCtx, View, Widget, WidgetNodeId, NodeId, AnimationPropertyId, AnimationRequest, AnimationStartValue};
 use fission_core::ui::Node;
+use fission_core::{
+    AnimationPropertyId, AnimationRequest, AnimationStartValue, BuildCtx, NodeId, View, Widget,
+    WidgetNodeId,
+};
 use serde::{Deserialize, Serialize};
 
 #[derive(Clone, Debug)]
@@ -27,14 +30,17 @@ impl Default for Transition {
 
 impl<S: fission_core::AppState> Widget<S> for Transition {
     fn build(&self, ctx: &mut BuildCtx<S>, _view: &View<S>) -> Node {
-        ctx.request_animation_for(self.id, AnimationRequest {
-            property: self.property.clone(),
-            from: AnimationStartValue::Current, // Always animate from current visual state
-            to: self.value,
-            duration_ms: self.duration,
-            delay_ms: self.delay,
-            repeat: false,
-        });
+        ctx.request_animation_for(
+            self.id,
+            AnimationRequest {
+                property: self.property.clone(),
+                from: AnimationStartValue::Current, // Always animate from current visual state
+                to: self.value,
+                duration_ms: self.duration,
+                delay_ms: self.delay,
+                repeat: false,
+            },
+        );
 
         // Pass-through child
         *self.child.clone()

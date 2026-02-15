@@ -19,11 +19,16 @@ impl<S: fission_core::AppState> Widget<S> for Card {
     fn build(&self, ctx: &mut BuildCtx<S>, view: &View<S>) -> Node {
         let tokens = &view.env.theme.tokens;
         let default_shadow = fission_core::op::BoxShadow {
-            color: fission_core::op::Color { r:0, g:0, b:0, a:20 },
+            color: fission_core::op::Color {
+                r: 0,
+                g: 0,
+                b: 0,
+                a: 20,
+            },
             blur_radius: 2.0,
             offset: (0.0, 1.0),
         };
-        
+
         Container::new(*self.child.clone())
             .bg(tokens.colors.surface)
             .border_radius(tokens.radii.medium)

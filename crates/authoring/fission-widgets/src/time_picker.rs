@@ -1,12 +1,12 @@
-use fission_core::ui::{Node, Text};
-use fission_core::{BuildCtx, View, Widget, ActionEnvelope};
-use crate::stack::HStack;
 use crate::number_input::NumberInput;
-use std::sync::Arc;
+use crate::stack::HStack;
+use fission_core::ui::{Node, Text};
+use fission_core::{ActionEnvelope, BuildCtx, View, Widget};
 use serde::{Deserialize, Serialize};
+use std::sync::Arc;
 
 pub struct TimePicker {
-    pub hour: u32, // 0-23
+    pub hour: u32,   // 0-23
     pub minute: u32, // 0-59
     pub on_change: Option<Arc<dyn Fn(u32, u32) -> ActionEnvelope + Send + Sync>>,
 }
@@ -30,7 +30,7 @@ impl<S: fission_core::AppState> Widget<S> for TimePicker {
         // Hour Envelopes
         let h_inc = cb.map(|f| f((h + 1) % 24, m));
         let h_dec = cb.map(|f| f(if h == 0 { 23 } else { h - 1 }, m));
-        
+
         // Minute Envelopes
         let m_inc = cb.map(|f| f(h, (m + 1) % 60));
         let m_dec = cb.map(|f| f(h, if m == 0 { 59 } else { m - 1 }));
@@ -40,24 +40,27 @@ impl<S: fission_core::AppState> Widget<S> for TimePicker {
             children: vec![
                 NumberInput {
                     value: h as f32,
-                    min: Some(0.0), max: Some(23.0),
+                    min: Some(0.0),
+                    max: Some(23.0),
                     step: 1.0,
                     on_increment: h_inc,
                     on_decrement: h_dec,
                     ..Default::default()
-                }.build(_ctx, view),
-                
+                }
+                .build(_ctx, view),
                 Text::new(":").into_node(),
-                
                 NumberInput {
                     value: m as f32,
-                    min: Some(0.0), max: Some(59.0),
+                    min: Some(0.0),
+                    max: Some(59.0),
                     step: 1.0,
                     on_increment: m_inc,
                     on_decrement: m_dec,
                     ..Default::default()
-                }.build(_ctx, view),
-            ]
-        }.into_node()
+                }
+                .build(_ctx, view),
+            ],
+        }
+        .into_node()
     }
 }

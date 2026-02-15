@@ -1,5 +1,5 @@
-use fission_core::ui::{Node, Text, TextInput, Button, ButtonVariant};
-use fission_core::{BuildCtx, View, Widget, ActionEnvelope};
+use fission_core::ui::{Button, ButtonVariant, Node, Text, TextInput};
+use fission_core::{ActionEnvelope, BuildCtx, View, Widget};
 use serde::{Deserialize, Serialize};
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -26,17 +26,23 @@ impl<S: fission_core::AppState> Widget<S> for Editable {
                 // TextInput semantic role is TextInput.
                 // We might need to wrap it or rely on focus/blur.
                 ..Default::default()
-            }.into_node()
+            }
+            .into_node()
         } else {
             Button {
                 variant: ButtonVariant::Ghost,
                 child: Some(Box::new(
-                    Text::new(if self.value.is_empty() { self.placeholder.clone() } else { self.value.clone() })
-                        .into_node()
+                    Text::new(if self.value.is_empty() {
+                        self.placeholder.clone()
+                    } else {
+                        self.value.clone()
+                    })
+                    .into_node(),
                 )),
                 on_press: self.on_edit.clone(),
                 ..Default::default()
-            }.into_node()
+            }
+            .into_node()
         }
     }
 }

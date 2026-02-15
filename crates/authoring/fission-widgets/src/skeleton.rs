@@ -1,6 +1,9 @@
-use fission_core::ui::{Container, Node};
-use fission_core::{BuildCtx, View, Widget, WidgetNodeId, NodeId, AnimationPropertyId, AnimationRequest, AnimationStartValue};
 use fission_core::op::Color;
+use fission_core::ui::{Container, Node};
+use fission_core::{
+    AnimationPropertyId, AnimationRequest, AnimationStartValue, BuildCtx, NodeId, View, Widget,
+    WidgetNodeId,
+};
 use serde::{Deserialize, Serialize};
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -27,13 +30,22 @@ impl<S: fission_core::AppState> Widget<S> for Skeleton {
         });
 
         let opacity = view.animation_value(self.id, &AnimationPropertyId::Opacity);
-        let color = Color { r: 200, g: 200, b: 200, a: (opacity * 255.0) as u8 };
+        let color = Color {
+            r: 200,
+            g: 200,
+            b: 200,
+            a: (opacity * 255.0) as u8,
+        };
 
         Container::new(fission_core::ui::widgets::Spacer::default().into_node())
             .width(self.width.unwrap_or(100.0))
             .height(self.height.unwrap_or(20.0))
             .bg(color)
-            .border_radius(if self.circle { 9999.0 } else { tokens.radii.small })
+            .border_radius(if self.circle {
+                9999.0
+            } else {
+                tokens.radii.small
+            })
             .into_node()
     }
 }

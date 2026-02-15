@@ -1,6 +1,6 @@
 use fission_core::ui::Node;
 use fission_core::{BuildCtx, View, Widget};
-use fission_ir::op::{FlexWrap, FlexDirection};
+use fission_ir::op::{FlexDirection, FlexWrap};
 use serde::{Deserialize, Serialize};
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -28,13 +28,15 @@ impl<S: fission_core::AppState> Widget<S> for Wrap {
                 wrap: FlexWrap::Wrap,
                 gap: self.spacing,
                 ..Default::default()
-            }.into_node(),
+            }
+            .into_node(),
             FlexDirection::Column => fission_core::ui::Column {
                 children: self.children.clone(),
                 wrap: FlexWrap::Wrap,
                 gap: self.spacing,
                 ..Default::default()
-            }.into_node(),
+            }
+            .into_node(),
         }
     }
 }

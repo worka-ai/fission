@@ -1,8 +1,8 @@
-use fission_core::ui::{Container, Node, Row, Text, TextContent};
-use fission_core::{BuildCtx, View, Widget};
-use fission_core::op::Color;
 use crate::stack::VStack;
 use crate::Icon;
+use fission_core::op::Color;
+use fission_core::ui::{Container, Node, Row, Text, TextContent};
+use fission_core::{BuildCtx, View, Widget};
 use fission_icons::material;
 use serde::{Deserialize, Serialize};
 
@@ -25,12 +25,33 @@ impl<S: fission_core::AppState> Widget<S> for Alert {
     fn build(&self, _ctx: &mut BuildCtx<S>, view: &View<S>) -> Node {
         let theme = &view.env.theme.components.alert;
         let tokens = &view.env.theme.tokens;
-        
+
         let (bg, icon, color) = match self.kind {
-            AlertKind::Info => (theme.info_bg, material::action::info::regular(), Color::BLUE),
-            AlertKind::Warning => (theme.warning_bg, material::alert::warning::regular(), Color { r: 255, g: 165, b: 0, a: 255 }),
-            AlertKind::Error => (theme.error_bg, material::alert::error::regular(), Color::RED),
-            AlertKind::Success => (theme.success_bg, material::action::check_circle::regular(), Color::GREEN),
+            AlertKind::Info => (
+                theme.info_bg,
+                material::action::info::regular(),
+                Color::BLUE,
+            ),
+            AlertKind::Warning => (
+                theme.warning_bg,
+                material::alert::warning::regular(),
+                Color {
+                    r: 255,
+                    g: 165,
+                    b: 0,
+                    a: 255,
+                },
+            ),
+            AlertKind::Error => (
+                theme.error_bg,
+                material::alert::error::regular(),
+                Color::RED,
+            ),
+            AlertKind::Success => (
+                theme.success_bg,
+                material::action::check_circle::regular(),
+                Color::GREEN,
+            ),
         };
 
         Container::new(
@@ -53,15 +74,17 @@ impl<S: fission_core::AppState> Widget<S> for Alert {
                                         .into_node()
                                 } else {
                                     fission_core::ui::widgets::spacer::Spacer::default().into_node()
-                                }
-                            ]
-                        }.into_node()
+                                },
+                            ],
+                        }
+                        .into_node(),
                     )
                     .flex_grow(1.0)
-                    .into_node()
+                    .into_node(),
                 ],
                 ..Default::default()
-            }.into_node()
+            }
+            .into_node(),
         )
         .bg(bg)
         .padding_all(12.0)

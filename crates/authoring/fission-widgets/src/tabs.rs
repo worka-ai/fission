@@ -1,6 +1,6 @@
-use fission_core::ui::{Button, ButtonVariant, Container, Node, Text};
-use fission_core::{BuildCtx, View, Widget, ActionEnvelope};
 use crate::stack::{HStack, VStack};
+use fission_core::ui::{Button, ButtonVariant, Container, Node, Text};
+use fission_core::{ActionEnvelope, BuildCtx, View, Widget};
 use serde::{Deserialize, Serialize};
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -20,43 +20,55 @@ impl<S: fission_core::AppState> Widget<S> for Tabs {
     fn build(&self, ctx: &mut BuildCtx<S>, view: &View<S>) -> Node {
         let theme = &view.env.theme.components.tabs;
         let mut tab_buttons = vec![];
-        
+
         for (i, item) in self.items.iter().enumerate() {
             let is_active = i == self.active_index;
-            let color = if is_active { theme.active_color } else { theme.inactive_color };
-            
+            let color = if is_active {
+                theme.active_color
+            } else {
+                theme.inactive_color
+            };
+
             let tab_button = VStack {
                 spacing: Some(0.0),
                 children: vec![
                     Button {
                         variant: ButtonVariant::Ghost,
-                        child: Some(Box::new(Text::new(item.title.clone()).color(color).into_node())),
+                        child: Some(Box::new(
+                            Text::new(item.title.clone())
+                                .size(14.0)
+                                .color(color)
+                                .into_node(),
+                        )),
                         on_press: item.on_press.clone(),
+                        height: Some(38.0),
+                        padding: Some([10.0, 10.0, 0.0, 0.0]),
                         ..Default::default()
-                    }.into_node(),
+                    }
+                    .into_node(),
                     if is_active {
-                        Container::new(fission_core::ui::widgets::spacer::Spacer::default().into_node())
-                            .height(theme.indicator_height)
-                            .bg(theme.active_color)
-                            .into_node()
+                        Container::new(
+                            fission_core::ui::widgets::spacer::Spacer::default().into_node(),
+                        )
+                        .height(theme.indicator_height)
+                        .bg(theme.active_color)
+                        .into_node()
                     } else {
                         fission_core::ui::widgets::spacer::Spacer::default().into_node()
-                    }
-                ]
-            }.into_node();
+                    },
+                ],
+            }
+            .into_node();
 
-            tab_buttons.push(
-                Container::new(tab_button)
-                    .padding_all(2.0)
-                    .into_node()
-            );
+            tab_buttons.push(Container::new(tab_button).padding_all(2.0).into_node());
         }
 
         let tab_bar = Container::new(
             HStack {
-                spacing: Some(12.0),
+                spacing: Some(14.0),
                 children: tab_buttons,
-            }.into_node()
+            }
+            .into_node(),
         )
         .bg(theme.background)
         .border(theme.divider_color, 1.0)
@@ -64,15 +76,16 @@ impl<S: fission_core::AppState> Widget<S> for Tabs {
         .into_node();
 
         VStack {
-            spacing: Some(16.0),
+            spacing: Some(12.0),
             children: vec![
                 tab_bar,
                 if let Some(tab) = self.items.get(self.active_index) {
                     tab.content.clone()
                 } else {
                     fission_core::ui::widgets::spacer::Spacer::default().into_node()
-                }
-            ]
-        }.into_node()
+                },
+            ],
+        }
+        .into_node()
     }
 }

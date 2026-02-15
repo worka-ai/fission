@@ -1,12 +1,10 @@
 use anyhow::Result;
-use fission_diagnostics::prelude as diag;
-use fission_diagnostics::{SnapshotProvider, SnapshotKind, SnapshotBlob};
-use std::fs::File;
-use std::io::Write as _;
 use fission_core::diff::diff_ir;
 use fission_core::env::{VideoStateMap, WebStateMap};
 use fission_core::lowering::{build_layout_tree, LoweringContext};
 use fission_core::{LayoutPoint, ScrollStateMap};
+use fission_diagnostics::prelude as diag;
+use fission_diagnostics::{SnapshotBlob, SnapshotKind, SnapshotProvider};
 use fission_ir::op::EmbedKind;
 use fission_ir::{CoreIR, CoreNode, NodeId, Op, PaintOp, WidgetNodeId};
 use fission_layout::{LayoutEngine, LayoutRect, LayoutSize, LayoutSnapshot};
@@ -16,7 +14,9 @@ use fission_render::{
 use fission_shell::VideoSurfaceFrame;
 use std::collections::hash_map::DefaultHasher;
 use std::collections::HashMap;
+use std::fs::File;
 use std::hash::{Hash, Hasher};
+use std::io::Write as _;
 
 pub struct Pipeline {
     pub prev_ir: Option<CoreIR>,
@@ -57,7 +57,10 @@ fn is_layout_affecting_change(prev: Option<&CoreNode>, next: Option<&CoreNode>) 
             }
             match (&prev.op, &next.op) {
                 (Op::Paint(PaintOp::DrawText { .. }), Op::Paint(PaintOp::DrawText { .. })) => true,
-                (Op::Paint(PaintOp::DrawRichText { .. }), Op::Paint(PaintOp::DrawRichText { .. })) => true,
+                (
+                    Op::Paint(PaintOp::DrawRichText { .. }),
+                    Op::Paint(PaintOp::DrawRichText { .. }),
+                ) => true,
                 _ => op_affects_layout(&prev.op) || op_affects_layout(&next.op),
             }
         }
@@ -96,7 +99,11 @@ impl Pipeline {
                 diag::DiagEventKind::InvariantViolation {
                     kind: "ir_cycle".into(),
                     node: cycle.first().map(|n| n.as_u128()),
-                    details: format!("cycle_len={} first={:?}", cycle.len(), &cycle[..cycle.len().min(6)]),
+                    details: format!(
+                        "cycle_len={} first={:?}",
+                        cycle.len(),
+                        &cycle[..cycle.len().min(6)]
+                    ),
                     dump_ref: None,
                 },
             );
@@ -162,7 +169,9 @@ impl Pipeline {
         for id in &dirty_set {
             let mut cur = next_ir.nodes.get(id).and_then(|n| n.parent);
             while let Some(p) = cur {
-                if !dirty_with_ancestors.insert(p) { break; }
+                if !dirty_with_ancestors.insert(p) {
+                    break;
+                }
                 cur = next_ir.nodes.get(&p).and_then(|n| n.parent);
             }
         }
@@ -197,7 +206,9 @@ impl Pipeline {
         for id in &layout_dirty_base {
             let mut cur = next_ir.nodes.get(id).and_then(|n| n.parent);
             while let Some(p) = cur {
-                if !layout_dirty_with_ancestors.insert(p) { break; }
+                if !layout_dirty_with_ancestors.insert(p) {
+                    break;
+                }
                 cur = next_ir.nodes.get(&p).and_then(|n| n.parent);
             }
         }
@@ -221,9 +232,8 @@ impl Pipeline {
         let root_id = next_ir.root.unwrap();
         let viewport_changed = self.last_viewport.map_or(true, |prev| prev != viewport);
         self.last_viewport = Some(viewport);
-        let needs_layout = self.last_snapshot.is_none()
-            || !layout_dirty_closure.is_empty()
-            || viewport_changed;
+        let needs_layout =
+            self.last_snapshot.is_none() || !layout_dirty_closure.is_empty() || viewport_changed;
 
         if needs_layout {
             let layout_input_nodes = build_layout_tree(&next_ir);
@@ -252,9 +262,15 @@ impl Pipeline {
                                 let bytes = json.into_bytes();
                                 let _ = f.write_all(&bytes);
                                 Some(path.display().to_string())
-                            } else { None }
-                        } else { None }
-                    } else { None };
+                            } else {
+                                None
+                            }
+                        } else {
+                            None
+                        }
+                    } else {
+                        None
+                    };
                     diag::emit(
                         diag::DiagCategory::Invariants,
                         diag::DiagLevel::Error,
@@ -266,12 +282,15 @@ impl Pipeline {
                         },
                     );
                     self.layout_invariant_violation_count += 1;
-                    let strict = std::env::var("FISSION_LAYOUT_STRICT").ok().as_deref() == Some("1");
+                    let strict =
+                        std::env::var("FISSION_LAYOUT_STRICT").ok().as_deref() == Some("1");
                     if cfg!(debug_assertions) || strict {
                         panic!("layout invariant violation: {}", e);
                     } else {
                         // optional diagnostic rebuild
-                        let allow_rebuild = std::env::var("FISSION_ALLOW_FULL_REBUILD").ok().as_deref() == Some("1");
+                        let allow_rebuild =
+                            std::env::var("FISSION_ALLOW_FULL_REBUILD").ok().as_deref()
+                                == Some("1");
                         if allow_rebuild {
                             diag::emit(
                                 diag::DiagCategory::Layout,
@@ -285,14 +304,21 @@ impl Pipeline {
                             layout_engine.rebuild(&layout_input_nodes)?;
                             self.layout_full_rebuild_count += 1;
                         } else {
-                            return Ok(PipelineStats { dirty_nodes: 0, layout_updates: 0, paint_misses: 0, paint_hits: 0, video_surfaces: 0 });
+                            return Ok(PipelineStats {
+                                dirty_nodes: 0,
+                                layout_updates: 0,
+                                paint_misses: 0,
+                                paint_hits: 0,
+                                video_surfaces: 0,
+                            });
                         }
                     }
                 }
             }
 
             if use_full {
-                let full: std::collections::HashSet<_> = layout_input_nodes.iter().map(|n| n.id).collect();
+                let full: std::collections::HashSet<_> =
+                    layout_input_nodes.iter().map(|n| n.id).collect();
                 layout_engine.update(&layout_input_nodes, &full);
             } else {
                 layout_engine.update(&layout_input_nodes, &layout_dirty_closure);
@@ -310,48 +336,67 @@ impl Pipeline {
                                 let bytes = json.into_bytes();
                                 let _ = f.write_all(&bytes);
                                 Some(path.display().to_string())
-                            } else { None }
-                        } else { None }
-                    } else { None };
+                            } else {
+                                None
+                            }
+                        } else {
+                            None
+                        }
+                    } else {
+                        None
+                    };
                     diag::emit(
                         diag::DiagCategory::Invariants,
                         diag::DiagLevel::Error,
-                        diag::DiagEventKind::InvariantViolation { kind: "post_update".into(), node: None, details: format!("{}", e), dump_ref },
+                        diag::DiagEventKind::InvariantViolation {
+                            kind: "post_update".into(),
+                            node: None,
+                            details: format!("{}", e),
+                            dump_ref,
+                        },
                     );
                     self.layout_invariant_violation_count += 1;
-                    let strict = std::env::var("FISSION_LAYOUT_STRICT").ok().as_deref() == Some("1");
+                    let strict =
+                        std::env::var("FISSION_LAYOUT_STRICT").ok().as_deref() == Some("1");
                     if cfg!(debug_assertions) || strict {
                         panic!("layout post-update verification failed: {}", e);
                     } else {
-                        let allow_rebuild = std::env::var("FISSION_ALLOW_FULL_REBUILD").ok().as_deref() == Some("1");
+                        let allow_rebuild =
+                            std::env::var("FISSION_ALLOW_FULL_REBUILD").ok().as_deref()
+                                == Some("1");
                         if allow_rebuild {
                             diag::emit(
                                 diag::DiagCategory::Layout,
                                 diag::DiagLevel::Warn,
-                                diag::DiagEventKind::LayoutSummary { nodes: layout_input_nodes.len() as u32, dirty_count: layout_dirty_count as u32, full_rebuild: true },
+                                diag::DiagEventKind::LayoutSummary {
+                                    nodes: layout_input_nodes.len() as u32,
+                                    dirty_count: layout_dirty_count as u32,
+                                    full_rebuild: true,
+                                },
                             );
                             layout_engine.rebuild(&layout_input_nodes)?;
                             self.layout_full_rebuild_count += 1;
                         } else {
-                            return Ok(PipelineStats { dirty_nodes: 0, layout_updates: 0, paint_misses: 0, paint_hits: 0, video_surfaces: 0 });
+                            return Ok(PipelineStats {
+                                dirty_nodes: 0,
+                                layout_updates: 0,
+                                paint_misses: 0,
+                                paint_hits: 0,
+                                video_surfaces: 0,
+                            });
                         }
                     }
                 }
             }
 
-            let snapshot = layout_engine.compute_layout(
-                &layout_input_nodes, 
-                root_id, 
-                viewport,
-                &|id| scroll_map.get_offset(id)
-            )?;
+            let snapshot =
+                layout_engine.compute_layout(&layout_input_nodes, root_id, viewport, &|id| {
+                    scroll_map.get_offset(id)
+                })?;
             self.last_snapshot = Some(snapshot);
         }
 
-        let snapshot = self
-            .last_snapshot
-            .take()
-            .expect("layout snapshot missing");
+        let snapshot = self.last_snapshot.take().expect("layout snapshot missing");
 
         let mut display_list =
             DisplayList::new(LayoutRect::new(0.0, 0.0, viewport.width, viewport.height));
@@ -493,19 +538,19 @@ impl Pipeline {
         std::mem::take(&mut self.video_surfaces)
     }
 
-	    fn generate_display_list_recursive(
-	        &mut self,
-	        node_id: NodeId,
-	        ir: &CoreIR,
-	        snapshot: &LayoutSnapshot,
-	        scroll_map: &ScrollStateMap,
-	        out_list: &mut DisplayList,
-	        miss_count: &mut usize,
-	        hit_count: &mut usize,
-	        video_map: &VideoStateMap,
-	        web_map: &WebStateMap,
-	        accumulated_offset: LayoutPoint,
-	    ) {
+    fn generate_display_list_recursive(
+        &mut self,
+        node_id: NodeId,
+        ir: &CoreIR,
+        snapshot: &LayoutSnapshot,
+        scroll_map: &ScrollStateMap,
+        out_list: &mut DisplayList,
+        miss_count: &mut usize,
+        hit_count: &mut usize,
+        video_map: &VideoStateMap,
+        web_map: &WebStateMap,
+        accumulated_offset: LayoutPoint,
+    ) {
         use std::collections::HashSet;
         // Gather Flyout content ids for this frame (once per root walk)
         let mut flyout_contents: HashSet<NodeId> = HashSet::new();
@@ -515,37 +560,37 @@ impl Pipeline {
             }
         }
         let mut visited = HashSet::new();
-	        self.generate_display_list_recursive_with_visited(
-	            node_id,
-	            ir,
-	            snapshot,
-	            scroll_map,
-	            out_list,
-	            miss_count,
-	            hit_count,
-	            video_map,
-	            web_map,
-	            accumulated_offset,
-	            &mut visited,
-	            &flyout_contents,
-	        );
-	    }
+        self.generate_display_list_recursive_with_visited(
+            node_id,
+            ir,
+            snapshot,
+            scroll_map,
+            out_list,
+            miss_count,
+            hit_count,
+            video_map,
+            web_map,
+            accumulated_offset,
+            &mut visited,
+            &flyout_contents,
+        );
+    }
 
-	    fn generate_display_list_recursive_with_visited(
-	        &mut self,
-	        node_id: NodeId,
-	        ir: &CoreIR,
-	        snapshot: &LayoutSnapshot,
-	        scroll_map: &ScrollStateMap,
-	        out_list: &mut DisplayList,
-	        miss_count: &mut usize,
-	        hit_count: &mut usize,
-	        video_map: &VideoStateMap,
-	        web_map: &WebStateMap,
-	        accumulated_offset: LayoutPoint,
-	        visited: &mut std::collections::HashSet<NodeId>,
-	        flyout_contents: &std::collections::HashSet<NodeId>,
-	    ) {
+    fn generate_display_list_recursive_with_visited(
+        &mut self,
+        node_id: NodeId,
+        ir: &CoreIR,
+        snapshot: &LayoutSnapshot,
+        scroll_map: &ScrollStateMap,
+        out_list: &mut DisplayList,
+        miss_count: &mut usize,
+        hit_count: &mut usize,
+        video_map: &VideoStateMap,
+        web_map: &WebStateMap,
+        accumulated_offset: LayoutPoint,
+        visited: &mut std::collections::HashSet<NodeId>,
+        flyout_contents: &std::collections::HashSet<NodeId>,
+    ) {
         if !visited.insert(node_id) {
             return;
         }
@@ -621,11 +666,17 @@ impl Pipeline {
                     match direction {
                         fission_ir::FlexDirection::Row => {
                             segment.push(DisplayOp::Translate(LayoutPoint::new(-offset, 0.0)));
-                            child_offset = LayoutPoint::new(accumulated_offset.x - offset, accumulated_offset.y);
+                            child_offset = LayoutPoint::new(
+                                accumulated_offset.x - offset,
+                                accumulated_offset.y,
+                            );
                         }
                         fission_ir::FlexDirection::Column => {
                             segment.push(DisplayOp::Translate(LayoutPoint::new(0.0, -offset)));
-                            child_offset = LayoutPoint::new(accumulated_offset.x, accumulated_offset.y - offset);
+                            child_offset = LayoutPoint::new(
+                                accumulated_offset.x,
+                                accumulated_offset.y - offset,
+                            );
                         }
                     }
                     // Emit paint-time scroll translate diagnostic
@@ -636,10 +687,25 @@ impl Pipeline {
                             diag::DiagLevel::Debug,
                             diag::DiagEventKind::ScrollPaintTranslate {
                                 node: node_id.as_u128(),
-                                axis: match direction { fission_ir::FlexDirection::Row => "x".into(), fission_ir::FlexDirection::Column => "y".into() },
+                                axis: match direction {
+                                    fission_ir::FlexDirection::Row => "x".into(),
+                                    fission_ir::FlexDirection::Column => "y".into(),
+                                },
                                 offset,
-                                translate_x: if matches!(direction, fission_ir::FlexDirection::Row) { -offset } else { 0.0 },
-                                translate_y: if matches!(direction, fission_ir::FlexDirection::Column) { -offset } else { 0.0 },
+                                translate_x: if matches!(direction, fission_ir::FlexDirection::Row)
+                                {
+                                    -offset
+                                } else {
+                                    0.0
+                                },
+                                translate_y: if matches!(
+                                    direction,
+                                    fission_ir::FlexDirection::Column
+                                ) {
+                                    -offset
+                                } else {
+                                    0.0
+                                },
                             },
                         );
                     }
@@ -648,7 +714,10 @@ impl Pipeline {
                 fission_ir::Op::Layout(fission_ir::LayoutOp::Clip { path }) => {
                     segment.push(DisplayOp::Save);
                     if let Some(radius) = parse_clip_radius(path).filter(|r| *r > 0.0) {
-                        segment.push(DisplayOp::ClipRoundedRect { rect: geom.rect, radius });
+                        segment.push(DisplayOp::ClipRoundedRect {
+                            rect: geom.rect,
+                            radius,
+                        });
                     } else {
                         segment.push(DisplayOp::ClipRect(geom.rect));
                     }
@@ -699,12 +768,23 @@ impl Pipeline {
                         node_id: Some(node_id),
                     });
                 }
-                fission_ir::Op::Paint(fission_ir::PaintOp::DrawText { text, size, color, underline, caret_index }) => {
+                fission_ir::Op::Paint(fission_ir::PaintOp::DrawText {
+                    text,
+                    size,
+                    color,
+                    underline,
+                    caret_index,
+                }) => {
                     segment.push(DisplayOp::DrawText {
                         text: text.clone(),
                         position: geom.rect.origin,
                         size: *size,
-                        color: fission_render::Color { r: color.r, g: color.g, b: color.b, a: color.a },
+                        color: fission_render::Color {
+                            r: color.r,
+                            g: color.g,
+                            b: color.b,
+                            a: color.a,
+                        },
                         bounds: geom.rect,
                         node_id: Some(node_id),
                         underline: *underline,
@@ -712,15 +792,23 @@ impl Pipeline {
                     });
                 }
                 fission_ir::Op::Paint(fission_ir::PaintOp::DrawRichText { runs, caret_index }) => {
-                    let render_runs = runs.iter().map(|r| fission_render::TextRun {
-                        text: r.text.clone(),
-                        style: fission_render::TextStyle {
-                            font_size: r.style.font_size,
-                            color: fission_render::Color { r: r.style.color.r, g: r.style.color.g, b: r.style.color.b, a: r.style.color.a },
-                            underline: r.style.underline,
-                        }
-                    }).collect();
-                    
+                    let render_runs = runs
+                        .iter()
+                        .map(|r| fission_render::TextRun {
+                            text: r.text.clone(),
+                            style: fission_render::TextStyle {
+                                font_size: r.style.font_size,
+                                color: fission_render::Color {
+                                    r: r.style.color.r,
+                                    g: r.style.color.g,
+                                    b: r.style.color.b,
+                                    a: r.style.color.a,
+                                },
+                                underline: r.style.underline,
+                            },
+                        })
+                        .collect();
+
                     segment.push(DisplayOp::DrawRichText {
                         runs: render_runs,
                         position: geom.rect.origin,
@@ -767,7 +855,11 @@ impl Pipeline {
                         node_id: Some(node_id),
                     });
                 }
-                fission_ir::Op::Paint(fission_ir::PaintOp::DrawSvg { content, fill, stroke }) => {
+                fission_ir::Op::Paint(fission_ir::PaintOp::DrawSvg {
+                    content,
+                    fill,
+                    stroke,
+                }) => {
                     segment.push(DisplayOp::DrawSvg {
                         content: content.clone(),
                         fill: fill.map(|f| Fill {
@@ -877,7 +969,10 @@ impl Pipeline {
                 diag::emit(
                     diag::DiagCategory::Paint,
                     diag::DiagLevel::Debug,
-                    diag::DiagEventKind::PaintNode { node: node_id.as_u128(), note: Some("flyout_content".into()) },
+                    diag::DiagEventKind::PaintNode {
+                        node: node_id.as_u128(),
+                        note: Some("flyout_content".into()),
+                    },
                 );
                 diag::emit(
                     diag::DiagCategory::Paint,
@@ -898,22 +993,22 @@ impl Pipeline {
                 bounds: out_list.bounds,
             };
 
-	            for child in &node.children {
-	                self.generate_display_list_recursive_with_visited(
-	                    *child,
-	                    ir,
-	                    snapshot,
-	                    scroll_map,
-	                    &mut temp_dl,
-	                    miss_count,
-	                    hit_count,
-	                    video_map,
-	                    web_map,
-	                    child_offset,
-	                    visited,
-	                    flyout_contents,
-	                );
-	            }
+            for child in &node.children {
+                self.generate_display_list_recursive_with_visited(
+                    *child,
+                    ir,
+                    snapshot,
+                    scroll_map,
+                    &mut temp_dl,
+                    miss_count,
+                    hit_count,
+                    video_map,
+                    web_map,
+                    child_offset,
+                    visited,
+                    flyout_contents,
+                );
+            }
 
             segment.extend(temp_dl.ops);
 
@@ -1060,13 +1155,11 @@ impl Pipeline {
 impl SnapshotProvider for Pipeline {
     fn snapshot(&self, kind: SnapshotKind) -> Option<SnapshotBlob> {
         match kind {
-            SnapshotKind::Layout => {
-                self.last_snapshot.as_ref().and_then(|snap| {
-                    serde_json::to_string_pretty(snap)
-                        .ok()
-                        .map(|json| SnapshotBlob { kind, json })
-                })
-            }
+            SnapshotKind::Layout => self.last_snapshot.as_ref().and_then(|snap| {
+                serde_json::to_string_pretty(snap)
+                    .ok()
+                    .map(|json| SnapshotBlob { kind, json })
+            }),
         }
     }
 }
@@ -1153,9 +1246,13 @@ fn parse_first_number(input: &str) -> Option<f32> {
     }
 }
 
-fn detect_layout_cycle(nodes: &[fission_layout::LayoutInputNode], root: NodeId) -> Option<Vec<NodeId>> {
+fn detect_layout_cycle(
+    nodes: &[fission_layout::LayoutInputNode],
+    root: NodeId,
+) -> Option<Vec<NodeId>> {
     use std::collections::{HashMap, HashSet};
-    let map: HashMap<NodeId, &fission_layout::LayoutInputNode> = nodes.iter().map(|n| (n.id, n)).collect();
+    let map: HashMap<NodeId, &fission_layout::LayoutInputNode> =
+        nodes.iter().map(|n| (n.id, n)).collect();
     fn dfs(
         id: NodeId,
         map: &HashMap<NodeId, &fission_layout::LayoutInputNode>,
@@ -1163,7 +1260,9 @@ fn detect_layout_cycle(nodes: &[fission_layout::LayoutInputNode], root: NodeId) 
         stack: &mut HashSet<NodeId>,
         path: &mut Vec<NodeId>,
     ) -> Option<Vec<NodeId>> {
-        if !visited.insert(id) { return None; }
+        if !visited.insert(id) {
+            return None;
+        }
         stack.insert(id);
         path.push(id);
         if let Some(node) = map.get(&id) {
@@ -1175,7 +1274,9 @@ fn detect_layout_cycle(nodes: &[fission_layout::LayoutInputNode], root: NodeId) 
                         return Some(vec![*child]);
                     }
                 }
-                if let Some(c) = dfs(*child, map, visited, stack, path) { return Some(c); }
+                if let Some(c) = dfs(*child, map, visited, stack, path) {
+                    return Some(c);
+                }
             }
         }
         stack.remove(&id);
@@ -1188,18 +1289,27 @@ fn detect_layout_cycle(nodes: &[fission_layout::LayoutInputNode], root: NodeId) 
     dfs(root, &map, &mut visited, &mut stack, &mut path)
 }
 
-fn validate_layout_invariants(nodes: &[fission_layout::LayoutInputNode], root: NodeId) -> Result<()> {
+fn validate_layout_invariants(
+    nodes: &[fission_layout::LayoutInputNode],
+    root: NodeId,
+) -> Result<()> {
     use std::collections::{HashMap, HashSet};
-    let map: HashMap<NodeId, &fission_layout::LayoutInputNode> = nodes.iter().map(|n| (n.id, n)).collect();
+    let map: HashMap<NodeId, &fission_layout::LayoutInputNode> =
+        nodes.iter().map(|n| (n.id, n)).collect();
 
     // Single parent / parent-child consistency
     for n in nodes {
         for child in &n.children_ids {
-            let cn = map.get(child).ok_or_else(|| anyhow::anyhow!("child {:?} missing", child))?;
+            let cn = map
+                .get(child)
+                .ok_or_else(|| anyhow::anyhow!("child {:?} missing", child))?;
             if cn.parent_id != Some(n.id) {
                 return Err(anyhow::anyhow!(
                     "parent/child mismatch parent={:?} child={:?} child.parent_id={:?}\n{}",
-                    n.id, child, cn.parent_id, dump_graph(nodes, 64)
+                    n.id,
+                    child,
+                    cn.parent_id,
+                    dump_graph(nodes, 64)
                 ));
             }
         }
@@ -1207,16 +1317,24 @@ fn validate_layout_invariants(nodes: &[fission_layout::LayoutInputNode], root: N
 
     // Cycle check
     if let Some(cycle) = detect_layout_cycle(nodes, root) {
-        return Err(anyhow::anyhow!("layout cycle detected: {:?}\n{}", cycle, dump_graph(nodes, 64)));
+        return Err(anyhow::anyhow!(
+            "layout cycle detected: {:?}\n{}",
+            cycle,
+            dump_graph(nodes, 64)
+        ));
     }
 
     // Reachability (warn only if orphans exist)
     let mut visited = HashSet::new();
     let mut stack = vec![root];
     while let Some(id) = stack.pop() {
-        if !visited.insert(id) { continue; }
+        if !visited.insert(id) {
+            continue;
+        }
         if let Some(n) = map.get(&id) {
-            for c in &n.children_ids { stack.push(*c); }
+            for c in &n.children_ids {
+                stack.push(*c);
+            }
         }
     }
     // If referenced nodes exist outside visited via parent chain, that would have failed consistency above.
@@ -1228,10 +1346,22 @@ fn dump_graph(nodes: &[fission_layout::LayoutInputNode], limit: usize) -> String
     let mut sorted: Vec<_> = nodes.iter().collect();
     sorted.sort_by_key(|n| n.id.as_u128());
     for (i, n) in sorted.into_iter().enumerate() {
-        if i >= limit { lines.push("...".into()); break; }
-        let mut kids: Vec<_> = n.children_ids.iter().map(|c| format!("{:x}", c.as_u128())).collect();
+        if i >= limit {
+            lines.push("...".into());
+            break;
+        }
+        let mut kids: Vec<_> = n
+            .children_ids
+            .iter()
+            .map(|c| format!("{:x}", c.as_u128()))
+            .collect();
         kids.sort();
-        lines.push(format!("{:x} {:?} -> [{}]", n.id.as_u128(), n.op, kids.join(",")));
+        lines.push(format!(
+            "{:x} {:?} -> [{}]",
+            n.id.as_u128(),
+            n.op,
+            kids.join(",")
+        ));
     }
     lines.join("\n")
 }
@@ -1247,34 +1377,45 @@ mod tests {
         let mut pipeline = Pipeline::new();
         let widget_id = WidgetNodeId::from_u128(1);
         let rect = LayoutRect::new(0.0, 0.0, 100.0, 100.0);
-        
+
         let mut video_map = VideoStateMap::default();
-        
+
         // Case 1: No surface_id (simulate bug before fix)
-        video_map.states.insert(widget_id, VideoState {
-            asset_source: "test.mp4".into(),
-            status: VideoStatus::Buffering,
-            surface_id: None,
-            duration_ms: None,
-            position_ms: 0,
-            rate: 1.0,
-            volume: 1.0,
-            muted: false,
-            looped: false,
-            pending_seek: None,
-        });
-        
+        video_map.states.insert(
+            widget_id,
+            VideoState {
+                asset_source: "test.mp4".into(),
+                status: VideoStatus::Buffering,
+                surface_id: None,
+                duration_ms: None,
+                position_ms: 0,
+                rate: 1.0,
+                volume: 1.0,
+                muted: false,
+                looped: false,
+                pending_seek: None,
+            },
+        );
+
         pipeline.push_video_surface(widget_id, rect, &video_map);
-        assert_eq!(pipeline.video_surfaces.len(), 1, "Should push surface even if ID is missing (uses 0)");
+        assert_eq!(
+            pipeline.video_surfaces.len(),
+            1,
+            "Should push surface even if ID is missing (uses 0)"
+        );
         assert_eq!(pipeline.video_surfaces[0].surface_id, 0);
 
         // Case 2: With surface_id (simulate fix)
         if let Some(state) = video_map.states.get_mut(&widget_id) {
             state.surface_id = Some(42);
         }
-        
+
         pipeline.push_video_surface(widget_id, rect, &video_map);
-        assert_eq!(pipeline.video_surfaces.len(), 2, "Should push surface if ID is present");
+        assert_eq!(
+            pipeline.video_surfaces.len(),
+            2,
+            "Should push surface if ID is present"
+        );
         assert_eq!(pipeline.video_surfaces[1].surface_id, 42);
     }
 }

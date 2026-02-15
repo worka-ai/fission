@@ -1,7 +1,9 @@
-use fission_core::ui::{Button, ButtonVariant, ButtonContentAlign, Container, Node, Text, TextContent};
-use fission_core::{BuildCtx, View, Widget, ActionEnvelope};
-use fission_core::op::Color;
 use crate::stack::{HStack, VStack};
+use fission_core::op::Color;
+use fission_core::ui::{
+    Button, ButtonContentAlign, ButtonVariant, Container, Node, Text, TextContent,
+};
+use fission_core::{ActionEnvelope, BuildCtx, View, Widget};
 use serde::{Deserialize, Serialize};
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -20,9 +22,9 @@ pub struct Accordion {
 impl<S: fission_core::AppState> Widget<S> for Accordion {
     fn build(&self, ctx: &mut BuildCtx<S>, view: &View<S>) -> Node {
         let tokens = &view.env.theme.tokens;
-        
+
         let mut children = Vec::new();
-        
+
         for item in &self.items {
             // Header
             children.push(
@@ -36,31 +38,37 @@ impl<S: fission_core::AppState> Widget<S> for Accordion {
                                 children: vec![
                                     // Expand icon (chevron)
                                     Text {
-                                        content: TextContent::Literal(if item.is_expanded { "▼" } else { "▶" }.into()),
+                                        content: TextContent::Literal(
+                                            if item.is_expanded { "▼" } else { "▶" }.into(),
+                                        ),
                                         font_size: Some(12.0),
                                         color: Some(tokens.colors.text_secondary),
                                         ..Default::default()
-                                    }.into(),
+                                    }
+                                    .into(),
                                     // Title
                                     Text {
                                         content: TextContent::Literal(item.title.clone()),
                                         color: Some(tokens.colors.text_primary),
                                         flex_grow: 1.0,
                                         ..Default::default()
-                                    }.into(),
-                                ]
-                            }.build(ctx, view)
+                                    }
+                                    .into(),
+                                ],
+                            }
+                            .build(ctx, view),
                         )
                         .padding_all(tokens.spacing.m)
                         .bg(tokens.colors.surface)
                         .border(tokens.colors.border, 1.0)
-                        .into_node()
+                        .into_node(),
                     )),
                     on_press: item.on_toggle.clone(),
                     ..Default::default()
-                }.into()
+                }
+                .into(),
             );
-            
+
             // Content
             if item.is_expanded {
                 children.push(
@@ -68,7 +76,7 @@ impl<S: fission_core::AppState> Widget<S> for Accordion {
                         .padding_all(tokens.spacing.m)
                         .bg(tokens.colors.background)
                         .border(tokens.colors.border, 1.0)
-                        .into_node()
+                        .into_node(),
                 );
             }
         }
@@ -76,6 +84,7 @@ impl<S: fission_core::AppState> Widget<S> for Accordion {
         VStack {
             spacing: Some(0.0), // No gap between items
             children,
-        }.build(ctx, view)
+        }
+        .build(ctx, view)
     }
 }

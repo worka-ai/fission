@@ -1,4 +1,4 @@
-use fission_core::{AppState, BuildCtx, View, Widget, Node, WidgetNodeId};
+use fission_core::{AppState, BuildCtx, Node, View, Widget, WidgetNodeId};
 use fission_widgets::combobox::Combobox;
 use serde::{Deserialize, Serialize};
 
@@ -21,6 +21,8 @@ fn test_combobox_build() {
         value: "abc".into(),
         items: vec!["abcd".into(), "abce".into()],
         is_open: true,
+        width: Some(320.0),
+        max_popup_height: Some(200.0),
         on_change: None,
         on_select: None,
         on_toggle: None,
@@ -28,6 +30,6 @@ fn test_combobox_build() {
 
     let node = combo.build(&mut ctx, &view);
     // Combobox returns the trigger (TextInput) and registers a portal
-    assert!(matches!(node, Node::Container(_))); 
+    assert!(matches!(node, Node::Container(_)));
     assert_eq!(ctx.portals.len(), 1);
 }

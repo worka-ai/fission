@@ -28,14 +28,17 @@ impl<S: fission_core::AppState> Widget<S> for Tooltip {
                     .size(theme.font_size)
                     .color(theme.text_color)
                     .max_width(220.0)
-                    .into_node()
+                    .into_node(),
             )
             .bg(theme.bg_color)
             .padding_all(8.0)
             .border_radius(theme.radius)
             .into_node();
 
-            let flyout_node = crate::flyout(fission_ir::NodeId::derived(self.id.as_u128(), &[]), tooltip_card);
+            let flyout_node = crate::flyout(
+                fission_ir::NodeId::derived(self.id.as_u128(), &[]),
+                tooltip_card,
+            );
             ctx.register_portal_with_layer(fission_core::PortalLayer::Flyout, flyout_node);
         }
 

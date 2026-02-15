@@ -129,7 +129,7 @@ impl Widget<InboxState> for InboxApp {
                                 .flex_grow(1.0)
                                 .into_node(),
                                 Container::new(RightSidebar.build(ctx, view))
-                                    .width(280.0)
+                                    .width(300.0)
                                     .flex_shrink(0.0)
                                     .into_node(),
                             ],
@@ -255,7 +255,7 @@ fn create_env() -> Env {
     en_messages.insert("toast.new_event".into(), "Created a new event".into());
     en_messages.insert("toast.new_task".into(), "Created a new task".into());
     en_messages.insert("toast.add_reminder".into(), "Added a reminder".into());
-    en_messages.insert("quick.syncing".into(), "Syncing".into());
+    en_messages.insert("quick.syncing".into(), "Synced".into());
     en_messages.insert("quick.last_update".into(), "Last update 2 min ago".into());
     en_messages.insert("quick.actions".into(), "Quick actions".into());
     en_messages.insert("quick.meet".into(), "Meet".into());
@@ -365,7 +365,7 @@ fn create_env() -> Env {
     es_messages.insert("toast.new_event".into(), "Se creó un nuevo evento".into());
     es_messages.insert("toast.new_task".into(), "Se creó una nueva tarea".into());
     es_messages.insert("toast.add_reminder".into(), "Se agregó un recordatorio".into());
-    es_messages.insert("quick.syncing".into(), "Sincronizando".into());
+    es_messages.insert("quick.syncing".into(), "Sincronizado".into());
     es_messages.insert("quick.last_update".into(), "Última actualización hace 2 min".into());
     es_messages.insert("quick.actions".into(), "Acciones rápidas".into());
     es_messages.insert("quick.meet".into(), "Reunión".into());

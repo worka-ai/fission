@@ -1,6 +1,6 @@
+use fission_core::op::Color;
 use fission_core::ui::{Container, Node, Text};
 use fission_core::{BuildCtx, View, Widget};
-use fission_core::op::Color;
 use serde::{Deserialize, Serialize};
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -15,9 +15,14 @@ impl<S: fission_core::AppState> Widget<S> for Code {
             Text::new(self.text.clone())
                 .size(12.0) // Monospace usually smaller?
                 .color(tokens.colors.text_primary)
-                .into_node()
+                .into_node(),
         )
-        .bg(Color { r: 240, g: 240, b: 240, a: 255 })
+        .bg(Color {
+            r: 240,
+            g: 240,
+            b: 240,
+            a: 255,
+        })
         .padding_all(2.0)
         .border_radius(4.0)
         .into_node()
@@ -36,10 +41,23 @@ impl<S: fission_core::AppState> Widget<S> for Kbd {
             Text::new(self.text.clone())
                 .size(12.0)
                 .color(tokens.colors.text_primary)
-                .into_node()
+                .into_node(),
         )
-        .bg(Color { r: 245, g: 245, b: 245, a: 255 })
-        .border(Color { r: 200, g: 200, b: 200, a: 255 }, 1.0)
+        .bg(Color {
+            r: 245,
+            g: 245,
+            b: 245,
+            a: 255,
+        })
+        .border(
+            Color {
+                r: 200,
+                g: 200,
+                b: 200,
+                a: 255,
+            },
+            1.0,
+        )
         .border_radius(4.0)
         .padding_all(4.0)
         .into_node()

@@ -1,7 +1,7 @@
 use crate::{action::AppState, registry::AnimationPropertyId};
-use fission_layout::{LayoutPoint, LayoutSize};
 use fission_i18n::{I18nRegistry, Locale};
 use fission_ir::{NodeId, WidgetNodeId};
+use fission_layout::{LayoutPoint, LayoutSize};
 use fission_theme::Theme;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -104,24 +104,26 @@ pub struct TextEditStateMap {
 
 #[derive(Clone, Debug)]
 pub struct TextEditState {
-    pub caret: usize,       // byte index into value
-    pub anchor: usize,      // selection anchor; if equal to caret then no selection
+    pub caret: usize,             // byte index into value
+    pub anchor: usize,            // selection anchor; if equal to caret then no selection
     pub history: TextEditHistory, // NEW
-        pub last_value: String, // Store last committed value here for history snapshots
-    }
-    
-    impl Default for TextEditState {
-        fn default() -> Self {
-            Self {
-                caret: 0,
-                anchor: 0,
-                history: TextEditHistory::default(),
-                last_value: String::new(),
-            }
+    pub last_value: String,       // Store last committed value here for history snapshots
+    pub pending_model_sync: bool, // True when edits are newer than the currently lowered semantics value
+}
+
+impl Default for TextEditState {
+    fn default() -> Self {
+        Self {
+            caret: 0,
+            anchor: 0,
+            history: TextEditHistory::default(),
+            last_value: String::new(),
+            pending_model_sync: false,
         }
     }
-    
-    #[derive(Clone, Debug)]
+}
+
+#[derive(Clone, Debug)]
 pub struct TextEditHistory {
     pub stack: Vec<(String, usize, usize)>,
     pub index: usize,
@@ -137,7 +139,6 @@ impl Default for TextEditHistory {
         }
     }
 }
-
 
 impl TextEditHistory {
     pub fn push(&mut self, value: String, caret: usize, anchor: usize) {
@@ -186,11 +187,14 @@ impl TextEditStateMap {
     pub fn get_mut_or_default(&mut self, id: NodeId) -> &mut TextEditState {
         self.states.entry(id).or_default()
     }
-    pub fn get(&self, id: NodeId) -> Option<&TextEditState> { self.states.get(&id) }
+    pub fn get(&self, id: NodeId) -> Option<&TextEditState> {
+        self.states.get(&id)
+    }
     pub fn set_caret(&mut self, id: NodeId, caret: usize, anchor: Option<usize>) {
         let st = self.states.entry(id).or_default();
         st.caret = caret;
         st.anchor = anchor.unwrap_or(caret);
+        st.pending_model_sync = false;
     }
 }
 

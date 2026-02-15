@@ -1,8 +1,8 @@
-use fission_core::ui::{Button, ButtonVariant, Container, Node, Text};
-use fission_core::{BuildCtx, View, Widget, ActionEnvelope};
 use crate::stack::HStack;
-use std::sync::Arc;
+use fission_core::ui::{Button, ButtonVariant, Container, Node, Text};
+use fission_core::{ActionEnvelope, BuildCtx, View, Widget};
 use serde::{Deserialize, Serialize};
+use std::sync::Arc;
 
 pub struct SegmentedControl {
     pub options: Vec<String>,
@@ -25,35 +25,43 @@ impl<S: fission_core::AppState> Widget<S> for SegmentedControl {
         let theme = &view.env.theme.components.segmented_control;
         let tokens = &view.env.theme.tokens;
         let mut children = Vec::new();
-        
+
         for (i, opt) in self.options.iter().enumerate() {
             let is_selected = i == self.selected_index;
             let cb = self.on_change.clone();
-            
+
             let button = Button {
-                variant: if is_selected { ButtonVariant::Filled } else { ButtonVariant::Ghost },
-                child: Some(Box::new(Text::new(opt.clone())
-                    .color(if is_selected { theme.active_text } else { tokens.colors.text_primary })
-                    .into_node()
+                variant: if is_selected {
+                    ButtonVariant::Filled
+                } else {
+                    ButtonVariant::Ghost
+                },
+                child: Some(Box::new(
+                    Text::new(opt.clone())
+                        .size(14.0)
+                        .color(if is_selected {
+                            theme.active_text
+                        } else {
+                            tokens.colors.text_primary
+                        })
+                        .into_node(),
                 )),
-                height: Some(32.0),
+                height: Some(40.0),
                 padding: Some([12.0, 12.0, 0.0, 0.0]),
                 on_press: cb.map(|f| f(i)),
                 ..Default::default()
-            }.into_node();
+            }
+            .into_node();
 
-            children.push(
-                Container::new(button)
-                    .flex_grow(1.0)
-                    .into_node()
-            );
+            children.push(Container::new(button).flex_grow(1.0).into_node());
         }
 
         Container::new(
             HStack {
                 spacing: Some(2.0),
                 children,
-            }.into_node()
+            }
+            .into_node(),
         )
         .padding_all(1.0)
         .bg(theme.bg_color)

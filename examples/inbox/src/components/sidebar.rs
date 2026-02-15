@@ -1,6 +1,5 @@
-use fission_core::{BuildCtx, View, Widget, Handler, WidgetNodeId};
+use fission_core::{BuildCtx, View, Widget, Handler};
 use fission_core::ui::{Button, ButtonContentAlign, ButtonVariant, Container, Node, Text, TextContent};
-use fission_core::op::Color;
 use fission_widgets::{VStack, HStack, TreeView, TreeItem, Divider, Icon, Tag, Wrap, ProgressBar, Link};
 use crate::model::{
     InboxState, Folder, SelectFolder, SetSettingsOpen, SetContactsOpen, ToggleBrowserDemo, SetComposeOpen
@@ -36,9 +35,9 @@ impl Widget<InboxState> for Sidebar {
 
         Container::new(
             VStack {
-                spacing: Some(8.0),
+                spacing: Some(10.0),
                 children: vec![
-                    Text { content: TextContent::Key("app.title".into()), font_size: Some(20.0), ..Default::default() }.into_node(),
+                    Text { content: TextContent::Key("app.title".into()), font_size: Some(32.0), ..Default::default() }.into_node(),
                     fission_core::ui::widgets::Spacer { height: Some(16.0), ..Default::default() }.into_node(),
 
                     Button {
@@ -110,10 +109,10 @@ impl Widget<InboxState> for Sidebar {
                         ],
                     }.build(ctx, view),
 
-                    Text::new(t("labels.title")).size(12.0).into_node(),
+                    Text::new(t("labels.title")).size(12.0).color(tokens.colors.text_secondary).into_node(),
                     Wrap {
                         direction: fission_ir::op::FlexDirection::Row,
-                        spacing: Some(6.0),
+                        spacing: Some(8.0),
                         children: vec![
                             Tag { label: "Work".into(), on_close: None }.build(ctx, view),
                             Tag { label: "Personal".into(), on_close: None }.build(ctx, view),
@@ -128,8 +127,8 @@ impl Widget<InboxState> for Sidebar {
                             HStack {
                                 spacing: Some(12.0),
                                 children: vec![
-                                    Icon::svg(fission_icons::material::action::language::regular()).size(20.0).into_node(),
-                                    Text::new(t("nav.browser_demo")).flex_grow(1.0).into_node(),
+                                    Icon::svg(fission_icons::material::action::language::regular()).size(18.0).into_node(),
+                                    Text::new(t("nav.browser_demo")).size(14.0).flex_grow(1.0).into_node(),
                                 ]
                             }.into_node()
                         )),
@@ -142,11 +141,12 @@ impl Widget<InboxState> for Sidebar {
                     
                     Divider { orientation: fission_widgets::divider::Orientation::Horizontal }.build(ctx, view),
 
-                    Text::new(t("storage.title")).size(12.0).into_node(),
+                    Text::new(t("storage.title")).size(12.0).color(tokens.colors.text_secondary).into_node(),
                     ProgressBar {
                         value: view.state.storage_usage,
                         ..Default::default()
                     }.build(ctx, view),
+                    fission_core::ui::widgets::Spacer { height: Some(4.0), ..Default::default() }.into_node(),
                     Link {
                         text: t("storage.manage"),
                         on_click: None,
@@ -154,7 +154,7 @@ impl Widget<InboxState> for Sidebar {
                     
                     Button {
                         variant: ButtonVariant::Ghost,
-                        child: Some(Box::new(Text::new(t("nav.contacts")).into_node())),
+                        child: Some(Box::new(Text::new(t("nav.contacts")).size(14.0).into_node())),
                         content_align: ButtonContentAlign::Start,
                         on_press: Some(ctx.bind(SetContactsOpen(true), (|s: &mut InboxState, a: SetContactsOpen, _| s.show_contacts = a.0) as Handler<InboxState, SetContactsOpen>)),
                         ..Default::default()
@@ -162,7 +162,7 @@ impl Widget<InboxState> for Sidebar {
                     
                     Button {
                         variant: ButtonVariant::Ghost,
-                        child: Some(Box::new(Text::new(t("nav.settings")).into_node())),
+                        child: Some(Box::new(Text::new(t("nav.settings")).size(14.0).into_node())),
                         content_align: ButtonContentAlign::Start,
                         on_press: Some(ctx.bind(SetSettingsOpen(true), (|s: &mut InboxState, a: SetSettingsOpen, _| s.show_settings = a.0) as Handler<InboxState, SetSettingsOpen>)),
                         ..Default::default()

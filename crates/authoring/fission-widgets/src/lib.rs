@@ -1,5 +1,9 @@
-pub use fission_core::ui::{Button, ButtonContentAlign, ButtonVariant, Checkbox, Column, Container, CustomNode, FocusScope, Grid, GridItem, Image, LazyColumn, Node, Overlay, Positioned, Radio, Row, SafeArea, Scroll, Slider, Spacer, Switch, ZStack, Text, TextContent, TextInput, Video};
 pub use fission_core::ui::widgets::Icon;
+pub use fission_core::ui::{
+    Button, ButtonContentAlign, ButtonVariant, Checkbox, Column, Container, CustomNode, FocusScope,
+    Grid, GridItem, Image, LazyColumn, Node, Overlay, Positioned, Radio, Row, SafeArea, Scroll,
+    Slider, Spacer, Switch, Text, TextContent, TextInput, Video, ZStack,
+};
 pub use fission_core::view::{Selector, View, Widget};
 pub use fission_core::BuildCtx;
 
@@ -31,7 +35,7 @@ pub mod spinner;
 pub use spinner::Spinner;
 
 pub mod tabs;
-pub use tabs::{Tabs, TabItem};
+pub use tabs::{TabItem, Tabs};
 
 pub mod select;
 pub use select::{Select, SelectItem};
@@ -54,7 +58,7 @@ pub mod data_table;
 pub use data_table::{DataTable, TableColumn, TableRow};
 
 pub mod split_view;
-pub use split_view::{SplitView, SplitDirection};
+pub use split_view::{SplitDirection, SplitView};
 
 pub mod drawer;
 pub use drawer::{Drawer, DrawerSide};
@@ -102,7 +106,7 @@ pub mod web_view;
 pub use web_view::WebView;
 
 pub mod draggable;
-pub use draggable::{Draggable, DragTarget};
+pub use draggable::{DragTarget, Draggable};
 
 pub mod empty_state;
 pub use empty_state::EmptyState;
@@ -114,7 +118,7 @@ pub mod dropzone;
 pub use dropzone::Dropzone;
 
 pub mod tree_view;
-pub use tree_view::{TreeView, TreeItem};
+pub use tree_view::{TreeItem, TreeView};
 
 pub mod transition;
 pub use transition::Transition;
@@ -159,9 +163,11 @@ pub mod popover;
 pub use popover::Popover;
 
 pub mod router;
-pub use router::{Router, Route, RouteParams};
+pub use router::{Route, RouteParams, Router};
 
-use fission_core::{lowering::NodeBuilder, op::StructuralOp, LowerDyn, LoweringContext, NodeId, Op};
+use fission_core::{
+    lowering::NodeBuilder, op::StructuralOp, LowerDyn, LoweringContext, NodeId, Op,
+};
 use std::sync::Arc;
 
 // Canvas (CustomPaint) convenience
@@ -187,7 +193,10 @@ impl LowerDyn for CanvasLowerer {
             Op::Layout(fission_core::LayoutOp::Box {
                 width: self.width,
                 height: self.height,
-                min_width: None, max_width: None, min_height: None, max_height: None,
+                min_width: None,
+                max_width: None,
+                min_height: None,
+                max_height: None,
                 padding: [0.0; 4],
                 flex_grow: 0.0,
                 flex_shrink: 0.0,
@@ -197,7 +206,8 @@ impl LowerDyn for CanvasLowerer {
         .build(cx);
 
         let child_ids = (self.painter)(cx);
-        let mut wrapper = NodeBuilder::new(root, Op::Structural(StructuralOp::Group { stable_hash: 0 }));
+        let mut wrapper =
+            NodeBuilder::new(root, Op::Structural(StructuralOp::Group { stable_hash: 0 }));
         for cid in child_ids {
             wrapper.add_child(cid);
         }
@@ -228,11 +238,16 @@ struct AbsoluteFillLowerer {
 impl LowerDyn for AbsoluteFillLowerer {
     fn lower_dyn(&self, cx: &mut LoweringContext) -> NodeId {
         let child_id = self.child.lower(cx);
-        let mut builder = NodeBuilder::new(cx.next_node_id(), Op::Layout(fission_core::LayoutOp::AbsoluteFill));
+        let mut builder = NodeBuilder::new(
+            cx.next_node_id(),
+            Op::Layout(fission_core::LayoutOp::AbsoluteFill),
+        );
         builder.add_child(child_id);
         builder.build(cx)
     }
-    fn stable_key(&self) -> u64 { 0 }
+    fn stable_key(&self) -> u64 {
+        0
+    }
 }
 
 pub fn absolute_fill(child: Node) -> Node {
