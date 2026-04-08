@@ -2,7 +2,7 @@ use super::*;
 use anyhow::Result;
 use fission_core::env::RuntimeState;
 use fission_core::event::{InputEvent, KeyCode, KeyEvent, PointerButton, PointerEvent};
-use fission_core::{Action, AnimationPropertyId, BuildCtx, Env, NodeId, WidgetNodeId};
+use fission_core::{Action, AnimationPropertyId, BuildCtx, Env, NodeId, WidgetNodeId, LayoutSize};
 use fission_ir::op::{FlexDirection, FlexWrap, GridTrack};
 use fission_ir::semantics::{ActionTrigger, Role};
 use fission_ir::{EmbedKind, LayoutOp, Op, PaintOp};
@@ -13,6 +13,7 @@ use std::collections::HashMap;
 fn pump_state(state: InboxState) -> Result<TestHarness<InboxState>> {
     let mut h = TestHarness::new(state).with_root_widget(InboxApp);
     h.env = create_env();
+    h.env.viewport_size = LayoutSize::new(1200.0, 800.0);
     h.pump()?;
     Ok(h)
 }
@@ -705,7 +706,7 @@ fn layout_children_exist_after_navigation() -> Result<()> {
             ),
             overlay: Box::new(fission_core::ui::Node::ZStack(fission_core::ui::ZStack {
                 id: None,
-                children: portals,
+                children: portals.into_iter().map(|(_, n)| n).collect(),
             })),
         })
     };
@@ -714,7 +715,7 @@ fn layout_children_exist_after_navigation() -> Result<()> {
         fission_core::lowering::LoweringContext::new(&env, &runtime_state, None, None);
     let root_id = node_tree.lower(&mut lower_cx);
     lower_cx.ir.root = Some(root_id);
-    let input_nodes = fission_core::lowering::build_layout_tree(&lower_cx.ir);
+    let input_nodes = fission_core::lowering::build_layout_tree(&lower_cx.ir, &env);
 
     let map: HashMap<_, _> = input_nodes.iter().map(|n| (n.id, n)).collect();
     for n in &input_nodes {
@@ -795,7 +796,9 @@ text_test!(tag_label_present, state_detail(), "Work");
 text_test!(wrap_tag_present, state_default(), "Planning");
 text_test!(stat_help_text_present, state_default(), "All folders");
 text_test!(stepper_import_present, state_default(), "Import");
-text_test!(link_text_present, state_default(), "Manage storage");
+// Storage section removed from sidebar for compactness
+// text_test!(link_text_present, state_default(), "Manage storage");
+text_test!(link_text_present, state_default(), "Browser Demo");
 text_test!(tree_view_sent_present, state_default(), "Sent");
 text_test!(menu_new_event_present, state_default(), "New event");
 text_test!(empty_state_text_present, state_empty(), "No emails here");
@@ -865,16 +868,17 @@ layout_test!(
     "expected range slider grid tracks"
 );
 
+// Storage progress bar removed from sidebar for compactness
 layout_test!(
-    progress_bar_grid_present,
+    calendar_grid_7_columns_present,
     state_default(),
     |op| match op {
         LayoutOp::Grid { columns, .. } => {
-            columns.len() == 2 && matches!(columns.get(0), Some(GridTrack::Percent(_)))
+            columns.len() == 7
         }
         _ => false,
     },
-    "expected progress bar grid with percent track"
+    "expected calendar grid with 7 columns"
 );
 
 layout_test!(
@@ -885,7 +889,7 @@ layout_test!(
             columns.len() == 7
                 && columns
                     .iter()
-                    .all(|c| matches!(c, GridTrack::Points(p) if approx_eq(*p, 32.0)))
+                    .all(|c| matches!(c, GridTrack::Points(p) if approx_eq(*p, 36.0)))
         }
         _ => false,
     },
