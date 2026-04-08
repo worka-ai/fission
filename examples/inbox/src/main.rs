@@ -428,6 +428,7 @@ fn create_env() -> Env {
 
 fn main() -> anyhow::Result<()> {
     let mut app = DesktopApp::new(InboxApp)
+        .with_title("Fission Inbox")
         .with_env(create_env())
         .with_sync_env(|state: &InboxState, env: &mut Env| {
             env.locale = state.locale.clone();

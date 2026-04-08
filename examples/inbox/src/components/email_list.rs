@@ -170,30 +170,30 @@ impl Widget<InboxState> for EmailList {
             HStack {
                 spacing: Some(14.0),
                 children: vec![
-                    SegmentedControl {
-                        options: vec!["All".into(), "Unread".into(), "Starred".into()],
-                        selected_index: view.state.filter_mode,
-                        on_change: Some(Arc::new(move |idx| {
-                            ActionEnvelope {
-                                id: filter_id,
-                                payload: serde_json::to_vec(&SetFilterMode(idx)).unwrap(),
-                            }
-                        })),
-                    }.build(ctx, view),
-                    fission_core::ui::widgets::Spacer { flex_grow: 1.0, ..Default::default() }.into_node(),
+                    Container::new(
+                        SegmentedControl {
+                            options: vec!["All".into(), "Unread".into(), "Starred".into()],
+                            selected_index: view.state.filter_mode,
+                            on_change: Some(Arc::new(move |idx| {
+                                ActionEnvelope {
+                                    id: filter_id,
+                                    payload: serde_json::to_vec(&SetFilterMode(idx)).unwrap(),
+                                }
+                            })),
+                        }.build(ctx, view),
+                    ).width(200.0).flex_shrink(0.0).into_node(),
                     TextInput {
                         value: view.state.search_query.clone(),
                         placeholder: Some(TextContent::Key("search.placeholder".into())),
                         on_change: Some(ActionEnvelope { id: search_id, payload: Vec::new() }),
-                        width: Some(300.0),
                         ..Default::default()
                     }.into_node(),
-                    DropDown {
+                    Container::new(DropDown {
                         selected: Some(view.state.sort_option.clone()),
                         options: vec!["Newest".into(), "Oldest".into(), "Unread".into()],
                         on_toggle: Some(sort_toggle),
                         ..Default::default()
-                    }.build(ctx, view),
+                    }.build(ctx, view)).flex_shrink(0.0).into_node(),
                     Popover {
                         id: WidgetNodeId::explicit("advanced_filters"),
                         is_open: view.state.show_advanced_filters,

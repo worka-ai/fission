@@ -18,7 +18,6 @@ impl Widget<InboxState> for Sidebar {
                 .map(|s| s.to_string())
                 .unwrap_or_else(|| key.to_string())
         };
-        // ... (routes logic if any) ...
         
         let select_folder_id = ctx.bind(SelectFolder(Folder::Inbox), (|s: &mut InboxState, a: SelectFolder, _| {
             let path = match a.0 {
@@ -34,7 +33,12 @@ impl Widget<InboxState> for Sidebar {
         }) as Handler<InboxState, SelectFolder>).id;
 
         Container::new(
-            VStack {
+            fission_core::ui::Scroll {
+                direction: fission_ir::op::FlexDirection::Column,
+                show_scrollbar: false,
+                flex_grow: 1.0,
+                flex_shrink: 1.0,
+                child: Some(Box::new(VStack {
                 spacing: Some(10.0),
                 children: vec![
                     Text { content: TextContent::Key("app.title".into()), font_size: Some(32.0), ..Default::default() }.into_node(),
@@ -169,6 +173,9 @@ impl Widget<InboxState> for Sidebar {
                     }.into_node(),
                 ],
             }.build(ctx, view)
+            )),
+            ..Default::default()
+            }.into_node()
         )
         .bg(tokens.colors.surface)
         .padding_all(16.0)
