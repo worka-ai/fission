@@ -36,7 +36,7 @@ impl DiagLevel {
             Debug => 3,
             Trace => 4,
         };
-        b <= a || b == a || b >= 0 && a >= 0 && b <= a
+        b <= a
     }
 }
 

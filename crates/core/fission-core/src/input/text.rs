@@ -649,7 +649,6 @@ impl TextInputController {
             } else {
                 break;
             }
-            at = next;
         }
         at
     }
