@@ -166,34 +166,38 @@ impl Widget<InboxState> for EmailList {
             id: sort_id,
             payload: serde_json::to_vec(&SetSortOption(sort_toggle.into())).unwrap(),
         };
+        // Search row
+        list_items.push(
+            TextInput {
+                value: view.state.search_query.clone(),
+                placeholder: Some(TextContent::Key("search.placeholder".into())),
+                on_change: Some(ActionEnvelope { id: search_id, payload: Vec::new() }),
+                ..Default::default()
+            }.into_node(),
+        );
+
+        // Filter row
         list_items.push(
             HStack {
-                spacing: Some(14.0),
+                spacing: Some(8.0),
                 children: vec![
-                    Container::new(
-                        SegmentedControl {
-                            options: vec!["All".into(), "Unread".into(), "Starred".into()],
-                            selected_index: view.state.filter_mode,
-                            on_change: Some(Arc::new(move |idx| {
-                                ActionEnvelope {
-                                    id: filter_id,
-                                    payload: serde_json::to_vec(&SetFilterMode(idx)).unwrap(),
-                                }
-                            })),
-                        }.build(ctx, view),
-                    ).width(200.0).flex_shrink(0.0).into_node(),
-                    TextInput {
-                        value: view.state.search_query.clone(),
-                        placeholder: Some(TextContent::Key("search.placeholder".into())),
-                        on_change: Some(ActionEnvelope { id: search_id, payload: Vec::new() }),
-                        ..Default::default()
-                    }.into_node(),
-                    Container::new(DropDown {
+                    SegmentedControl {
+                        options: vec!["All".into(), "Unread".into(), "Starred".into()],
+                        selected_index: view.state.filter_mode,
+                        on_change: Some(Arc::new(move |idx| {
+                            ActionEnvelope {
+                                id: filter_id,
+                                payload: serde_json::to_vec(&SetFilterMode(idx)).unwrap(),
+                            }
+                        })),
+                    }.build(ctx, view),
+                    fission_core::ui::widgets::Spacer { flex_grow: 1.0, ..Default::default() }.into_node(),
+                    DropDown {
                         selected: Some(view.state.sort_option.clone()),
                         options: vec!["Newest".into(), "Oldest".into(), "Unread".into()],
                         on_toggle: Some(sort_toggle),
                         ..Default::default()
-                    }.build(ctx, view)).flex_shrink(0.0).into_node(),
+                    }.build(ctx, view),
                     Popover {
                         id: WidgetNodeId::explicit("advanced_filters"),
                         is_open: view.state.show_advanced_filters,
@@ -365,7 +369,7 @@ impl Widget<InboxState> for EmailList {
                         }.into_node(),
                         Container::new(
                             VStack {
-                                spacing: Some(6.0),
+                                spacing: Some(3.0),
                                 children: vec![
                                 HStack {
                                     spacing: Some(8.0),
@@ -400,9 +404,10 @@ impl Widget<InboxState> for EmailList {
                                     }.into()),
                                 }.build(ctx, view),
                                 Text {
-                                    content: TextContent::Literal(email.preview.clone()),
-                                    font_size: Some(14.0),
+                                    content: TextContent::Literal(email.preview.chars().take(80).collect::<String>()),
+                                    font_size: Some(13.0),
                                     color: Some(tokens.colors.text_secondary),
+                                    max_height: Some(20.0),
                                     ..Default::default()
                                 }.into(),
                                 Wrap {
@@ -425,7 +430,7 @@ impl Widget<InboxState> for EmailList {
                     spacing: Some(0.0),
                     children: vec![
                         Container::new(item_content)
-                            .padding_all(18.0)
+                            .padding_all(10.0)
                             .bg(if is_selected { tokens.colors.primary.with_alpha(20) } else { tokens.colors.surface })
                             .flex_grow(1.0)
                             .into_node(),
