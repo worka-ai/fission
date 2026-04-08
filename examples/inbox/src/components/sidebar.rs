@@ -39,10 +39,9 @@ impl Widget<InboxState> for Sidebar {
                 flex_grow: 1.0,
                 flex_shrink: 1.0,
                 child: Some(Box::new(VStack {
-                spacing: Some(10.0),
+                spacing: Some(6.0),
                 children: vec![
-                    Text { content: TextContent::Key("app.title".into()), font_size: Some(32.0), ..Default::default() }.into_node(),
-                    fission_core::ui::widgets::Spacer { height: Some(16.0), ..Default::default() }.into_node(),
+                    Text { content: TextContent::Key("app.title".into()), font_size: Some(22.0), ..Default::default() }.into_node(),
 
                     Button {
                         variant: ButtonVariant::Filled,
@@ -141,21 +140,8 @@ impl Widget<InboxState> for Sidebar {
                         ..Default::default()
                     }.into_node(),
 
-                    fission_core::ui::widgets::Spacer { flex_grow: 1.0, ..Default::default() }.into_node(),
-                    
                     Divider { orientation: fission_widgets::divider::Orientation::Horizontal }.build(ctx, view),
 
-                    Text::new(t("storage.title")).size(12.0).color(tokens.colors.text_secondary).into_node(),
-                    ProgressBar {
-                        value: view.state.storage_usage,
-                        ..Default::default()
-                    }.build(ctx, view),
-                    fission_core::ui::widgets::Spacer { height: Some(4.0), ..Default::default() }.into_node(),
-                    Link {
-                        text: t("storage.manage"),
-                        on_click: None,
-                    }.build(ctx, view),
-                    
                     Button {
                         variant: ButtonVariant::Ghost,
                         child: Some(Box::new(Text::new(t("nav.contacts")).size(14.0).into_node())),
@@ -178,7 +164,7 @@ impl Widget<InboxState> for Sidebar {
             }.into_node()
         )
         .bg(tokens.colors.surface)
-        .padding_all(16.0)
+        .padding_all(8.0)
         .into_node()
     }
 }
