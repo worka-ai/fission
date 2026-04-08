@@ -519,6 +519,7 @@ impl Pipeline {
             }
         }
 
+        // Check Save/Restore balance
         renderer.render(&display_list)?;
 
         let video_surface_count = self.video_surfaces.len();
