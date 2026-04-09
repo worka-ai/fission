@@ -164,6 +164,10 @@ impl Widget<InboxState> for EmailList {
                                         Text::new(TextContent::Key("header.filters".into())).into_node(),
                                     ],
                                 }.into_node())),
+                                on_press: Some(ActionEnvelope {
+                                    id: filters_open_id,
+                                    payload: serde_json::to_vec(&SetAdvancedFiltersOpen(!view.state.show_advanced_filters)).unwrap(),
+                                }),
                                 ..Default::default()
                             }.into_node()
                         ),
