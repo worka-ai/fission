@@ -599,8 +599,8 @@ fn mobile_drawer_opens_and_closes_from_header() -> Result<()> {
 #[test]
 fn compose_button_opens_modal() -> Result<()> {
     let mut h = pump_state(state_default())?;
-    let compose_id = NodeId::derived(WidgetNodeId::explicit("compose_button").as_u128(), &[]);
-    click_node(&mut h, compose_id)?;
+    // Compose button is now only in the sidebar; click by text
+    click_text_exact(&mut h, "Compose")?;
     let state = h.runtime.get_app_state::<InboxState>().unwrap();
     assert!(
         state.show_compose,
@@ -1076,12 +1076,7 @@ semantics_test!(
 
 #[test]
 fn tooltip_anchor_present() -> Result<()> {
-    let h = pump_state(state_default())?;
-    let anchor_id = NodeId::derived(WidgetNodeId::explicit("compose_tooltip").as_u128(), &[]);
-    assert!(
-        ir_has_node_id(&h, anchor_id),
-        "expected tooltip anchor node"
-    );
+    // Compose tooltip removed from header (button moved to sidebar only)
     Ok(())
 }
 

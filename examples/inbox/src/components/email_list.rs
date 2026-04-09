@@ -100,28 +100,11 @@ impl Widget<InboxState> for EmailList {
                 children: vec![
                     Text::new(folder_label).size(20.0).into_node(),
                     Badge { text: format!("{} {}", unread_count, t("badge.new")), ..Default::default() }.build(ctx, view),
-                    fission_core::ui::widgets::Spacer { flex_grow: 1.0, ..Default::default() }.into_node(),
-                    Tooltip {
-                        id: WidgetNodeId::explicit("compose_tooltip"),
-                        text: t("tooltip.compose"),
-                        is_visible: false,
-                        child: Box::new(
-                            Button {
-                                id: Some(NodeId::derived(WidgetNodeId::explicit("compose_button").as_u128(), &[])),
-                                variant: ButtonVariant::Filled,
-                                child: Some(Box::new(Text::new(TextContent::Key("button.compose".into())).color(tokens.colors.on_primary).into_node())),
-                                on_press: Some(ctx.bind(SetComposeOpen(true), (|s: &mut InboxState, a: SetComposeOpen, _| s.show_compose = a.0) as Handler<InboxState, SetComposeOpen>)),
-                                ..Default::default()
-                            }.into_node()
-                        ),
-                    }.build(ctx, view),
                 ],
                 ..Default::default()
             }.into_node()
         );
         
-        list_items.push(Divider { orientation: fission_widgets::divider::Orientation::Horizontal }.build(ctx, view));
-
         // Filter + Search row
         let sort_toggle = if view.state.sort_option == "Newest" { "Oldest" } else { "Newest" };
         let sort_toggle = ActionEnvelope {
@@ -392,7 +375,7 @@ impl Widget<InboxState> for EmailList {
                     spacing: Some(0.0),
                     children: vec![
                         Container::new(item_content)
-                            .padding_all(10.0)
+                            .padding_all(6.0)
                             .bg(if is_selected { tokens.colors.primary.with_alpha(20) } else { tokens.colors.surface })
                             .flex_grow(1.0)
                             .into_node(),
@@ -455,12 +438,12 @@ impl Widget<InboxState> for EmailList {
 
         Container::new(
             VStack {
-                spacing: Some(16.0),
+                spacing: Some(4.0),
                 children: list_items,
             }
             .build(ctx, view)
         )
-        .padding_all(16.0)
+        .padding_all(8.0)
         .flex_grow(1.0)
         .bg(tokens.colors.background)
         .into_node()
