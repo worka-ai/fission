@@ -796,14 +796,14 @@ text_test!(stat_help_text_present, state_default(), "All folders");
 text_test!(stepper_import_present, state_default(), "Import");
 // Storage section removed from sidebar for compactness
 // text_test!(link_text_present, state_default(), "Manage storage");
-text_test!(link_text_present, state_default(), "Browser Demo");
+// Browser Demo removed from sidebar
+text_test!(link_text_present, state_default(), "Contacts");
 text_test!(tree_view_sent_present, state_default(), "Sent");
 text_test!(menu_new_event_present, state_default(), "New event");
 text_test!(empty_state_text_present, state_empty(), "No emails here");
 text_test!(modal_title_settings_present, state_settings(), "Settings");
 text_test!(modal_title_contacts_present, state_contacts(), "Contacts");
 text_test!(modal_title_compose_present, state_compose(), "New Message");
-text_test!(modal_title_browser_present, state_browser(), "Browser Demo");
 text_test!(
     toast_message_present,
     state_toast(),

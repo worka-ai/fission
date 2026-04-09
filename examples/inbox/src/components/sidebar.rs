@@ -124,21 +124,6 @@ impl Widget<InboxState> for Sidebar {
                         ],
                     }.build(ctx, view),
                     
-                    Button {
-                        variant: ButtonVariant::Ghost,
-                        child: Some(Box::new(
-                            HStack {
-                                spacing: Some(12.0),
-                                children: vec![
-                                    Icon::svg(fission_icons::material::action::language::regular()).size(18.0).into_node(),
-                                    Text::new(t("nav.browser_demo")).size(14.0).flex_grow(1.0).into_node(),
-                                ]
-                            }.into_node()
-                        )),
-                        content_align: ButtonContentAlign::Start,
-                        on_press: Some(ctx.bind(ToggleBrowserDemo(true), (|s: &mut InboxState, a, _| s.show_browser_demo = a.0) as Handler<InboxState, ToggleBrowserDemo>)),
-                        ..Default::default()
-                    }.into_node(),
 
                     Divider { orientation: fission_widgets::divider::Orientation::Horizontal }.build(ctx, view),
 
