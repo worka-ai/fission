@@ -98,9 +98,13 @@ impl LiveTestClient {
     }
 
     pub fn tap_text(&self, text: &str) -> Result<()> {
+        // Pump first to ensure layout positions are current
+        self.pump()?;
         self.send(TestCommand::TapText {
             text: text.to_string(),
         })?;
+        // Pump after to render the result of the tap
+        self.pump()?;
         Ok(())
     }
 

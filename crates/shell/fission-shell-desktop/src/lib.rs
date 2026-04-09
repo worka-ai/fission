@@ -823,8 +823,10 @@ impl<S: AppState + Default, W: Widget<S> + 'static> DesktopApp<S, W> {
                                         TestResponse::Ok {}
                                     }
                                     TestCommand::Pump {} => {
+                                        // Defer response until after the next frame renders
+                                        pending_screenshot = Some(("__pump__".into(), responder));
                                         window.request_redraw();
-                                        TestResponse::Ok {}
+                                        continue; // Don't respond yet
                                     }
                                     TestCommand::Quit {} => {
                                         elwt.exit();
@@ -1013,8 +1015,11 @@ impl<S: AppState + Default, W: Widget<S> + 'static> DesktopApp<S, W> {
 
                                             surface_texture.present();
 
-                                            // Fulfill pending screenshot after present
+                                            // Fulfill pending screenshot/pump after present
                                             if let Some((path, responder)) = pending_screenshot.take() {
+                                                if path == "__pump__" {
+                                                    let _ = responder.send(fission_test_driver::TestResponse::Ok {});
+                                                } else {
                                                 std::thread::sleep(std::time::Duration::from_millis(150));
                                                 let resp = match std::process::Command::new("screencapture")
                                                     .args(["-x", &path])
@@ -1026,7 +1031,8 @@ impl<S: AppState + Default, W: Widget<S> + 'static> DesktopApp<S, W> {
                                                     },
                                                 };
                                                 let _ = responder.send(resp);
-                                            }
+                                            } // else (screenshot)
+                                            } // if pending_screenshot
 
                                             presented_frames = presented_frames.saturating_add(1);
                                             flush_text_traces(
