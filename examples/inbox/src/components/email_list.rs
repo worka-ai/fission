@@ -96,16 +96,9 @@ impl Widget<InboxState> for EmailList {
         // Header
         list_items.push(
             Row {
-                gap: Some(10.0),
+                gap: Some(6.0),
                 children: vec![
-                    Button {
-                        id: Some(NodeId::derived(WidgetNodeId::explicit("mobile_menu_button").as_u128(), &[])),
-                        variant: ButtonVariant::Ghost,
-                        child: Some(Box::new(Icon::svg(material::navigation::menu::regular()).size(24.0).into_node())),
-                        on_press: Some(ctx.bind(SetMobileMenuOpen(true), (|s: &mut InboxState, a: SetMobileMenuOpen, _| s.show_mobile_menu = a.0) as Handler<InboxState, SetMobileMenuOpen>)),
-                        ..Default::default()
-                    }.into_node(),
-                    Text::new(folder_label).size(28.0).into_node(),
+                    Text::new(folder_label).size(20.0).into_node(),
                     Badge { text: format!("{} {}", unread_count, t("badge.new")), ..Default::default() }.build(ctx, view),
                     fission_core::ui::widgets::Spacer { flex_grow: 1.0, ..Default::default() }.into_node(),
                     Tooltip {
@@ -122,37 +115,6 @@ impl Widget<InboxState> for EmailList {
                             }.into_node()
                         ),
                     }.build(ctx, view),
-                    MenuButton {
-                        id: WidgetNodeId::explicit("list_more_menu"),
-                        label: t("header.more"),
-                        is_open: view.state.show_filter_dropdown,
-                        on_toggle: Some(menu_toggle),
-                        items: vec![
-                            MenuItem { label: t("menu.mark_all_read"), icon: None, on_select: None },
-                            MenuItem { label: t("menu.add_label"), icon: None, on_select: None },
-                            MenuItem { label: t("menu.archive_all"), icon: None, on_select: None },
-                        ],
-                    }.build(ctx, view),
-                    {
-                        let help_toggle = ctx.bind(
-                            SetHelpPopoverOpen(!view.state.show_help_popover),
-                            (|s: &mut InboxState, a: SetHelpPopoverOpen, _| s.show_help_popover = a.0)
-                                as Handler<InboxState, SetHelpPopoverOpen>,
-                        );
-                        Tooltip {
-                            id: WidgetNodeId::explicit("help_tooltip"),
-                            text: t("tooltip.shortcuts"),
-                            is_visible: view.state.show_help_popover,
-                            child: Box::new(
-                                Button {
-                                    variant: ButtonVariant::Ghost,
-                                    child: Some(Box::new(Icon::svg(material::action::help_outline::regular()).size(20.0).into_node())),
-                                    on_press: Some(help_toggle),
-                                    ..Default::default()
-                                }.into_node()
-                            ),
-                        }.build(ctx, view)
-                    },
                 ],
                 ..Default::default()
             }.into_node()
@@ -398,7 +360,7 @@ impl Widget<InboxState> for EmailList {
                                     tag: format!("email_subject_{}", email.id),
                                     child: Box::new(Text {
                                         content: TextContent::Literal(email.subject.clone()),
-                                        font_size: Some(18.0),
+                                        font_size: Some(15.0),
                                         color: Some(subject_color),
                                         ..Default::default()
                                     }.into()),
