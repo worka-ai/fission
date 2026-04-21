@@ -481,6 +481,9 @@ impl<S: AppState + Default, W: Widget<S> + 'static> DesktopApp<S, W> {
             .surface
             .configure(&device_handle.device, &surface.config);
 
+        // Recreate target texture with COPY_SRC so GPU screenshots work
+        recreate_target_texture(&mut surface, &render_cx);
+
         let mut vello_renderer = VelloSceneRenderer::new(
             &device_handle.device,
             RendererOptions {
@@ -906,6 +909,8 @@ impl<S: AppState + Default, W: Widget<S> + 'static> DesktopApp<S, W> {
                                         let device_handle = &render_cx.devices[surface.dev_id];
                                         surface.config.alpha_mode = wgpu::CompositeAlphaMode::PostMultiplied;
                                         surface.surface.configure(&device_handle.device, &surface.config);
+                                        // Recreate target texture with COPY_SRC for screenshots
+                                        recreate_target_texture(&mut surface, &render_cx);
                                     }
 
                                     let scale_factor = window.scale_factor();
@@ -1040,26 +1045,24 @@ impl<S: AppState + Default, W: Widget<S> + 'static> DesktopApp<S, W> {
 
                                             device_handle.queue.submit(Some(encoder.finish()));
 
-                                            surface_texture.present();
-
-                                            // Fulfill pending screenshot/pump after present
+                                            // GPU screenshot BEFORE present (target texture has content)
                                             if let Some((path, responder)) = pending_screenshot.take() {
                                                 if path == "__pump__" {
                                                     let _ = responder.send(fission_test_driver::TestResponse::Ok {});
                                                 } else {
-                                                std::thread::sleep(std::time::Duration::from_millis(150));
-                                                let resp = match std::process::Command::new("screencapture")
-                                                    .args(["-x", &path])
-                                                    .status()
-                                                {
-                                                    Ok(s) if s.success() => fission_test_driver::TestResponse::Ok {},
-                                                    _ => fission_test_driver::TestResponse::Error {
-                                                        message: "screencapture failed".into(),
-                                                    },
-                                                };
-                                                let _ = responder.send(resp);
-                                            } // else (screenshot)
-                                            } // if pending_screenshot
+                                                    let resp = gpu_screenshot(
+                                                        &device_handle.device,
+                                                        &device_handle.queue,
+                                                        &surface.target_texture,
+                                                        size.width,
+                                                        size.height,
+                                                        &path,
+                                                    );
+                                                    let _ = responder.send(resp);
+                                                }
+                                            }
+
+                                            surface_texture.present();
 
                                             presented_frames = presented_frames.saturating_add(1);
                                             flush_text_traces(
@@ -1422,19 +1425,12 @@ fn gpu_screenshot(
 
     let data = staging.slice(..).get_mapped_range();
 
-    // Remove row padding and convert BGRA -> RGBA
+    // Remove row padding (texture is Rgba8Unorm, no swizzle needed)
     let mut rgba = Vec::with_capacity((width * height * 4) as usize);
     for row in 0..height {
         let start = (row * padded_bytes_per_row) as usize;
         let end = start + (width * bytes_per_pixel) as usize;
-        let row_data = &data[start..end];
-        for pixel in row_data.chunks_exact(4) {
-            // Vello renders Bgra8UnormSrgb: B, G, R, A
-            rgba.push(pixel[2]); // R
-            rgba.push(pixel[1]); // G
-            rgba.push(pixel[0]); // B
-            rgba.push(pixel[3]); // A
-        }
+        rgba.extend_from_slice(&data[start..end]);
     }
 
     drop(data);
@@ -1446,4 +1442,31 @@ fn gpu_screenshot(
             message: format!("PNG save failed: {}", e),
         },
     }
+}
+
+fn recreate_target_texture(
+    surface: &mut RenderSurface,
+    render_cx: &RenderContext,
+) {
+    let device = &render_cx.devices[surface.dev_id].device;
+    let size = wgpu::Extent3d {
+        width: surface.config.width.max(1),
+        height: surface.config.height.max(1),
+        depth_or_array_layers: 1,
+    };
+    let new_texture = device.create_texture(&wgpu::TextureDescriptor {
+        label: Some("fission_target_with_copy"),
+        size,
+        mip_level_count: 1,
+        sample_count: 1,
+        dimension: wgpu::TextureDimension::D2,
+        format: wgpu::TextureFormat::Rgba8Unorm, // Must match Vello's internal format
+        usage: wgpu::TextureUsages::STORAGE_BINDING
+            | wgpu::TextureUsages::TEXTURE_BINDING
+            | wgpu::TextureUsages::COPY_SRC,
+        view_formats: &[],
+    });
+    let new_view = new_texture.create_view(&wgpu::TextureViewDescriptor::default());
+    surface.target_texture = new_texture;
+    surface.target_view = new_view;
 }
