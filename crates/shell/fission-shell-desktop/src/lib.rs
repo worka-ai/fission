@@ -420,6 +420,17 @@ impl<S: AppState + Default, W: Widget<S> + 'static> DesktopApp<S, W> {
         self
     }
 
+    /// Mutate the initial application state before the first frame.
+    pub fn with_state_init<F>(mut self, init: F) -> Self
+    where
+        F: FnOnce(&mut S),
+    {
+        if let Some(state) = self.runtime.get_app_state_mut::<S>() {
+            init(state);
+        }
+        self
+    }
+
     pub fn with_env(mut self, env: Env) -> Self {
         self.env = env;
         self

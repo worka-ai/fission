@@ -1027,9 +1027,13 @@ fn main() -> anyhow::Result<()> {
         .map(PathBuf::from)
         .unwrap_or_else(|| std::env::current_dir().unwrap_or_else(|_| PathBuf::from(".")));
 
+    let root_for_init = root.clone();
     let root_for_sync = root.clone();
     let app = DesktopApp::new(EditorApp)
         .with_title("Fission Editor")
+        .with_state_init(move |state: &mut EditorState| {
+            state.root_path = root_for_init;
+        })
         .with_sync_env(move |_state: &EditorState, env: &mut fission_core::Env| {
             env.theme = fission_theme::Theme::dark();
         })
