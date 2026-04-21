@@ -63,6 +63,7 @@ pub struct GestureState {
     pub is_panning: bool,
     pub target_node: Option<NodeId>,
     pub dragging_payload: Option<Vec<u8>>,
+    pub pressed_button: Option<crate::event::PointerButton>,
 }
 
 #[derive(Clone, Debug, Default)]

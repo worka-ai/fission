@@ -1046,6 +1046,12 @@ fn main() -> anyhow::Result<()> {
                 state.lsp_handle = Some(LspHandle::new(&state.root_path));
             }
 
+            // Periodically check for external file changes (every ~60 key events)
+            state.key_event_count = state.key_event_count.wrapping_add(1);
+            if state.key_event_count % 60 == 0 {
+                state.check_external_changes();
+            }
+
             // Poll LSP for diagnostics and completions on every key event
             if let Some(ref handle) = state.lsp_handle {
                 let (diags, completions) = handle.poll_diagnostics();

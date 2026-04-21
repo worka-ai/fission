@@ -31,6 +31,7 @@ pub enum ActionTrigger {
     Drop,
     DragEnter,
     DragLeave,
+    SecondaryClick, // Right-click / secondary mouse button
 }
 
 impl Default for ActionTrigger {

@@ -313,7 +313,7 @@ fn build_tree_rows(
         }
     };
 
-    // Long-press action: show context menu targeting this entry
+    // Right-click action: show context menu targeting this entry
     let long_press_action = ActionEnvelope {
         id: context_menu_id,
         payload: serde_json::to_vec(&ShowContextMenu {
@@ -375,9 +375,9 @@ fn build_tree_rows(
     }
     .into_node();
 
-    // GestureDetector wraps the entire row to capture long-press for context menu
+    // GestureDetector wraps the entire row to capture right-click for context menu
     let row = GestureDetector {
-        on_long_press: Some(long_press_action),
+        on_secondary_click: Some(long_press_action),
         child: Box::new(button_row),
         ..Default::default()
     }

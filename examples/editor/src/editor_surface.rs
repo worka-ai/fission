@@ -48,6 +48,23 @@ impl Widget<EditorState> for EditorSurface {
                             handle.notify_change(&path, &buf.content);
                         }
                     }
+
+                    // Auto-trigger completions on trigger characters (dot, colon, open-paren)
+                    let should_complete = if let Some(buf) = s.file_contents.get(&path) {
+                        !buf.content.is_empty() && {
+                            let last_char = buf.content.as_bytes().get(buf.content.len().saturating_sub(1));
+                            matches!(last_char, Some(b'.') | Some(b':') | Some(b'('))
+                        }
+                    } else {
+                        false
+                    };
+                    if should_complete {
+                        if let Some(ref handle) = s.lsp_handle {
+                            if let Some(buf) = s.file_contents.get(&path) {
+                                handle.request_completions(&path, buf.cursor_line as usize, buf.cursor_col as usize);
+                            }
+                        }
+                    }
                 }
             }) as Handler<EditorState, UpdateFileContent>,
         );
@@ -80,7 +97,7 @@ impl Widget<EditorState> for EditorSurface {
             }) as Handler<EditorState, UpdateCursorPosition>,
         );
 
-        // --- Bind context menu action for long-press ---
+        // --- Bind context menu action for right-click ---
         let context_menu_action = ctx.bind(
             ShowContextMenu { x: 0.0, y: 0.0, target: None },
             (|s: &mut EditorState, a: ShowContextMenu, _| {
@@ -269,10 +286,10 @@ impl Widget<EditorState> for EditorSurface {
             .bg(Color { r: 30, g: 30, b: 30, a: 255 })
             .into_node();
 
-        // Wrap editor area in a GestureDetector for long-press context menu
+        // Wrap editor area in a GestureDetector for right-click context menu
         let editor_with_gesture = GestureDetector {
             child: Box::new(editor_area),
-            on_long_press: Some(context_menu_action),
+            on_secondary_click: Some(context_menu_action),
             ..Default::default()
         }
         .into_node();
