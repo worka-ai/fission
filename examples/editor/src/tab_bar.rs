@@ -48,6 +48,19 @@ impl Widget<EditorState> for TabBar {
                 tab.title.clone()
             };
 
+            let accent_color = Color { r: 0, g: 122, b: 204, a: 255 };
+            let top_border = if is_active {
+                Container::new(Spacer { ..Default::default() }.into_node())
+                    .height(2.0)
+                    .bg(accent_color)
+                    .into_node()
+            } else {
+                Container::new(Spacer { ..Default::default() }.into_node())
+                    .height(2.0)
+                    .bg(Color { r: 0, g: 0, b: 0, a: 0 })
+                    .into_node()
+            };
+
             let tab_content = HStack {
                 spacing: Some(6.0),
                 children: vec![
@@ -77,21 +90,29 @@ impl Widget<EditorState> for TabBar {
             }
             .into_node();
 
+            let tab_with_accent = fission_core::ui::Column {
+                children: vec![
+                    top_border,
+                    Container::new(tab_content)
+                        .bg(bg)
+                        .padding_all(6.0)
+                        .flex_grow(1.0)
+                        .into_node(),
+                ],
+                ..Default::default()
+            }
+            .into_node();
+
             tab_nodes.push(
                 Button {
                     variant: ButtonVariant::Ghost,
                     content_align: ButtonContentAlign::Start,
-                    child: Some(Box::new(
-                        Container::new(tab_content)
-                            .bg(bg)
-                            .padding_all(6.0)
-                            .into_node(),
-                    )),
+                    child: Some(Box::new(tab_with_accent)),
                     on_press: Some(ActionEnvelope {
                         id: select_id,
                         payload: serde_json::to_vec(&SelectTab(i)).unwrap(),
                     }),
-                    height: Some(32.0),
+                    height: Some(35.0),
                     padding: Some([0.0; 4]),
                     ..Default::default()
                 }

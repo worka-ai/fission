@@ -119,26 +119,30 @@ impl Widget<EditorState> for FileTree {
             payload: serde_json::to_vec(&RefreshTree).unwrap(),
         };
 
+        let icon_color = tokens.colors.text_secondary;
+
         let toolbar = Container::new(
             HStack {
                 spacing: Some(2.0),
                 children: vec![
-                    Text::new("EXPLORER")
-                        .size(11.0)
-                        .color(tokens.colors.text_secondary)
-                        .flex_grow(1.0)
-                        .into_node(),
+                    Spacer { flex_grow: 1.0, ..Default::default() }.into_node(),
                     Button {
                         variant: ButtonVariant::Ghost,
                         on_press: Some(new_file_action),
                         child: Some(Box::new(
-                            Text::new("New File")
-                                .size(10.0)
-                                .color(tokens.colors.text_secondary)
-                                .into_node(),
+                            Container::new(
+                                Text::new("+")
+                                    .size(14.0)
+                                    .color(icon_color)
+                                    .into_node(),
+                            )
+                            .width(20.0)
+                            .height(20.0)
+                            .into_node(),
                         )),
+                        width: Some(20.0),
                         height: Some(20.0),
-                        padding: Some([2.0, 4.0, 2.0, 4.0]),
+                        padding: Some([0.0; 4]),
                         ..Default::default()
                     }
                     .into_node(),
@@ -146,13 +150,19 @@ impl Widget<EditorState> for FileTree {
                         variant: ButtonVariant::Ghost,
                         on_press: Some(new_folder_action),
                         child: Some(Box::new(
-                            Text::new("New Folder")
-                                .size(10.0)
-                                .color(tokens.colors.text_secondary)
-                                .into_node(),
+                            Container::new(
+                                Text::new("D+")
+                                    .size(14.0)
+                                    .color(icon_color)
+                                    .into_node(),
+                            )
+                            .width(20.0)
+                            .height(20.0)
+                            .into_node(),
                         )),
+                        width: Some(20.0),
                         height: Some(20.0),
-                        padding: Some([2.0, 4.0, 2.0, 4.0]),
+                        padding: Some([0.0; 4]),
                         ..Default::default()
                     }
                     .into_node(),
@@ -160,13 +170,19 @@ impl Widget<EditorState> for FileTree {
                         variant: ButtonVariant::Ghost,
                         on_press: Some(refresh_action),
                         child: Some(Box::new(
-                            Text::new("R")
-                                .size(10.0)
-                                .color(tokens.colors.text_secondary)
-                                .into_node(),
+                            Container::new(
+                                Text::new("\u{21BB}")
+                                    .size(14.0)
+                                    .color(icon_color)
+                                    .into_node(),
+                            )
+                            .width(20.0)
+                            .height(20.0)
+                            .into_node(),
                         )),
+                        width: Some(20.0),
                         height: Some(20.0),
-                        padding: Some([2.0, 4.0, 2.0, 4.0]),
+                        padding: Some([0.0; 4]),
                         ..Default::default()
                     }
                     .into_node(),

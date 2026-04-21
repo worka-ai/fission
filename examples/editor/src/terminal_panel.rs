@@ -112,36 +112,23 @@ impl TerminalPanel {
 
         let prompt_color = Color { r: 80, g: 200, b: 80, a: 255 };
 
-        // Build all lines: history + current prompt as a single scrollable view
-        let mut lines = Vec::new();
+        let prompt_bg = Color { r: 30, g: 30, b: 30, a: 255 };
+        let separator_color = Color { r: 58, g: 58, b: 58, a: 255 };
+        let green_prompt = Color { r: 50, g: 220, b: 50, a: 255 };
+
+        // Build output lines (history)
+        let mut output_lines = Vec::new();
         for line in &view.state.terminal_lines {
-            lines.push(
+            output_lines.push(
                 Text::new(line.clone()).size(13.0).color(text_color).into_node(),
             );
         }
 
-        // Current prompt line: $ <inline input>
-        lines.push(
-            HStack {
-                spacing: Some(4.0),
-                children: vec![
-                    Text::new("$").size(13.0).color(prompt_color).into_node(),
-                    TextInput {
-                        value: view.state.terminal_input.clone(),
-                        placeholder: Some("".into()),
-                        on_change: Some(update_input),
-                        borderless: true,
-                        ..Default::default()
-                    }.into_node(),
-                ],
-            }.into_node(),
-        );
-
-        Container::new(
+        let output_scroll = Container::new(
             Scroll {
                 direction: FlexDirection::Column,
                 child: Some(Box::new(
-                    VStack { spacing: Some(2.0), children: lines }.into_node(),
+                    VStack { spacing: Some(2.0), children: output_lines }.into_node(),
                 )),
                 show_scrollbar: true,
                 flex_grow: 1.0,
@@ -152,6 +139,41 @@ impl TerminalPanel {
         .bg(bg)
         .padding_all(6.0)
         .flex_grow(1.0)
+        .into_node();
+
+        // Thin separator between output and prompt
+        let prompt_separator = Container::new(Spacer::default().into_node())
+            .height(1.0)
+            .bg(separator_color)
+            .flex_shrink(0.0)
+            .into_node();
+
+        // Current prompt line: $ <inline input>
+        let prompt_row = Container::new(
+            HStack {
+                spacing: Some(4.0),
+                children: vec![
+                    Text::new("$").size(13.0).color(green_prompt).into_node(),
+                    TextInput {
+                        value: view.state.terminal_input.clone(),
+                        placeholder: Some("".into()),
+                        on_change: Some(update_input),
+                        borderless: true,
+                        ..Default::default()
+                    }.into_node(),
+                ],
+            }.into_node(),
+        )
+        .bg(prompt_bg)
+        .padding_all(6.0)
+        .flex_shrink(0.0)
+        .into_node();
+
+        fission_core::ui::Column {
+            children: vec![output_scroll, prompt_separator, prompt_row],
+            flex_grow: 1.0,
+            ..Default::default()
+        }
         .into_node()
     }
 }

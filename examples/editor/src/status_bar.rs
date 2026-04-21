@@ -11,13 +11,46 @@ impl Widget<EditorState> for StatusBar {
         let bg = Color { r: 0, g: 122, b: 204, a: 255 }; // VS Code blue
         let text_color = Color { r: 255, g: 255, b: 255, a: 255 };
 
+        let error_color = Color { r: 255, g: 80, b: 80, a: 255 };
+        let warn_color = Color { r: 255, g: 200, b: 60, a: 255 };
+
         let mut items = vec![];
 
-        // Branch indicator
+        // Branch indicator with icon
         items.push(
-            Text::new("main")
+            Text::new("\u{2387} main")
                 .size(12.0)
                 .color(text_color)
+                .into_node(),
+        );
+
+        items.push(
+            Spacer { width: Some(16.0), ..Default::default() }.into_node()
+        );
+
+        // Diagnostics summary (errors + warnings with colored indicators)
+        let error_count: usize = view.state.diagnostics.values()
+            .flat_map(|d| d.iter())
+            .filter(|d| d.severity == crate::model::DiagSeverity::Error)
+            .count();
+        let warn_count: usize = view.state.diagnostics.values()
+            .flat_map(|d| d.iter())
+            .filter(|d| d.severity == crate::model::DiagSeverity::Warning)
+            .count();
+
+        items.push(
+            Text::new(format!("\u{2716} {}", error_count))
+                .size(12.0)
+                .color(if error_count > 0 { error_color } else { text_color })
+                .into_node(),
+        );
+        items.push(
+            Spacer { width: Some(8.0), ..Default::default() }.into_node()
+        );
+        items.push(
+            Text::new(format!("\u{26A0} {}", warn_count))
+                .size(12.0)
+                .color(if warn_count > 0 { warn_color } else { text_color })
                 .into_node(),
         );
 
@@ -55,6 +88,17 @@ impl Widget<EditorState> for StatusBar {
                     .color(text_color)
                     .into_node(),
             );
+
+            items.push(
+                Spacer { width: Some(16.0), ..Default::default() }.into_node()
+            );
+
+            items.push(
+                Text::new("Spaces: 4")
+                    .size(12.0)
+                    .color(text_color)
+                    .into_node(),
+            );
         }
 
         items.push(
@@ -71,25 +115,6 @@ impl Widget<EditorState> for StatusBar {
             );
         }
 
-        // Diagnostics summary
-        let error_count: usize = view.state.diagnostics.values()
-            .flat_map(|d| d.iter())
-            .filter(|d| d.severity == crate::model::DiagSeverity::Error)
-            .count();
-        let warn_count: usize = view.state.diagnostics.values()
-            .flat_map(|d| d.iter())
-            .filter(|d| d.severity == crate::model::DiagSeverity::Warning)
-            .count();
-
-        if error_count > 0 || warn_count > 0 {
-            items.push(
-                Text::new(format!("⚠ {} ✕ {}", warn_count, error_count))
-                    .size(12.0)
-                    .color(text_color)
-                    .into_node(),
-            );
-        }
-
         Container::new(
             HStack {
                 spacing: Some(0.0),
@@ -98,7 +123,7 @@ impl Widget<EditorState> for StatusBar {
             .into_node(),
         )
         .bg(bg)
-        .height(24.0)
+        .height(26.0)
         .padding_all(4.0)
         .flex_shrink(0.0)
         .into_node()

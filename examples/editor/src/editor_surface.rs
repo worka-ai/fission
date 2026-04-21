@@ -1,7 +1,7 @@
-use crate::model::{EditorState, FileBuffer, Language, ShowContextMenu, UpdateFileContent};
+use crate::model::{EditorState, FileBuffer, Language, ShowContextMenu, UpdateCursorPosition, UpdateFileContent};
 use crate::syntax;
 use fission_core::op::Color;
-use fission_core::ui::{Container, GestureDetector, Node, Row, Scroll, Text, TextContent, TextInput};
+use fission_core::ui::{Container, GestureDetector, Node, Row, Text, TextContent, TextInput};
 use fission_core::{ActionEnvelope, BuildCtx, FlexDirection, Handler, View, Widget, WidgetNodeId};
 use fission_widgets::{HStack, VStack, Spacer};
 use serde_json;
@@ -26,7 +26,9 @@ impl Widget<EditorState> for EditorSurface {
 
         let content = &buffer.content;
         let path = tab.path.clone();
+        let cursor_line = buffer.cursor_line;
 
+        // --- Bind UpdateFileContent action ---
         let update_id = ctx.bind(
             UpdateFileContent(String::new()),
             (|s: &mut EditorState, a: UpdateFileContent, _| {
@@ -50,7 +52,35 @@ impl Widget<EditorState> for EditorSurface {
             }) as Handler<EditorState, UpdateFileContent>,
         );
 
-        // Bind context menu action for long-press
+        // --- Bind UpdateCursorPosition action ---
+        let cursor_id = ctx.bind(
+            UpdateCursorPosition { caret: 0, anchor: 0 },
+            (|s: &mut EditorState, a: UpdateCursorPosition, _| {
+                if let Some(tab) = s.open_tabs.get(s.active_tab) {
+                    let path = tab.path.clone();
+                    if let Some(buf) = s.file_contents.get_mut(&path) {
+                        // Convert byte offset to line/col
+                        let mut line = 0;
+                        let mut col = 0;
+                        for (i, ch) in buf.content.char_indices() {
+                            if i >= a.caret {
+                                break;
+                            }
+                            if ch == '\n' {
+                                line += 1;
+                                col = 0;
+                            } else {
+                                col += 1;
+                            }
+                        }
+                        buf.cursor_line = line;
+                        buf.cursor_col = col;
+                    }
+                }
+            }) as Handler<EditorState, UpdateCursorPosition>,
+        );
+
+        // --- Bind context menu action for long-press ---
         let context_menu_action = ctx.bind(
             ShowContextMenu { x: 0.0, y: 0.0, target: None },
             (|s: &mut EditorState, a: ShowContextMenu, _| {
@@ -65,17 +95,31 @@ impl Widget<EditorState> for EditorSurface {
         let gutter_width = format!("{}", line_count).len() as f32 * 9.0 + 16.0;
         let is_large_file = line_count > MAX_GUTTER_LINES;
 
-        // Line numbers gutter (capped to MAX_GUTTER_LINES)
+        // --- Line numbers gutter (capped to MAX_GUTTER_LINES) ---
         let mut line_num_children = Vec::new();
         for i in 1..=visible_lines {
+            let is_current = (i - 1) == cursor_line;
+            let num_color = if is_current {
+                Color { r: 200, g: 200, b: 200, a: 255 }
+            } else {
+                Color { r: 120, g: 120, b: 120, a: 255 }
+            };
+
+            let line_bg = if is_current {
+                Color { r: 44, g: 44, b: 46, a: 255 } // Current line highlight in gutter
+            } else {
+                Color { r: 37, g: 37, b: 38, a: 255 }
+            };
+
             line_num_children.push(
                 Container::new(
                     Text::new(format!("{:>width$}", i, width = format!("{}", line_count).len()))
                         .size(13.0)
-                        .color(Color { r: 120, g: 120, b: 120, a: 255 })
+                        .color(num_color)
                         .into_node(),
                 )
                 .height(20.0)
+                .bg(line_bg)
                 .into_node(),
             );
         }
@@ -97,15 +141,50 @@ impl Widget<EditorState> for EditorSurface {
         .flex_shrink(0.0)
         .into_node();
 
-        // Editable text area - for very large files, only put first N lines
-        // in the TextInput to avoid GPU overflow
+        // --- Editable text area ---
+        // For very large files, only put first N lines in the TextInput to avoid GPU overflow
         let edit_content = if is_large_file {
             content.lines().take(MAX_GUTTER_LINES).collect::<Vec<_>>().join("\n")
         } else {
             content.clone()
         };
 
-        // Generate syntax-highlighted runs.
+        // --- Build find-match highlight ranges ---
+        let highlight_ranges: Vec<(usize, usize, fission_ir::op::Color)> =
+            if view.state.show_find_replace && !view.state.find_query.is_empty() {
+                let query_len = view.state.find_query.len();
+                view.state
+                    .find_matches
+                    .iter()
+                    .filter_map(|(match_path, line, col)| {
+                        if match_path != &path {
+                            return None;
+                        }
+                        // Convert (line, col) to byte offset in edit_content
+                        let mut byte_offset = 0;
+                        for (i, text_line) in edit_content.lines().enumerate() {
+                            if i == *line {
+                                byte_offset += col;
+                                break;
+                            }
+                            byte_offset += text_line.len() + 1; // +1 for '\n'
+                        }
+                        if byte_offset + query_len <= edit_content.len() {
+                            Some((
+                                byte_offset,
+                                byte_offset + query_len,
+                                fission_ir::op::Color { r: 255, g: 200, b: 0, a: 80 },
+                            ))
+                        } else {
+                            None
+                        }
+                    })
+                    .collect()
+            } else {
+                Vec::new()
+            };
+
+        // --- Generate syntax-highlighted runs ---
         // For files larger than SYNTAX_HIGHLIGHT_LINE_LIMIT we skip per-line
         // highlighting entirely and emit a single unstyled run.  This avoids
         // creating hundreds of TextRun IR nodes that would overflow the GPU
@@ -120,6 +199,7 @@ impl Widget<EditorState> for EditorSurface {
                     font_size: 13.0,
                     color: fission_ir::op::Color { r: 212, g: 212, b: 212, a: 255 },
                     underline: false,
+                    background_color: None,
                 },
             }]
         } else {
@@ -141,6 +221,7 @@ impl Widget<EditorState> for EditorSurface {
                                     a: span.color.a,
                                 },
                                 underline: false,
+                                background_color: None,
                             },
                         })
                         .collect();
@@ -152,6 +233,7 @@ impl Widget<EditorState> for EditorSurface {
                                 font_size: 13.0,
                                 color: fission_ir::op::Color { r: 212, g: 212, b: 212, a: 255 },
                                 underline: false,
+                                background_color: None,
                             },
                         });
                     }
@@ -165,6 +247,7 @@ impl Widget<EditorState> for EditorSurface {
             value: edit_content,
             placeholder: None,
             on_change: Some(update_id),
+            on_cursor_change: Some(cursor_id),
             width: None,
             height: None,
             multiline: true,
@@ -175,6 +258,9 @@ impl Widget<EditorState> for EditorSurface {
             mask: None,
             styled_runs: Some(styled_runs),
             borderless: true,
+            capture_tab: true,
+            auto_indent: true,
+            highlight_ranges,
         }
         .into_node();
 
@@ -198,16 +284,17 @@ impl Widget<EditorState> for EditorSurface {
             .flex_shrink(0.0)
             .into_node();
 
-        // Build large file indicator if needed
+        // Build the editor column children
         let mut editor_column_children = Vec::new();
 
+        // Large file indicator banner
         if is_large_file {
             let indicator = Container::new(
                 HStack {
                     spacing: Some(8.0),
                     children: vec![
                         Text::new(format!(
-                            "Large file mode — showing first {} of {} lines",
+                            "Large file mode \u{2014} showing first {} of {} lines",
                             MAX_GUTTER_LINES, line_count
                         ))
                         .size(11.0)
@@ -224,6 +311,8 @@ impl Widget<EditorState> for EditorSurface {
             editor_column_children.push(indicator);
         }
 
+        // Current line highlight bar across the editor area
+        // (the gutter already highlights via per-line bg above)
         let editor_row = Row {
             children: vec![gutter, gutter_separator, editor_with_gesture],
             align_items: fission_ir::op::AlignItems::Stretch,
@@ -232,18 +321,10 @@ impl Widget<EditorState> for EditorSurface {
         }
         .into_node();
 
-        // Wrap the editor row in a Scroll widget with visible scrollbar
-        let scrollable_editor = Scroll {
-            child: Some(Box::new(editor_row)),
-            direction: FlexDirection::Column,
-            show_scrollbar: true,
-            flex_grow: 1.0,
-            flex_shrink: 1.0,
-            ..Default::default()
-        }
-        .into_node();
-
-        editor_column_children.push(scrollable_editor);
+        // No outer Scroll wrapper — the TextInput already has its own internal
+        // scroll container (see TextInput::Lower).  Wrapping it in a second
+        // Scroll caused the gutter to desync from the content.
+        editor_column_children.push(editor_row);
 
         let editor_column = VStack {
             spacing: Some(0.0),
@@ -327,6 +408,7 @@ impl EditorSurface {
         )
         .bg(Color { r: 30, g: 30, b: 30, a: 255 })
         .flex_grow(1.0)
+        .flex_shrink(1.0)
         .into_node()
     }
 }

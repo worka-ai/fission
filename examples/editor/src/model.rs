@@ -577,6 +577,12 @@ pub struct CutSelection;
 #[derive(Action, Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
 pub struct PasteClipboard;
 
+#[derive(Action, Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
+pub struct UpdateCursorPosition {
+    pub caret: usize,
+    pub anchor: usize,
+}
+
 // --- Additional types ---
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -1317,5 +1323,966 @@ mod tests {
         assert!(content.contains("qux"));
 
         std::fs::remove_file(&path).ok();
+    }
+
+    // --- New tests ---
+
+    /// Helper to create a temp file and return the path string.
+    fn temp_file(name: &str, content: &str) -> String {
+        let path = std::env::temp_dir().join(name);
+        std::fs::write(&path, content).expect("write temp file");
+        path.to_string_lossy().to_string()
+    }
+
+    /// Helper to clean up a temp file.
+    fn cleanup(path: &str) {
+        std::fs::remove_file(path).ok();
+    }
+
+    #[test]
+    fn test_open_file_creates_tab() {
+        let mut state = EditorState::default();
+        state.root_path = std::env::temp_dir();
+        let path = temp_file("test_open_tab.rs", "fn main() {}");
+        state.open_file(path.clone());
+
+        assert_eq!(state.open_tabs.len(), 1);
+        assert_eq!(state.open_tabs[0].title, "test_open_tab.rs");
+        assert_eq!(state.open_tabs[0].path, path);
+        assert!(!state.open_tabs[0].is_dirty);
+        assert_eq!(state.active_tab, 0);
+
+        // Verify content was loaded
+        let buf = state.file_contents.get(&path).expect("buffer exists");
+        assert_eq!(buf.content, "fn main() {}");
+        assert_eq!(buf.language, Language::Rust);
+
+        cleanup(&path);
+    }
+
+    #[test]
+    fn test_open_file_deduplicates() {
+        let mut state = EditorState::default();
+        state.root_path = std::env::temp_dir();
+        let path = temp_file("test_dedup.txt", "hello");
+        state.open_file(path.clone());
+        state.open_file(path.clone());
+
+        // Should only have one tab, not two
+        assert_eq!(state.open_tabs.len(), 1);
+
+        cleanup(&path);
+    }
+
+    #[test]
+    fn test_save_clears_dirty() {
+        let mut state = EditorState::default();
+        state.root_path = std::env::temp_dir();
+        let path = temp_file("test_save_dirty.txt", "original");
+        state.open_file(path.clone());
+
+        // Modify content, mark dirty
+        if let Some(buf) = state.file_contents.get_mut(&path) {
+            buf.push_undo();
+            buf.content = "modified".to_string();
+        }
+        state.open_tabs[0].is_dirty = true;
+        assert!(state.open_tabs[0].is_dirty);
+
+        // Save
+        state.save_active_file();
+        assert!(!state.open_tabs[0].is_dirty);
+        assert!(state.status_message.as_ref().unwrap().contains("Saved"));
+
+        // Verify file on disk has new content
+        let on_disk = std::fs::read_to_string(&path).unwrap();
+        assert_eq!(on_disk, "modified");
+
+        cleanup(&path);
+    }
+
+    #[test]
+    fn test_close_tab_removes() {
+        let mut state = EditorState::default();
+        state.root_path = std::env::temp_dir();
+        let path1 = temp_file("test_close1.txt", "one");
+        let path2 = temp_file("test_close2.txt", "two");
+        state.open_file(path1.clone());
+        state.open_file(path2.clone());
+
+        assert_eq!(state.open_tabs.len(), 2);
+        assert_eq!(state.active_tab, 1); // second tab is active
+
+        // Close first tab
+        state.close_tab(0);
+        assert_eq!(state.open_tabs.len(), 1);
+        assert_eq!(state.open_tabs[0].path, path2);
+        // Buffer for path1 should be removed
+        assert!(state.file_contents.get(&path1).is_none());
+
+        cleanup(&path1);
+        cleanup(&path2);
+    }
+
+    #[test]
+    fn test_close_tab_adjusts_active_index() {
+        let mut state = EditorState::default();
+        state.root_path = std::env::temp_dir();
+        let p1 = temp_file("test_close_adj1.txt", "a");
+        let p2 = temp_file("test_close_adj2.txt", "b");
+        let p3 = temp_file("test_close_adj3.txt", "c");
+        state.open_file(p1.clone());
+        state.open_file(p2.clone());
+        state.open_file(p3.clone());
+        assert_eq!(state.active_tab, 2);
+
+        // Close the last tab; active_tab should adjust
+        state.close_tab(2);
+        assert_eq!(state.active_tab, 1);
+
+        cleanup(&p1);
+        cleanup(&p2);
+        cleanup(&p3);
+    }
+
+    #[test]
+    fn test_find_matches_correct() {
+        let mut state = EditorState::default();
+        state.root_path = std::env::temp_dir();
+        let path = temp_file("test_find_match.txt", "apple banana apple cherry apple");
+        state.open_file(path.clone());
+
+        state.find_query = "apple".to_string();
+        state.find_next();
+
+        // "apple" appears 3 times on one line
+        assert_eq!(state.find_matches.len(), 3);
+
+        // Verify positions
+        assert_eq!(state.find_matches[0].2, 0);   // col 0
+        assert_eq!(state.find_matches[1].2, 13);  // col 13 ("apple banana apple...")
+        assert_eq!(state.find_matches[2].2, 26);  // col 26
+
+        cleanup(&path);
+    }
+
+    #[test]
+    fn test_find_next_wraps_around() {
+        let mut state = EditorState::default();
+        state.root_path = std::env::temp_dir();
+        let path = temp_file("test_find_wrap.txt", "aa bb aa");
+        state.open_file(path.clone());
+
+        state.find_query = "aa".to_string();
+        state.find_next();
+        assert_eq!(state.find_matches.len(), 2);
+        // find_next called once sets index to 1 (second match, since
+        // rebuild sets it then advances)
+        let idx1 = state.find_match_index;
+
+        state.find_next();
+        let idx2 = state.find_match_index;
+
+        // After two advances it should have wrapped
+        assert_ne!(idx1, idx2);
+
+        // One more should wrap back
+        state.find_next();
+        // Should be back to where idx1 was or wrapped
+        assert!(state.find_match_index < state.find_matches.len());
+
+        cleanup(&path);
+    }
+
+    #[test]
+    fn test_find_previous() {
+        let mut state = EditorState::default();
+        state.root_path = std::env::temp_dir();
+        let path = temp_file("test_find_prev.txt", "xx yy xx yy xx");
+        state.open_file(path.clone());
+
+        state.find_query = "xx".to_string();
+        state.find_next(); // build matches + advance
+        let initial = state.find_match_index;
+        state.find_previous();
+        // Should wrap to last match
+        let after_prev = state.find_match_index;
+        assert_ne!(initial, after_prev);
+
+        cleanup(&path);
+    }
+
+    #[test]
+    fn test_replace_one() {
+        let mut state = EditorState::default();
+        state.root_path = std::env::temp_dir();
+        let path = temp_file("test_replace_one.txt", "cat dog cat");
+        state.open_file(path.clone());
+
+        state.find_query = "cat".to_string();
+        state.replace_query = "bird".to_string();
+        state.find_next(); // build matches
+
+        state.replace_one();
+        let content = &state.file_contents[&path].content;
+        // One "cat" should be replaced with "bird"
+        let cat_count = content.matches("cat").count();
+        let bird_count = content.matches("bird").count();
+        assert_eq!(cat_count, 1);
+        assert_eq!(bird_count, 1);
+        assert!(state.open_tabs[0].is_dirty);
+
+        cleanup(&path);
+    }
+
+    #[test]
+    fn test_replace_all_works() {
+        let mut state = EditorState::default();
+        state.root_path = std::env::temp_dir();
+        let path = temp_file("test_replace_all.txt", "foo bar foo baz foo");
+        state.open_file(path.clone());
+
+        state.find_query = "foo".to_string();
+        state.replace_query = "ZZZ".to_string();
+        state.replace_all();
+
+        let content = &state.file_contents[&path].content;
+        assert_eq!(content, "ZZZ bar ZZZ baz ZZZ");
+        assert!(state.open_tabs[0].is_dirty);
+        assert!(state.status_message.as_ref().unwrap().contains("Replaced all"));
+
+        cleanup(&path);
+    }
+
+    #[test]
+    fn test_replace_all_empty_query_noop() {
+        let mut state = EditorState::default();
+        state.root_path = std::env::temp_dir();
+        let path = temp_file("test_replace_noop.txt", "unchanged");
+        state.open_file(path.clone());
+
+        state.find_query = "".to_string();
+        state.replace_query = "something".to_string();
+        state.replace_all();
+
+        let content = &state.file_contents[&path].content;
+        assert_eq!(content, "unchanged");
+
+        cleanup(&path);
+    }
+
+    #[test]
+    fn test_undo_redo_model() {
+        let mut state = EditorState::default();
+        state.root_path = std::env::temp_dir();
+        let path = temp_file("test_undo_redo_model.txt", "version_0");
+        state.open_file(path.clone());
+
+        // Make several changes
+        if let Some(buf) = state.file_contents.get_mut(&path) {
+            buf.push_undo();
+            buf.content = "version_1".to_string();
+            buf.push_undo();
+            buf.content = "version_2".to_string();
+        }
+
+        // Undo through the state helper
+        state.undo_active();
+        assert_eq!(state.file_contents[&path].content, "version_1");
+
+        state.undo_active();
+        assert_eq!(state.file_contents[&path].content, "version_0");
+
+        // Redo
+        state.redo_active();
+        assert_eq!(state.file_contents[&path].content, "version_1");
+
+        state.redo_active();
+        assert_eq!(state.file_contents[&path].content, "version_2");
+
+        // Redo when nothing to redo should be a no-op
+        state.redo_active();
+        assert_eq!(state.file_contents[&path].content, "version_2");
+
+        cleanup(&path);
+    }
+
+    #[test]
+    fn test_large_file_rejected() {
+        let mut state = EditorState::default();
+        state.root_path = std::env::temp_dir();
+        let path = std::env::temp_dir().join("test_large_file.txt");
+        let path_str = path.to_string_lossy().to_string();
+
+        // Create a file >1MB
+        let large_content = "x".repeat(1_100_000);
+        std::fs::write(&path, &large_content).expect("write large file");
+
+        state.open_file(path_str.clone());
+
+        // Should not have opened
+        assert!(state.open_tabs.is_empty());
+        assert!(state.file_contents.is_empty());
+
+        // Status message should indicate "too large"
+        let msg = state.status_message.as_ref().expect("status message set");
+        assert!(msg.contains("too large") || msg.contains("Too large"),
+            "expected 'too large' message, got: {}", msg);
+
+        std::fs::remove_file(&path).ok();
+    }
+
+    #[test]
+    fn test_create_file() {
+        let mut state = EditorState::default();
+        state.root_path = std::env::temp_dir();
+        let path = std::env::temp_dir().join("test_create_new.txt");
+        let path_str = path.to_string_lossy().to_string();
+
+        // Clean up in case a previous run left it
+        std::fs::remove_file(&path).ok();
+
+        state.create_file(path_str.clone());
+
+        // File should exist on disk
+        assert!(path.exists(), "file should be created on disk");
+
+        // Should be opened in a tab
+        assert_eq!(state.open_tabs.len(), 1);
+        assert_eq!(state.open_tabs[0].path, path_str);
+
+        // Content should be empty
+        let buf = state.file_contents.get(&path_str).expect("buffer exists");
+        assert_eq!(buf.content, "");
+
+        // Status message should mention creation
+        assert!(state.status_message.as_ref().unwrap().contains("Created"));
+
+        std::fs::remove_file(&path).ok();
+    }
+
+    #[test]
+    fn test_delete_file() {
+        let mut state = EditorState::default();
+        state.root_path = std::env::temp_dir();
+        let path = temp_file("test_delete_target.txt", "to be deleted");
+        state.open_file(path.clone());
+        assert_eq!(state.open_tabs.len(), 1);
+
+        state.delete_file(path.clone());
+
+        // File should not exist on disk
+        assert!(!std::path::Path::new(&path).exists());
+        // Tab should be closed
+        assert!(state.open_tabs.is_empty());
+        // Buffer should be removed
+        assert!(state.file_contents.get(&path).is_none());
+        // Status message
+        assert!(state.status_message.as_ref().unwrap().contains("Deleted"));
+    }
+
+    #[test]
+    fn test_rename_file() {
+        let mut state = EditorState::default();
+        state.root_path = std::env::temp_dir();
+        let path = temp_file("test_rename_src.txt", "rename me");
+        state.open_file(path.clone());
+
+        let new_name = "test_rename_dst.txt";
+        state.rename_file(path.clone(), new_name.to_string());
+
+        // Old file should not exist
+        assert!(!std::path::Path::new(&path).exists());
+
+        // New file should exist
+        let new_path = std::env::temp_dir().join(new_name);
+        assert!(new_path.exists());
+
+        // Tab should reflect new path and title
+        assert_eq!(state.open_tabs[0].title, new_name);
+        assert_eq!(
+            state.open_tabs[0].path,
+            new_path.to_string_lossy().to_string()
+        );
+
+        // Buffer should be under new path
+        let buf = state
+            .file_contents
+            .get(&new_path.to_string_lossy().to_string())
+            .expect("buffer under new path");
+        assert_eq!(buf.content, "rename me");
+
+        // Old path buffer gone
+        assert!(state.file_contents.get(&path).is_none());
+
+        // Status message
+        assert!(state.status_message.as_ref().unwrap().contains("Renamed"));
+
+        std::fs::remove_file(&new_path).ok();
+    }
+
+    #[test]
+    fn test_breadcrumb_updates() {
+        let mut state = EditorState::default();
+        state.root_path = std::env::temp_dir();
+        let subdir = std::env::temp_dir().join("test_breadcrumb_dir");
+        std::fs::create_dir_all(&subdir).ok();
+        let file_path = subdir.join("deep.txt");
+        std::fs::write(&file_path, "hello").ok();
+        let path_str = file_path.to_string_lossy().to_string();
+
+        state.open_file(path_str.clone());
+
+        // Breadcrumb should contain the dir name and the file name
+        assert!(state.breadcrumb_path.len() >= 2,
+            "breadcrumb should have at least 2 segments, got: {:?}", state.breadcrumb_path);
+        assert!(state.breadcrumb_path.contains(&"test_breadcrumb_dir".to_string()));
+        assert!(state.breadcrumb_path.contains(&"deep.txt".to_string()));
+
+        std::fs::remove_file(&file_path).ok();
+        std::fs::remove_dir(&subdir).ok();
+    }
+
+    #[test]
+    fn test_breadcrumb_updates_on_tab_switch() {
+        let mut state = EditorState::default();
+        state.root_path = std::env::temp_dir();
+        let p1 = temp_file("breadcrumb_a.txt", "a");
+        let p2 = temp_file("breadcrumb_b.txt", "b");
+
+        state.open_file(p1.clone());
+        assert!(state.breadcrumb_path.last() == Some(&"breadcrumb_a.txt".to_string()));
+
+        state.open_file(p2.clone());
+        assert!(state.breadcrumb_path.last() == Some(&"breadcrumb_b.txt".to_string()));
+
+        // Switch back to first
+        state.active_tab = 0;
+        state.update_breadcrumb();
+        assert!(state.breadcrumb_path.last() == Some(&"breadcrumb_a.txt".to_string()));
+
+        cleanup(&p1);
+        cleanup(&p2);
+    }
+
+    #[test]
+    fn test_terminal_runs_command() {
+        let mut state = EditorState::default();
+        state.root_path = std::env::temp_dir();
+        state.terminal_input = "echo hello_from_test".to_string();
+
+        state.run_terminal_command();
+
+        // terminal_input should be cleared
+        assert!(state.terminal_input.is_empty());
+
+        // terminal_lines should contain the command and its output
+        let has_prompt = state.terminal_lines.iter().any(|l| l.contains("$ echo hello_from_test"));
+        let has_output = state.terminal_lines.iter().any(|l| l.contains("hello_from_test") && !l.starts_with("$"));
+        assert!(has_prompt, "terminal should show the command prompt");
+        assert!(has_output, "terminal should show command output");
+    }
+
+    #[test]
+    fn test_terminal_empty_command_noop() {
+        let mut state = EditorState::default();
+        state.root_path = std::env::temp_dir();
+        let initial_count = state.terminal_lines.len();
+        state.terminal_input = "   ".to_string();
+
+        state.run_terminal_command();
+
+        // Empty/whitespace command should be a no-op
+        assert_eq!(state.terminal_lines.len(), initial_count);
+    }
+
+    #[test]
+    fn test_search_finds_results() {
+        let mut state = EditorState::default();
+        // Use a temp directory with a known file
+        let dir = std::env::temp_dir().join("test_search_dir");
+        std::fs::create_dir_all(&dir).ok();
+        let file = dir.join("searchable.txt");
+        std::fs::write(&file, "hello world\nfoo bar\nhello again").ok();
+
+        state.root_path = dir.clone();
+        // Also open the file so it is in file_contents
+        state.open_file(file.to_string_lossy().to_string());
+
+        state.search_query = "hello".to_string();
+        state.run_search();
+
+        // Should find at least 2 matches (lines 1 and 3)
+        assert!(
+            state.search_results.len() >= 2,
+            "expected >= 2 search results, got {}",
+            state.search_results.len()
+        );
+
+        // Results should reference the correct file
+        for r in &state.search_results {
+            assert!(r.path.contains("searchable.txt"));
+            assert!(r.context.contains("hello"));
+        }
+
+        std::fs::remove_file(&file).ok();
+        std::fs::remove_dir(&dir).ok();
+    }
+
+    #[test]
+    fn test_search_empty_query_clears() {
+        let mut state = EditorState::default();
+        state.root_path = std::env::temp_dir();
+        state.search_results = vec![SearchResult {
+            path: "fake".into(),
+            line: 1,
+            col: 0,
+            context: "old result".into(),
+        }];
+
+        state.search_query = "".to_string();
+        state.run_search();
+        assert!(state.search_results.is_empty());
+    }
+
+    #[test]
+    fn test_git_status_parses() {
+        let mut state = EditorState::default();
+        // Use the repo root so git status works
+        state.root_path = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../..");
+
+        state.refresh_git_status();
+
+        // In a git repo with changes, we should get entries.
+        // Even if there are no changes, the call should not panic.
+        // Just verify the function runs and entries is a Vec.
+        println!("Git status entries: {}", state.git_status_lines.len());
+        for entry in &state.git_status_lines {
+            assert!(!entry.path.is_empty(), "git entry path should not be empty");
+            // Status should be one of the standard git status codes
+            assert!(
+                entry.status.len() <= 2,
+                "status should be 1-2 chars, got: '{}'",
+                entry.status
+            );
+        }
+    }
+
+    #[test]
+    fn test_paste_at_cursor() {
+        let mut state = EditorState::default();
+        state.root_path = std::env::temp_dir();
+        let path = temp_file("test_paste.txt", "line one\nline two\nline three");
+        state.open_file(path.clone());
+
+        // Set cursor to line 1, col 5 ("line |two")
+        if let Some(buf) = state.file_contents.get_mut(&path) {
+            buf.cursor_line = 1;
+            buf.cursor_col = 5;
+        }
+
+        state.clipboard = "INSERTED".to_string();
+        state.paste();
+
+        let content = &state.file_contents[&path].content;
+        assert!(content.contains("line INSERTEDtwo"),
+            "paste should insert at cursor position, got: {}", content);
+        assert!(state.open_tabs[0].is_dirty);
+
+        cleanup(&path);
+    }
+
+    #[test]
+    fn test_paste_empty_clipboard_noop() {
+        let mut state = EditorState::default();
+        state.root_path = std::env::temp_dir();
+        let path = temp_file("test_paste_noop.txt", "no change");
+        state.open_file(path.clone());
+
+        state.clipboard = "".to_string();
+        state.paste();
+
+        assert_eq!(state.file_contents[&path].content, "no change");
+        assert!(!state.open_tabs[0].is_dirty);
+
+        cleanup(&path);
+    }
+
+    #[test]
+    fn test_cut_line() {
+        let mut state = EditorState::default();
+        state.root_path = std::env::temp_dir();
+        let path = temp_file("test_cut.txt", "line A\nline B\nline C");
+        state.open_file(path.clone());
+
+        // Set cursor to line 1 ("line B")
+        if let Some(buf) = state.file_contents.get_mut(&path) {
+            buf.cursor_line = 1;
+            buf.cursor_col = 0;
+        }
+
+        state.cut_line();
+
+        // Clipboard should have "line B"
+        assert_eq!(state.clipboard, "line B");
+
+        // Content should have the line removed
+        let content = &state.file_contents[&path].content;
+        assert!(!content.contains("line B"), "cut line should be removed, got: {}", content);
+        assert!(content.contains("line A"));
+        assert!(content.contains("line C"));
+        assert!(state.open_tabs[0].is_dirty);
+
+        // Undo should restore it
+        state.undo_active();
+        let content = &state.file_contents[&path].content;
+        assert!(content.contains("line B"), "undo should restore cut line");
+
+        cleanup(&path);
+    }
+
+    #[test]
+    fn test_copy_line() {
+        let mut state = EditorState::default();
+        state.root_path = std::env::temp_dir();
+        let path = temp_file("test_copy.txt", "alpha\nbeta\ngamma");
+        state.open_file(path.clone());
+
+        if let Some(buf) = state.file_contents.get_mut(&path) {
+            buf.cursor_line = 2;
+        }
+
+        state.copy_line();
+
+        assert_eq!(state.clipboard, "gamma");
+        // Content should be unchanged
+        assert_eq!(state.file_contents[&path].content, "alpha\nbeta\ngamma");
+
+        cleanup(&path);
+    }
+
+    #[test]
+    fn test_go_to_line() {
+        let mut state = EditorState::default();
+        state.root_path = std::env::temp_dir();
+        let path = temp_file("test_goto.txt", "line 1\nline 2\nline 3\nline 4\nline 5");
+        state.open_file(path.clone());
+
+        // Go to line 3 (1-based)
+        state.go_to_line(3);
+        let buf = state.file_contents.get(&path).unwrap();
+        assert_eq!(buf.cursor_line, 2); // 0-based
+        assert_eq!(buf.cursor_col, 0);
+
+        // Go to line 0 (edge case) -- should go to line 0
+        state.go_to_line(0);
+        let buf = state.file_contents.get(&path).unwrap();
+        assert_eq!(buf.cursor_line, 0);
+
+        // Go to line beyond end -- should clamp
+        state.go_to_line(999);
+        let buf = state.file_contents.get(&path).unwrap();
+        assert_eq!(buf.cursor_line, 4); // last line (0-based)
+
+        cleanup(&path);
+    }
+
+    #[test]
+    fn test_go_to_line_no_tabs_noop() {
+        let mut state = EditorState::default();
+        // No tabs open -- should not panic
+        state.go_to_line(5);
+    }
+
+    #[test]
+    fn test_language_detection() {
+        assert_eq!(Language::from_extension("rs"), Language::Rust);
+        assert_eq!(Language::from_extension("toml"), Language::Toml);
+        assert_eq!(Language::from_extension("md"), Language::Markdown);
+        assert_eq!(Language::from_extension("json"), Language::Json);
+        assert_eq!(Language::from_extension("txt"), Language::Plain);
+        assert_eq!(Language::from_extension("xyz"), Language::Plain);
+    }
+
+    #[test]
+    fn test_language_display_name() {
+        assert_eq!(Language::Rust.display_name(), "Rust");
+        assert_eq!(Language::Toml.display_name(), "TOML");
+        assert_eq!(Language::Markdown.display_name(), "Markdown");
+        assert_eq!(Language::Json.display_name(), "JSON");
+        assert_eq!(Language::Plain.display_name(), "Plain Text");
+    }
+
+    #[test]
+    fn test_save_all_files() {
+        let mut state = EditorState::default();
+        state.root_path = std::env::temp_dir();
+        let p1 = temp_file("test_save_all_1.txt", "one");
+        let p2 = temp_file("test_save_all_2.txt", "two");
+        state.open_file(p1.clone());
+        state.open_file(p2.clone());
+
+        // Modify both
+        if let Some(buf) = state.file_contents.get_mut(&p1) {
+            buf.content = "one_modified".to_string();
+        }
+        state.open_tabs[0].is_dirty = true;
+
+        if let Some(buf) = state.file_contents.get_mut(&p2) {
+            buf.content = "two_modified".to_string();
+        }
+        state.open_tabs[1].is_dirty = true;
+
+        state.save_all_files();
+
+        assert!(!state.open_tabs[0].is_dirty);
+        assert!(!state.open_tabs[1].is_dirty);
+        assert!(state.status_message.as_ref().unwrap().contains("All files saved"));
+
+        // Verify on disk
+        assert_eq!(std::fs::read_to_string(&p1).unwrap(), "one_modified");
+        assert_eq!(std::fs::read_to_string(&p2).unwrap(), "two_modified");
+
+        cleanup(&p1);
+        cleanup(&p2);
+    }
+
+    #[test]
+    fn test_toggle_state_flags() {
+        let mut state = EditorState::default();
+
+        // Sidebar
+        assert!(state.sidebar_visible);
+        state.sidebar_visible = !state.sidebar_visible;
+        assert!(!state.sidebar_visible);
+        state.sidebar_visible = !state.sidebar_visible;
+        assert!(state.sidebar_visible);
+
+        // Terminal
+        assert!(state.terminal_visible);
+        state.terminal_visible = !state.terminal_visible;
+        assert!(!state.terminal_visible);
+
+        // Command palette
+        assert!(!state.show_command_palette);
+        state.show_command_palette = true;
+        assert!(state.show_command_palette);
+
+        // Find/Replace
+        assert!(!state.show_find_replace);
+        state.show_find_replace = true;
+        assert!(state.show_find_replace);
+    }
+
+    #[test]
+    fn test_sidebar_section_switch() {
+        let mut state = EditorState::default();
+        assert_eq!(state.sidebar_section, SidebarSection::Explorer);
+
+        state.sidebar_section = SidebarSection::Search;
+        assert_eq!(state.sidebar_section, SidebarSection::Search);
+
+        state.sidebar_section = SidebarSection::Git;
+        assert_eq!(state.sidebar_section, SidebarSection::Git);
+
+        state.sidebar_section = SidebarSection::Extensions;
+        assert_eq!(state.sidebar_section, SidebarSection::Extensions);
+    }
+
+    #[test]
+    fn test_bottom_panel_tab_switch() {
+        let mut state = EditorState::default();
+        assert_eq!(state.bottom_panel_tab, BottomPanelTab::Terminal);
+
+        state.bottom_panel_tab = BottomPanelTab::Problems;
+        assert_eq!(state.bottom_panel_tab, BottomPanelTab::Problems);
+    }
+
+    #[test]
+    fn test_active_buffer_returns_correct_pair() {
+        let mut state = EditorState::default();
+        state.root_path = std::env::temp_dir();
+        let path = temp_file("test_active_buf.txt", "some content");
+        state.open_file(path.clone());
+
+        let (tab, buf) = state.active_buffer().expect("active buffer");
+        assert_eq!(tab.path, path);
+        assert_eq!(buf.content, "some content");
+
+        cleanup(&path);
+    }
+
+    #[test]
+    fn test_active_buffer_none_when_no_tabs() {
+        let state = EditorState::default();
+        assert!(state.active_buffer().is_none());
+    }
+
+    #[test]
+    fn test_create_folder() {
+        let mut state = EditorState::default();
+        state.root_path = std::env::temp_dir();
+        let folder_path = std::env::temp_dir().join("test_create_folder_dir");
+        let folder_str = folder_path.to_string_lossy().to_string();
+
+        // Clean up first
+        std::fs::remove_dir_all(&folder_path).ok();
+
+        state.create_folder(folder_str.clone());
+
+        assert!(folder_path.exists());
+        assert!(folder_path.is_dir());
+        assert!(state.status_message.as_ref().unwrap().contains("Created folder"));
+
+        std::fs::remove_dir_all(&folder_path).ok();
+    }
+
+    #[test]
+    fn test_scan_directory() {
+        let dir = std::env::temp_dir().join("test_scan_dir");
+        std::fs::create_dir_all(&dir).ok();
+        std::fs::write(dir.join("alpha.txt"), "a").ok();
+        std::fs::write(dir.join("beta.rs"), "b").ok();
+        std::fs::create_dir_all(dir.join("subdir")).ok();
+        std::fs::write(dir.join("subdir/gamma.txt"), "c").ok();
+
+        let entries = scan_directory(&dir, 0);
+
+        // Should find at least the two files and one subdir
+        assert!(entries.len() >= 3, "expected >= 3 entries, got {}", entries.len());
+
+        // Directories should come before files (by the sort in scan_directory)
+        let first_dir_idx = entries.iter().position(|e| e.is_dir);
+        let first_file_idx = entries.iter().position(|e| !e.is_dir);
+        if let (Some(d), Some(f)) = (first_dir_idx, first_file_idx) {
+            assert!(d < f, "directories should be sorted before files");
+        }
+
+        // The subdir should have children
+        let subdir_entry = entries.iter().find(|e| e.name == "subdir").unwrap();
+        assert!(subdir_entry.is_dir);
+        assert!(!subdir_entry.children.is_empty());
+
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn test_scan_directory_skips_hidden() {
+        let dir = std::env::temp_dir().join("test_scan_hidden");
+        std::fs::create_dir_all(&dir).ok();
+        std::fs::write(dir.join("visible.txt"), "v").ok();
+        std::fs::write(dir.join(".hidden"), "h").ok();
+        std::fs::create_dir_all(dir.join(".git")).ok();
+
+        let entries = scan_directory(&dir, 0);
+
+        let names: Vec<&str> = entries.iter().map(|e| e.name.as_str()).collect();
+        assert!(names.contains(&"visible.txt"));
+        assert!(!names.contains(&".hidden"));
+        assert!(!names.contains(&".git"));
+
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn test_context_menu_state() {
+        let mut state = EditorState::default();
+        assert!(!state.context_menu_visible);
+        assert!(state.context_menu_target.is_none());
+
+        state.context_menu_visible = true;
+        state.context_menu_position = (100.0, 200.0);
+        state.context_menu_target = Some("/some/file.rs".to_string());
+
+        assert!(state.context_menu_visible);
+        assert_eq!(state.context_menu_position, (100.0, 200.0));
+        assert_eq!(state.context_menu_target.as_deref(), Some("/some/file.rs"));
+    }
+
+    #[test]
+    fn test_menu_bar_state() {
+        let mut state = EditorState::default();
+        assert!(state.show_menu_bar);
+        assert!(state.active_menu.is_none());
+
+        state.active_menu = Some("File".to_string());
+        assert_eq!(state.active_menu.as_deref(), Some("File"));
+
+        state.active_menu = None;
+        assert!(state.active_menu.is_none());
+    }
+
+    #[test]
+    fn test_completions_state() {
+        let mut state = EditorState::default();
+        assert!(!state.show_completions);
+        assert!(state.completions.is_empty());
+        assert_eq!(state.selected_completion, 0);
+
+        state.completions = vec![
+            CompletionItem {
+                label: "println!".into(),
+                kind: "function".into(),
+                detail: Some("macro".into()),
+            },
+            CompletionItem {
+                label: "print!".into(),
+                kind: "function".into(),
+                detail: None,
+            },
+        ];
+        state.show_completions = true;
+        state.selected_completion = 1;
+
+        assert_eq!(state.completions.len(), 2);
+        assert_eq!(state.completions[1].label, "print!");
+    }
+
+    #[test]
+    fn test_diagnostics_storage() {
+        let mut state = EditorState::default();
+        assert!(state.diagnostics.is_empty());
+
+        state.diagnostics.insert(
+            "/some/file.rs".into(),
+            vec![
+                Diagnostic {
+                    line: 10,
+                    col: 5,
+                    severity: DiagSeverity::Error,
+                    message: "expected `;`".into(),
+                },
+                Diagnostic {
+                    line: 20,
+                    col: 0,
+                    severity: DiagSeverity::Warning,
+                    message: "unused variable".into(),
+                },
+            ],
+        );
+
+        let diags = &state.diagnostics["/some/file.rs"];
+        assert_eq!(diags.len(), 2);
+        assert_eq!(diags[0].severity, DiagSeverity::Error);
+        assert_eq!(diags[1].severity, DiagSeverity::Warning);
+    }
+
+    #[test]
+    fn test_multiline_find_matches() {
+        let mut state = EditorState::default();
+        state.root_path = std::env::temp_dir();
+        let path = temp_file("test_multiline_find.txt", "hello world\nhello rust\ngoodbye hello");
+        state.open_file(path.clone());
+
+        state.find_query = "hello".to_string();
+        state.find_next();
+
+        assert_eq!(state.find_matches.len(), 3);
+        // Verify line numbers
+        assert_eq!(state.find_matches[0].1, 0); // line 0
+        assert_eq!(state.find_matches[1].1, 1); // line 1
+        assert_eq!(state.find_matches[2].1, 2); // line 2
+
+        cleanup(&path);
     }
 }
