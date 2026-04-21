@@ -14,6 +14,9 @@ mod tab_bar;
 mod status_bar;
 mod terminal_panel;
 mod command_palette;
+mod syntax;
+mod lsp;
+mod plugin;
 
 use model::*;
 use file_tree::FileTree;
