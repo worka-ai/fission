@@ -3,27 +3,7 @@ set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 SCREENSHOT_DIR="${FISSION_SCREENSHOT_DIR:-$ROOT_DIR/test_screenshots/editor_e2e}"
-SCREENSHOT_PORT="${FISSION_SCREENSHOT_PORT:-}"
 CONTROL_PORT="${FISSION_TEST_CONTROL_PORT:-9878}"
-
-choose_free_port() {
-  python3 - "$@" <<'PY'
-import socket, sys
-excluded = {int(a) for a in sys.argv[1:] if a.strip()}
-while True:
-    s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-    s.bind(("127.0.0.1", 0))
-    p = s.getsockname()[1]
-    s.close()
-    if p not in excluded:
-        print(p)
-        break
-PY
-}
-
-if [[ -z "$SCREENSHOT_PORT" ]]; then
-  SCREENSHOT_PORT="$(choose_free_port "$CONTROL_PORT")"
-fi
 
 mkdir -p "$SCREENSHOT_DIR"
 find "$SCREENSHOT_DIR" -maxdepth 1 -type f -name '*.png' -delete 2>/dev/null || true
@@ -31,40 +11,18 @@ find "$SCREENSHOT_DIR" -maxdepth 1 -type f -name '*.png' -delete 2>/dev/null || 
 cleanup() {
   echo "Cleaning up..."
   pkill -f "target/debug/fission-editor" >/dev/null 2>&1 || true
-  if [[ -n "${screenshot_pid:-}" ]]; then
-    kill "$screenshot_pid" >/dev/null 2>&1 || true
-  fi
   lsof -ti tcp:"$CONTROL_PORT" 2>/dev/null | xargs kill 2>/dev/null || true
-  lsof -ti tcp:"$SCREENSHOT_PORT" 2>/dev/null | xargs kill 2>/dev/null || true
 }
 trap cleanup EXIT
 
 # Kill stale processes
 pkill -f "target/debug/fission-editor" >/dev/null 2>&1 || true
 lsof -ti tcp:"$CONTROL_PORT" 2>/dev/null | xargs kill 2>/dev/null || true
-lsof -ti tcp:"$SCREENSHOT_PORT" 2>/dev/null | xargs kill 2>/dev/null || true
 sleep 1
 
 # Build editor
 echo "Building fission-editor..."
 cargo build -p fission-editor 2>&1 | tail -2
-
-# Start screenshot server
-echo "Starting screenshot server on port $SCREENSHOT_PORT"
-export WORKA_SCREENSHOT_DIR="$SCREENSHOT_DIR"
-export WORKA_SCREENSHOT_PORT="$SCREENSHOT_PORT"
-export WORKA_SCREENSHOT_MODE="desktop"
-export WORKA_SCREENSHOT_ACTIVATE_APP="fission-editor"
-export WORKA_SCREENSHOT_ACTIVATE_DELAY_MS=2000
-python3 "$ROOT_DIR/scripts/screenshot_server.py" &
-screenshot_pid=$!
-
-# Wait for screenshot server
-for i in $(seq 1 10); do
-  if nc -z 127.0.0.1 "$SCREENSHOT_PORT" 2>/dev/null; then break; fi
-  sleep 0.5
-done
-echo "Screenshot server ready"
 
 # Start editor
 echo "Starting fission-editor on control port $CONTROL_PORT"
@@ -81,7 +39,8 @@ echo "Editor ready"
 cmd() { curl -s -X POST "http://127.0.0.1:$CONTROL_PORT/cmd" -H "Content-Type: application/json" -d "$1"; }
 shot() {
   local name="$1"
-  curl -s "http://127.0.0.1:$SCREENSHOT_PORT?name=$name" >/dev/null
+  local path="$SCREENSHOT_DIR/${name}.png"
+  cmd "{\"cmd\":\"Screenshot\",\"path\":\"$path\"}"
   echo "  Screenshot: $name.png"
 }
 
@@ -145,6 +104,31 @@ echo "10. PROBLEMS tab"
 cmd '{"cmd":"TapText","text":"PROBLEMS"}'
 cmd '{"cmd":"Pump"}'
 shot "11_problems"
+
+echo "11. Open a Rust file for syntax highlight test"
+# Make sure we're on Explorer
+cmd '{"cmd":"PressKey","key":"P","modifiers":5}'
+cmd '{"cmd":"Pump"}'
+sleep 0.3
+# Type "Show Explorer" and tap it
+cmd '{"cmd":"TapText","text":"Show Explorer"}'
+cmd '{"cmd":"Pump"}'
+sleep 0.5
+# Expand examples > editor > src
+cmd '{"cmd":"TapText","text":"examples"}'
+cmd '{"cmd":"Pump"}'
+sleep 0.3
+# Look for "editor" directory (might need to scroll)
+cmd '{"cmd":"TapText","text":"editor"}'
+cmd '{"cmd":"Pump"}'
+sleep 0.3
+cmd '{"cmd":"TapText","text":"src"}'
+cmd '{"cmd":"Pump"}'
+sleep 0.3
+cmd '{"cmd":"TapText","text":"main.rs"}'
+cmd '{"cmd":"Pump"}'
+sleep 0.5
+shot "12_rust_syntax"
 
 # Check for broken items
 echo ""
