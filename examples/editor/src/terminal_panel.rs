@@ -11,17 +11,10 @@ impl Widget<EditorState> for TerminalPanel {
         let text_color = Color { r: 204, g: 204, b: 204, a: 255 };
         let bg = Color { r: 24, g: 24, b: 24, a: 255 };
         let header_bg = Color { r: 37, g: 37, b: 38, a: 255 };
+        let border_color = Color { r: 48, g: 48, b: 49, a: 255 };
 
-        let terminal_tab_color = if view.state.bottom_panel_tab == BottomPanelTab::Terminal {
-            Color { r: 255, g: 255, b: 255, a: 255 }
-        } else {
-            Color { r: 180, g: 180, b: 180, a: 255 }
-        };
-        let problems_tab_color = if view.state.bottom_panel_tab == BottomPanelTab::Problems {
-            Color { r: 255, g: 255, b: 255, a: 255 }
-        } else {
-            Color { r: 180, g: 180, b: 180, a: 255 }
-        };
+        let is_terminal = view.state.bottom_panel_tab == BottomPanelTab::Terminal;
+        let is_problems = view.state.bottom_panel_tab == BottomPanelTab::Problems;
 
         let set_terminal = ctx.bind(
             crate::model::Noop,
@@ -34,35 +27,62 @@ impl Widget<EditorState> for TerminalPanel {
                 as Handler<EditorState, crate::model::Noop>,
         );
 
+        // Tab bar with underline indicators
+        let tab = |label: &str, active: bool, action: fission_core::ActionEnvelope| -> Node {
+            let label_color = if active {
+                Color { r: 255, g: 255, b: 255, a: 255 }
+            } else {
+                Color { r: 150, g: 150, b: 150, a: 255 }
+            };
+
+            let underline = if active {
+                Container::new(Spacer::default().into_node())
+                    .height(2.0)
+                    .bg(Color { r: 255, g: 255, b: 255, a: 255 })
+                    .into_node()
+            } else {
+                Container::new(Spacer::default().into_node())
+                    .height(2.0)
+                    .bg(Color { r: 0, g: 0, b: 0, a: 0 })
+                    .into_node()
+            };
+
+            Button {
+                variant: ButtonVariant::Ghost,
+                child: Some(Box::new(
+                    VStack {
+                        spacing: Some(0.0),
+                        children: vec![
+                            Container::new(
+                                Text::new(label).size(11.0).color(label_color).into_node(),
+                            ).padding_all(6.0).into_node(),
+                            underline,
+                        ],
+                    }.into_node(),
+                )),
+                on_press: Some(action),
+                padding: Some([0.0; 4]),
+                ..Default::default()
+            }.into_node()
+        };
+
         let header = Container::new(
             HStack {
-                spacing: Some(16.0),
+                spacing: Some(0.0),
                 children: vec![
-                    Button {
-                        variant: ButtonVariant::Ghost,
-                        child: Some(Box::new(Text::new("TERMINAL").size(12.0).color(terminal_tab_color).into_node())),
-                        on_press: Some(set_terminal),
-                        padding: Some([4.0, 4.0, 0.0, 0.0]),
-                        ..Default::default()
-                    }.into_node(),
-                    Button {
-                        variant: ButtonVariant::Ghost,
-                        child: Some(Box::new(Text::new("PROBLEMS").size(12.0).color(problems_tab_color).into_node())),
-                        on_press: Some(set_problems),
-                        padding: Some([4.0, 4.0, 0.0, 0.0]),
-                        ..Default::default()
-                    }.into_node(),
+                    tab("TERMINAL", is_terminal, set_terminal),
+                    tab("PROBLEMS", is_problems, set_problems),
                     Spacer { flex_grow: 1.0, ..Default::default() }.into_node(),
                 ],
             }.into_node(),
         )
         .bg(header_bg)
-        .height(24.0)
-        .padding_all(4.0)
+        .height(28.0)
+        .border(border_color, 1.0)
         .flex_shrink(0.0)
         .into_node();
 
-        let content = if view.state.bottom_panel_tab == BottomPanelTab::Terminal {
+        let content = if is_terminal {
             self.build_terminal(ctx, view, bg, text_color)
         } else {
             crate::diagnostics_panel::DiagnosticsPanel.build(ctx, view)
@@ -76,6 +96,7 @@ impl Widget<EditorState> for TerminalPanel {
             }.into_node(),
         )
         .height(view.state.terminal_height)
+        .bg(bg)
         .flex_shrink(0.0)
         .into_node()
     }
@@ -89,12 +110,9 @@ impl TerminalPanel {
                 as Handler<EditorState, UpdateTerminalInput>,
         );
 
-        let submit = ctx.bind(
-            SubmitTerminalCommand,
-            (|s: &mut EditorState, _, _| s.run_terminal_command())
-                as Handler<EditorState, SubmitTerminalCommand>,
-        );
+        let prompt_color = Color { r: 80, g: 200, b: 80, a: 255 };
 
+        // Build all lines: history + current prompt as a single scrollable view
         let mut lines = Vec::new();
         for line in &view.state.terminal_lines {
             lines.push(
@@ -102,7 +120,24 @@ impl TerminalPanel {
             );
         }
 
-        let output = Container::new(
+        // Current prompt line: $ <inline input>
+        lines.push(
+            HStack {
+                spacing: Some(4.0),
+                children: vec![
+                    Text::new("$").size(13.0).color(prompt_color).into_node(),
+                    TextInput {
+                        value: view.state.terminal_input.clone(),
+                        placeholder: Some("".into()),
+                        on_change: Some(update_input),
+                        borderless: true,
+                        ..Default::default()
+                    }.into_node(),
+                ],
+            }.into_node(),
+        );
+
+        Container::new(
             Scroll {
                 direction: FlexDirection::Column,
                 child: Some(Box::new(
@@ -115,40 +150,8 @@ impl TerminalPanel {
             }.into_node(),
         )
         .bg(bg)
-        .padding_all(4.0)
+        .padding_all(6.0)
         .flex_grow(1.0)
-        .into_node();
-
-        let input_row = Container::new(
-            HStack {
-                spacing: Some(4.0),
-                children: vec![
-                    Text::new("$").size(13.0).color(Color { r: 80, g: 200, b: 80, a: 255 }).into_node(),
-                    TextInput {
-                        value: view.state.terminal_input.clone(),
-                        placeholder: Some("Type a command...".into()),
-                        on_change: Some(update_input),
-                        ..Default::default()
-                    }.into_node(),
-                    Button {
-                        variant: ButtonVariant::Ghost,
-                        child: Some(Box::new(Text::new("Run").size(12.0).color(text_color).into_node())),
-                        on_press: Some(submit),
-                        height: Some(28.0),
-                        ..Default::default()
-                    }.into_node(),
-                ],
-            }.into_node(),
-        )
-        .bg(Color { r: 30, g: 30, b: 30, a: 255 })
-        .padding_all(4.0)
-        .flex_shrink(0.0)
-        .into_node();
-
-        fission_core::ui::Column {
-            children: vec![output, input_row],
-            flex_grow: 1.0,
-            ..Default::default()
-        }.into_node()
+        .into_node()
     }
 }

@@ -98,7 +98,7 @@ impl Widget<EditorState> for StatusBar {
             .into_node(),
         )
         .bg(bg)
-        .height(22.0)
+        .height(24.0)
         .padding_all(4.0)
         .flex_shrink(0.0)
         .into_node()

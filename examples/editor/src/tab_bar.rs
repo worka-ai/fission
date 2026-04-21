@@ -106,7 +106,7 @@ impl Widget<EditorState> for TabBar {
                 flex_shrink: 0.0,
                 child: Some(Box::new(
                     HStack {
-                        spacing: Some(1.0),
+                        spacing: Some(0.0),
                         children: tab_nodes,
                     }
                     .into_node(),
@@ -115,8 +115,9 @@ impl Widget<EditorState> for TabBar {
             }
             .into_node(),
         )
-        .height(32.0)
+        .height(35.0)
         .bg(Color { r: 37, g: 37, b: 38, a: 255 })
+        .border(Color { r: 48, g: 48, b: 49, a: 255 }, 1.0)
         .flex_shrink(0.0)
         .into_node()
     }

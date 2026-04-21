@@ -9,7 +9,6 @@ pub struct SearchPanel;
 
 impl Widget<EditorState> for SearchPanel {
     fn build(&self, ctx: &mut BuildCtx<EditorState>, view: &View<EditorState>) -> Node {
-        let tokens = &view.env.theme.tokens;
         let text_color = Color { r: 204, g: 204, b: 204, a: 255 };
         let dim_color = Color { r: 140, g: 140, b: 140, a: 255 };
 
@@ -31,28 +30,39 @@ impl Widget<EditorState> for SearchPanel {
                 as Handler<EditorState, OpenFile>,
         ).id;
 
-        let mut children = vec![
-            // Search input row
+        // Connected search input with Go button inside a single bordered container
+        let search_row = Container::new(
             HStack {
-                spacing: Some(4.0),
+                spacing: Some(0.0),
                 children: vec![
                     TextInput {
                         value: view.state.search_query.clone(),
                         placeholder: Some("Search...".into()),
                         on_change: Some(update_query),
+                        borderless: true,
                         ..Default::default()
                     }.into_node(),
                     Button {
-                        variant: ButtonVariant::Outline,
-                        child: Some(Box::new(Text::new("Go").size(12.0).into_node())),
+                        variant: ButtonVariant::Ghost,
+                        child: Some(Box::new(
+                            Text::new("Go").size(11.0).color(text_color).into_node(),
+                        )),
                         on_press: Some(execute),
-                        width: Some(36.0),
-                        height: Some(32.0),
+                        width: Some(32.0),
+                        height: Some(28.0),
+                        padding: Some([0.0; 4]),
                         ..Default::default()
                     }.into_node(),
                 ],
             }.into_node(),
-        ];
+        )
+        .bg(Color { r: 60, g: 60, b: 60, a: 255 })
+        .border(Color { r: 80, g: 80, b: 80, a: 255 }, 1.0)
+        .border_radius(3.0)
+        .height(30.0)
+        .into_node();
+
+        let mut children = vec![search_row];
 
         // Results
         if !view.state.search_results.is_empty() {

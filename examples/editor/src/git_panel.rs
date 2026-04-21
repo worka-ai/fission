@@ -34,11 +34,10 @@ impl Widget<EditorState> for GitPanel {
                     Spacer { flex_grow: 1.0, ..Default::default() }.into_node(),
                     Button {
                         variant: ButtonVariant::Ghost,
-                        child: Some(Box::new(Text::new("↻").size(14.0).color(text_color).into_node())),
+                        child: Some(Box::new(Text::new("Refresh").size(11.0).color(text_color).into_node())),
                         on_press: Some(refresh),
-                        width: Some(24.0),
                         height: Some(24.0),
-                        padding: Some([0.0; 4]),
+                        padding: Some([4.0, 4.0, 0.0, 0.0]),
                         ..Default::default()
                     }.into_node(),
                 ],

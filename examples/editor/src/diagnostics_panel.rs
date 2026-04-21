@@ -30,6 +30,8 @@ impl Widget<EditorState> for DiagnosticsPanel {
             sev_ord(&a.1.severity).cmp(&sev_ord(&b.1.severity))
         });
 
+        let bg = Color { r: 24, g: 24, b: 24, a: 255 };
+
         if all_diags.is_empty() {
             return Container::new(
                 Text::new("No problems detected")
@@ -37,6 +39,7 @@ impl Widget<EditorState> for DiagnosticsPanel {
                     .color(dim_color)
                     .into_node(),
             )
+            .bg(bg)
             .padding_all(8.0)
             .flex_grow(1.0)
             .into_node();
@@ -91,6 +94,7 @@ impl Widget<EditorState> for DiagnosticsPanel {
                 ..Default::default()
             }.into_node(),
         )
+        .bg(bg)
         .padding_all(4.0)
         .flex_grow(1.0)
         .into_node()
