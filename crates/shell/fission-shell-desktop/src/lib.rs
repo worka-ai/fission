@@ -577,6 +577,7 @@ fn flush_text_traces(
 }
 
 pub type KeyHandler<S> = Arc<dyn Fn(&mut S, &fission_core::KeyCode, u8) -> bool + Send + Sync>;
+pub type FrameHook<S> = Arc<dyn Fn(&mut S) -> bool + Send + Sync>;
 
 pub struct DesktopApp<S: AppState, W: Widget<S>> {
     runtime: Runtime,
@@ -587,6 +588,7 @@ pub struct DesktopApp<S: AppState, W: Widget<S>> {
     measurer: Arc<VelloTextMeasurer>,
     sync_env: Option<Arc<dyn Fn(&S, &mut Env) + Send + Sync>>,
     key_handler: Option<KeyHandler<S>>,
+    frame_hook: Option<FrameHook<S>>,
     title: String,
     /// Channel pair for receiving completed background effect results.
     effect_result_tx: mpsc::Sender<EffectResult>,
@@ -638,6 +640,7 @@ impl<S: AppState + Default, W: Widget<S> + 'static> DesktopApp<S, W> {
             measurer,
             sync_env: None,
             key_handler: None,
+            frame_hook: None,
             title: "Fission".into(),
             effect_result_tx,
             effect_result_rx,
@@ -680,6 +683,17 @@ impl<S: AppState + Default, W: Widget<S> + 'static> DesktopApp<S, W> {
         F: Fn(&S, &mut Env) + Send + Sync + 'static,
     {
         self.sync_env = Some(Arc::new(f));
+        self
+    }
+
+    /// Register a hook that runs on every `AboutToWait` event with mutable
+    /// access to the application state.  Return `true` to request a redraw.
+    /// Useful for polling background services (e.g. LSP) between key events.
+    pub fn with_frame_hook<F>(mut self, f: F) -> Self
+    where
+        F: Fn(&mut S) -> bool + Send + Sync + 'static,
+    {
+        self.frame_hook = Some(Arc::new(f));
         self
     }
 
@@ -1149,7 +1163,32 @@ impl<S: AppState + Default, W: Widget<S> + 'static> DesktopApp<S, W> {
                             window.request_redraw();
                         }
 
-                        if needs_redraw || redraw_pending || effect_results_dispatched {
+                        // Application frame hook (e.g. LSP polling).
+                        let frame_hook_wants_redraw = if let Some(ref hook) = self.frame_hook {
+                            let hook = hook.clone();
+                            if let Some(state) = runtime.get_app_state_mut::<S>() {
+                                hook(state)
+                            } else {
+                                false
+                            }
+                        } else {
+                            false
+                        };
+                        if frame_hook_wants_redraw {
+                            request_redraw_throttled(&window, elwt, &mut last_redraw_at, min_frame, &mut redraw_pending);
+                        }
+
+                        // When a frame_hook is registered, ensure the event loop
+                        // wakes at least every 2 seconds so the hook fires even
+                        // when no user input or animation is happening (e.g. for
+                        // asynchronous LSP diagnostics).
+                        let frame_hook_wake_at = if self.frame_hook.is_some() {
+                            Some(now + Duration::from_secs(2))
+                        } else {
+                            None
+                        };
+
+                        if needs_redraw || redraw_pending || effect_results_dispatched || frame_hook_wants_redraw {
                             request_redraw_throttled(&window, elwt, &mut last_redraw_at, min_frame, &mut redraw_pending);
                             let mut wake_at = last_redraw_at + min_frame;
                             if let Some(blink_at) = blink_wake_at {
@@ -1157,9 +1196,22 @@ impl<S: AppState + Default, W: Widget<S> + 'static> DesktopApp<S, W> {
                                     wake_at = blink_at;
                                 }
                             }
+                            if let Some(hook_at) = frame_hook_wake_at {
+                                if hook_at < wake_at {
+                                    wake_at = hook_at;
+                                }
+                            }
                             elwt.set_control_flow(ControlFlow::WaitUntil(wake_at));
                         } else if let Some(blink_at) = blink_wake_at {
-                            elwt.set_control_flow(ControlFlow::WaitUntil(blink_at));
+                            let mut wake_at = blink_at;
+                            if let Some(hook_at) = frame_hook_wake_at {
+                                if hook_at < wake_at {
+                                    wake_at = hook_at;
+                                }
+                            }
+                            elwt.set_control_flow(ControlFlow::WaitUntil(wake_at));
+                        } else if let Some(hook_at) = frame_hook_wake_at {
+                            elwt.set_control_flow(ControlFlow::WaitUntil(hook_at));
                         } else {
                             elwt.set_control_flow(ControlFlow::Wait);
                         }

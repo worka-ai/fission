@@ -23,6 +23,8 @@ mod plugin;
 mod search_panel;
 mod git_panel;
 mod diagnostics_panel;
+mod completion_popup;
+mod minimap;
 
 use model::*;
 use file_tree::FileTree;
@@ -1017,6 +1019,7 @@ impl Widget<EditorState> for EditorApp {
         // ── Overlays (portals) ──
         CommandPalette.build(ctx, view);
         ContextMenu.build(ctx, view);
+        completion_popup::CompletionPopup.build(ctx, view);
 
         root
     }
@@ -1042,17 +1045,37 @@ fn main() -> anyhow::Result<()> {
         .with_sync_env(move |_state: &EditorState, env: &mut fission_core::Env| {
             env.theme = fission_theme::Theme::dark();
         })
+        // Poll LSP for diagnostics/completions on every frame so results
+        // appear even when the user is not typing.
+        .with_frame_hook(|state: &mut EditorState| -> bool {
+            // Lazily initialize LSP on first frame (skip in test mode)
+            if !state.lsp_initialized && std::env::var("FISSION_TEST_CONTROL_PORT").is_err() {
+                state.lsp_initialized = true;
+                state.lsp_handle = Some(LspHandle::new(&state.root_path));
+            }
+
+            let mut changed = false;
+            if let Some(ref handle) = state.lsp_handle {
+                let (diags, completions) = handle.poll_diagnostics();
+                if !diags.is_empty() {
+                    for (path, file_diags) in diags {
+                        state.diagnostics.insert(path, file_diags);
+                    }
+                    changed = true;
+                }
+                if !completions.is_empty() {
+                    state.completions = completions;
+                    state.show_completions = true;
+                    state.selected_completion = 0;
+                    changed = true;
+                }
+            }
+            changed
+        })
         .with_key_handler(move |state: &mut EditorState, key: &fission_core::KeyCode, mods: u8| -> bool {
             // Initialize root path on first call
             if state.root_path == PathBuf::from(".") {
                 state.root_path = root_for_sync.clone();
-            }
-
-            // Lazily initialize the LSP client on first key event
-            // Skip LSP when running under test control to avoid process interference
-            if !state.lsp_initialized && std::env::var("FISSION_TEST_CONTROL_PORT").is_err() {
-                state.lsp_initialized = true;
-                state.lsp_handle = Some(LspHandle::new(&state.root_path));
             }
 
             // Refresh file tree cache when dirty (e.g. after file create/delete/rename)
@@ -1065,19 +1088,6 @@ fn main() -> anyhow::Result<()> {
             state.key_event_count = state.key_event_count.wrapping_add(1);
             if state.key_event_count % 300 == 0 {
                 state.check_external_changes();
-            }
-
-            // Poll LSP for diagnostics and completions on every key event
-            if let Some(ref handle) = state.lsp_handle {
-                let (diags, completions) = handle.poll_diagnostics();
-                for (path, file_diags) in diags {
-                    state.diagnostics.insert(path, file_diags);
-                }
-                if !completions.is_empty() {
-                    state.completions = completions;
-                    state.show_completions = true;
-                    state.selected_completion = 0;
-                }
             }
 
             let ctrl = (mods & 4) != 0 || (mods & 8) != 0; // Ctrl or Cmd

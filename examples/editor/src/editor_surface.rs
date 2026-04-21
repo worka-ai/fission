@@ -1,13 +1,14 @@
+use crate::minimap::Minimap;
 use crate::model::{EditorState, FileBuffer, Language, ShowContextMenu, UpdateCursorPosition, UpdateFileContent};
 use crate::syntax;
 use fission_core::op::Color;
-use fission_core::ui::{Container, GestureDetector, Node, Row, Text, TextContent, TextInput};
+use fission_core::ui::{Container, GestureDetector, Node, Row, Scroll, Text, TextContent, TextInput};
 use fission_core::{ActionEnvelope, BuildCtx, FlexDirection, Handler, View, Widget, WidgetNodeId};
 use fission_widgets::{HStack, VStack, Spacer};
 use serde_json;
 
 /// Maximum lines to render in the gutter to avoid GPU buffer overflow.
-/// The TextInput handles scrolling internally for the content.
+/// An outer Scroll wraps both gutter and TextInput so they scroll in unison.
 const MAX_GUTTER_LINES: usize = 200;
 
 /// Line count threshold above which syntax highlighting is skipped to avoid
@@ -51,11 +52,27 @@ impl Widget<EditorState> for EditorSurface {
                         }
                     }
 
-                    // Auto-trigger completions on trigger characters (dot, colon, open-paren)
+                    // Auto-trigger completions on trigger characters (dot, colon, open-paren).
+                    // Check the character just before the cursor, not the last byte of the file.
                     let should_complete = if let Some(buf) = s.file_contents.get(&path) {
-                        !buf.content.is_empty() && {
-                            let last_char = buf.content.as_bytes().get(buf.content.len().saturating_sub(1));
-                            matches!(last_char, Some(b'.') | Some(b':') | Some(b'('))
+                        if buf.content.is_empty() || buf.cursor_col == 0 {
+                            false
+                        } else {
+                            // Find the byte offset of the cursor and look at the preceding byte
+                            let mut byte_offset = 0usize;
+                            for (i, line) in buf.content.lines().enumerate() {
+                                if i == buf.cursor_line {
+                                    byte_offset += buf.cursor_col.min(line.len());
+                                    break;
+                                }
+                                byte_offset += line.len() + 1; // +1 for '\n'
+                            }
+                            let prev_byte = if byte_offset > 0 {
+                                buf.content.as_bytes().get(byte_offset - 1)
+                            } else {
+                                None
+                            };
+                            matches!(prev_byte, Some(b'.') | Some(b':') | Some(b'('))
                         }
                     } else {
                         false
@@ -123,6 +140,14 @@ impl Widget<EditorState> for EditorSurface {
         let gutter_width = format!("{}", line_count).len() as f32 * 9.0 + 16.0;
         let is_large_file = line_count > MAX_GUTTER_LINES;
 
+        // Height of the full content area. Must match the per-line height used
+        // for gutter rows (20 px) plus the gutter padding (4 px top + 4 px bottom).
+        // By giving both the gutter and the TextInput this explicit height the
+        // TextInput's internal Scroll becomes inert (content fits) and a single
+        // outer Scroll keeps gutter + text in sync.
+        let line_height: f32 = 20.0;
+        let content_height = visible_lines as f32 * line_height;
+
         // --- Line numbers gutter (capped to MAX_GUTTER_LINES) ---
         let mut line_num_children = Vec::new();
         for i in 1..=visible_lines {
@@ -164,6 +189,7 @@ impl Widget<EditorState> for EditorSurface {
             VStack { spacing: Some(0.0), children: line_num_children }.into_node(),
         )
         .width(gutter_width)
+        .height(content_height + 8.0) // content + padding (4 top + 4 bottom)
         .padding_all(4.0)
         .bg(Color { r: 37, g: 37, b: 38, a: 255 })
         .flex_shrink(0.0)
@@ -279,7 +305,7 @@ impl Widget<EditorState> for EditorSurface {
             on_change: Some(update_id),
             on_cursor_change: Some(cursor_id),
             width: None,
-            height: None,
+            height: Some(content_height), // Fill content height — outer Scroll handles scrolling
             multiline: true,
             min_lines: None,
             max_lines: None,
@@ -341,9 +367,21 @@ impl Widget<EditorState> for EditorSurface {
             editor_column_children.push(indicator);
         }
 
-        // Current line highlight bar across the editor area
-        // (the gutter already highlights via per-line bg above)
-        let editor_row = Row {
+        // 1px separator between editor content and minimap
+        let minimap_separator = Container::new(Spacer::default().into_node())
+            .width(1.0)
+            .bg(Color { r: 48, g: 48, b: 49, a: 255 })
+            .flex_shrink(0.0)
+            .into_node();
+
+        // Minimap: scaled-down overview of the file on the right
+        let minimap_node = Minimap.build(ctx, view);
+
+        // Inner row: gutter + separator + editor text area.
+        // Both gutter and TextInput have explicit heights equal to the full
+        // content, so the TextInput's internal scroll is inert.  A single
+        // outer Scroll keeps them moving together.
+        let scrollable_row = Row {
             children: vec![gutter, gutter_separator, editor_with_gesture],
             align_items: fission_ir::op::AlignItems::Stretch,
             flex_grow: 1.0,
@@ -351,9 +389,26 @@ impl Widget<EditorState> for EditorSurface {
         }
         .into_node();
 
-        // No outer Scroll wrapper — the TextInput already has its own internal
-        // scroll container (see TextInput::Lower).  Wrapping it in a second
-        // Scroll caused the gutter to desync from the content.
+        // Outer scroll wraps both gutter and editor so they scroll in unison.
+        let scrollable = Scroll {
+            child: Some(Box::new(scrollable_row)),
+            direction: FlexDirection::Column,
+            show_scrollbar: true,
+            flex_grow: 1.0,
+            flex_shrink: 1.0,
+            ..Default::default()
+        }
+        .into_node();
+
+        // Outer row: scrollable editor area | minimap separator | minimap
+        let editor_row = Row {
+            children: vec![scrollable, minimap_separator, minimap_node],
+            align_items: fission_ir::op::AlignItems::Stretch,
+            flex_grow: 1.0,
+            ..Default::default()
+        }
+        .into_node();
+
         editor_column_children.push(editor_row);
 
         let editor_column = VStack {

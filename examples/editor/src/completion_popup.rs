@@ -79,14 +79,14 @@ impl Widget<EditorState> for CompletionPopup {
                                 }
                                 if i == buf.cursor_line {
                                     new_content.push_str(&l[..col]);
-                                    new_content.push_str(&item.label);
+                                    new_content.push_str(&label);
                                     new_content.push_str(&l[col..]);
                                 } else {
                                     new_content.push_str(l);
                                 }
                             }
                             buf.content = new_content;
-                            buf.cursor_col = col + item.label.len();
+                            buf.cursor_col = col + label.len();
                         }
                     }
                 }
