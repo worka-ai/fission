@@ -22,3 +22,6 @@ members = [
     "examples/*"
 ]
 resolver = "2"
+
+[profile.dev.package."*"]
+opt-level = 1

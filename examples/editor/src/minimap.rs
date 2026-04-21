@@ -76,8 +76,21 @@ impl Widget<EditorState> for Minimap {
         let vis_start = cursor.saturating_sub(visible_window / 2);
         let vis_end = (cursor + visible_window / 2).min(line_count);
 
-        let mut bars: Vec<Node> = Vec::with_capacity(line_count);
+        // Sample every Nth line to cap widget count at ~MAX_MINIMAP_BARS.
+        // For files shorter than the limit every line is shown.
+        const MAX_MINIMAP_BARS: usize = 50;
+        let step = if line_count > MAX_MINIMAP_BARS {
+            line_count / MAX_MINIMAP_BARS
+        } else {
+            1
+        };
+        let bar_count = (line_count + step - 1) / step;
+
+        let mut bars: Vec<Node> = Vec::with_capacity(bar_count);
         for (i, line) in lines.iter().enumerate() {
+            if step > 1 && i % step != 0 {
+                continue;
+            }
             let trimmed = line.trim();
             let color = line_color(trimmed);
 

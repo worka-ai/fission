@@ -61,7 +61,17 @@ lazy_static::lazy_static! {
     /// Avoids re-parsing when the content has not changed between rebuilds.
     static ref HIGHLIGHT_CACHE: Mutex<HashMap<(u8, u64), Vec<Vec<StyledSpan>>>> =
         Mutex::new(HashMap::new());
+
+    /// In debug builds, if the last non-cached highlight took longer than
+    /// `SLOW_THRESHOLD` we set this flag and skip tree-sitter on subsequent
+    /// calls, falling back to plain text.  This prevents multi-second stalls
+    /// when the unoptimised parser runs on large files.
+    static ref HIGHLIGHT_TOO_SLOW: Mutex<bool> = Mutex::new(false);
 }
+
+/// If a single non-cached highlight pass takes longer than this, future calls
+/// for the same session fall back to plain text.
+const SLOW_THRESHOLD: std::time::Duration = std::time::Duration::from_millis(50);
 
 // ---------------------------------------------------------------------------
 // Public API
@@ -103,12 +113,38 @@ pub fn highlight_document(content: &str, language: Language) -> Vec<Vec<StyledSp
         }
     }
 
+    // In debug builds, if a previous highlight was too slow, skip tree-sitter
+    // entirely and fall back to plain text to keep the UI responsive.
+    if cfg!(debug_assertions) {
+        if let Ok(guard) = HIGHLIGHT_TOO_SLOW.lock() {
+            if *guard && matches!(language, Language::Rust) {
+                let result = plain_document(content);
+                let mut cache = HIGHLIGHT_CACHE.lock().unwrap();
+                if cache.len() > 50 {
+                    cache.clear();
+                }
+                cache.insert((lang_tag, hash), result.clone());
+                return result;
+            }
+        }
+    }
+
     // Slow path: compute highlights
+    let start = std::time::Instant::now();
     let result = match language {
         Language::Rust => highlight_rust_document(content),
         Language::Toml => highlight_toml_document(content),
         _ => plain_document(content),
     };
+    let elapsed = start.elapsed();
+
+    // If parsing took too long in a debug build, remember it so future
+    // calls skip tree-sitter.
+    if cfg!(debug_assertions) && elapsed > SLOW_THRESHOLD {
+        if let Ok(mut guard) = HIGHLIGHT_TOO_SLOW.lock() {
+            *guard = true;
+        }
+    }
 
     // Store in cache (limit size to avoid unbounded memory growth)
     {

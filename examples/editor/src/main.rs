@@ -1039,8 +1039,10 @@ fn main() -> anyhow::Result<()> {
         .with_title("Fission Editor")
         .with_state_init(move |state: &mut EditorState| {
             state.root_path = root_for_init.clone();
-            state.cached_tree_entries = crate::model::scan_directory(&root_for_init, 0);
-            state.tree_cache_dirty = false;
+            // Don't block startup with a synchronous scan.  Mark the tree
+            // dirty so the first frame-hook iteration kicks off a background
+            // scan instead.
+            state.tree_cache_dirty = true;
         })
         .with_sync_env(move |_state: &EditorState, env: &mut fission_core::Env| {
             env.theme = fission_theme::Theme::dark();
@@ -1051,9 +1053,46 @@ fn main() -> anyhow::Result<()> {
             let is_test_mode = std::env::var("FISSION_TEST_CONTROL_PORT").is_ok();
             let last_lsp_poll = std::sync::Mutex::new(std::time::Instant::now());
             move |state: &mut EditorState| -> bool {
+                let mut changed = false;
+
+                // ── Poll background git-status result ──
+                if let Ok(mut guard) = state.git_status_pending.try_lock() {
+                    if let Some(entries) = guard.take() {
+                        state.git_status_lines = entries;
+                        changed = true;
+                    }
+                }
+
+                // ── Kick off / poll background tree scan ──
+                if state.tree_cache_dirty {
+                    // Only spawn if no scan is already in flight
+                    let can_spawn = state
+                        .tree_scan_pending
+                        .try_lock()
+                        .map(|g| g.is_none())
+                        .unwrap_or(false);
+                    if can_spawn {
+                        state.tree_cache_dirty = false;
+                        let root = state.root_path.clone();
+                        let pending = state.tree_scan_pending.clone();
+                        std::thread::spawn(move || {
+                            let entries = crate::model::scan_directory(&root, 0);
+                            if let Ok(mut guard) = pending.lock() {
+                                *guard = Some(entries);
+                            }
+                        });
+                    }
+                }
+                if let Ok(mut guard) = state.tree_scan_pending.try_lock() {
+                    if let Some(entries) = guard.take() {
+                        state.cached_tree_entries = entries;
+                        changed = true;
+                    }
+                }
+
                 // Skip LSP entirely in test mode
                 if is_test_mode {
-                    return false;
+                    return changed;
                 }
 
                 // Lazily initialize LSP on first frame
@@ -1067,12 +1106,11 @@ fn main() -> anyhow::Result<()> {
                 let now = std::time::Instant::now();
                 if let Ok(mut last) = last_lsp_poll.lock() {
                     if now.duration_since(*last).as_millis() < 1000 {
-                        return false;
+                        return changed;
                     }
                     *last = now;
                 }
 
-                let mut changed = false;
                 if let Some(ref handle) = state.lsp_handle {
                     let (diags, completions) = handle.poll_diagnostics();
                     if !diags.is_empty() {
@@ -1097,17 +1135,8 @@ fn main() -> anyhow::Result<()> {
                 state.root_path = root_for_sync.clone();
             }
 
-            // Refresh file tree cache when dirty (e.g. after file create/delete/rename)
-            if state.tree_cache_dirty {
-                state.cached_tree_entries = crate::model::scan_directory(&state.root_path, 0);
-                state.tree_cache_dirty = false;
-            }
-
-            // Periodically check for external file changes (every ~300 key events)
-            state.key_event_count = state.key_event_count.wrapping_add(1);
-            if state.key_event_count % 300 == 0 {
-                state.check_external_changes();
-            }
+            // Tree scanning and external-change checking are handled
+            // asynchronously in the frame hook -- no I/O in the key handler.
 
             let ctrl = (mods & 4) != 0 || (mods & 8) != 0; // Ctrl or Cmd
             let shift = (mods & 1) != 0;

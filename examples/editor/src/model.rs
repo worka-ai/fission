@@ -258,6 +258,10 @@ pub struct EditorState {
     // Cached file tree (avoids re-scanning on every build)
     pub cached_tree_entries: Vec<FileEntry>,
     pub tree_cache_dirty: bool,
+
+    // Background I/O: pending results from spawned threads
+    pub git_status_pending: Arc<Mutex<Option<Vec<GitStatusEntry>>>>,
+    pub tree_scan_pending: Arc<Mutex<Option<Vec<FileEntry>>>>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -315,6 +319,8 @@ impl Default for EditorState {
             key_event_count: 0,
             cached_tree_entries: Vec::new(),
             tree_cache_dirty: true,
+            git_status_pending: Arc::new(Mutex::new(None)),
+            tree_scan_pending: Arc::new(Mutex::new(None)),
         }
     }
 }
@@ -818,34 +824,40 @@ impl EditorState {
         self.search_results = results;
     }
 
+    /// Kick off a background thread to fetch `git status --porcelain`.
+    /// The result is deposited into `git_status_pending` and polled in
+    /// the frame hook so the UI thread never blocks on the git process.
     pub fn refresh_git_status(&mut self) {
         let root = self.root_path.clone();
-        // Spawn in background thread to avoid blocking the render loop
-        // TODO: Use effects system for truly async git status polling
-        let git_status = std::thread::spawn(move || {
-            std::process::Command::new("git")
+        let pending = self.git_status_pending.clone();
+        std::thread::spawn(move || {
+            let entries = match std::process::Command::new("git")
                 .args(["status", "--porcelain"])
                 .current_dir(&root)
                 .output()
-        });
-        match git_status.join() {
-            Ok(Ok(output)) => {
-                let stdout = String::from_utf8_lossy(&output.stdout);
-                self.git_status_lines = stdout.lines().filter_map(|line| {
-                    if line.len() >= 3 {
-                        Some(GitStatusEntry {
-                            status: line[..2].trim().to_string(),
-                            path: line[3..].to_string(),
+            {
+                Ok(output) => {
+                    let stdout = String::from_utf8_lossy(&output.stdout);
+                    stdout
+                        .lines()
+                        .filter_map(|line| {
+                            if line.len() >= 3 {
+                                Some(GitStatusEntry {
+                                    status: line[..2].trim().to_string(),
+                                    path: line[3..].to_string(),
+                                })
+                            } else {
+                                None
+                            }
                         })
-                    } else {
-                        None
-                    }
-                }).collect();
+                        .collect()
+                }
+                Err(_) => Vec::new(),
+            };
+            if let Ok(mut guard) = pending.lock() {
+                *guard = Some(entries);
             }
-            _ => {
-                self.git_status_lines.clear();
-            }
-        }
+        });
     }
 
     // --- Find / Replace helpers ---

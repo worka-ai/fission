@@ -148,45 +148,27 @@ impl Widget<EditorState> for EditorSurface {
         let line_height: f32 = 20.0;
         let content_height = visible_lines as f32 * line_height;
 
-        // --- Line numbers gutter (capped to MAX_GUTTER_LINES) ---
-        let mut line_num_children = Vec::new();
+        // --- Line numbers gutter (single Text widget to minimize node count) ---
+        let gutter_digits = format!("{}", line_count).len();
+        let gutter_color = Color { r: 120, g: 120, b: 120, a: 255 };
+        let mut line_numbers = String::with_capacity(visible_lines * (gutter_digits + 1));
         for i in 1..=visible_lines {
-            let is_current = (i - 1) == cursor_line;
-            let num_color = if is_current {
-                Color { r: 200, g: 200, b: 200, a: 255 }
-            } else {
-                Color { r: 120, g: 120, b: 120, a: 255 }
-            };
-
-            let line_bg = if is_current {
-                Color { r: 44, g: 44, b: 46, a: 255 } // Current line highlight in gutter
-            } else {
-                Color { r: 37, g: 37, b: 38, a: 255 }
-            };
-
-            line_num_children.push(
-                Container::new(
-                    Text::new(format!("{:>width$}", i, width = format!("{}", line_count).len()))
-                        .size(13.0)
-                        .color(num_color)
-                        .into_node(),
-                )
-                .height(20.0)
-                .bg(line_bg)
-                .into_node(),
-            );
+            use std::fmt::Write;
+            let _ = write!(line_numbers, "{:>width$}", i, width = gutter_digits);
+            if i < visible_lines {
+                line_numbers.push('\n');
+            }
         }
         if is_large_file {
-            line_num_children.push(
-                Text::new(format!("... +{} lines", line_count - MAX_GUTTER_LINES))
-                    .size(11.0)
-                    .color(Color { r: 80, g: 80, b: 80, a: 255 })
-                    .into_node(),
-            );
+            use std::fmt::Write;
+            let _ = write!(line_numbers, "\n... +{} lines", line_count - MAX_GUTTER_LINES);
         }
 
         let gutter = Container::new(
-            VStack { spacing: Some(0.0), children: line_num_children }.into_node(),
+            Text::new(line_numbers)
+                .size(13.0)
+                .color(gutter_color)
+                .into_node(),
         )
         .width(gutter_width)
         .height(content_height + 8.0) // content + padding (4 top + 4 bottom)
