@@ -55,9 +55,15 @@ impl Widget<EditorState> for FileTree {
                     y: 0.0,
                     target: None,
                 },
-                (|s: &mut EditorState, a: ShowContextMenu, _| {
+                (|s: &mut EditorState, a: ShowContextMenu, rctx: &mut fission_core::ReducerContext<EditorState>| {
+                    let (px, py) = match rctx.input {
+                        fission_core::ActionInput::Pointer { x, y, .. } => (*x, *y),
+                        _ => (a.x, a.y),
+                    };
+                    let final_x = if px < 10.0 { 100.0 } else { px };
+                    let final_y = if py < 10.0 { 100.0 } else { py };
                     s.context_menu_visible = true;
-                    s.context_menu_position = (a.x, a.y);
+                    s.context_menu_position = (final_x, final_y);
                     s.context_menu_target = a.target;
                 }) as Handler<EditorState, ShowContextMenu>,
             )

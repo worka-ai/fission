@@ -32,6 +32,8 @@ impl Widget<EditorState> for EditorSurface {
         let update_id = ctx.bind(
             UpdateFileContent(String::new()),
             (|s: &mut EditorState, a: UpdateFileContent, _| {
+                // Dismiss context menu on any content change
+                s.context_menu_visible = false;
                 if let Some(tab) = s.open_tabs.get(s.active_tab) {
                     let path = tab.path.clone();
                     if let Some(buf) = s.file_contents.get_mut(&path) {
@@ -100,9 +102,18 @@ impl Widget<EditorState> for EditorSurface {
         // --- Bind context menu action for right-click ---
         let context_menu_action = ctx.bind(
             ShowContextMenu { x: 0.0, y: 0.0, target: None },
-            (|s: &mut EditorState, a: ShowContextMenu, _| {
+            (|s: &mut EditorState, a: ShowContextMenu, rctx: &mut fission_core::ReducerContext<EditorState>| {
+                // Use pointer position from the ActionInput if available,
+                // falling back to the payload position.
+                let (px, py) = match rctx.input {
+                    fission_core::ActionInput::Pointer { x, y, .. } => (*x, *y),
+                    _ => (a.x, a.y),
+                };
+                // Clamp to reasonable bounds (avoid 0,0 overlap with sidebar)
+                let final_x = if px < 10.0 { 250.0 } else { px };
+                let final_y = if py < 10.0 { 100.0 } else { py };
                 s.context_menu_visible = true;
-                s.context_menu_position = (a.x, a.y);
+                s.context_menu_position = (final_x, final_y);
                 s.context_menu_target = a.target;
             }) as Handler<EditorState, ShowContextMenu>,
         );

@@ -158,8 +158,11 @@ cmd '{"cmd":"Pump"}'
 sleep 0.3
 shot "10_find_bar_open"
 
-# --- 11. Type search query — focus goes to Find input ---
+# --- 11. Type search query — tap the Find input first to focus it ---
 echo "11. Search for 'name' in main.rs"
+cmd '{"cmd":"TapText","text":"Find"}'
+cmd '{"cmd":"Pump"}'
+sleep 0.3
 cmd '{"cmd":"TypeText","text":"name"}'
 cmd '{"cmd":"Pump"}'
 sleep 0.3

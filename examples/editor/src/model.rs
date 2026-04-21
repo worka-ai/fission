@@ -331,6 +331,7 @@ pub struct FileBuffer {
     pub undo_stack: Vec<String>,  // Previous content states
     pub redo_stack: Vec<String>,  // States after undo
     pub version: i64,             // LSP document version
+    pub last_undo_push: Option<std::time::Instant>, // For debouncing undo
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -366,8 +367,25 @@ impl Language {
 
 impl FileBuffer {
     /// Push the current content onto the undo stack before a content change.
+    /// Debounces: only pushes if at least 500ms have elapsed since the last push,
+    /// so that rapid typing groups multiple characters into one undo entry.
     /// Clears the redo stack. Caps the undo stack at 100 entries.
     pub fn push_undo(&mut self) {
+        let now = std::time::Instant::now();
+        let should_push = match self.last_undo_push {
+            Some(last) => now.duration_since(last).as_millis() >= 500,
+            None => true,
+        };
+        if should_push {
+            self.push_undo_force();
+            self.last_undo_push = Some(now);
+        }
+    }
+
+    /// Unconditionally push the current content onto the undo stack.
+    /// Used for explicit operations (paste, cut, etc.) that should always
+    /// create a new undo point regardless of timing.
+    pub fn push_undo_force(&mut self) {
         self.undo_stack.push(self.content.clone());
         self.redo_stack.clear();
         if self.undo_stack.len() > 100 {
@@ -659,6 +677,7 @@ impl EditorState {
                 undo_stack: Vec::new(),
                 redo_stack: Vec::new(),
                 version: 0,
+                last_undo_push: None,
             },
         );
 
@@ -1087,7 +1106,7 @@ impl EditorState {
                 if buf.cursor_line < line_count {
                     let lines: Vec<String> = buf.content.lines().map(|l| l.to_string()).collect();
                     self.clipboard = lines[buf.cursor_line].clone();
-                    buf.push_undo();
+                    buf.push_undo_force();
                     let mut new_lines = lines;
                     new_lines.remove(buf.cursor_line);
                     buf.content = new_lines.join("\n");
@@ -1115,7 +1134,7 @@ impl EditorState {
         if let Some(tab) = self.open_tabs.get(self.active_tab) {
             let path = tab.path.clone();
             if let Some(buf) = self.file_contents.get_mut(&path) {
-                buf.push_undo();
+                buf.push_undo_force();
                 let lines: Vec<&str> = buf.content.lines().collect();
                 let line_idx = buf.cursor_line.min(lines.len().saturating_sub(1));
                 let col = if line_idx < lines.len() {
@@ -1290,7 +1309,7 @@ mod tests {
 
         // Modify content
         if let Some(buf) = state.file_contents.get_mut(&path) {
-            buf.push_undo();
+            buf.push_undo_force();
             buf.content = "hello world".to_string();
         }
 
@@ -1319,10 +1338,11 @@ mod tests {
             undo_stack: Vec::new(),
             redo_stack: Vec::new(),
             version: 0,
+            last_undo_push: None,
         };
 
         // Change to "b"
-        buf.push_undo();
+        buf.push_undo_force();
         buf.content = "b".to_string();
 
         // Undo back to "a"
@@ -1331,7 +1351,7 @@ mod tests {
         assert_eq!(buf.redo_stack.len(), 1);
 
         // New change to "c" should clear redo
-        buf.push_undo();
+        buf.push_undo_force();
         buf.content = "c".to_string();
         assert!(buf.redo_stack.is_empty());
     }
@@ -1346,10 +1366,11 @@ mod tests {
             undo_stack: Vec::new(),
             redo_stack: Vec::new(),
             version: 0,
+            last_undo_push: None,
         };
 
         for i in 0..110 {
-            buf.push_undo();
+            buf.push_undo_force();
             buf.content = format!("version_{}", i);
         }
 
@@ -1434,7 +1455,7 @@ mod tests {
 
         // Modify content, mark dirty
         if let Some(buf) = state.file_contents.get_mut(&path) {
-            buf.push_undo();
+            buf.push_undo_force();
             buf.content = "modified".to_string();
         }
         state.open_tabs[0].is_dirty = true;
@@ -1631,9 +1652,9 @@ mod tests {
 
         // Make several changes
         if let Some(buf) = state.file_contents.get_mut(&path) {
-            buf.push_undo();
+            buf.push_undo_force();
             buf.content = "version_1".to_string();
-            buf.push_undo();
+            buf.push_undo_force();
             buf.content = "version_2".to_string();
         }
 
@@ -2594,10 +2615,11 @@ mod tests {
             undo_stack: Vec::new(),
             redo_stack: Vec::new(),
             version: 0,
+            last_undo_push: None,
         };
 
         for i in 0..200 {
-            buf.push_undo();
+            buf.push_undo_force();
             buf.content = format!("change_{}", i);
         }
 
@@ -2623,11 +2645,12 @@ mod tests {
             undo_stack: Vec::new(),
             redo_stack: Vec::new(),
             version: 0,
+            last_undo_push: None,
         };
 
         // Push 200 changes
         for i in 0..200 {
-            buf.push_undo();
+            buf.push_undo_force();
             buf.content = format!("v{}", i);
         }
 
@@ -2925,7 +2948,7 @@ mod tests {
         assert!(!state.open_tabs[0].is_dirty);
 
         if let Some(buf) = state.file_contents.get_mut(&path) {
-            buf.push_undo();
+            buf.push_undo_force();
             buf.content = "modified content".to_string();
         }
         state.open_tabs[0].is_dirty = true;

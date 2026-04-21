@@ -537,6 +537,7 @@ impl Widget<EditorState> for FindReplaceBar {
 
         let find_input = Container::new(
             TextInput {
+                id: Some(fission_ir::NodeId::explicit("find_input")),
                 value: view.state.find_query.clone(),
                 placeholder: Some("Find".into()),
                 on_change: Some(update_find),
@@ -1074,6 +1075,20 @@ fn main() -> anyhow::Result<()> {
             let ctrl = (mods & 4) != 0 || (mods & 8) != 0; // Ctrl or Cmd
             let shift = (mods & 1) != 0;
 
+            // Dismiss context menu on any keystroke (except Escape which handles it explicitly)
+            if !matches!(key, fission_core::KeyCode::Escape) {
+                state.context_menu_visible = false;
+            }
+
+            // Enter submits terminal command when terminal is visible and input is non-empty
+            if matches!(key, fission_core::KeyCode::Enter) && !ctrl {
+                if state.terminal_visible && !state.terminal_input.is_empty() {
+                    state.run_terminal_command();
+                    return true;
+                }
+                return false;
+            }
+
             // Escape dismisses menus / context menus / find bar / command palette
             if matches!(key, fission_core::KeyCode::Escape) {
                 let mut handled = false;
@@ -1125,6 +1140,7 @@ fn main() -> anyhow::Result<()> {
                 }
                 // Ctrl+F: toggle find/replace
                 fission_core::KeyCode::Char('f') | fission_core::KeyCode::Char('F') => {
+                    state.context_menu_visible = false;
                     state.show_find_replace = !state.show_find_replace;
                     true
                 }
@@ -1136,6 +1152,12 @@ fn main() -> anyhow::Result<()> {
                     } else {
                         state.command_query.clear();
                     }
+                    true
+                }
+                // Ctrl+W: close active tab
+                fission_core::KeyCode::Char('w') | fission_core::KeyCode::Char('W') => {
+                    let idx = state.active_tab;
+                    state.close_tab(idx);
                     true
                 }
                 // Ctrl+Z: undo, Ctrl+Shift+Z: redo

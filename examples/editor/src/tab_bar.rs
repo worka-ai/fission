@@ -19,6 +19,7 @@ impl Widget<EditorState> for TabBar {
             SelectTab(0),
             (|s: &mut EditorState, a: SelectTab, _| {
                 s.active_tab = a.0;
+                s.update_breadcrumb();
             }) as Handler<EditorState, SelectTab>,
         ).id;
 
@@ -43,7 +44,7 @@ impl Widget<EditorState> for TabBar {
                 Color { r: 160, g: 160, b: 160, a: 255 }
             };
             let title = if tab.is_dirty {
-                format!("● {}", tab.title)
+                format!("* {}", tab.title)
             } else {
                 tab.title.clone()
             };
