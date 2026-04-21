@@ -17,12 +17,17 @@ mod command_palette;
 mod syntax;
 mod lsp;
 mod plugin;
+mod search_panel;
+mod git_panel;
+mod diagnostics_panel;
 
 use model::*;
 use file_tree::FileTree;
 use editor_surface::EditorSurface;
 use tab_bar::TabBar;
 use status_bar::StatusBar;
+use search_panel::SearchPanel;
+use git_panel::GitPanel;
 use terminal_panel::TerminalPanel;
 use command_palette::CommandPalette;
 
@@ -114,10 +119,22 @@ impl Widget<EditorState> for EditorApp {
         // Activity bar (leftmost strip)
         let activity_bar = ActivityBar.build(ctx, view);
 
-        // Sidebar (file tree)
+        // Sidebar (content depends on active section)
         let sidebar = if view.state.sidebar_visible {
+            let (header_text, panel_content) = match view.state.sidebar_section {
+                SidebarSection::Explorer => ("EXPLORER", FileTree.build(ctx, view)),
+                SidebarSection::Search => ("SEARCH", SearchPanel.build(ctx, view)),
+                SidebarSection::Git => ("SOURCE CONTROL", GitPanel.build(ctx, view)),
+                SidebarSection::Extensions => ("EXTENSIONS", Container::new(
+                    Text::new("No extensions installed")
+                        .size(12.0)
+                        .color(Color { r: 140, g: 140, b: 140, a: 255 })
+                        .into_node(),
+                ).padding_all(8.0).flex_grow(1.0).into_node()),
+            };
+
             let header = Container::new(
-                Text::new("EXPLORER")
+                Text::new(header_text)
                     .size(11.0)
                     .color(Color { r: 187, g: 187, b: 187, a: 255 })
                     .into_node(),
@@ -130,7 +147,7 @@ impl Widget<EditorState> for EditorApp {
 
             Container::new(
                 Column {
-                    children: vec![header, FileTree.build(ctx, view)],
+                    children: vec![header, panel_content],
                     flex_grow: 1.0,
                     ..Default::default()
                 }
@@ -198,23 +215,55 @@ impl Widget<EditorState> for EditorApp {
 }
 
 fn main() -> anyhow::Result<()> {
-    // Determine the root path - default to current directory or the fission repo
     let root = std::env::args()
         .nth(1)
         .map(PathBuf::from)
         .unwrap_or_else(|| std::env::current_dir().unwrap_or_else(|_| PathBuf::from(".")));
 
+    let root_for_sync = root.clone();
     let app = DesktopApp::new(EditorApp)
         .with_title("Fission Editor")
         .with_sync_env(move |state: &EditorState, env: &mut fission_core::Env| {
-            // Use dark theme
             env.theme = fission_theme::Theme::dark();
-        });
+        })
+        .with_key_handler(move |state: &mut EditorState, key: &fission_core::KeyCode, mods: u8| -> bool {
+            // Initialize root path on first call
+            if state.root_path == PathBuf::from(".") {
+                state.root_path = root_for_sync.clone();
+            }
 
-    // Set root path on state - we need to set it before the first render
-    // Since DesktopApp uses Default for state, we'll set it in a reducer
-    // that fires on the first frame. For now, we use an env var.
-    std::env::set_var("FISSION_EDITOR_ROOT", root.to_string_lossy().as_ref());
+            let ctrl = (mods & 4) != 0 || (mods & 8) != 0; // Ctrl or Cmd
+            let shift = (mods & 1) != 0;
+
+            if !ctrl { return false; }
+
+            match key {
+                fission_core::KeyCode::Char('s') | fission_core::KeyCode::Char('S') => {
+                    if shift {
+                        state.save_all_files();
+                    } else {
+                        state.save_active_file();
+                    }
+                    true
+                }
+                fission_core::KeyCode::Char('p') | fission_core::KeyCode::Char('P') if shift => {
+                    state.show_command_palette = !state.show_command_palette;
+                    if !state.show_command_palette {
+                        state.command_query.clear();
+                    }
+                    true
+                }
+                fission_core::KeyCode::Char('b') | fission_core::KeyCode::Char('B') => {
+                    state.sidebar_visible = !state.sidebar_visible;
+                    true
+                }
+                fission_core::KeyCode::Char('`') => {
+                    state.terminal_visible = !state.terminal_visible;
+                    true
+                }
+                _ => false,
+            }
+        });
 
     app.run()
 }

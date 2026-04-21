@@ -113,6 +113,15 @@ impl LiveTestClient {
         Ok(())
     }
 
+    pub fn press_key(&self, key: &str, modifiers: u8) -> Result<()> {
+        self.send(TestCommand::PressKey {
+            key: key.to_string(),
+            modifiers,
+        })?;
+        self.pump()?;
+        Ok(())
+    }
+
     pub fn type_text(&self, text: &str) -> Result<()> {
         self.send(TestCommand::TypeText {
             text: text.to_string(),

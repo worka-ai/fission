@@ -41,6 +41,25 @@ pub struct EditorState {
     pub completions: Vec<CompletionItem>,
     pub show_completions: bool,
     pub hover_info: Option<String>,
+
+    // Terminal input
+    pub terminal_input: String,
+
+    // Search
+    pub search_query: String,
+    pub search_results: Vec<SearchResult>,
+
+    // Git
+    pub git_status_lines: Vec<GitStatusEntry>,
+
+    // Bottom panel tabs
+    pub bottom_panel_tab: BottomPanelTab,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum BottomPanelTab {
+    Terminal,
+    Problems,
 }
 
 impl Default for EditorState {
@@ -68,6 +87,11 @@ impl Default for EditorState {
             completions: Vec::new(),
             show_completions: false,
             hover_info: None,
+            terminal_input: String::new(),
+            search_query: String::new(),
+            search_results: Vec::new(),
+            git_status_lines: Vec::new(),
+            bottom_panel_tab: BottomPanelTab::Terminal,
         }
     }
 }
@@ -194,6 +218,54 @@ pub struct SaveFile;
 #[derive(Action, Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
 pub struct Noop;
 
+#[derive(Action, Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
+pub struct SaveAllFiles;
+
+#[derive(Action, Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
+#[serde(transparent)]
+pub struct UpdateTerminalInput(pub String);
+
+#[derive(Action, Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
+pub struct SubmitTerminalCommand;
+
+#[derive(Action, Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
+#[serde(transparent)]
+pub struct UpdateSearchQuery(pub String);
+
+#[derive(Action, Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
+pub struct ExecuteSearch;
+
+#[derive(Action, Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
+pub struct SelectCompletion(pub usize);
+
+#[derive(Action, Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
+pub struct DismissCompletions;
+
+#[derive(Action, Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
+pub struct RefreshGitStatus;
+
+#[derive(Action, Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
+pub struct NavigateDiagnostic {
+    pub path: String,
+    pub line: usize,
+}
+
+// --- Additional types ---
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SearchResult {
+    pub path: String,
+    pub line: usize,
+    pub col: usize,
+    pub context: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct GitStatusEntry {
+    pub status: String,
+    pub path: String,
+}
+
 // --- Helpers ---
 
 impl EditorState {
@@ -258,6 +330,113 @@ impl EditorState {
         let tab = &self.open_tabs[self.active_tab];
         Some((tab, buf))
     }
+
+    pub fn save_active_file(&mut self) {
+        if let Some(tab) = self.open_tabs.get(self.active_tab) {
+            let path = tab.path.clone();
+            if let Some(buf) = self.file_contents.get(&path) {
+                if std::fs::write(&path, &buf.content).is_ok() {
+                    if let Some(tab) = self.open_tabs.get_mut(self.active_tab) {
+                        tab.is_dirty = false;
+                    }
+                    self.status_message = Some(format!("Saved {}", path));
+                } else {
+                    self.status_message = Some(format!("Failed to save {}", path));
+                }
+            }
+        }
+    }
+
+    pub fn save_all_files(&mut self) {
+        for i in 0..self.open_tabs.len() {
+            if self.open_tabs[i].is_dirty {
+                let path = self.open_tabs[i].path.clone();
+                if let Some(buf) = self.file_contents.get(&path) {
+                    if std::fs::write(&path, &buf.content).is_ok() {
+                        self.open_tabs[i].is_dirty = false;
+                    }
+                }
+            }
+        }
+        self.status_message = Some("All files saved".into());
+    }
+
+    pub fn run_terminal_command(&mut self) {
+        let cmd = self.terminal_input.trim().to_string();
+        if cmd.is_empty() { return; }
+        self.terminal_lines.push(format!("$ {}", cmd));
+        match std::process::Command::new("sh")
+            .arg("-c")
+            .arg(&cmd)
+            .current_dir(&self.root_path)
+            .output()
+        {
+            Ok(output) => {
+                let stdout = String::from_utf8_lossy(&output.stdout);
+                let stderr = String::from_utf8_lossy(&output.stderr);
+                for line in stdout.lines() {
+                    self.terminal_lines.push(line.to_string());
+                }
+                for line in stderr.lines() {
+                    self.terminal_lines.push(format!("ERR: {}", line));
+                }
+            }
+            Err(e) => {
+                self.terminal_lines.push(format!("Error: {}", e));
+            }
+        }
+        self.terminal_input.clear();
+    }
+
+    pub fn run_search(&mut self) {
+        let query = self.search_query.clone();
+        if query.is_empty() {
+            self.search_results.clear();
+            return;
+        }
+        let mut results = Vec::new();
+        // Search in open buffers first
+        for (path, buf) in &self.file_contents {
+            for (line_idx, line) in buf.content.lines().enumerate() {
+                if let Some(col) = line.find(&query) {
+                    results.push(SearchResult {
+                        path: path.clone(),
+                        line: line_idx + 1,
+                        col,
+                        context: line.trim().to_string(),
+                    });
+                }
+            }
+        }
+        // Search files on disk
+        search_files_recursive(&self.root_path, &query, &mut results, 0);
+        self.search_results = results;
+    }
+
+    pub fn refresh_git_status(&mut self) {
+        match std::process::Command::new("git")
+            .args(["status", "--porcelain"])
+            .current_dir(&self.root_path)
+            .output()
+        {
+            Ok(output) => {
+                let stdout = String::from_utf8_lossy(&output.stdout);
+                self.git_status_lines = stdout.lines().filter_map(|line| {
+                    if line.len() >= 3 {
+                        Some(GitStatusEntry {
+                            status: line[..2].trim().to_string(),
+                            path: line[3..].to_string(),
+                        })
+                    } else {
+                        None
+                    }
+                }).collect();
+            }
+            Err(_) => {
+                self.git_status_lines.clear();
+            }
+        }
+    }
 }
 
 // --- File tree scanning ---
@@ -310,4 +489,33 @@ pub fn scan_directory(path: &Path, depth: usize) -> Vec<FileEntry> {
         });
     }
     entries
+}
+
+fn search_files_recursive(dir: &Path, query: &str, results: &mut Vec<SearchResult>, depth: usize) {
+    if depth > 3 || results.len() > 100 { return; }
+    let Ok(entries) = std::fs::read_dir(dir) else { return };
+    for entry in entries.filter_map(|e| e.ok()) {
+        let name = entry.file_name().to_string_lossy().to_string();
+        if name.starts_with('.') || name == "target" || name == "node_modules" { continue; }
+        let path = entry.path();
+        if path.is_dir() {
+            search_files_recursive(&path, query, results, depth + 1);
+        } else if path.is_file() {
+            let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("");
+            if !matches!(ext, "rs" | "toml" | "md" | "json" | "txt" | "yaml" | "yml") { continue; }
+            if let Ok(content) = std::fs::read_to_string(&path) {
+                for (line_idx, line) in content.lines().enumerate() {
+                    if let Some(col) = line.find(query) {
+                        results.push(SearchResult {
+                            path: path.to_string_lossy().to_string(),
+                            line: line_idx + 1,
+                            col,
+                            context: line.trim().to_string(),
+                        });
+                        if results.len() > 100 { return; }
+                    }
+                }
+            }
+        }
+    }
 }

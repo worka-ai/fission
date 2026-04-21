@@ -347,6 +347,8 @@ fn flush_text_traces(
     }
 }
 
+pub type KeyHandler<S> = Arc<dyn Fn(&mut S, &fission_core::KeyCode, u8) -> bool + Send + Sync>;
+
 pub struct DesktopApp<S: AppState, W: Widget<S>> {
     runtime: Runtime,
     layout_engine: LayoutEngine,
@@ -355,6 +357,7 @@ pub struct DesktopApp<S: AppState, W: Widget<S>> {
     pipeline: Pipeline,
     measurer: Arc<VelloTextMeasurer>,
     sync_env: Option<Arc<dyn Fn(&S, &mut Env) + Send + Sync>>,
+    key_handler: Option<KeyHandler<S>>,
     title: String,
     _phantom: std::marker::PhantomData<S>,
 }
@@ -398,9 +401,18 @@ impl<S: AppState + Default, W: Widget<S> + 'static> DesktopApp<S, W> {
             pipeline: Pipeline::new(),
             measurer,
             sync_env: None,
+            key_handler: None,
             title: "Fission".into(),
             _phantom: std::marker::PhantomData,
         }
+    }
+
+    pub fn with_key_handler<F>(mut self, handler: F) -> Self
+    where
+        F: Fn(&mut S, &fission_core::KeyCode, u8) -> bool + Send + Sync + 'static,
+    {
+        self.key_handler = Some(Arc::new(handler));
+        self
     }
 
     pub fn with_title(mut self, title: impl Into<String>) -> Self {
@@ -756,23 +768,33 @@ impl<S: AppState + Default, W: Widget<S> + 'static> DesktopApp<S, W> {
                                         TestResponse::Ok {}
                                     }
                                     TestCommand::PressKey { key, modifiers } => {
-                                        if let (Some(ir), Some(snap)) = (pipeline.prev_ir.as_ref(), pipeline.last_snapshot.as_ref()) {
-                                            let kc = match key.as_str() {
-                                                "Enter" => KeyCode::Enter,
-                                                "Escape" => KeyCode::Escape,
-                                                "Tab" => KeyCode::Tab,
-                                                "Backspace" => KeyCode::Backspace,
-                                                "Left" => KeyCode::Left,
-                                                "Right" => KeyCode::Right,
-                                                "Up" => KeyCode::Up,
-                                                "Down" => KeyCode::Down,
-                                                "Home" => KeyCode::Home,
-                                                "End" => KeyCode::End,
-                                                "Space" => KeyCode::Space,
-                                                s if s.len() == 1 => KeyCode::Char(s.chars().next().unwrap()),
-                                                _ => KeyCode::Space,
-                                            };
-                                            let _ = runtime.handle_input(InputEvent::Keyboard(FissionKeyEvent::Down { key_code: kc, modifiers }), ir, snap);
+                                        let kc = match key.as_str() {
+                                            "Enter" => KeyCode::Enter,
+                                            "Escape" => KeyCode::Escape,
+                                            "Tab" => KeyCode::Tab,
+                                            "Backspace" => KeyCode::Backspace,
+                                            "Left" => KeyCode::Left,
+                                            "Right" => KeyCode::Right,
+                                            "Up" => KeyCode::Up,
+                                            "Down" => KeyCode::Down,
+                                            "Home" => KeyCode::Home,
+                                            "End" => KeyCode::End,
+                                            "Space" => KeyCode::Space,
+                                            s if s.len() == 1 => KeyCode::Char(s.chars().next().unwrap()),
+                                            _ => KeyCode::Space,
+                                        };
+                                        // Check app key handler first
+                                        let mut handled = false;
+                                        if let Some(handler) = &self.key_handler {
+                                            let handler = handler.clone();
+                                            if let Some(state) = runtime.get_app_state_mut::<S>() {
+                                                handled = handler(state, &kc, modifiers);
+                                            }
+                                        }
+                                        if !handled {
+                                            if let (Some(ir), Some(snap)) = (pipeline.prev_ir.as_ref(), pipeline.last_snapshot.as_ref()) {
+                                                let _ = runtime.handle_input(InputEvent::Keyboard(FissionKeyEvent::Down { key_code: kc, modifiers }), ir, snap);
+                                            }
                                         }
                                         TestResponse::Ok {}
                                     }
@@ -1165,6 +1187,9 @@ impl<S: AppState + Default, W: Widget<S> + 'static> DesktopApp<S, W> {
                             WindowEvent::ModifiersChanged(modifiers) => {
                                 current_mods = 0;
                                 if modifiers.state().shift_key() { current_mods |= 1; }
+                                if modifiers.state().alt_key() { current_mods |= 2; }
+                                if modifiers.state().control_key() { current_mods |= 4; }
+                                if modifiers.state().super_key() { current_mods |= 8; }
                             }
                             WindowEvent::KeyboardInput { event, .. } => {
                                 if event.state.is_pressed() {
@@ -1191,6 +1216,25 @@ impl<S: AppState + Default, W: Widget<S> + 'static> DesktopApp<S, W> {
                                     };
 
                                     if let (Some(code), Some(ir), Some(layout)) = (key_code, &pipeline.prev_ir, &pipeline.last_snapshot) {
+                                        // App-level key handler intercepts before framework
+                                        let mut key_handled_by_app = false;
+                                        if let Some(handler) = &self.key_handler {
+                                            let handler = handler.clone();
+                                            if let Some(state) = runtime.get_app_state_mut::<S>() {
+                                                if handler(state, &code, current_mods) {
+                                                    if process_pending_effects(&mut runtime) {
+                                                        request_redraw_throttled(&window, elwt, &mut last_redraw_at, min_frame, &mut redraw_pending);
+                                                    }
+                                                    request_redraw_throttled(&window, elwt, &mut last_redraw_at, min_frame, &mut redraw_pending);
+                                                    key_handled_by_app = true;
+                                                }
+                                            }
+                                        }
+
+                                        if key_handled_by_app {
+                                            // Skip normal key handling
+                                        } else {
+
                                         let target = focused_text_input_id(&runtime, pipeline.prev_ir.as_ref());
                                         let trace_seq = start_text_trace(
                                             text_trace_enabled && target.is_some(),
@@ -1214,6 +1258,7 @@ impl<S: AppState + Default, W: Widget<S> + 'static> DesktopApp<S, W> {
                                         }
                                         reset_text_input_caret(&mut runtime, pipeline.prev_ir.as_ref(), &mut last_blink_toggle);
                                         request_redraw_throttled(&window, elwt, &mut last_redraw_at, min_frame, &mut redraw_pending);
+                                    } // else (not handled by app key handler)
                                     }
                                 }
                             }
