@@ -260,6 +260,8 @@ pub struct TextStyle {
     pub font_size: LayoutUnit,
     pub color: Color,
     pub underline: bool,
+    /// Optional background highlight color for this run (find matches, error squiggles, etc.).
+    pub background_color: Option<Color>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]

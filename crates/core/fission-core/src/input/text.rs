@@ -81,6 +81,7 @@ impl InputController for TextInputController {
                                         let st = ctx.text_edit.get_mut_or_default(focused_id);
                                         st.caret = caret;
                                         st.anchor = caret;
+                                        Self::dispatch_cursor_change(ctx, sem, focused_id, caret, caret);
                                     }
                                 }
                                 return true;
@@ -151,7 +152,9 @@ impl InputController for TextInputController {
                                                 let st =
                                                     ctx.text_edit.get_mut_or_default(focused_id);
                                                 st.caret = new_caret;
+                                                let current_anchor = st.anchor;
                                                 Self::auto_scroll_textinput(ctx, focused_id);
+                                                Self::dispatch_cursor_change(ctx, sem, focused_id, new_caret, current_anchor);
                                             }
                                         }
                                     }
@@ -398,7 +401,18 @@ impl TextInputController {
             }
             KeyCode::Enter => {
                 if semantics.multiline {
-                    let (txt, nc) = Self::insert_text(&value, caret, sel, "\n");
+                    let insert_str = if semantics.auto_indent {
+                        // Find the leading whitespace of the current line
+                        let line_start = value[..caret].rfind('\n').map(|p| p + 1).unwrap_or(0);
+                        let leading: String = value[line_start..]
+                            .chars()
+                            .take_while(|c| *c == ' ' || *c == '\t')
+                            .collect();
+                        format!("\n{}", leading)
+                    } else {
+                        "\n".to_string()
+                    };
+                    let (txt, nc) = Self::insert_text(&value, caret, sel, &insert_str);
                     next_text = Some(txt);
                     next_caret = nc;
                     next_anchor = nc;
@@ -421,6 +435,18 @@ impl TextInputController {
                     return true;
                 }
             }
+            KeyCode::Tab => {
+                if semantics.capture_tab {
+                    let tab_str = "    "; // 4 spaces
+                    let (txt, nc) = Self::insert_text(&value, caret, sel, tab_str);
+                    next_text = Some(txt);
+                    next_caret = nc;
+                    next_anchor = nc;
+                    handled = true;
+                }
+                // If capture_tab is false, fall through (return false) so focus
+                // navigation can handle Tab normally.
+            }
             _ => {} // Do nothing for other keys
         }
 
@@ -431,6 +457,7 @@ impl TextInputController {
             st.anchor = a;
             st.last_value = v.clone();
             self.dispatch_change(ctx, semantics, focused_id, v, c);
+            Self::dispatch_cursor_change(ctx, semantics, focused_id, c, a);
             return true;
         }
 
@@ -443,12 +470,14 @@ impl TextInputController {
             st.last_value = txt.clone();
 
             self.dispatch_change(ctx, semantics, focused_id, txt, next_caret);
+            Self::dispatch_cursor_change(ctx, semantics, focused_id, next_caret, next_anchor);
         } else if handled {
             // Cursor movement only
             let st = ctx.text_edit.get_mut_or_default(focused_id);
             st.caret = next_caret;
             st.anchor = next_anchor;
             Self::auto_scroll_textinput(ctx, focused_id);
+            Self::dispatch_cursor_change(ctx, semantics, focused_id, next_caret, next_anchor);
         }
 
         handled
@@ -529,7 +558,9 @@ impl TextInputController {
             st.pending_model_sync = true;
         }
 
-        if let Some(action_entry) = semantics.actions.entries.first() {
+        if let Some(action_entry) = semantics.actions.entries.iter().find(|e| {
+            e.trigger == fission_ir::semantics::ActionTrigger::Change
+        }) {
             let payload = serde_json::to_vec(&new_text).unwrap();
             let envelope = ActionEnvelope {
                 id: ActionId::from_u128(action_entry.action_id),
@@ -541,6 +572,30 @@ impl TextInputController {
             // State update moved to handle_key to avoid double borrow
 
             Self::auto_scroll_textinput(ctx, node_id);
+        }
+    }
+
+    fn dispatch_cursor_change(
+        ctx: &mut ControllerContext,
+        semantics: &fission_ir::Semantics,
+        node_id: NodeId,
+        new_caret: usize,
+        new_anchor: usize,
+    ) {
+        if let Some(action_entry) = semantics.actions.entries.iter().find(|e| {
+            e.trigger == fission_ir::semantics::ActionTrigger::CursorChange
+        }) {
+            let cursor_changed = crate::action::CursorChanged {
+                caret: new_caret,
+                anchor: new_anchor,
+            };
+            let payload = serde_json::to_vec(&cursor_changed).unwrap();
+            let envelope = ActionEnvelope {
+                id: ActionId::from_u128(action_entry.action_id),
+                payload,
+            };
+            ctx.dispatched_actions
+                .push((node_id, envelope, crate::ActionInput::None));
         }
     }
 
@@ -934,7 +989,9 @@ impl TextInputController {
                         if (modifiers & 1) == 0 {
                             st.anchor = new_caret_pos;
                         } // If no shift, collapse selection
+                        let final_anchor = st.anchor;
                         Self::auto_scroll_textinput(ctx, focused_id);
+                        Self::dispatch_cursor_change(ctx, semantics, focused_id, new_caret_pos, final_anchor);
                     }
                 }
             }

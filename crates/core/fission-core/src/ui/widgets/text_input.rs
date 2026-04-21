@@ -29,6 +29,16 @@ pub struct TextInput {
     pub styled_runs: Option<Vec<fission_ir::op::TextRun>>,
     /// When true, skip drawing the background rect and border (for embedding in editors).
     pub borderless: bool,
+    /// When true, the Tab key inserts a tab/spaces instead of moving focus.
+    pub capture_tab: bool,
+    /// When true, pressing Enter copies the leading whitespace of the current line.
+    pub auto_indent: bool,
+    /// Optional callback fired when the caret/anchor position changes.
+    /// The payload carries the new (caret, anchor) byte offsets.
+    pub on_cursor_change: Option<ActionEnvelope>,
+    /// Ranges to highlight in the text, e.g. for find-match highlighting.
+    /// Each entry is (start_byte, end_byte, color).
+    pub highlight_ranges: Vec<(usize, usize, IrColor)>,
 }
 
 impl TextInput {
@@ -59,6 +69,10 @@ impl Default for TextInput {
             mask: None,
             styled_runs: None,
             borderless: false,
+            capture_tab: false,
+            auto_indent: false,
+            on_cursor_change: None,
+            highlight_ranges: Vec::new(),
         }
     }
 }
@@ -146,19 +160,19 @@ impl Lower for TextInput {
             if s > 0 {
                 runs.push(fission_ir::op::TextRun {
                     text: display_text[..s].to_string(),
-                    style: fission_ir::op::TextStyle { font_size, color: text_color, underline: false },
+                    style: fission_ir::op::TextStyle { font_size, color: text_color, underline: false, background_color: None },
                 });
             }
             if s < e {
                 runs.push(fission_ir::op::TextRun {
                     text: display_text[s..e].to_string(),
-                    style: fission_ir::op::TextStyle { font_size, color: selection_color, underline: true }, // Visual cue for selection
+                    style: fission_ir::op::TextStyle { font_size, color: selection_color, underline: true, background_color: None }, // Visual cue for selection
                 });
             }
             if e < display_text.len() {
                 runs.push(fission_ir::op::TextRun {
                     text: display_text[e..].to_string(),
-                    style: fission_ir::op::TextStyle { font_size, color: text_color, underline: false },
+                    style: fission_ir::op::TextStyle { font_size, color: text_color, underline: false, background_color: None },
                 });
             }
         } else if let Some(styled) = &self.styled_runs {
@@ -167,14 +181,74 @@ impl Lower for TextInput {
         } else {
             runs.push(fission_ir::op::TextRun {
                 text: display_text.clone(),
-                style: fission_ir::op::TextStyle { font_size, color: text_color, underline: false },
+                style: fission_ir::op::TextStyle { font_size, color: text_color, underline: false, background_color: None },
             });
         }
-        
+
+        // Apply highlight_ranges by splitting existing runs at highlight boundaries
+        // and setting background_color on the overlapping portions.
+        if !self.highlight_ranges.is_empty() && !runs.is_empty() {
+            let mut highlighted_runs = Vec::new();
+            for run in &runs {
+                // Compute the absolute byte offset of this run within the full display_text.
+                // We track cumulative offset across runs.
+                highlighted_runs.push(run.clone());
+            }
+            // Re-split: walk all runs, track cumulative byte offset, and split at
+            // highlight range boundaries.
+            let mut final_runs = Vec::new();
+            let mut byte_offset: usize = 0;
+            for run in &highlighted_runs {
+                let run_start = byte_offset;
+                let run_end = byte_offset + run.text.len();
+                // Collect highlight ranges that overlap this run
+                let mut cuts: Vec<(usize, usize, IrColor)> = Vec::new();
+                for &(hs, he, color) in &self.highlight_ranges {
+                    let overlap_start = hs.max(run_start);
+                    let overlap_end = he.min(run_end);
+                    if overlap_start < overlap_end {
+                        cuts.push((overlap_start - run_start, overlap_end - run_start, color));
+                    }
+                }
+                if cuts.is_empty() {
+                    final_runs.push(run.clone());
+                } else {
+                    // Sort by start offset
+                    cuts.sort_by_key(|c| c.0);
+                    let mut pos = 0usize;
+                    for (cs, ce, bg_color) in &cuts {
+                        if *cs > pos {
+                            // Non-highlighted segment before this cut
+                            final_runs.push(fission_ir::op::TextRun {
+                                text: run.text[pos..*cs].to_string(),
+                                style: run.style.clone(),
+                            });
+                        }
+                        // Highlighted segment
+                        let mut hl_style = run.style.clone();
+                        hl_style.background_color = Some(*bg_color);
+                        final_runs.push(fission_ir::op::TextRun {
+                            text: run.text[*cs..*ce].to_string(),
+                            style: hl_style,
+                        });
+                        pos = *ce;
+                    }
+                    if pos < run.text.len() {
+                        final_runs.push(fission_ir::op::TextRun {
+                            text: run.text[pos..].to_string(),
+                            style: run.style.clone(),
+                        });
+                    }
+                }
+                byte_offset = run_end;
+            }
+            runs = final_runs;
+        }
+
         if display_text.is_empty() && resolved_placeholder.is_some() {
              runs = vec![fission_ir::op::TextRun {
                 text: resolved_placeholder.unwrap(),
-                style: fission_ir::op::TextStyle { font_size, color: theme.placeholder_color, underline: false },
+                style: fission_ir::op::TextStyle { font_size, color: theme.placeholder_color, underline: false, background_color: None },
             }];
         }
 
@@ -270,6 +344,8 @@ impl Lower for TextInput {
             drag_payload: None,
             hero_tag: None,
             focus_index: None,
+            capture_tab: self.capture_tab,
+            auto_indent: self.auto_indent,
         };
         if let Some(env) = &self.on_change {
              semantics.actions.entries.push(fission_ir::ActionEntry {
@@ -278,7 +354,13 @@ impl Lower for TextInput {
                  payload_data: None,
              });
         }
-        
+        if let Some(env) = &self.on_cursor_change {
+             semantics.actions.entries.push(fission_ir::ActionEntry {
+                 trigger: fission_ir::semantics::ActionTrigger::CursorChange,
+                 action_id: env.id.as_u128(),
+                 payload_data: None,
+             });
+        }
         let mut semantics_builder = NodeBuilder::new(input_id, Op::Semantics(semantics));
         semantics_builder.add_child(final_id);
         semantics_builder.build(cx)

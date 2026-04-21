@@ -27,6 +27,7 @@ pub enum ActionTrigger {
     Focus,
     Blur,
     Change, // Value change (Slider, Input)
+    CursorChange, // Caret/anchor position changed
     Drop,
     DragEnter,
     DragLeave,
@@ -69,6 +70,10 @@ pub struct Semantics {
     pub drag_payload: Option<Vec<u8>>,
     pub hero_tag: Option<String>,
     pub focus_index: Option<i32>,
+    /// When true, Tab key inserts spaces instead of moving focus.
+    pub capture_tab: bool,
+    /// When true, Enter copies leading whitespace from the current line.
+    pub auto_indent: bool,
 }
 
 impl Default for Semantics {
@@ -96,6 +101,8 @@ impl Default for Semantics {
             drag_payload: None,
             hero_tag: None,
             focus_index: None,
+            capture_tab: false,
+            auto_indent: false,
         }
     }
 }
