@@ -307,21 +307,82 @@ impl Color {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize, Hash)]
-pub struct Fill {
-    pub color: Color,
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub enum Fill {
+    Solid(Color),
+    LinearGradient {
+        start: (f32, f32),
+        end: (f32, f32),
+        stops: Vec<(f32, Color)>,
+    },
+    RadialGradient {
+        center: (f32, f32),
+        radius: f32,
+        stops: Vec<(f32, Color)>,
+    },
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+impl std::hash::Hash for Fill {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        match self {
+            Self::Solid(c) => { 0.hash(state); c.hash(state); }
+            Self::LinearGradient { start, end, stops } => {
+                1.hash(state);
+                start.0.to_bits().hash(state); start.1.to_bits().hash(state);
+                end.0.to_bits().hash(state); end.1.to_bits().hash(state);
+                for (off, c) in stops {
+                    off.to_bits().hash(state);
+                    c.hash(state);
+                }
+            }
+            Self::RadialGradient { center, radius, stops } => {
+                2.hash(state);
+                center.0.to_bits().hash(state); center.1.to_bits().hash(state);
+                radius.to_bits().hash(state);
+                for (off, c) in stops {
+                    off.to_bits().hash(state);
+                    c.hash(state);
+                }
+            }
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub enum LineCap {
+    Butt,
+    Round,
+    Square,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub enum LineJoin {
+    Miter,
+    Round,
+    Bevel,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Stroke {
-    pub color: Color,
+    pub fill: Fill,
     pub width: LayoutUnit,
+    pub dash_array: Option<Vec<f32>>,
+    pub line_cap: LineCap,
+    pub line_join: LineJoin,
 }
 
 impl std::hash::Hash for Stroke {
     fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
-        self.color.hash(state);
+        self.fill.hash(state);
         self.width.to_bits().hash(state);
+        if let Some(da) = &self.dash_array {
+            1.hash(state);
+            for d in da { d.to_bits().hash(state); }
+        } else {
+            0.hash(state);
+        }
+        self.line_cap.hash(state);
+        self.line_join.hash(state);
     }
 }
 

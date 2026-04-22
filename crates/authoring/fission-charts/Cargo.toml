@@ -1,0 +1,11 @@
+[package]
+name = "fission-charts"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+fission-core = { path = "../../core/fission-core" }
+fission-ir = { path = "../../core/fission-ir" }
+fission-layout = { path = "../../core/fission-layout" }
+fission-widgets = { path = "../fission-widgets" }
+serde = { version = "1.0", features = ["derive"] }

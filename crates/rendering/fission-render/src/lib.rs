@@ -10,15 +10,42 @@ pub struct Color {
     pub a: u8,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
-pub struct Fill {
-    pub color: Color,
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub enum Fill {
+    Solid(Color),
+    LinearGradient {
+        start: (f32, f32),
+        end: (f32, f32),
+        stops: Vec<(f32, Color)>,
+    },
+    RadialGradient {
+        center: (f32, f32),
+        radius: f32,
+        stops: Vec<(f32, Color)>,
+    },
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub enum LineCap {
+    Butt,
+    Round,
+    Square,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub enum LineJoin {
+    Miter,
+    Round,
+    Bevel,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Stroke {
-    pub color: Color,
+    pub fill: Fill,
     pub width: LayoutUnit,
+    pub dash_array: Option<Vec<f32>>,
+    pub line_cap: LineCap,
+    pub line_join: LineJoin,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]

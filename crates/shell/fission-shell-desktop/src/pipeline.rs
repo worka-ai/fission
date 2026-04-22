@@ -271,23 +271,8 @@ impl Pipeline {
                 }) => {
                     segment.push(DisplayOp::DrawRect {
                         rect: geom.rect,
-                        fill: fill.as_ref().map(|f| Fill {
-                            color: RenderColor {
-                                r: f.color.r,
-                                g: f.color.g,
-                                b: f.color.b,
-                                a: f.color.a,
-                            },
-                        }),
-                        stroke: stroke.as_ref().map(|s| Stroke {
-                            color: RenderColor {
-                                r: s.color.r,
-                                g: s.color.g,
-                                b: s.color.b,
-                                a: s.color.a,
-                            },
-                            width: s.width,
-                        }),
+                        fill: fill.as_ref().map(map_fill),
+                        stroke: stroke.as_ref().map(map_stroke),
                         corner_radius: *corner_radius,
                         shadow: shadow.as_ref().map(|s| BoxShadow {
                             color: RenderColor {
@@ -358,23 +343,8 @@ impl Pipeline {
                 fission_ir::Op::Paint(fission_ir::PaintOp::DrawPath { path, fill, stroke }) => {
                     segment.push(DisplayOp::DrawPath {
                         path: path.clone(),
-                        fill: fill.as_ref().map(|f| Fill {
-                            color: RenderColor {
-                                r: f.color.r,
-                                g: f.color.g,
-                                b: f.color.b,
-                                a: f.color.a,
-                            },
-                        }),
-                        stroke: stroke.as_ref().map(|s| Stroke {
-                            color: RenderColor {
-                                r: s.color.r,
-                                g: s.color.g,
-                                b: s.color.b,
-                                a: s.color.a,
-                            },
-                            width: s.width,
-                        }),
+                        fill: fill.as_ref().map(map_fill),
+                        stroke: stroke.as_ref().map(map_stroke),
                         bounds: geom.rect,
                         node_id: Some(node_id),
                     });
@@ -382,23 +352,8 @@ impl Pipeline {
                 fission_ir::Op::Paint(fission_ir::PaintOp::DrawSvg { content, fill, stroke }) => {
                     segment.push(DisplayOp::DrawSvg {
                         content: content.clone(),
-                        fill: fill.as_ref().map(|f| Fill {
-                            color: RenderColor {
-                                r: f.color.r,
-                                g: f.color.g,
-                                b: f.color.b,
-                                a: f.color.a,
-                            },
-                        }),
-                        stroke: stroke.as_ref().map(|s| Stroke {
-                            color: RenderColor {
-                                r: s.color.r,
-                                g: s.color.g,
-                                b: s.color.b,
-                                a: s.color.a,
-                            },
-                            width: s.width,
-                        }),
+                        fill: fill.as_ref().map(map_fill),
+                        stroke: stroke.as_ref().map(map_stroke),
                         bounds: geom.rect,
                         node_id: Some(node_id),
                     });
@@ -531,6 +486,40 @@ impl SnapshotProvider for Pipeline {
                     .map(|json| SnapshotBlob { kind, json })
             }),
         }
+    }
+}
+
+fn map_fill(f: &fission_ir::op::Fill) -> Fill {
+    match f {
+        fission_ir::op::Fill::Solid(c) => Fill::Solid(RenderColor { r: c.r, g: c.g, b: c.b, a: c.a }),
+        fission_ir::op::Fill::LinearGradient { start, end, stops } => Fill::LinearGradient {
+            start: *start,
+            end: *end,
+            stops: stops.iter().map(|(o, c)| (*o, RenderColor { r: c.r, g: c.g, b: c.b, a: c.a })).collect(),
+        },
+        fission_ir::op::Fill::RadialGradient { center, radius, stops } => Fill::RadialGradient {
+            center: *center,
+            radius: *radius,
+            stops: stops.iter().map(|(o, c)| (*o, RenderColor { r: c.r, g: c.g, b: c.b, a: c.a })).collect(),
+        },
+    }
+}
+
+fn map_stroke(s: &fission_ir::op::Stroke) -> Stroke {
+    Stroke {
+        fill: map_fill(&s.fill),
+        width: s.width,
+        dash_array: s.dash_array.clone(),
+        line_cap: match s.line_cap {
+            fission_ir::op::LineCap::Butt => fission_render::LineCap::Butt,
+            fission_ir::op::LineCap::Round => fission_render::LineCap::Round,
+            fission_ir::op::LineCap::Square => fission_render::LineCap::Square,
+        },
+        line_join: match s.line_join {
+            fission_ir::op::LineJoin::Miter => fission_render::LineJoin::Miter,
+            fission_ir::op::LineJoin::Round => fission_render::LineJoin::Round,
+            fission_ir::op::LineJoin::Bevel => fission_render::LineJoin::Bevel,
+        },
     }
 }
 

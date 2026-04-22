@@ -61,9 +61,9 @@ impl LowerDyn for RangeSliderLowerer {
             let track_paint = NodeBuilder::new(
                 cx.next_node_id(),
                 Op::Paint(PaintOp::DrawRect {
-                    fill: Some(Fill {
-                        color: tokens.colors.border,
-                    }),
+                    fill: Some(fission_ir::op::Fill::Solid(
+                        tokens.colors.border,
+                    )),
                     stroke: None,
                     corner_radius: track_height / 2.0,
                     shadow: None,
@@ -150,9 +150,9 @@ impl LowerDyn for RangeSliderLowerer {
         let thumb1 = NodeBuilder::new(
             cx.next_node_id(),
             Op::Paint(PaintOp::DrawRect {
-                fill: Some(Fill {
-                    color: tokens.colors.primary,
-                }),
+                fill: Some(fission_ir::op::Fill::Solid(
+                    tokens.colors.primary,
+                )),
                 stroke: None,
                 corner_radius: thumb_size / 2.0,
                 shadow: None,
@@ -191,9 +191,9 @@ impl LowerDyn for RangeSliderLowerer {
         let thumb2 = NodeBuilder::new(
             cx.next_node_id(),
             Op::Paint(PaintOp::DrawRect {
-                fill: Some(Fill {
-                    color: tokens.colors.primary,
-                }),
+                fill: Some(fission_ir::op::Fill::Solid(
+                    tokens.colors.primary,
+                )),
                 stroke: None,
                 corner_radius: thumb_size / 2.0,
                 shadow: None,

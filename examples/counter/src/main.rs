@@ -126,7 +126,7 @@ impl LowerDyn for StatusIndicatorLowerer {
         let paint_id = NodeBuilder::new(
             NodeId::derived(layout_id.as_u128(), &[1]),
             fission_core::Op::Paint(PaintOp::DrawRect {
-                fill: Some(fission_core::op::Fill { color }),
+                fill: Some(fission_core::op::Fill::Solid(color)),
                 stroke: None,
                 corner_radius: 10.0,
                 shadow: None,
@@ -188,9 +188,9 @@ impl Widget<CounterState> for CounterApp {
                 let r1 = NodeBuilder::new(
                     cx.next_node_id(),
                     fission_core::Op::Paint(PaintOp::DrawRect {
-                        fill: Some(Fill {
-                            color: IrColor { r: 30, g: 144, b: 255, a: 255 },
-                        }),
+                        fill: Some(Fill::Solid(
+                            IrColor { r: 46, g: 204, b: 113, a: 255 },
+                        )),
                         stroke: None,
                         corner_radius: 6.0,
                         shadow: None,
@@ -200,9 +200,9 @@ impl Widget<CounterState> for CounterApp {
                 let r2 = NodeBuilder::new(
                     cx.next_node_id(),
                     fission_core::Op::Paint(PaintOp::DrawRect {
-                        fill: Some(Fill {
-                            color: IrColor { r: 46, g: 204, b: 113, a: 255 },
-                        }),
+                        fill: Some(Fill::Solid(
+                            IrColor { r: 46, g: 204, b: 113, a: 255 },
+                        )),
                         stroke: None,
                         corner_radius: 6.0,
                         shadow: None,
@@ -374,9 +374,9 @@ impl LowerDyn for ModalDimLowerer {
         let paint = NodeBuilder::new(
             cx.next_node_id(),
             fission_core::Op::Paint(PaintOp::DrawRect {
-                fill: Some(fission_core::op::Fill {
-                    color: IrColor { r: 0, g: 0, b: 0, a: 150 },
-                }),
+                fill: Some(fission_core::op::Fill::Solid(
+                    IrColor { r: 0, g: 0, b: 0, a: 150 },
+                )),
                 stroke: None,
                 corner_radius: 0.0,
                 shadow: None,
@@ -400,7 +400,7 @@ impl LowerDyn for ModalBoxLowerer {
         let content = NodeBuilder::new(
             cx.next_node_id(),
             fission_core::Op::Paint(PaintOp::DrawRect {
-                fill: Some(fission_core::op::Fill { color: IrColor::WHITE }),
+                fill: Some(fission_core::op::Fill::Solid(IrColor::WHITE)),
                 stroke: None,
                 corner_radius: 8.0,
                 shadow: None,
