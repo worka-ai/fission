@@ -62,22 +62,23 @@ fn parse_svg_entry(content: &str) -> SvgCacheEntry {
     };
 
     let mut shapes = Vec::new();
-    let mut cursor = 0;
-    while let Some(start_bracket) = content[cursor..].find('<') {
-        let abs_start = cursor + start_bracket;
-        let Some(end_bracket) = content[abs_start..].find('>') else {
-            break;
-        };
-        let tag_content = &content[abs_start + 1..abs_start + end_bracket];
-        cursor = abs_start + end_bracket + 1;
+    
+    // Use regex-like manual parsing for robustness
+    let path_regex = "d=\"";
+    let rect_regex = "<rect";
+    let poly_regex = "<polygon";
 
-        let tag_name = tag_content.split_whitespace().next().unwrap_or("");
+    // Re-implemented parsing using tag-based split for more reliability
+    for tag in content.split('<').skip(1) {
+        let tag = tag.split('>').next().unwrap_or("");
+        let tag_name = tag.split_whitespace().next().unwrap_or("");
 
         if tag_name == "path" {
-            if let Some(d_start) = tag_content.find("d=\"") {
-                let after_d = &tag_content[d_start + 3..];
+            if let Some(d_start) = tag.find(path_regex) {
+                let after_d = &tag[d_start + 3..];
                 if let Some(d_end) = after_d.find('\"') {
                     let mut d = after_d[..d_end].to_string();
+                    // Clean known bounding boxes
                     d = d.replace("M0 0h24v24H0z", "");
                     d = d.replace("M0 0h24v24H0V0z", "");
                     d = d.replace("M0,0h24v24H0V0z", "");
@@ -89,30 +90,25 @@ fn parse_svg_entry(content: &str) -> SvgCacheEntry {
                 }
             }
         } else if tag_name == "rect" {
-            if tag_content.contains("fill=\"none\"") {
-                continue;
-            }
             let parse_attr = |name: &str| -> f64 {
-                if let Some(pos) = tag_content.find(&format!("{}=\"", name)) {
-                    let after = &tag_content[pos + name.len() + 2..];
+                if let Some(pos) = tag.find(&format!("{}=\"", name)) {
+                    let after = &tag[pos + name.len() + 2..];
                     if let Some(end) = after.find('\"') {
                         return after[..end].parse().unwrap_or(0.0);
                     }
                 }
                 0.0
             };
-
             let x = parse_attr("x");
             let y = parse_attr("y");
             let w = parse_attr("width");
             let h = parse_attr("height");
             if w > 0.0 && h > 0.0 {
-                let rect = Rect::new(x, y, x + w, y + h);
-                shapes.push(SvgShape::Rect(RoundedRect::from_rect(rect, 0.0)));
+                shapes.push(SvgShape::Rect(RoundedRect::from_rect(Rect::new(x, y, x + w, y + h), 0.0)));
             }
         } else if tag_name == "polygon" {
-            if let Some(p_start) = tag_content.find("points=\"") {
-                let after = &tag_content[p_start + 8..];
+            if let Some(p_start) = tag.find("points=\"") {
+                let after = &tag[p_start + 8..];
                 if let Some(end) = after.find('\"') {
                     let points_str = &after[..end];
                     let nums: Vec<f64> = points_str
@@ -120,7 +116,7 @@ fn parse_svg_entry(content: &str) -> SvgCacheEntry {
                         .filter(|s| !s.is_empty())
                         .filter_map(|s| s.parse().ok())
                         .collect();
-                    if nums.len() >= 2 {
+                    if nums.len() >= 4 {
                         let mut bez = BezPath::new();
                         bez.move_to((nums[0], nums[1]));
                         for i in (2..nums.len()).step_by(2) {

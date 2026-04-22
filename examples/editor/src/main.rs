@@ -1043,10 +1043,7 @@ fn main() -> anyhow::Result<()> {
         .with_state_init(move |state: &mut EditorState| {
             state.root_path = root_for_init.clone();
             state.tree_cache_dirty = true;
-            state.git_status_lines = vec![crate::model::GitStatusEntry {
-                path: "src/main.rs".into(),
-                status: "M".into(),
-            }];
+            state.refresh_git_status(); // Initial git status scan
         })
         .with_sync_env(move |_state: &EditorState, env: &mut fission_core::Env| {
             env.theme = fission_theme::Theme::dark();
