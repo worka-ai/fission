@@ -43,9 +43,7 @@ pub struct SelectChart(pub usize, pub usize);
 pub struct ToggleSmooth(pub bool);
 
 #[derive(Action, Serialize, Deserialize, Clone, Debug)]
-pub struct UpdateGap(pub f32);
-
-#[derive(Action, Serialize, Deserialize, Clone, Debug)]
+#[serde(transparent)]
 pub struct UpdateScale(pub f32);
 
 struct GalleryApp;
@@ -62,8 +60,8 @@ impl Widget<GalleryState> for GalleryApp {
 
         let toggle_smooth_id = ctx.bind(
             ToggleSmooth(false),
-            (|s: &mut GalleryState, a: ToggleSmooth, _| {
-                s.smooth = !s.smooth; // toggle it
+            (|s: &mut GalleryState, _a: ToggleSmooth, _| {
+                s.smooth = !s.smooth;
             }) as fission_core::registry::Handler<GalleryState, ToggleSmooth>
         ).id;
 
@@ -134,8 +132,8 @@ impl Widget<GalleryState> for GalleryApp {
         .flex_shrink(0.0)
         .into_node();
 
-        // Main content area
         let s = view.state.data_scale;
+        
         let chart_node = match (view.state.selected_category, view.state.selected_chart) {
             (0, 0) => {
                 Chart::new(800.0, 500.0)
@@ -161,11 +159,11 @@ impl Widget<GalleryState> for GalleryApp {
                     .series(vec![
                         PieSeries::new("Access Source")
                             .data(vec![
-                                ("Search Engine", 1048.0),
-                                ("Direct", 735.0),
-                                ("Email", 580.0),
-                                ("Union Ads", 484.0),
-                                ("Video Ads", 300.0),
+                                ("Search Engine", 1048.0 * s),
+                                ("Direct", 735.0 * s),
+                                ("Email", 580.0 * s),
+                                ("Union Ads", 484.0 * s),
+                                ("Video Ads", 300.0 * s),
                             ])
                             .into(),
                     ])
@@ -178,7 +176,7 @@ impl Widget<GalleryState> for GalleryApp {
                     .y_axis(Axis::value())
                     .series(vec![
                         ScatterSeries::new("Data")
-                            .data(vec![(10.0, 8.04), (8.0, 6.95), (13.0, 7.58), (9.0, 8.81), (11.0, 8.33), (14.0, 9.96)])
+                            .data(vec![(10.0 * s, 8.04 * s), (8.0 * s, 6.95 * s), (13.0 * s, 7.58 * s), (9.0 * s, 8.81 * s), (11.0 * s, 8.33 * s), (14.0 * s, 9.96 * s)])
                             .color(Color { r: 250, g: 200, b: 88, a: 255 })
                             .into(),
                     ])
@@ -192,11 +190,165 @@ impl Widget<GalleryState> for GalleryApp {
                     .series(vec![
                         BoxplotSeries::new("Boxplot")
                             .data(vec![
-                                vec![850.0, 960.0, 1060.0, 1080.0, 1100.0],
-                                vec![800.0, 850.0, 900.0, 930.0, 980.0],
-                                vec![750.0, 800.0, 850.0, 900.0, 1000.0],
+                                vec![850.0 * s, 960.0 * s, 1060.0 * s, 1080.0 * s, 1100.0 * s],
+                                vec![800.0 * s, 850.0 * s, 900.0 * s, 930.0 * s, 980.0 * s],
+                                vec![750.0 * s, 800.0 * s, 850.0 * s, 900.0 * s, 1000.0 * s],
                             ])
                             .color(Color { r: 115, g: 192, b: 222, a: 255 })
+                            .into()
+                    ])
+                    .build(ctx, view)
+            }
+            (1, 1) => {
+                Chart::new(800.0, 500.0)
+                    .title("Statistical: Candlestick")
+                    .x_axis(Axis::category(vec!["2017-10-24", "2017-10-25", "2017-10-26", "2017-10-27"]))
+                    .y_axis(Axis::value())
+                    .series(vec![
+                        CandlestickSeries::new("Data")
+                            .data(vec![
+                                vec![20.0 * s, 34.0 * s, 10.0 * s, 38.0 * s], // open, close, lowest, highest
+                                vec![40.0 * s, 35.0 * s, 30.0 * s, 50.0 * s],
+                                vec![31.0 * s, 38.0 * s, 33.0 * s, 44.0 * s],
+                                vec![38.0 * s, 15.0 * s, 5.0 * s,  42.0 * s],
+                            ])
+                            .into()
+                    ])
+                    .build(ctx, view)
+            }
+            (1, 2) => {
+                Chart::new(800.0, 500.0)
+                    .title("Statistical: Heatmap")
+                    .x_axis(Axis::category(vec!["12a", "1a", "2a", "3a"]))
+                    .y_axis(Axis::category(vec!["Sat", "Fri", "Thu"]))
+                    .series(vec![
+                        HeatmapSeries::new("Punch Card")
+                            .data(vec![
+                                (0, 0, 5.0 * s), (0, 1, 1.0 * s), (0, 2, 0.0 * s),
+                                (1, 0, 3.0 * s), (1, 1, 0.0 * s), (1, 2, 0.0 * s),
+                                (2, 0, 4.0 * s), (2, 1, 2.0 * s), (2, 2, 0.0 * s),
+                                (3, 0, 1.0 * s), (3, 1, 0.0 * s), (3, 2, 8.0 * s),
+                            ])
+                            .into()
+                    ])
+                    .build(ctx, view)
+            }
+            (1, 3) => {
+                Chart::new(800.0, 500.0)
+                    .title("Statistical: Graph")
+                    .series(vec![
+                        GraphSeries::new("Les Miserables")
+                            .nodes(vec![
+                                GraphNode { id: "0".into(), name: "Myriel".into(), value: 28.6 * s },
+                                GraphNode { id: "1".into(), name: "Napoleon".into(), value: 10.0 * s },
+                                GraphNode { id: "2".into(), name: "Mlle.Baptistine".into(), value: 15.0 * s },
+                            ])
+                            .edges(vec![
+                                fission_charts::series::graph::GraphEdge { source: "1".into(), target: "0".into() },
+                                fission_charts::series::graph::GraphEdge { source: "2".into(), target: "0".into() },
+                            ])
+                            .into()
+                    ])
+                    .build(ctx, view)
+            }
+            (1, 4) => {
+                Chart::new(800.0, 500.0)
+                    .title("Statistical: Treemap")
+                    .series(vec![
+                        TreemapSeries::new("Disk Usage")
+                            .data(vec![
+                                TreemapNode { name: "System".into(), value: 120.0 * s, children: vec![] },
+                                TreemapNode { name: "Users".into(), value: 450.0 * s, children: vec![] },
+                                TreemapNode { name: "Applications".into(), value: 310.0 * s, children: vec![] },
+                            ])
+                            .into()
+                    ])
+                    .build(ctx, view)
+            }
+            (2, 0) => {
+                Chart::new(800.0, 500.0)
+                    .title("Specialized: Radar")
+                    .series(vec![
+                        RadarSeries::new("Budget vs spending")
+                            .data(vec![
+                                vec![42.0 * s, 30.0 * s, 20.0 * s, 35.0 * s, 50.0 * s, 18.0 * s],
+                                vec![50.0 * s, 14.0 * s, 28.0 * s, 26.0 * s, 42.0 * s, 21.0 * s],
+                            ])
+                            .into()
+                    ])
+                    .build(ctx, view)
+            }
+            (2, 1) => {
+                Chart::new(800.0, 500.0)
+                    .title("Specialized: Funnel")
+                    .series(vec![
+                        FunnelSeries::new("Expected")
+                            .data(vec![
+                                ("Visit", 100.0 * s),
+                                ("Inquiry", 80.0 * s),
+                                ("Order", 60.0 * s),
+                                ("Click", 40.0 * s),
+                                ("Return", 20.0 * s),
+                            ])
+                            .into()
+                    ])
+                    .build(ctx, view)
+            }
+            (2, 2) => {
+                Chart::new(800.0, 500.0)
+                    .title("Specialized: Gauge")
+                    .series(vec![
+                        GaugeSeries::new("Speed")
+                            .data(vec![("km/h", 50.0 * s)])
+                            .into()
+                    ])
+                    .build(ctx, view)
+            }
+            (2, 3) => {
+                Chart::new(800.0, 500.0)
+                    .title("Specialized: Map")
+                    .series(vec![
+                        MapSeries::new("World", "world")
+                            .data(vec![("China", 100.0 * s), ("USA", 50.0 * s)])
+                            .into()
+                    ])
+                    .build(ctx, view)
+            }
+            (2, 4) => {
+                Chart::new(800.0, 500.0)
+                    .title("Specialized: Sankey")
+                    .series(vec![
+                        SankeySeries::new("Energy Flow")
+                            .nodes(vec![
+                                GraphNode { id: "a".into(), name: "Solar".into(), value: 0.0 },
+                                GraphNode { id: "b".into(), name: "Grid".into(), value: 0.0 },
+                            ])
+                            .edges(vec![
+                                fission_charts::series::graph::GraphEdge { source: "a".into(), target: "b".into() }
+                            ])
+                            .into()
+                    ])
+                    .build(ctx, view)
+            }
+            (2, 5) => {
+                Chart::new(800.0, 500.0)
+                    .title("Specialized: Parallel")
+                    .series(vec![
+                        ParallelSeries::new("Data")
+                            .data(vec![
+                                vec![12.99 * s, 100.0 * s, 82.0 * s, 90.0 * s],
+                                vec![9.99 * s, 150.0 * s, 56.0 * s, 80.0 * s],
+                            ])
+                            .into()
+                    ])
+                    .build(ctx, view)
+            }
+            (2, 6) => {
+                Chart::new(800.0, 500.0)
+                    .title("Specialized: Sunburst")
+                    .series(vec![
+                        SunburstSeries::new("Disk Usage")
+                            .data(vec![]) // Empty stub for now
                             .into()
                     ])
                     .build(ctx, view)
@@ -229,7 +381,7 @@ impl Widget<GalleryState> for GalleryApp {
                 Text::new("Smooth Lines:").color(Color::WHITE).into_node(),
                 fission_widgets::Switch {
                     checked: view.state.smooth,
-                    on_toggle: Some(ActionEnvelope { id: toggle_smooth_id, payload: vec![] }),
+                    on_toggle: Some(ActionEnvelope { id: toggle_smooth_id, payload: serde_json::to_vec(&ToggleSmooth(false)).unwrap() }),
                     ..Default::default()
                 }.into_node(),
                 fission_widgets::Spacer { width: Some(32.0), ..Default::default() }.into_node(),
@@ -238,7 +390,7 @@ impl Widget<GalleryState> for GalleryApp {
                     value: view.state.data_scale,
                     min: 0.1,
                     max: 2.0,
-                    on_change: Some(ActionEnvelope { id: update_scale_id, payload: vec![] }),
+                    on_change: Some(ActionEnvelope { id: update_scale_id, payload: vec![] }), // Payload is overwritten by SliderController
                     ..Default::default()
                 }.into_node(),
             ],
