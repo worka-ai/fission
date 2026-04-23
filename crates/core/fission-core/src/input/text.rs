@@ -34,8 +34,35 @@ impl InputController for TextInputController {
                                 // Otherwise, allow the generic focus logic in `Runtime::handle_input`
                                 // to run so clicks can move focus to other widgets (including other
                                 // TextInputs, buttons, etc).
+                                //
+                                // The geometry rect is in layout coordinates (no scroll offset applied).
+                                // We need to adjust the rect by ancestor scroll offsets to compare
+                                // against the screen-coordinate click point.
                                 if let Some(geom) = ctx.layout.get_node_geometry(focused_id) {
-                                    if !geom.rect.contains(*point) {
+                                    let mut scroll_adj_y = 0.0f32;
+                                    let mut scroll_adj_x = 0.0f32;
+                                    let mut walk_id = ctx.ir.nodes.get(&focused_id).and_then(|n| n.parent);
+                                    while let Some(pid) = walk_id {
+                                        if let Some(pnode) = ctx.ir.nodes.get(&pid) {
+                                            if let Op::Layout(LayoutOp::Scroll { direction, .. }) = &pnode.op {
+                                                let poff = ctx.scroll.get_offset(pid);
+                                                match direction {
+                                                    FlexDirection::Row => scroll_adj_x += poff,
+                                                    FlexDirection::Column => scroll_adj_y += poff,
+                                                }
+                                            }
+                                            walk_id = pnode.parent;
+                                        } else {
+                                            break;
+                                        }
+                                    }
+                                    let visual_rect = fission_layout::LayoutRect::new(
+                                        geom.rect.origin.x - scroll_adj_x,
+                                        geom.rect.origin.y - scroll_adj_y,
+                                        geom.rect.size.width,
+                                        geom.rect.size.height,
+                                    );
+                                    if !visual_rect.contains(*point) {
                                         return false;
                                     }
                                 }
