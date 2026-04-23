@@ -102,22 +102,20 @@ impl InputController for TextInputController {
                                         }
 
                                         let caret = if let Some(measurer) = ctx.measurer {
-                                            // Use actual font size from the text node's style if available,
-                                            // falling back to the theme default.
-                                            let font_size = Self::extract_font_size(ctx.ir, focused_id)
-                                                .unwrap_or(13.0);
-                                            // Don't pass available_width for hit_test — the editor
-                                            // doesn't visually wrap lines, so the hit_test layout
-                                            // must match (unwrapped).  Passing a width causes the
-                                            // plain-text layout to wrap at different points than
-                                            // the rich-text renderer, producing wrong x→column mapping.
-                                            measurer.hit_test(
-                                                value,
-                                                font_size,
-                                                None,
-                                                point.x - scroll_geom.rect.origin.x + offset + ancestor_scroll_x,
-                                                point.y - scroll_geom.rect.origin.y + ancestor_scroll_y,
-                                            )
+                                            let local_x = point.x - scroll_geom.rect.origin.x + offset + ancestor_scroll_x;
+                                            let local_y = point.y - scroll_geom.rect.origin.y + ancestor_scroll_y;
+
+                                            // Try rich text hit_test first — this uses the same
+                                            // styled layout as the renderer, so glyph positions
+                                            // match exactly.  Falls back to plain hit_test if no
+                                            // rich text runs are found.
+                                            if let Some(runs) = Self::extract_rich_runs(ctx.ir, focused_id) {
+                                                measurer.hit_test_rich(&runs, None, local_x, local_y)
+                                            } else {
+                                                let font_size = Self::extract_font_size(ctx.ir, focused_id)
+                                                    .unwrap_or(13.0);
+                                                measurer.hit_test(value, font_size, None, local_x, local_y)
+                                            }
                                         } else {
                                             Self::caret_from_point_in_text_fallback(
                                                 value,
@@ -871,6 +869,28 @@ impl TextInputController {
             }
         }
         None
+    }
+
+    /// Extract rich text runs from the TextInput's DrawRichText child.
+    fn extract_rich_runs(ir: &fission_ir::CoreIR, semantics_id: NodeId) -> Option<Vec<fission_ir::op::TextRun>> {
+        fn walk(ir: &fission_ir::CoreIR, node_id: NodeId, depth: usize) -> Option<Vec<fission_ir::op::TextRun>> {
+            if depth > 10 { return None; }
+            let node = ir.nodes.get(&node_id)?;
+            match &node.op {
+                Op::Paint(fission_ir::PaintOp::DrawRichText { runs, .. }) if !runs.is_empty() => {
+                    Some(runs.clone())
+                }
+                _ => {
+                    for child_id in &node.children {
+                        if let Some(r) = walk(ir, *child_id, depth + 1) {
+                            return Some(r);
+                        }
+                    }
+                    None
+                }
+            }
+        }
+        walk(ir, semantics_id, 0)
     }
 
     /// Extract the font size from the TextInput's DrawRichText or DrawText child.

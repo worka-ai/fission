@@ -311,6 +311,22 @@ pub trait TextMeasurer: Send + Sync {
     fn measure_rich_text(&self, _runs: &[TextRun], _available_width: Option<f32>) -> (f32, f32) {
         (0.0, 0.0)
     }
+
+    /// Hit-test rich text (styled runs) at the given (x, y) position.
+    /// Returns the byte offset into the concatenated text of all runs.
+    /// Default falls back to plain hit_test using the first run's font size.
+    fn hit_test_rich(
+        &self,
+        runs: &[TextRun],
+        _available_width: Option<f32>,
+        x: f32,
+        y: f32,
+    ) -> usize {
+        // Default: concatenate text and use plain hit_test
+        let text: String = runs.iter().map(|r| r.text.as_str()).collect();
+        let font_size = runs.first().map(|r| r.style.font_size).unwrap_or(13.0);
+        self.hit_test(&text, font_size, None, x, y)
+    }
 }
 
 pub struct LayoutEngine {
