@@ -102,7 +102,10 @@ impl InputController for TextInputController {
                                         }
 
                                         let caret = if let Some(measurer) = ctx.measurer {
-                                            let font_size = 16.0;
+                                            // Use actual font size from the text node's style if available,
+                                            // falling back to the theme default.
+                                            let font_size = Self::extract_font_size(ctx.ir, focused_id)
+                                                .unwrap_or(13.0);
                                             let max_width = if sem.multiline
                                                 && scroll_geom.rect.width() > 0.0
                                             {
@@ -876,6 +879,30 @@ impl TextInputController {
             }
         }
         None
+    }
+
+    /// Extract the font size from the TextInput's DrawRichText or DrawText child.
+    fn extract_font_size(ir: &fission_ir::CoreIR, semantics_id: NodeId) -> Option<f32> {
+        // Walk children of the semantics node to find a text paint op
+        fn walk(ir: &fission_ir::CoreIR, node_id: NodeId, depth: usize) -> Option<f32> {
+            if depth > 10 { return None; }
+            let node = ir.nodes.get(&node_id)?;
+            match &node.op {
+                Op::Paint(fission_ir::PaintOp::DrawText { size, .. }) => Some(*size),
+                Op::Paint(fission_ir::PaintOp::DrawRichText { runs, .. }) => {
+                    runs.first().map(|r| r.style.font_size)
+                }
+                _ => {
+                    for child_id in &node.children {
+                        if let Some(sz) = walk(ir, *child_id, depth + 1) {
+                            return Some(sz);
+                        }
+                    }
+                    None
+                }
+            }
+        }
+        walk(ir, semantics_id, 0)
     }
 
     fn caret_from_point_in_text_fallback(
