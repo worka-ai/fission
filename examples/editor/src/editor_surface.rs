@@ -116,6 +116,14 @@ impl Widget<EditorState> for EditorSurface {
             }) as Handler<EditorState, UpdateCursorPosition>,
         );
 
+        // --- Bind dismiss-context-menu on primary click ---
+        let dismiss_context = ctx.bind(
+            crate::model::DismissContextMenu,
+            (|s: &mut EditorState, _, _| {
+                s.context_menu_visible = false;
+            }) as Handler<EditorState, crate::model::DismissContextMenu>,
+        );
+
         // --- Bind context menu action for right-click ---
         let context_menu_action = ctx.bind(
             ShowContextMenu { x: 0.0, y: 0.0, target: None },
@@ -171,10 +179,9 @@ impl Widget<EditorState> for EditorSurface {
                 .into_node(),
         )
         .width(gutter_width)
-        .min_height(content_height + 8.0) // content + padding (4 top + 4 bottom)
+        .height(content_height + 8.0) // content + padding (4 top + 4 bottom)
         .padding_all(4.0)
         .bg(Color { r: 37, g: 37, b: 38, a: 255 })
-        .flex_grow(1.0)
         .flex_shrink(0.0)
         .into_node();
 
@@ -305,13 +312,15 @@ impl Widget<EditorState> for EditorSurface {
 
         let editor_area = Container::new(editor_input)
             .flex_grow(1.0)
-            .min_height(content_height + 8.0)
             .bg(Color { r: 30, g: 30, b: 30, a: 255 })
             .into_node();
 
-        // Wrap editor area in a GestureDetector for right-click context menu
+        // Wrap editor area in a GestureDetector for right-click context menu.
+        // `on_tap` dismisses any visible context menu on primary click so that
+        // left-clicking the editor never leaves a stale context menu open.
         let editor_with_gesture = GestureDetector {
             child: Box::new(editor_area),
+            on_tap: Some(dismiss_context),
             on_secondary_click: Some(context_menu_action),
             ..Default::default()
         }
@@ -374,7 +383,10 @@ impl Widget<EditorState> for EditorSurface {
         .into_node();
 
         // Outer scroll wraps both gutter and editor so they scroll in unison.
+        // A stable ID keyed on the file path ensures the scroll offset survives
+        // widget-tree rebuilds between frames.
         let scrollable = Scroll {
+            id: Some(fission_ir::NodeId::explicit(&format!("editor_scroll_{}", path))),
             child: Some(Box::new(scrollable_row)),
             direction: FlexDirection::Column,
             show_scrollbar: true,
@@ -404,6 +416,7 @@ impl Widget<EditorState> for EditorSurface {
         Container::new(editor_column)
             .bg(Color { r: 30, g: 30, b: 30, a: 255 })
             .flex_grow(1.0)
+            .flex_shrink(1.0)
             .into_node()
     }
 }

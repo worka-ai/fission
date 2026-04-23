@@ -265,6 +265,10 @@ pub struct EditorState {
 
     // Counter for generating unique untitled file names
     pub untitled_counter: u32,
+
+    // Inline rename state
+    pub renaming_path: Option<String>,
+    pub rename_input: String,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -325,6 +329,8 @@ impl Default for EditorState {
             git_status_pending: Arc::new(Mutex::new(None)),
             tree_scan_pending: Arc::new(Mutex::new(None)),
             untitled_counter: 0,
+            renaming_path: None,
+            rename_input: String::new(),
         }
     }
 }
@@ -592,6 +598,19 @@ pub struct RenameFile {
     pub old: String,
     pub new_name: String,
 }
+
+#[derive(Action, Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
+pub struct StartRename(pub String);
+
+#[derive(Action, Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
+pub struct ConfirmRename;
+
+#[derive(Action, Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
+pub struct CancelRename;
+
+#[derive(Action, Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
+#[serde(transparent)]
+pub struct UpdateRenameInput(pub String);
 
 #[derive(Action, Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
 pub struct SetActiveMenu(pub Option<String>);
@@ -1091,6 +1110,74 @@ impl EditorState {
                 );
             }
         }
+    }
+
+    // --- Rename helpers ---
+
+    /// Start an inline rename for the given path. Populates `rename_input`
+    /// with the current file/folder name so the user can edit it.
+    pub fn start_rename(&mut self, path: String) {
+        let name = Path::new(&path)
+            .file_name()
+            .and_then(|n| n.to_str())
+            .unwrap_or("")
+            .to_string();
+        self.renaming_path = Some(path);
+        self.rename_input = name;
+    }
+
+    /// Confirm the rename: move the file/folder on disk, update any open tabs,
+    /// and refresh the tree.
+    pub fn confirm_rename(&mut self) {
+        if let Some(old_path) = self.renaming_path.take() {
+            let new_name = self.rename_input.trim().to_string();
+            self.rename_input.clear();
+            if new_name.is_empty() {
+                self.status_message = Some("Rename cancelled: empty name".into());
+                return;
+            }
+            let parent = Path::new(&old_path)
+                .parent()
+                .unwrap_or(Path::new("."))
+                .to_path_buf();
+            let new_path = parent.join(&new_name);
+            let new_path_str = new_path.to_string_lossy().to_string();
+            if new_path.exists() {
+                self.status_message = Some(format!("Cannot rename: '{}' already exists", new_name));
+                return;
+            }
+            match std::fs::rename(&old_path, &new_path) {
+                Ok(()) => {
+                    // Update open tabs that reference the old path
+                    for tab in &mut self.open_tabs {
+                        if tab.path == old_path {
+                            tab.path = new_path_str.clone();
+                            tab.title = new_name.clone();
+                        }
+                    }
+                    // Move the buffer entry
+                    if let Some(buf) = self.file_contents.remove(&old_path) {
+                        self.file_contents.insert(new_path_str.clone(), buf);
+                    }
+                    // Update tree expanded set
+                    if self.tree_expanded.remove(&old_path) {
+                        self.tree_expanded.insert(new_path_str.clone());
+                    }
+                    self.tree_cache_dirty = true;
+                    self.update_breadcrumb();
+                    self.status_message = Some(format!("Renamed to '{}'", new_name));
+                }
+                Err(e) => {
+                    self.status_message = Some(format!("Rename failed: {}", e));
+                }
+            }
+        }
+    }
+
+    /// Cancel an in-progress rename.
+    pub fn cancel_rename(&mut self) {
+        self.renaming_path = None;
+        self.rename_input.clear();
     }
 
     // --- Undo / Redo / Clipboard helpers ---

@@ -1171,6 +1171,9 @@ impl<S: AppState + Default, W: Widget<S> + 'static> DesktopApp<S, W> {
             });
         // Pending screenshot/pump: path + whether it needs a screenshot (vs pump).
         let mut pending_screenshot_path: Option<String> = None;
+        // Simulated viewport size override for test resize events.
+        // When set, layout uses these dimensions instead of window.inner_size().
+        let mut simulated_viewport: Option<(u32, u32)> = None;
 
         event_loop
             .run(move |event, elwt| {
@@ -1265,8 +1268,11 @@ impl<S: AppState + Default, W: Widget<S> + 'static> DesktopApp<S, W> {
                             }
                             TestEvent::Resize { width, height } => {
                                 if width > 0 && height > 0 {
+                                    // Store the simulated size so layout uses
+                                    // it instead of window.inner_size().
+                                    simulated_viewport = Some((width, height));
                                     pipeline.last_viewport = None;
-                                    request_redraw_throttled(&window, elwt, &mut last_redraw_at, min_frame, &mut redraw_pending);
+                                    window.request_redraw();
                                 }
                             }
                             TestEvent::TapText { text } => {
@@ -1562,8 +1568,17 @@ impl<S: AppState + Default, W: Widget<S> + 'static> DesktopApp<S, W> {
                                     }
 
                                     let scale_factor = window.scale_factor();
-                                    let layout_width = (size.width as f64 / scale_factor) as f32;
-                                    let layout_height = (size.height as f64 / scale_factor) as f32;
+                                    // Use simulated viewport dimensions when
+                                    // a test resize event has been injected,
+                                    // otherwise derive from the real window size.
+                                    let (layout_width, layout_height) = if let Some((sw, sh)) = simulated_viewport {
+                                        (sw as f32, sh as f32)
+                                    } else {
+                                        (
+                                            (size.width as f64 / scale_factor) as f32,
+                                            (size.height as f64 / scale_factor) as f32,
+                                        )
+                                    };
                                     env.viewport_size = LayoutSize {
                                         width: layout_width,
                                         height: layout_height,
