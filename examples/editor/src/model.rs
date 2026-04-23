@@ -262,6 +262,9 @@ pub struct EditorState {
     // Background I/O: pending results from spawned threads
     pub git_status_pending: Arc<Mutex<Option<Vec<GitStatusEntry>>>>,
     pub tree_scan_pending: Arc<Mutex<Option<Vec<FileEntry>>>>,
+
+    // Counter for generating unique untitled file names
+    pub untitled_counter: u32,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -321,6 +324,7 @@ impl Default for EditorState {
             tree_cache_dirty: true,
             git_status_pending: Arc::new(Mutex::new(None)),
             tree_scan_pending: Arc::new(Mutex::new(None)),
+            untitled_counter: 0,
         }
     }
 }

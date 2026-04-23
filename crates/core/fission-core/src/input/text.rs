@@ -973,7 +973,10 @@ impl TextInputController {
                     for (idx, line) in line_metrics.iter().enumerate() {
                         if caret >= line.start_index && caret <= line.end_index {
                             current_line_idx = idx;
-                            break;
+                            // Don't break: if the caret sits at the boundary
+                            // between two lines (end of line N == start of
+                            // line N+1), prefer the later line so empty lines
+                            // are reachable.
                         }
                     }
 
@@ -994,8 +997,10 @@ impl TextInputController {
                             target_y,
                         );
 
-                        // Ensure we stay within the target line's bounds
-                        new_caret_pos = new_caret_pos.max(target_line.start_index).min(target_line.end_index);
+                        // Ensure we stay within the target line's bounds.
+                        // For empty lines (start_index == end_index), this
+                        // correctly places the cursor at start_index.
+                        new_caret_pos = new_caret_pos.clamp(target_line.start_index, target_line.end_index.max(target_line.start_index));
 
                         let st = ctx.text_edit.get_mut_or_default(focused_id);
                         st.caret = new_caret_pos;

@@ -73,10 +73,18 @@ impl Widget<EditorState> for FileTree {
             .bind(
                 CreateFile(String::new()),
                 (|s: &mut EditorState, a: CreateFile, _| {
-                    // Create an empty file at the given path
-                    let _ = std::fs::write(&a.0, "");
+                    // Generate a unique path so multiple "New File" clicks
+                    // each create a distinct file.
+                    let mut path = a.0.clone();
+                    while std::path::Path::new(&path).exists()
+                        || s.open_tabs.iter().any(|t| t.path == path)
+                    {
+                        s.untitled_counter += 1;
+                        path = format!("{}-{}", a.0, s.untitled_counter);
+                    }
+                    let _ = std::fs::write(&path, "");
                     s.tree_cache_dirty = true;
-                    s.open_file(a.0);
+                    s.open_file(path);
                 }) as Handler<EditorState, CreateFile>,
             )
             .id;
