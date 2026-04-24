@@ -510,25 +510,50 @@ impl Runtime {
             if let Some(hit_node_id) =
                 hit_test_with_scroll(ir, layout, &self.runtime_state.scroll, point)
             {
-                let mut walk_id = Some(hit_node_id);
-                while let Some(nid) = walk_id {
-                    if let Some(any_ro) = ir.custom_render_objects.get(&nid) {
-                        if let Some(render_obj) = downcast_render_object(any_ro) {
-                            let node_rect = layout
-                                .get_node_rect(nid)
-                                .unwrap_or(LayoutRect::new(0.0, 0.0, 0.0, 0.0));
-                            let result = render_obj.handle_event(nid, &event, node_rect);
-                            if result.handled {
-                                // Dispatch any actions the render object produced.
-                                for (target, envelope) in result.actions {
-                                    self.dispatch(envelope, target)?;
-                                }
-                                return Ok(());
+                // Find the custom render object for this click.  Walk up from the
+                // hit node first; if not found, check all registered render objects
+                // by rect containment (the hit may be on a wrapper node above the
+                // CustomNode's lowered subtree).
+                let mut target_ro: Option<(NodeId, &fission_ir::AnyRenderObject)> = None;
+                {
+                    let mut walk = Some(hit_node_id);
+                    while let Some(nid) = walk {
+                        if let Some(ro) = ir.custom_render_objects.get(&nid) {
+                            target_ro = Some((nid, ro));
+                            break;
+                        }
+                        walk = ir.nodes.get(&nid).and_then(|n| n.parent);
+                    }
+                }
+                if target_ro.is_none() {
+                    for (ro_nid, ro) in &ir.custom_render_objects {
+                        if let Some(rect) = layout.get_node_rect(*ro_nid) {
+                            if rect.contains(point) {
+                                target_ro = Some((*ro_nid, ro));
+                                break;
                             }
                         }
                     }
-                    // Walk up.
-                    walk_id = ir.nodes.get(&nid).and_then(|n| n.parent);
+                }
+
+                if let Some((nid, any_ro)) = target_ro {
+                    if let Some(render_obj) = downcast_render_object(any_ro) {
+                        let node_rect = layout
+                            .get_node_rect(nid)
+                            .unwrap_or(LayoutRect::new(0.0, 0.0, 0.0, 0.0));
+                        let result = render_obj.handle_event(nid, &event, node_rect);
+                        if result.handled {
+                            // Set focus to this node so keyboard events route here
+                            if matches!(event, InputEvent::Pointer(PointerEvent::Down { .. })) {
+                                self.runtime_state.interaction.set_focused(Some(nid));
+                            }
+                            // Dispatch any actions the render object produced.
+                            for (target, envelope) in result.actions {
+                                self.dispatch(envelope, target)?;
+                            }
+                            return Ok(());
+                        }
+                    }
                 }
             }
         }

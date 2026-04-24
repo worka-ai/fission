@@ -1247,15 +1247,23 @@ impl<S: AppState + Default, W: Widget<S> + 'static> DesktopApp<S, W> {
                                 request_redraw_throttled(&window, elwt, &mut last_redraw_at, min_frame, &mut redraw_pending);
                             }
                             TestEvent::TextInput { text } => {
-                                // Type each character as a key-down — same as the
-                                // old TestCommand::TypeText handler.
-                                if let (Some(ir), Some(snap)) = (pipeline.prev_ir.as_ref(), pipeline.last_snapshot.as_ref()) {
-                                    for ch in text.chars() {
-                                        let key = if ch == ' ' { KeyCode::Space } else if ch == '\n' { KeyCode::Enter } else { KeyCode::Char(ch) };
-                                        let _ = runtime.handle_input(InputEvent::Keyboard(FissionKeyEvent::Down { key_code: key, modifiers: 0 }), ir, snap);
-                                    }
+                                // Type each character via handle_key_down so custom
+                                // render objects receive the events (same path as real
+                                // keyboard input).
+                                for ch in text.chars() {
+                                    let key = if ch == ' ' { KeyCode::Space } else if ch == '\n' { KeyCode::Enter } else { KeyCode::Char(ch) };
+                                    handle_key_down::<S>(
+                                        key, 0,
+                                        &mut runtime, &pipeline,
+                                        &effect_result_tx, app_effect_handler.as_ref(),
+                                        &window, elwt,
+                                        &mut last_redraw_at, min_frame, &mut redraw_pending,
+                                        text_trace_enabled, &mut pending_text_traces,
+                                        &mut next_text_trace_seq, presented_frames,
+                                        &mut last_blink_toggle,
+                                        self.key_handler.as_ref(),
+                                    );
                                 }
-                                request_redraw_throttled(&window, elwt, &mut last_redraw_at, min_frame, &mut redraw_pending);
                             }
                             TestEvent::Scroll { x, y, dx, dy } => {
                                 handle_scroll(

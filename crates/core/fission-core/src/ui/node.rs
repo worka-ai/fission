@@ -92,7 +92,19 @@ impl Node {
                 if let Some(render_obj) = &w.render_object {
                     let holder = crate::ui::custom_render::RenderObjectHolder(render_obj.clone());
                     let erased: fission_ir::AnyRenderObject = Arc::new(holder);
-                    cx.ir.custom_render_objects.insert(node_id, erased);
+                    // Register the render object at the wrapper AND every node in
+                    // the lowered subtree so the parent-walk from any hit descendant
+                    // finds it regardless of tree depth.
+                    cx.ir.custom_render_objects.insert(node_id, erased.clone());
+                    fn register_subtree(ir: &mut fission_ir::CoreIR, node_id: fission_ir::NodeId, erased: &fission_ir::AnyRenderObject) {
+                        ir.custom_render_objects.insert(node_id, erased.clone());
+                        if let Some(children) = ir.nodes.get(&node_id).map(|n| n.children.clone()) {
+                            for child_id in children {
+                                register_subtree(ir, child_id, erased);
+                            }
+                        }
+                    }
+                    register_subtree(&mut cx.ir, child_id, &erased);
                 }
 
                 node_id
