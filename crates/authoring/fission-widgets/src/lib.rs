@@ -228,6 +228,7 @@ where
             height,
             painter: Arc::new(painter),
         })),
+        render_object: None,
     })
 }
 
@@ -256,6 +257,7 @@ pub fn absolute_fill(child: Node) -> Node {
     Node::Custom(fission_core::CustomNode {
         debug_tag: "AbsoluteFill".into(),
         lowerer: Some(Arc::new(AbsoluteFillLowerer { child })),
+        render_object: None,
     })
 }
 
@@ -294,6 +296,7 @@ pub fn flyout(anchor: NodeId, content: Node) -> Node {
     Node::Custom(fission_core::CustomNode {
         debug_tag: "Flyout".into(),
         lowerer: Some(Arc::new(FlyoutLowerer { anchor, content })),
+        render_object: None,
     })
 }
 

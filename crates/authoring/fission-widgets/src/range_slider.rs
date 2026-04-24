@@ -30,6 +30,7 @@ impl<S: fission_core::AppState> Widget<S> for RangeSlider {
                 min: self.min,
                 max: self.max,
             })),
+            render_object: None,
         })
     }
 }

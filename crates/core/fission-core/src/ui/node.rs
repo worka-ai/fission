@@ -1,3 +1,4 @@
+use super::custom_render::CustomRenderObject;
 use super::traits::{Lower, LowerDyn};
 use super::widgets::{
     Align, Button, Checkbox, Clip, Column, Container, GestureDetector, FocusScope, Grid, GridItem, Icon, Image, LazyColumn, Overlay, Positioned, Radio, Row, SafeArea, Scroll, Slider, Spacer,
@@ -81,7 +82,20 @@ impl Node {
                     }),
                 );
                 builder.add_child(child_id);
-                builder.build(cx)
+                let node_id = builder.build(cx);
+
+                // If the custom node carries a render object, store it in the
+                // IR so that hit-testing and event handling can find it later.
+                // We wrap the `Arc<dyn CustomRenderObject>` in a `RenderObjectHolder`
+                // so it can be stored as `Arc<dyn Any + Send + Sync>` in the
+                // dependency-free IR crate and downcast back later.
+                if let Some(render_obj) = &w.render_object {
+                    let holder = crate::ui::custom_render::RenderObjectHolder(render_obj.clone());
+                    let erased: fission_ir::AnyRenderObject = Arc::new(holder);
+                    cx.ir.custom_render_objects.insert(node_id, erased);
+                }
+
+                node_id
             }
         }
     }
@@ -223,4 +237,9 @@ pub struct CustomNode {
     pub debug_tag: String,
     #[serde(skip)]
     pub lowerer: Option<Arc<dyn LowerDyn>>,
+    /// Optional render object that participates in hit-testing, event handling,
+    /// and painting.  When `None`, the node behaves exactly as before (lowering
+    /// only via `LowerDyn`).
+    #[serde(skip)]
+    pub render_object: Option<Arc<dyn CustomRenderObject>>,
 }

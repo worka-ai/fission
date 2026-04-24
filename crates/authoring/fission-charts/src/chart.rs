@@ -98,6 +98,7 @@ impl<S: fission_core::AppState> Widget<S> for Chart {
                 lowerer: Some(std::sync::Arc::new(ChartLowerer {
                     chart: self.clone(),
                 })),
+                render_object: None,
             })
         );
         if let Some(w) = self.width {

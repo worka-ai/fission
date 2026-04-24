@@ -65,6 +65,7 @@ impl<S: fission_core::AppState> Widget<S> for Scene3D {
                 lowerer: Some(std::sync::Arc::new(Scene3DLowerer {
                     scene: self.clone(),
                 })),
+                render_object: None,
             })
         );
         if let Some(w) = self.width { container = container.width(w); } else { container = container.flex_grow(1.0); }

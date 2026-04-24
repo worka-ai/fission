@@ -43,6 +43,7 @@ impl<S: fission_core::AppState> Widget<S> for CircularProgress {
                 track_color,
                 thickness: self.thickness,
             })),
+            render_object: None,
         })
     }
 }

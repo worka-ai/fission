@@ -499,6 +499,39 @@ impl Runtime {
         use crate::input::slider::SliderController;
         use crate::input::text::TextInputController;
         use crate::input::{ControllerContext, InputController};
+        use crate::ui::custom_render::downcast_render_object;
+
+        // --- Custom render object event handling (runs first) ----------------
+        // For pointer events we hit-test, then walk up from the hit node to
+        // check whether any ancestor carries a custom render object.  The
+        // first one that returns `handled = true` short-circuits the entire
+        // standard controller chain.
+        if let Some(point) = Self::event_point(&event) {
+            if let Some(hit_node_id) =
+                hit_test_with_scroll(ir, layout, &self.runtime_state.scroll, point)
+            {
+                let mut walk_id = Some(hit_node_id);
+                while let Some(nid) = walk_id {
+                    if let Some(any_ro) = ir.custom_render_objects.get(&nid) {
+                        if let Some(render_obj) = downcast_render_object(any_ro) {
+                            let node_rect = layout
+                                .get_node_rect(nid)
+                                .unwrap_or(LayoutRect::new(0.0, 0.0, 0.0, 0.0));
+                            let result = render_obj.handle_event(nid, &event, node_rect);
+                            if result.handled {
+                                // Dispatch any actions the render object produced.
+                                for (target, envelope) in result.actions {
+                                    self.dispatch(envelope, target)?;
+                                }
+                                return Ok(());
+                            }
+                        }
+                    }
+                    // Walk up.
+                    walk_id = ir.nodes.get(&nid).and_then(|n| n.parent);
+                }
+            }
+        }
 
         let mut dispatched_actions = Vec::new();
         let mut handled = false;
@@ -966,5 +999,20 @@ impl Runtime {
             }
         }
         None
+    }
+
+    /// Extract the pointer position from an input event, if applicable.
+    ///
+    /// Used by the custom-render-object event dispatch to perform a hit-test
+    /// before delegating to render objects.  Returns `None` for keyboard and
+    /// other non-positional events.
+    fn event_point(event: &InputEvent) -> Option<LayoutPoint> {
+        match event {
+            InputEvent::Pointer(PointerEvent::Down { point, .. })
+            | InputEvent::Pointer(PointerEvent::Up { point, .. })
+            | InputEvent::Pointer(PointerEvent::Move { point, .. })
+            | InputEvent::Pointer(PointerEvent::Scroll { point, .. }) => Some(*point),
+            _ => None,
+        }
     }
 }

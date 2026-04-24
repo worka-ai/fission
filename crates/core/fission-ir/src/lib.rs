@@ -4,7 +4,9 @@ pub mod semantics;
 pub mod widget_id;
 
 use serde::{Deserialize, Serialize};
+use std::any::Any;
 use std::collections::HashMap;
+use std::sync::Arc;
 
 pub use node_id::NodeId;
 pub use op::{
@@ -25,10 +27,53 @@ pub struct CoreNode {
     pub hash: u64,
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
+/// A type-erased render object stored alongside IR nodes.
+///
+/// Downstream crates (e.g. `fission-core`) store concrete trait objects here
+/// (typically `Arc<dyn CustomRenderObject>`).  `fission-ir` itself never
+/// inspects these values -- it only provides the storage.
+pub type AnyRenderObject = Arc<dyn Any + Send + Sync>;
+
+#[derive(Clone, Serialize, Deserialize)]
 pub struct CoreIR {
     pub nodes: HashMap<NodeId, CoreNode>,
     pub root: Option<NodeId>,
+    /// Per-node custom render objects.  Keyed by the wrapper `NodeId` created
+    /// during lowering of a `CustomNode`.  Skipped by serde because the
+    /// concrete trait objects are not serialisable.
+    #[serde(skip)]
+    pub custom_render_objects: HashMap<NodeId, AnyRenderObject>,
+}
+
+impl std::fmt::Debug for CoreIR {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("CoreIR")
+            .field("nodes", &self.nodes)
+            .field("root", &self.root)
+            .field(
+                "custom_render_objects",
+                &format!("({} entries)", self.custom_render_objects.len()),
+            )
+            .finish()
+    }
+}
+
+impl PartialEq for CoreIR {
+    fn eq(&self, other: &Self) -> bool {
+        // custom_render_objects are intentionally excluded from equality --
+        // they are ephemeral, non-serialisable extensions.
+        self.nodes == other.nodes && self.root == other.root
+    }
+}
+
+impl Default for CoreIR {
+    fn default() -> Self {
+        Self {
+            nodes: HashMap::new(),
+            root: None,
+            custom_render_objects: HashMap::new(),
+        }
+    }
 }
 
 impl CoreIR {

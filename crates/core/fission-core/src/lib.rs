@@ -50,7 +50,10 @@ pub use registry::{
     PortalLayer, VideoRegistration,
 };
 pub use time::{Clock, CurrentTime};
-pub use ui::{Builder, Button, Column, CustomNode, LayoutBuilder, Lower, LowerDyn, Node, Row, Text};
+pub use ui::{
+    Builder, Button, Column, CustomNode, CustomEventResult, CustomHitResult, CustomRenderObject,
+    LayoutBuilder, Lower, LowerDyn, Node, Row, Text,
+};
 pub use view::{Selector, View, Widget};
 
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]

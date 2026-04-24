@@ -98,6 +98,7 @@ impl Widget<CounterState> for StatusIndicator {
                 active: self.active,
                 anim_val: self.anim_val,
             })),
+            render_object: None,
         })
     }
 }
@@ -320,10 +321,12 @@ impl Widget<CounterState> for CounterApp {
                         Node::Custom(CustomNode {
                             debug_tag: "Dimmer".into(),
                             lowerer: Some(Arc::new(ModalDimLowerer)),
+                            render_object: None,
                         }),
                         Node::Custom(CustomNode {
                             debug_tag: "Modal".into(),
                             lowerer: Some(Arc::new(ModalBoxLowerer)),
+                            render_object: None,
                         }),
                     ],
                     ..Default::default()

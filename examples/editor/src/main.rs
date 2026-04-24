@@ -12,6 +12,7 @@ use std::path::PathBuf;
 
 mod model;
 mod file_tree;
+mod editor_render_node;
 mod editor_surface;
 mod tab_bar;
 mod status_bar;
