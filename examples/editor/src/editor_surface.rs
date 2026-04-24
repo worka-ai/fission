@@ -317,12 +317,12 @@ impl Widget<EditorState> for EditorSurface {
             .bg(Color { r: 30, g: 30, b: 30, a: 255 })
             .into_node();
 
-        // Wrap editor area in a GestureDetector for right-click context menu.
-        // `on_tap` dismisses any visible context menu on primary click so that
-        // left-clicking the editor never leaves a stale context menu open.
+        // Wrap editor area in a GestureDetector for right-click context menu only.
+        // Do NOT set on_tap — that makes the GestureDetector focusable, which
+        // steals focus from the TextInput underneath and prevents caret placement.
+        // Context menu dismissal is handled in the key handler instead.
         let editor_with_gesture = GestureDetector {
             child: Box::new(editor_area),
-            on_tap: Some(dismiss_context),
             on_secondary_click: Some(context_menu_action),
             ..Default::default()
         }

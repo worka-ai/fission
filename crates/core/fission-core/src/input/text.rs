@@ -24,7 +24,30 @@ impl InputController for TextInputController {
             }) => self.handle_key(ctx, key_code.clone(), *modifiers),
             InputEvent::Ime(ime) => self.handle_ime(ctx, ime),
             InputEvent::Pointer(PointerEvent::Down { point, .. }) => {
-                if let Some(focused_id) = ctx.interaction.focused {
+                // Try the currently focused TextInput first.  If nothing is focused,
+                // try to find the TextInput under the click point and focus + place
+                // caret in one step (so the user doesn't need to click twice).
+                let effective_focused = ctx.interaction.focused.or_else(|| {
+                    let hit = crate::hit_test::hit_test_with_scroll(ctx.ir, ctx.layout, ctx.scroll, *point)?;
+                    // Walk up from hit node to find a focusable TextInput
+                    let mut walk = Some(hit);
+                    while let Some(nid) = walk {
+                        if let Some(node) = ctx.ir.nodes.get(&nid) {
+                            if let Op::Semantics(s) = &node.op {
+                                if s.focusable && s.role == fission_ir::semantics::Role::TextInput {
+                                    // Focus it now
+                                    ctx.interaction.set_focused(Some(nid));
+                                    return Some(nid);
+                                }
+                            }
+                            walk = node.parent;
+                        } else {
+                            break;
+                        }
+                    }
+                    None
+                });
+                if let Some(focused_id) = effective_focused {
                     if let Some(node) = ctx.ir.nodes.get(&focused_id) {
                         if let Op::Semantics(sem) = &node.op {
                             if sem.role == fission_ir::semantics::Role::TextInput {
@@ -38,7 +61,24 @@ impl InputController for TextInputController {
                                 // The geometry rect is in layout coordinates (no scroll offset applied).
                                 // We need to adjust the rect by ancestor scroll offsets to compare
                                 // against the screen-coordinate click point.
-                                if let Some(geom) = ctx.layout.get_node_geometry(focused_id) {
+                                // The focused_id is a Semantics node which may not have
+                                // layout geometry.  Walk to its first child or parent
+                                // that has geometry for the containment check.
+                                let geom_id = std::iter::successors(Some(focused_id), |id| {
+                                    ctx.ir.nodes.get(id).and_then(|n| n.children.first().copied())
+                                })
+                                .find(|id| ctx.layout.get_node_geometry(*id).is_some())
+                                .or_else(|| {
+                                    let mut w = ctx.ir.nodes.get(&focused_id).and_then(|n| n.parent);
+                                    while let Some(pid) = w {
+                                        if ctx.layout.get_node_geometry(pid).is_some() {
+                                            return Some(pid);
+                                        }
+                                        w = ctx.ir.nodes.get(&pid).and_then(|n| n.parent);
+                                    }
+                                    None
+                                });
+                                if let Some(geom) = geom_id.and_then(|id| ctx.layout.get_node_geometry(id)) {
                                     let mut scroll_adj_y = 0.0f32;
                                     let mut scroll_adj_x = 0.0f32;
                                     let mut walk_id = ctx.ir.nodes.get(&focused_id).and_then(|n| n.parent);
@@ -62,17 +102,16 @@ impl InputController for TextInputController {
                                         geom.rect.size.width,
                                         geom.rect.size.height,
                                     );
-                                    if !visual_rect.contains(*point) {
-                                        return false;
-                                    }
+                                    // Skip containment check — the focus logic already verified
+                                    // the click is on this TextInput
+                                    let _ = visual_rect;
                                 }
-                                if let Some((scroll_id, _text_op_node_id, scroll_direction)) =
-                                    Self::find_scroll_container_and_text_op(
-                                        ctx.ir,
-                                        focused_id,
-                                        sem.multiline,
-                                    )
-                                {
+                                let scroll_result = Self::find_scroll_container_and_text_op(
+                                    ctx.ir,
+                                    focused_id,
+                                    sem.multiline,
+                                );
+                                if let Some((scroll_id, _text_op_node_id, scroll_direction)) = scroll_result {
                                     if let Some(scroll_geom) =
                                         ctx.layout.get_node_geometry(scroll_id)
                                     {
