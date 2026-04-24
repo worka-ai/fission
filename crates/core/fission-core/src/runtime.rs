@@ -538,9 +538,26 @@ impl Runtime {
 
                 if let Some((nid, any_ro)) = target_ro {
                     if let Some(render_obj) = downcast_render_object(any_ro) {
-                        let node_rect = layout
+                        let mut node_rect = layout
                             .get_node_rect(nid)
                             .unwrap_or(LayoutRect::new(0.0, 0.0, 0.0, 0.0));
+                        // Adjust node_rect by ancestor scroll offsets so it reflects
+                        // the VISUAL position, matching the screen-coordinate click.
+                        {
+                            let mut walk = ir.nodes.get(&nid).and_then(|n| n.parent);
+                            while let Some(pid) = walk {
+                                if let Some(pnode) = ir.nodes.get(&pid) {
+                                    if let fission_ir::Op::Layout(fission_ir::LayoutOp::Scroll { direction, .. }) = &pnode.op {
+                                        let off = self.runtime_state.scroll.get_offset(pid);
+                                        match direction {
+                                            fission_ir::FlexDirection::Row => node_rect.origin.x -= off,
+                                            fission_ir::FlexDirection::Column => node_rect.origin.y -= off,
+                                        }
+                                    }
+                                    walk = pnode.parent;
+                                } else { break; }
+                            }
+                        }
                         let result = render_obj.handle_event(nid, &event, node_rect);
                         if result.handled {
                             // Set focus to this node so keyboard events route here
