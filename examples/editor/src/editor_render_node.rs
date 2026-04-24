@@ -171,11 +171,14 @@ impl LowerDyn for EditorRenderNode {
     fn lower_dyn(&self, cx: &mut LoweringContext) -> NodeId {
         let total_lines = self.content.lines().count().max(1);
 
-        let viewport_height = self.viewport_height;
-        let first_line = (self.scroll_y / self.line_height).floor().max(0.0) as usize;
-        let visible_count =
-            (viewport_height / self.line_height).ceil() as usize + 1; // +1 for partial line
-        let last_line = (first_line + visible_count).min(total_lines);
+        // Render ALL lines — the outer Scroll widget handles viewport
+        // clipping and only paints what's visible.  Virtual scrolling
+        // (rendering only visible lines) requires access to the Scroll
+        // widget's runtime offset which isn't available during lowering.
+        // For files under ~500 lines this is fine; larger files are
+        // already capped by MAX_GUTTER_LINES.
+        let first_line = 0;
+        let last_line = total_lines;
 
         // Collect source lines once.
         let all_lines: Vec<&str> = self.content.lines().collect();
