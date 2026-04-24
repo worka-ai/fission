@@ -102,8 +102,10 @@ guaranteeing that layout and paint are deterministic across releases.
 
 ## Screenshots
 
-> Screenshots of the example applications will be added here.
+> Beloew are screenshots of apps built with Fission. Checkout the examples folder to see their code
 
+![Code edit default view](docs/editor2.png)
+![Code editor with file open](docs/editor1.png)
 <!-- ![Counter example](docs/screenshots/counter.png) -->
 <!-- ![Widget gallery](docs/screenshots/widget-gallery.png) -->
 <!-- ![Inbox demo](docs/screenshots/inbox.png) -->
@@ -209,7 +211,7 @@ fn main() -> anyhow::Result<()> {
 ### Build
 
 ```bash
-git clone https://github.com/user/fission.git
+git clone https://github.com/worka-ai/fission.git
 cd fission
 cargo build
 ```
