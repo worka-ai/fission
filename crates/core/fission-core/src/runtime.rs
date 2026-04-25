@@ -321,7 +321,8 @@ impl Runtime {
                 finished.push((*target, property.clone()));
             }
 
-            let value = anim.start_value + (anim.end_value - anim.start_value) * progress;
+            let eased_progress = anim.easing.apply(progress);
+            let value = anim.start_value + (anim.end_value - anim.start_value) * eased_progress;
             
             // Only update and mark dirty if the value actually changed
             let current_val = self.runtime_state.animation.values.get(&(*target, property.clone())).copied();
@@ -387,6 +388,7 @@ impl Runtime {
             start_time: self.clock().current_time() + request.delay_ms,
             duration: request.duration_ms,
             repeat: request.repeat,
+            easing: request.easing.clone(),
         };
 
         self.runtime_state

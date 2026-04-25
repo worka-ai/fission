@@ -173,6 +173,7 @@ impl Widget<CounterState> for CounterApp {
             duration_ms: 250,
             repeat: false,
             delay_ms: 0,
+            easing: Default::default(),
         });
 
         let mut children = vec![

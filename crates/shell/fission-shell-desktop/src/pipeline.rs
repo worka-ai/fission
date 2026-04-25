@@ -54,6 +54,50 @@ impl Pipeline {
         std::mem::take(&mut self.video_surfaces)
     }
 
+    /// Regenerate the display list from the cached IR and layout snapshot,
+    /// using updated animation/scroll/video state. Skips widget build,
+    /// IR lowering, and layout computation.
+    ///
+    /// Returns `true` if repaint was successful (cached data was available).
+    pub fn repaint(
+        &mut self,
+        scroll_map: &ScrollStateMap,
+        video_map: &VideoStateMap,
+        web_map: &WebStateMap,
+        renderer: &mut dyn Renderer,
+    ) -> Result<bool> {
+        let viewport = match self.last_viewport {
+            Some(v) => v,
+            None => return Ok(false),
+        };
+
+        // Take IR and snapshot out temporarily (same pattern as render())
+        // to satisfy the borrow checker.
+        let ir = match self.prev_ir.take() {
+            Some(ir) => ir,
+            None => return Ok(false),
+        };
+        let snapshot = match self.last_snapshot.take() {
+            Some(s) => s,
+            None => {
+                self.prev_ir = Some(ir);
+                return Ok(false);
+            }
+        };
+
+        // Clear paint cache so display list picks up new animation values
+        self.paint_cache.clear();
+
+        let display_list = self.generate_display_list(&ir, &snapshot, scroll_map, video_map, web_map, viewport);
+
+        // Put them back
+        self.last_snapshot = Some(snapshot);
+        self.prev_ir = Some(ir);
+
+        renderer.render(&display_list)?;
+        Ok(true)
+    }
+
     pub fn render(
         &mut self,
         next_ir: CoreIR,

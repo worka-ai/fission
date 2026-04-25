@@ -27,6 +27,7 @@ impl<S: fission_core::AppState> Widget<S> for Skeleton {
             duration_ms: 800,
             repeat: true,
             delay_ms: 0,
+            easing: Default::default(),
         });
 
         // Use animation value if available, otherwise start at the animation's

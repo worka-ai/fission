@@ -38,6 +38,7 @@ impl<S: fission_core::AppState> Widget<S> for Spinner {
                 duration_ms: 600,
                 repeat: true,
                 delay_ms: i as u64 * 200,
+                easing: Default::default(),
             });
 
             // Apply animated value

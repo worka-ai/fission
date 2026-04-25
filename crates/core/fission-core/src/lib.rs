@@ -46,8 +46,8 @@ pub use fission_layout::{
 use hit_test::{find_next_focus_node, hit_test, hit_test_with_scroll};
 pub use lowering::{LoweringContext, NodeBuilder};
 pub use registry::{
-    ActionRegistry, AnimationPropertyId, AnimationRequest, AnimationStartValue, BuildCtx, Handler,
-    PortalLayer, VideoRegistration,
+    ActionRegistry, AnimationPropertyId, AnimationRequest, AnimationStartValue, BuildCtx,
+    EasingFunction, Handler, PortalLayer, VideoRegistration,
 };
 pub use time::{Clock, CurrentTime};
 pub use ui::{

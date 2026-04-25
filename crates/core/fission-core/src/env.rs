@@ -1,4 +1,4 @@
-use crate::{action::AppState, registry::AnimationPropertyId};
+use crate::{action::AppState, registry::{AnimationPropertyId, EasingFunction}};
 use fission_i18n::{I18nRegistry, Locale};
 use fission_ir::{NodeId, WidgetNodeId};
 use fission_layout::{LayoutPoint, LayoutSize};
@@ -120,6 +120,7 @@ pub struct ActiveAnimation {
     pub start_time: u64,
     pub duration: u64,
     pub repeat: bool,
+    pub easing: EasingFunction,
 }
 
 #[derive(Clone, Debug, Default)]

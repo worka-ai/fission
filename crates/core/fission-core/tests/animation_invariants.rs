@@ -1,10 +1,10 @@
-use fission_core::{env::ActiveAnimation, AnimationPropertyId, Runtime, WidgetNodeId};
+use fission_core::{env::ActiveAnimation, AnimationPropertyId, EasingFunction, Runtime, WidgetNodeId};
 
 #[test]
 fn test_animation_tick() {
     let mut runtime = Runtime::default();
 
-    // Manually add an active animation
+    // Manually add an active animation (Linear easing to preserve existing test expectations)
     let widget_id = WidgetNodeId::explicit("test_anim");
     let property = AnimationPropertyId::opacity();
     runtime
@@ -22,6 +22,7 @@ fn test_animation_tick() {
             start_time: 0,
             duration: 1000,
             repeat: false,
+            easing: EasingFunction::Linear,
         }
     );
 

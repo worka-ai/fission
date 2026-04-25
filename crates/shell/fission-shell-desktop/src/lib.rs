@@ -1136,6 +1136,11 @@ impl<S: AppState + Default, W: Widget<S> + 'static> DesktopApp<S, W> {
             .checked_sub(min_frame)
             .unwrap_or_else(Instant::now);
         let mut redraw_pending = false;
+        // When true, the next RedrawRequested will run the full pipeline
+        // (build -> lower -> layout -> paint).  When false, only animation
+        // values are updated and the display list is regenerated from
+        // cached IR + layout — skipping the expensive rebuild.
+        let mut needs_full_rebuild = true;
         let mut last_frame_time = Instant::now();
         let blink_enabled = std::env::var("FISSION_TEXTINPUT_BLINK")
             .map(|v| !matches!(v.to_ascii_lowercase().as_str(), "0" | "false" | "no"))
@@ -1186,6 +1191,7 @@ impl<S: AppState + Default, W: Widget<S> + 'static> DesktopApp<S, W> {
                     Event::UserEvent(test_event) => {
                         match test_event {
                             TestEvent::MouseMove { x, y } => {
+                                needs_full_rebuild = true;
                                 // Update cursor position for subsequent button events
                                 let scale_factor = window.scale_factor();
                                 last_cursor_position = Some(PhysicalPosition::new(
@@ -1201,6 +1207,7 @@ impl<S: AppState + Default, W: Widget<S> + 'static> DesktopApp<S, W> {
                                 );
                             }
                             TestEvent::MouseDown { x, y, button } => {
+                                needs_full_rebuild = true;
                                 let btn = map_test_button(button);
                                 handle_mouse_button(
                                     x, y, btn, true,
@@ -1214,6 +1221,7 @@ impl<S: AppState + Default, W: Widget<S> + 'static> DesktopApp<S, W> {
                                 );
                             }
                             TestEvent::MouseUp { x, y, button } => {
+                                needs_full_rebuild = true;
                                 let btn = map_test_button(button);
                                 handle_mouse_button(
                                     x, y, btn, false,
@@ -1227,6 +1235,7 @@ impl<S: AppState + Default, W: Widget<S> + 'static> DesktopApp<S, W> {
                                 );
                             }
                             TestEvent::KeyDown { key_code, modifiers } => {
+                                needs_full_rebuild = true;
                                 let code = parse_key_code(&key_code);
                                 handle_key_down::<S>(
                                     code, modifiers,
@@ -1241,12 +1250,14 @@ impl<S: AppState + Default, W: Widget<S> + 'static> DesktopApp<S, W> {
                                 );
                             }
                             TestEvent::KeyUp { .. } => {
+                                needs_full_rebuild = true;
                                 // Key-up is currently a no-op in the framework
                                 // (only key-down dispatches actions), but we request
                                 // a redraw so any state changes are rendered.
                                 request_redraw_throttled(&window, elwt, &mut last_redraw_at, min_frame, &mut redraw_pending);
                             }
                             TestEvent::TextInput { text } => {
+                                needs_full_rebuild = true;
                                 // Type each character via handle_key_down so custom
                                 // render objects receive the events (same path as real
                                 // keyboard input).
@@ -1266,6 +1277,7 @@ impl<S: AppState + Default, W: Widget<S> + 'static> DesktopApp<S, W> {
                                 }
                             }
                             TestEvent::Scroll { x, y, dx, dy } => {
+                                needs_full_rebuild = true;
                                 handle_scroll(
                                     x, y, dx, dy,
                                     &mut runtime, &pipeline,
@@ -1275,6 +1287,7 @@ impl<S: AppState + Default, W: Widget<S> + 'static> DesktopApp<S, W> {
                                 );
                             }
                             TestEvent::Resize { width, height } => {
+                                needs_full_rebuild = true;
                                 if width > 0 && height > 0 {
                                     // Store the simulated size so layout uses
                                     // it instead of window.inner_size().
@@ -1284,6 +1297,7 @@ impl<S: AppState + Default, W: Widget<S> + 'static> DesktopApp<S, W> {
                                 }
                             }
                             TestEvent::TapText { text } => {
+                                needs_full_rebuild = true;
                                 let resp = handle_tap_text(&text, &mut runtime, &pipeline);
                                 if let Some(ref tx) = test_response_tx {
                                     let _ = tx.send(resp);
@@ -1291,6 +1305,7 @@ impl<S: AppState + Default, W: Widget<S> + 'static> DesktopApp<S, W> {
                                 request_redraw_throttled(&window, elwt, &mut last_redraw_at, min_frame, &mut redraw_pending);
                             }
                             TestEvent::Screenshot { path } => {
+                                needs_full_rebuild = true;
                                 pending_screenshot_path = Some(path);
                                 window.request_redraw();
                             }
@@ -1307,6 +1322,7 @@ impl<S: AppState + Default, W: Widget<S> + 'static> DesktopApp<S, W> {
                                 }
                             }
                             TestEvent::Pump => {
+                                needs_full_rebuild = true;
                                 // Schedule a frame and respond after it renders.
                                 pending_screenshot_path = Some("__pump__".into());
                                 window.request_redraw();
@@ -1338,6 +1354,7 @@ impl<S: AppState + Default, W: Widget<S> + 'static> DesktopApp<S, W> {
                         if let Err(e) = runtime.tick(dt_ms) {
                             eprintln!("Runtime tick error: {:?}", e);
                         }
+
 
                         // Video Logic
                         let surfaces = pipeline.take_video_surfaces();
@@ -1401,12 +1418,14 @@ impl<S: AppState + Default, W: Widget<S> + 'static> DesktopApp<S, W> {
                                         VideoEvent::Ended => {
                                             video_state.status = VideoStatus::Ended;
                                             active_player.last_status = Some(VideoStatus::Ended);
+                                            needs_full_rebuild = true;
                                             request_redraw_throttled(&window, elwt, &mut last_redraw_at, min_frame, &mut redraw_pending);
                                         },
                                         VideoEvent::Error(e) => {
                                             eprintln!("Video playback error for {:?}: {:?}", widget_id, e);
                                             video_state.status = VideoStatus::Error;
                                             active_player.last_status = Some(VideoStatus::Error);
+                                            needs_full_rebuild = true;
                                             request_redraw_throttled(&window, elwt, &mut last_redraw_at, min_frame, &mut redraw_pending);
                                         },
                                     }
@@ -1453,6 +1472,7 @@ impl<S: AppState + Default, W: Widget<S> + 'static> DesktopApp<S, W> {
                             if let Some(id) = blink_focus_id {
                                 runtime.runtime_state.caret_visible.insert(id, true);
                                 last_blink_toggle = now;
+                                needs_full_rebuild = true;
                                 request_redraw_throttled(&window, elwt, &mut last_redraw_at, min_frame, &mut redraw_pending);
                             }
                         }
@@ -1464,6 +1484,7 @@ impl<S: AppState + Default, W: Widget<S> + 'static> DesktopApp<S, W> {
                                     let visible = runtime.runtime_state.caret_visible.get(&id).copied().unwrap_or(true);
                                     runtime.runtime_state.caret_visible.insert(id, !visible);
                                     last_blink_toggle = now;
+                                    needs_full_rebuild = true;
                                     request_redraw_throttled(&window, elwt, &mut last_redraw_at, min_frame, &mut redraw_pending);
                                 }
                             }
@@ -1475,11 +1496,22 @@ impl<S: AppState + Default, W: Widget<S> + 'static> DesktopApp<S, W> {
                             None
                         };
 
-                        // Repeating animations (spinners, skeleton shimmer) need
-                        // periodic redraws at a modest frame rate (30fps = 33ms)
-                        // so they animate smoothly without burning 100% CPU.
+                        // Repeating animations (spinners, skeleton shimmer):
+                        // Do NOT schedule periodic redraws. Animation values
+                        // are baked into the IR during widget build(), so
+                        // updating them without a full rebuild produces no
+                        // visual change. Instead, the animation clock advances
+                        // every tick() and the next full rebuild (triggered by
+                        // user input, effects, etc.) will pick up the current
+                        // values. This keeps idle CPU near 0%.
+                        //
+                        // We still schedule a low-frequency wake (every 1s) so
+                        // that tick() can advance the animation clock even when
+                        // the app is completely idle. This prevents animation
+                        // progress from "jumping" when the next real event
+                        // arrives after a long idle period.
                         let repeating_anim_wake_at = if has_repeating_animation {
-                            Some(now + Duration::from_millis(33))
+                            Some(now + Duration::from_secs(1))
                         } else {
                             None
                         };
@@ -1488,6 +1520,7 @@ impl<S: AppState + Default, W: Widget<S> + 'static> DesktopApp<S, W> {
                         // their continuations back into the runtime on the main thread.
                         let effect_results_dispatched = drain_effect_results(&mut runtime, &effect_result_rx);
                         if effect_results_dispatched {
+                            needs_full_rebuild = true;
                             // Background work completed — process any new effects
                             // the continuation reducers may have emitted.
                             if process_pending_effects(&mut runtime, &effect_result_tx, app_effect_handler.as_ref()) {
@@ -1508,6 +1541,7 @@ impl<S: AppState + Default, W: Widget<S> + 'static> DesktopApp<S, W> {
                             false
                         };
                         if frame_hook_wants_redraw {
+                            needs_full_rebuild = true;
                             request_redraw_throttled(&window, elwt, &mut last_redraw_at, min_frame, &mut redraw_pending);
                         }
 
@@ -1521,7 +1555,12 @@ impl<S: AppState + Default, W: Widget<S> + 'static> DesktopApp<S, W> {
                             None
                         };
 
-                        if needs_redraw || redraw_pending || effect_results_dispatched || frame_hook_wants_redraw || has_repeating_animation {
+                        if needs_redraw || redraw_pending || effect_results_dispatched || frame_hook_wants_redraw {
+                            // Finite animations and video players need full rebuild
+                            // because animation values are read during build().
+                            if needs_redraw {
+                                needs_full_rebuild = true;
+                            }
                             request_redraw_throttled(&window, elwt, &mut last_redraw_at, min_frame, &mut redraw_pending);
                             let mut wake_at = last_redraw_at + min_frame;
                             if let Some(blink_at) = blink_wake_at {
@@ -1540,18 +1579,27 @@ impl<S: AppState + Default, W: Widget<S> + 'static> DesktopApp<S, W> {
                                 }
                             }
                             elwt.set_control_flow(ControlFlow::WaitUntil(wake_at));
-                        } else if let Some(blink_at) = blink_wake_at {
-                            let mut wake_at = blink_at;
-                            if let Some(hook_at) = frame_hook_wake_at {
-                                if hook_at < wake_at {
-                                    wake_at = hook_at;
-                                }
-                            }
-                            elwt.set_control_flow(ControlFlow::WaitUntil(wake_at));
-                        } else if let Some(hook_at) = frame_hook_wake_at {
-                            elwt.set_control_flow(ControlFlow::WaitUntil(hook_at));
                         } else {
-                            elwt.set_control_flow(ControlFlow::Wait);
+                            // No immediate redraw — find the earliest wake time
+                            let mut wake_at: Option<Instant> = None;
+                            let mut earliest = |t: Option<Instant>| {
+                                if let Some(t) = t {
+                                    wake_at = Some(wake_at.map(|w| w.min(t)).unwrap_or(t));
+                                }
+                            };
+                            earliest(blink_wake_at);
+                            earliest(frame_hook_wake_at);
+                            earliest(repeating_anim_wake_at);
+
+                            if let Some(at) = wake_at {
+                                // Arm a timer to wake the event loop. The actual
+                                // redraw request happens when the specific timer
+                                // source fires (blink toggle, repeating animation
+                                // interval, etc.) — NOT here.
+                                elwt.set_control_flow(ControlFlow::WaitUntil(at));
+                            } else {
+                                elwt.set_control_flow(ControlFlow::Wait);
+                            }
                         }
                     }
 
@@ -1562,12 +1610,14 @@ impl<S: AppState + Default, W: Widget<S> + 'static> DesktopApp<S, W> {
                         match event {
                             WindowEvent::Resized(size) => {
                                 if size.width > 0 && size.height > 0 {
+                                    needs_full_rebuild = true;
                                     // Invalidate viewport to force full layout rebuild
                                     pipeline.last_viewport = None;
                                     request_redraw_throttled(&window, elwt, &mut last_redraw_at, min_frame, &mut redraw_pending);
                                 }
                             }
                             WindowEvent::ScaleFactorChanged { .. } => {
+                                needs_full_rebuild = true;
                                 // Invalidate viewport to force full layout rebuild
                                 pipeline.last_viewport = None;
                                 request_redraw_throttled(&window, elwt, &mut last_redraw_at, min_frame, &mut redraw_pending);
@@ -1578,6 +1628,7 @@ impl<S: AppState + Default, W: Widget<S> + 'static> DesktopApp<S, W> {
                                 // Drain pending effects before building the next frame.
                                 // This prevents the effect queue from growing unbounded.
                                 if process_pending_effects(&mut runtime, &effect_result_tx, app_effect_handler.as_ref()) {
+                                    needs_full_rebuild = true;
                                     request_redraw_throttled(&window, elwt, &mut last_redraw_at, min_frame, &mut redraw_pending);
                                 }
                                 let size = window.inner_size();
@@ -1590,6 +1641,7 @@ impl<S: AppState + Default, W: Widget<S> + 'static> DesktopApp<S, W> {
                                         surface.surface.configure(&device_handle.device, &surface.config);
                                         // Recreate target texture with COPY_SRC for screenshots
                                         recreate_target_texture(&mut surface, &render_cx);
+                                        needs_full_rebuild = true;
                                     }
 
                                     let scale_factor = window.scale_factor();
@@ -1604,6 +1656,99 @@ impl<S: AppState + Default, W: Widget<S> + 'static> DesktopApp<S, W> {
                                             (size.height as f64 / scale_factor) as f32,
                                         )
                                     };
+
+                                    // ── Fast path: animation-only repaint ──
+                                    // When no state change happened since the last full
+                                    // rebuild, skip the expensive widget build / IR lower /
+                                    // layout phases and just regenerate the display list
+                                    // from cached data with updated animation values.
+                                    if !needs_full_rebuild && pipeline.prev_ir.is_some() && pipeline.last_snapshot.is_some() {
+                                        scene.reset();
+                                        let mut renderer_wrapper = VelloRenderer::new(&mut scene, measurer.clone(), scale_factor);
+                                        match pipeline.repaint(
+                                            &runtime.runtime_state.scroll,
+                                            &runtime.runtime_state.video,
+                                            &runtime.runtime_state.web,
+                                            &mut renderer_wrapper,
+                                        ) {
+                                            Ok(true) => {
+                                                let surface_texture = surface.surface.get_current_texture().expect("failed to get texture");
+                                                let device_handle = &render_cx.devices[surface.dev_id];
+
+                                                let render_params = vello::RenderParams {
+                                                    base_color: vello::peniko::Color::from_rgb8(30, 30, 30),
+                                                    width: size.width,
+                                                    height: size.height,
+                                                    antialiasing_method: vello::AaConfig::Area,
+                                                };
+
+                                                vello_renderer.render_to_texture(
+                                                    &device_handle.device,
+                                                    &device_handle.queue,
+                                                    &scene,
+                                                    &surface.target_view,
+                                                    &render_params,
+                                                ).expect("failed to render");
+
+                                                for (_, _rect, payload) in &pipeline.scene_3d_surfaces {
+                                                    if let Ok(primitives) = bincode::deserialize::<Vec<fission_3d::Primitive3D>>(payload) {
+                                                        let scene3d = fission_3d::Scene3D {
+                                                            width: Some(size.width as f32),
+                                                            height: Some(size.height as f32),
+                                                            primitives,
+                                                        };
+                                                        scene3d_renderer.render(
+                                                            &device_handle.device,
+                                                            &device_handle.queue,
+                                                            &surface.target_view,
+                                                            &scene3d,
+                                                        );
+                                                    }
+                                                }
+
+                                                let surface_view = surface_texture.texture.create_view(&wgpu::TextureViewDescriptor::default());
+                                                let mut encoder = device_handle.device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
+                                                    label: Some("Surface Blit"),
+                                                });
+                                                surface.blitter.copy(
+                                                    &device_handle.device,
+                                                    &mut encoder,
+                                                    &surface.target_view,
+                                                    &surface_view,
+                                                );
+                                                device_handle.queue.submit(Some(encoder.finish()));
+
+                                                // GPU screenshot / pump response BEFORE present
+                                                if let Some(path) = pending_screenshot_path.take() {
+                                                    if let Some(ref tx) = test_response_tx {
+                                                        if path == "__pump__" {
+                                                            let _ = tx.send(fission_test_driver::TestResponse::Ok {});
+                                                        } else {
+                                                            let resp = gpu_screenshot(
+                                                                &device_handle.device,
+                                                                &device_handle.queue,
+                                                                &surface.target_texture,
+                                                                size.width,
+                                                                size.height,
+                                                                &path,
+                                                            );
+                                                            let _ = tx.send(resp);
+                                                        }
+                                                    }
+                                                }
+
+                                                surface_texture.present();
+                                                presented_frames = presented_frames.saturating_add(1);
+                                                diag::end_frame(diag::FrameStats::default());
+                                            }
+                                            _ => {
+                                                // Repaint failed (no cached data) — fall through
+                                                // to a full rebuild on the next frame.
+                                                needs_full_rebuild = true;
+                                            }
+                                        }
+                                    } else {
+                                    // ── Full path: build -> lower -> layout -> paint ──
                                     env.viewport_size = LayoutSize {
                                         width: layout_width,
                                         height: layout_height,
@@ -1700,6 +1845,9 @@ impl<S: AppState + Default, W: Widget<S> + 'static> DesktopApp<S, W> {
                                         &env,
                                     ) {
                                         Ok(_stats) => {
+                                            // Full rebuild succeeded — clear the flag
+                                            needs_full_rebuild = false;
+
                                             let surface_texture = surface.surface.get_current_texture().expect("failed to get texture");
                                             let device_handle = &render_cx.devices[surface.dev_id];
 
@@ -1783,6 +1931,7 @@ impl<S: AppState + Default, W: Widget<S> + 'static> DesktopApp<S, W> {
                                             eprintln!("Pipeline error: {:?}", e);
                                         }
                                     }
+                                    } // end full path else block
                                 }
                             }
                             WindowEvent::CloseRequested => {
@@ -1791,6 +1940,7 @@ impl<S: AppState + Default, W: Widget<S> + 'static> DesktopApp<S, W> {
                             // Input Handling — delegates to the same extracted functions
                             // that TestEvent handlers use.
                             WindowEvent::CursorMoved { position, .. } => {
+                                needs_full_rebuild = true;
                                 last_cursor_position = Some(position);
                                 let scale_factor = window.scale_factor();
                                 let x = (position.x / scale_factor) as f32;
@@ -1804,6 +1954,7 @@ impl<S: AppState + Default, W: Widget<S> + 'static> DesktopApp<S, W> {
                                 );
                             }
                             WindowEvent::MouseInput { state, button, .. } => {
+                                needs_full_rebuild = true;
                                 if let Some(position) = last_cursor_position {
                                     let scale_factor = window.scale_factor();
                                     let x = (position.x / scale_factor) as f32;
@@ -1824,6 +1975,7 @@ impl<S: AppState + Default, W: Widget<S> + 'static> DesktopApp<S, W> {
                                 }
                             }
                             WindowEvent::MouseWheel { delta, .. } => {
+                                needs_full_rebuild = true;
                                 if let Some(position) = last_cursor_position {
                                     let scale_factor = window.scale_factor();
                                     let point_x = (position.x / scale_factor) as f32;
@@ -1860,6 +2012,7 @@ impl<S: AppState + Default, W: Widget<S> + 'static> DesktopApp<S, W> {
                                 if modifiers.state().super_key() { current_mods |= 8; }
                             }
                             WindowEvent::KeyboardInput { event, .. } => {
+                                needs_full_rebuild = true;
                                 if event.state.is_pressed() {
                                     use winit::keyboard::{Key, NamedKey};
                                     let key_code = match event.logical_key {
@@ -1899,6 +2052,7 @@ impl<S: AppState + Default, W: Widget<S> + 'static> DesktopApp<S, W> {
                                 }
                             }
                             WindowEvent::Ime(ime) => {
+                                needs_full_rebuild = true;
                                 if let (Some(ir), Some(layout)) = (&pipeline.prev_ir, &pipeline.last_snapshot) {
                                     let (input_event, source) = match ime {
                                         Ime::Commit(text) => (
