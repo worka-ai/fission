@@ -7,6 +7,6 @@ repository = "https://github.com/worka-ai/fission"
 description = "Shell Mobile"
 
 [dependencies]
-fission-shell = { path = "../fission-shell" }
+fission-shell = { path = "../fission-shell", version = "0.1.0" }
 
 [dev-dependencies]

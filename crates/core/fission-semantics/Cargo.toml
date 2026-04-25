@@ -7,7 +7,7 @@ repository = "https://github.com/worka-ai/fission"
 description = "Semantics"
 
 [dependencies]
-fission-ir = { path = "../fission-ir" }
+fission-ir = { path = "../fission-ir", version = "0.1.0" }
 serde = { version = "1.0", features = ["derive"] }
 
 [dev-dependencies]
