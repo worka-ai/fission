@@ -185,7 +185,7 @@ impl Widget<InboxState> for ComposeModal {
                             value: view.state.compose_to.clone(),
                             items: suggestions,
                             is_open: !query.is_empty() && !has_exact_match,
-                            width: Some(550.0),
+                            width: None,
                             max_popup_height: Some(180.0),
                             on_change: Some(ActionEnvelope {
                                 id: to_id,
@@ -217,7 +217,6 @@ impl Widget<InboxState> for ComposeModal {
                                 id: subject_id,
                                 payload: Vec::new(),
                             }),
-                            width: Some(550.0),
                             ..Default::default()
                         }
                         .into_node(),
@@ -276,8 +275,7 @@ impl Widget<InboxState> for ComposeModal {
                                 payload: Vec::new(),
                             }),
                             multiline: true,
-                            width: Some(550.0),
-                            height: Some(200.0),
+                            height: Some(160.0),
                             ..Default::default()
                         }
                         .into_node(),

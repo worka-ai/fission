@@ -1,9 +1,8 @@
 use fission_core::{BuildCtx, View, Widget, WidgetNodeId, Handler, ActionEnvelope};
 use fission_core::ui::{Container, Node, Text, TextContent, Button, ButtonVariant, Scroll, Video};
 use fission_core::op::{Color, ImageFit};
-use fission_widgets::{VStack, HStack, Avatar, Accordion, AccordionItem, Card, Image, Spinner, Radio, Breadcrumb, BreadcrumbItem, Alert, AlertKind, Divider, Icon, Timeline, TimelineItem, Hero, Wrap, Tag, SimpleGrid, AspectRatio, Code, Kbd};
+use fission_widgets::{VStack, HStack, Avatar, Accordion, AccordionItem, Card, Image, Spinner, Radio, Alert, AlertKind, Divider, Icon, Timeline, TimelineItem, Hero, Wrap, Tag, SimpleGrid, AspectRatio, Code, Kbd};
 use crate::model::{InboxState, EmailMessage, Folder, ToggleDetails, ToggleToast, SelectReplyMode, SetReplyBody, SendReply, Navigate};
-use fission_icons::material;
 use serde_json;
 use chrono::Local;
 
@@ -84,7 +83,7 @@ impl Widget<InboxState> for EmailDetail {
                             HStack {
                                 spacing: Some(4.0),
                                 children: vec![
-                                    Icon::svg(material::navigation::arrow_back::regular()).size(16.0).into_node(),
+                                    Icon::path("M20 11H7.83l5.59-5.59L12 4l-8 8 8 8 1.41-1.41L7.83 13H20v-2z").size(16.0).into_node(),
                                     Text::new(folder_label).size(14.0).into_node(),
                                 ],
                             }.into_node()
@@ -114,7 +113,7 @@ impl Widget<InboxState> for EmailDetail {
                             fission_core::ui::widgets::Spacer { flex_grow: 1.0, ..Default::default() }.into_node(),
                             Button {
                                 variant: ButtonVariant::Outline,
-                                child: Some(Box::new(Icon::svg(material::action::delete::regular()).size(20.0).into_node())),
+                                child: Some(Box::new(Icon::path("M6 19c0 1.1.9 2 2 2h8c1.1 0 2-.9 2-2V7H6v12zM19 4h-3.5l-1-1h-5l-1 1H5v2h14V4z").size(20.0).into_node())),
                                 on_press: Some(ctx.bind(ToggleToast(true), (|s: &mut InboxState, _: ToggleToast, _| s.show_toast = true) as Handler<InboxState, ToggleToast>)),
                                 ..Default::default()
                             }.into_node(),
