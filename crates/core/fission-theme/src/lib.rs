@@ -170,6 +170,7 @@ impl Tokens {
 pub struct ButtonTheme {
     pub height: f32,
     pub padding_horizontal: f32,
+    pub padding_vertical: f32,
     pub radius: f32,
     pub text_size: f32,
     pub elevation_rest: Option<BoxShadow>,
@@ -183,6 +184,7 @@ impl ButtonTheme {
         Self {
             height: 42.0,
             padding_horizontal: tokens.spacing.m,
+            padding_vertical: tokens.spacing.s,
             radius: tokens.radii.full,
             text_size: tokens.typography.label_large_size,
             elevation_rest: tokens.elevations.level1,
