@@ -2,6 +2,14 @@ use fission_core::ui::{Container, GridItem, Node};
 use fission_core::{BuildCtx, View, Widget};
 use serde::{Deserialize, Serialize};
 
+/// A determinate progress bar showing completion from 0% to 100%.
+///
+/// Renders a track with a filled bar overlay. The bar width is set via a
+/// CSS Grid percentage column. Colors and height are read from `ProgressTheme`.
+///
+/// # Fields
+///
+/// * `value` - Progress fraction from 0.0 (empty) to 1.0 (full).
 #[derive(Default, Clone, Debug, Serialize, Deserialize)]
 pub struct ProgressBar {
     pub value: f32, // 0.0 to 1.0

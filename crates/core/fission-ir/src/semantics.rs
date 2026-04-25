@@ -1,37 +1,81 @@
+//! Accessibility and interaction semantics.
+//!
+//! The [`Semantics`] struct describes what a node *means* to assistive technology
+//! and to the event system. It carries a [`Role`] (button, text input, slider, ...),
+//! an optional human-readable label, a set of [`ActionEntry`]s that map input
+//! triggers to framework actions, and flags for focus, drag-and-drop, scrollability,
+//! and more.
+//!
+//! Semantics nodes appear in the IR as `Op::Semantics(semantics)`.
+
 use serde::{Deserialize, Serialize};
 
+/// The accessibility role of a node.
+///
+/// Roles tell screen readers and other assistive technology what kind of control a
+/// node represents. Choose the most specific role that applies.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum Role {
+    /// A clickable button that triggers an action.
     Button,
+    /// A read-only text label.
     Text,
+    /// An editable text field (single or multi-line).
     TextInput,
+    /// A raster or vector image.
     Image,
+    /// A toggle that is either checked or unchecked.
     Checkbox,
+    /// A toggle switch (on/off).
     Switch,
+    /// A modal or non-modal dialog overlay.
     Dialog,
+    /// A continuous range input (e.g., volume control).
     Slider,
+    /// A generic form input that does not fit the other roles.
     Input,
+    /// A scrollable list container.
     List,
+    /// An individual item inside a [`List`](Role::List).
     ListItem,
+    /// A node with no specific semantic role. The default.
     Generic,
 }
 
+/// What user interaction triggers an action.
+///
+/// Each [`ActionEntry`] pairs an `ActionTrigger` with an action ID so the event
+/// system knows which callback to invoke for a given input gesture.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum ActionTrigger {
-    Default, // Tap/Click
+    /// Primary activation: tap, click, or Enter key.
+    Default,
+    /// The user began dragging this node.
     DragStart,
+    /// The drag position changed (fires continuously).
     DragUpdate,
+    /// The user released the drag.
     DragEnd,
+    /// The pointer entered the node's hit area.
     HoverEnter,
+    /// The pointer left the node's hit area.
     HoverExit,
+    /// The node received keyboard focus.
     Focus,
+    /// The node lost keyboard focus.
     Blur,
-    Change, // Value change (Slider, Input)
-    CursorChange, // Caret/anchor position changed
+    /// The node's value changed (sliders, text inputs, etc.).
+    Change,
+    /// The caret or selection anchor position changed in a text field.
+    CursorChange,
+    /// A dragged payload was dropped onto this node.
     Drop,
+    /// A drag entered this node's hit area (for drop targets).
     DragEnter,
+    /// A drag left this node's hit area (for drop targets).
     DragLeave,
-    SecondaryClick, // Right-click / secondary mouse button
+    /// Right-click or secondary mouse button.
+    SecondaryClick,
 }
 
 impl Default for ActionTrigger {
@@ -40,36 +84,106 @@ impl Default for ActionTrigger {
     }
 }
 
+/// A single action binding: a trigger, an action ID, and optional payload.
+///
+/// When the event system detects the input described by `trigger`, it dispatches
+/// the action identified by `action_id`. If the action carries data (e.g., drag
+/// coordinates), `payload_data` holds the serialized payload.
+///
+/// # Example
+///
+/// ```rust
+/// use fission_ir::semantics::{ActionEntry, ActionTrigger};
+///
+/// let entry = ActionEntry {
+///     trigger: ActionTrigger::Default,
+///     action_id: 42,
+///     payload_data: None,
+/// };
+/// ```
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct ActionEntry {
+    /// Which input gesture triggers this action.
     pub trigger: ActionTrigger,
-    pub action_id: u128,               // Raw ActionId (u128)
-    pub payload_data: Option<Vec<u8>>, // Serialized Action instance, if it has payload
+    /// The raw 128-bit action ID dispatched to the widget's action handler.
+    pub action_id: u128,
+    /// Optional serialized payload. `None` for actions with no data.
+    pub payload_data: Option<Vec<u8>>,
 }
 
+/// Accessibility and interaction metadata for a node.
+///
+/// `Semantics` is the IR's way of describing *what a node means* rather than how it
+/// looks or where it is positioned. It is consumed by:
+///
+/// * Assistive technology (screen readers, switch control) via the accessibility tree.
+/// * The event/focus system, which uses `focusable`, `actions`, and `disabled` to
+///   route input.
+/// * The drag-and-drop subsystem, which reads `draggable` and `drag_payload`.
+///
+/// Most fields default to "inert" values (see [`Default`] impl), so you only need to
+/// set the fields that matter for a given widget.
+///
+/// # Example
+///
+/// ```rust
+/// use fission_ir::Semantics;
+/// use fission_ir::semantics::Role;
+///
+/// let sem = Semantics {
+///     role: Role::Button,
+///     label: Some("Submit".into()),
+///     focusable: true,
+///     ..Semantics::default()
+/// };
+/// ```
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Semantics {
+    /// The accessibility role. Defaults to [`Role::Generic`].
     pub role: Role,
+    /// A human-readable label for assistive technology (e.g., "Close" for a button).
     pub label: Option<String>,
+    /// The current value as a string (e.g., the text in an input field).
     pub value: Option<String>,
+    /// The set of actions this node responds to.
     pub actions: ActionSet,
+    /// Whether this node can receive keyboard focus.
     pub focusable: bool,
+    /// Whether this text input supports multiple lines.
     pub multiline: bool,
+    /// Whether the value should be obscured (password fields).
     pub masked: bool,
+    /// An optional input mask that restricts which characters are accepted.
     pub input_mask: Option<InputMask>,
+    /// The byte range of IME pre-edit (composition) text, if any.
     pub ime_preedit_range: Option<(usize, usize)>,
+    /// For checkboxes and switches: `Some(true)` = checked, `Some(false)` = unchecked,
+    /// `None` = not a toggle.
     pub checked: Option<bool>,
+    /// Whether the node is disabled (grayed out, non-interactive).
     pub disabled: bool,
+    /// Whether this node can be dragged.
     pub draggable: bool,
+    /// Whether the node scrolls horizontally.
     pub scrollable_x: bool,
+    /// Whether the node scrolls vertically.
     pub scrollable_y: bool,
+    /// Minimum value for range inputs (sliders).
     pub min_value: Option<f32>,
+    /// Maximum value for range inputs (sliders).
     pub max_value: Option<f32>,
+    /// Current numeric value for range inputs (sliders).
     pub current_value: Option<f32>,
+    /// When `true`, this node creates a new focus scope (like a dialog or panel).
     pub is_focus_scope: bool,
+    /// When `true`, Tab traversal does not leave this subtree.
     pub is_focus_barrier: bool,
+    /// Serialized payload attached to a drag operation.
     pub drag_payload: Option<Vec<u8>>,
+    /// An identifier for hero/shared-element transitions.
     pub hero_tag: Option<String>,
+    /// Explicit tab order index. Lower values receive focus first. `None` means
+    /// the node follows document order.
     pub focus_index: Option<i32>,
     /// When true, Tab key inserts spaces instead of moving focus.
     pub capture_tab: bool,
@@ -137,18 +251,39 @@ impl Default for Semantics {
     }
 }
 
+/// A collection of [`ActionEntry`]s attached to a semantics node.
+///
+/// `ActionSet` is a simple wrapper around a `Vec<ActionEntry>`. It exists as a
+/// named type so that serialization and hashing are straightforward.
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Default, Serialize, Deserialize)]
 pub struct ActionSet {
+    /// The action entries. Order does not matter for dispatch; the event system
+    /// matches on [`ActionTrigger`].
     pub entries: Vec<ActionEntry>,
 }
 
+/// Restricts which characters a text input accepts.
+///
+/// Apply an `InputMask` to a [`Semantics`] node to filter keystrokes before they
+/// reach the text editing logic.
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum InputMask {
+    /// Accept only ASCII digits (`0`-`9`).
     Numeric,
+    /// Accept only ASCII letters and digits (`a`-`z`, `A`-`Z`, `0`-`9`).
     Alphanumeric,
 }
 
 impl InputMask {
+    /// Returns `true` if `ch` is accepted by this mask.
+    ///
+    /// # Example
+    ///
+    /// ```rust
+    /// use fission_ir::semantics::InputMask;
+    /// assert!(InputMask::Numeric.is_valid_char('5'));
+    /// assert!(!InputMask::Numeric.is_valid_char('a'));
+    /// ```
     pub fn is_valid_char(&self, ch: char) -> bool {
         match self {
             InputMask::Numeric => ch.is_ascii_digit(),

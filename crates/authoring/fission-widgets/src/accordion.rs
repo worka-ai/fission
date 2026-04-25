@@ -6,6 +6,10 @@ use fission_core::ui::{
 use fission_core::{ActionEnvelope, BuildCtx, View, Widget};
 use serde::{Deserialize, Serialize};
 
+/// A single collapsible section within an [`Accordion`].
+///
+/// When `is_expanded` is `true`, the content is visible below the header.
+/// The header displays a chevron indicator (triangledown/triangleright) and the title text.
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct AccordionItem {
     pub title: String,
@@ -14,6 +18,10 @@ pub struct AccordionItem {
     pub on_toggle: Option<ActionEnvelope>,
 }
 
+/// A vertical list of collapsible sections.
+///
+/// Each [`AccordionItem`] has a clickable header that toggles its content visibility.
+/// Items are stacked with zero gap, creating a continuous bordered surface.
 #[derive(Default, Clone, Debug, Serialize, Deserialize)]
 pub struct Accordion {
     pub items: Vec<AccordionItem>,

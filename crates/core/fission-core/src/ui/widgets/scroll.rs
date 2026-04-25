@@ -6,15 +6,40 @@ use fission_ir::{
 };
 use serde::{Deserialize, Serialize};
 
+/// A scrollable container that clips its child and tracks scroll offset.
+///
+/// Scroll direction can be horizontal (`FlexDirection::Row`) or vertical
+/// (`FlexDirection::Column`). The runtime manages scroll state automatically
+/// in response to pointer scroll events.
+///
+/// # Example
+///
+/// ```rust,ignore
+/// Scroll {
+///     direction: FlexDirection::Column,
+///     show_scrollbar: true,
+///     flex_grow: 1.0,
+///     child: Some(Box::new(long_content)),
+///     ..Default::default()
+/// }
+/// ```
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Scroll {
+    /// Explicit node identity (used for scroll-offset tracking).
     pub id: Option<NodeId>,
+    /// The scrollable content.
     pub child: Option<Box<Node>>,
+    /// Scroll axis: `Column` for vertical, `Row` for horizontal.
     pub direction: FlexDirection,
+    /// Fixed width in layout points.
     pub width: Option<f32>,
+    /// Fixed height in layout points.
     pub height: Option<f32>,
+    /// Whether to render a scrollbar indicator.
     pub show_scrollbar: bool,
+    /// Flex grow factor.
     pub flex_grow: f32,
+    /// Flex shrink factor.
     pub flex_shrink: f32,
 }
 

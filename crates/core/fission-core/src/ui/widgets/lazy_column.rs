@@ -5,10 +5,36 @@ use fission_ir::{op::{FlexDirection, LayoutOp, Op}, NodeId};
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 
+/// A virtualized vertical list that only builds visible items.
+///
+/// For large data sets, `LazyColumn` dramatically reduces the node count by
+/// rendering only the items within the scroll viewport plus a small buffer.
+/// Each item is assumed to have a uniform `item_height`.
+///
+/// When `item_height` is 0 or negative, virtualisation is disabled and all
+/// children are rendered (equivalent to wrapping a `Column` in a `Scroll`).
+///
+/// # Example
+///
+/// ```rust,ignore
+/// LazyColumn {
+///     children: Arc::new(
+///         items.iter()
+///             .map(|item| Text::new(item.name.clone()).into_node())
+///             .collect()
+///     ),
+///     item_height: 48.0,
+///     ..Default::default()
+/// }
+/// ```
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct LazyColumn {
+    /// Explicit node identity (used for scroll-offset tracking).
     pub id: Option<NodeId>,
+    /// All items in the list (only the visible slice is lowered each frame).
     pub children: Arc<Vec<Node>>,
+    /// Uniform height of each item in layout points. Set to 0 to disable
+    /// virtualisation.
     pub item_height: f32,
 }
 

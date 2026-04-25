@@ -4,9 +4,21 @@ use crate::ui::Node;
 use fission_ir::{LayoutOp, NodeId, Op};
 use serde::{Deserialize, Serialize};
 
+/// Centers its child within the available parent space.
+///
+/// `Align` is a convenience wrapper that applies center alignment on both
+/// axes. It expands to fill the parent and places the child at the centre.
+///
+/// # Example
+///
+/// ```rust,ignore
+/// Align::new(Text::new("Centered!").into_node())
+/// ```
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Align {
+    /// Explicit node identity.
     pub id: Option<NodeId>,
+    /// The child widget to center.
     pub child: Box<Node>,
 }
 

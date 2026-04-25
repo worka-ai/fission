@@ -4,9 +4,35 @@ use crate::ui::Node;
 use fission_ir::{LayoutOp, NodeId, Op};
 use serde::{Deserialize, Serialize};
 
+/// A z-axis stacking container that layers children on top of each other.
+///
+/// Children are painted in order: the first child is at the bottom, the last
+/// is on top. Use [`Positioned`](super::Positioned) children to place them
+/// at absolute offsets within the stack.
+///
+/// The stack's size is determined by its largest child.
+///
+/// # Example
+///
+/// ```rust,ignore
+/// ZStack {
+///     children: vec![
+///         Image { source: "bg.png".into(), ..Default::default() }.into_node().into(),
+///         Positioned {
+///             bottom: Some(16.0),
+///             right: Some(16.0),
+///             child: Some(Box::new(Text::new("Overlay").into_node())),
+///             ..Default::default()
+///         }.into_node().into(),
+///     ],
+///     ..Default::default()
+/// }
+/// ```
 #[derive(Debug, Default, Clone, Serialize, Deserialize)]
 pub struct ZStack {
+    /// Explicit node identity.
     pub id: Option<NodeId>,
+    /// Children painted in order (first = bottom, last = top).
     pub children: Vec<Node>,
 }
 

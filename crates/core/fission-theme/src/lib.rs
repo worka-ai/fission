@@ -1,6 +1,29 @@
+//! Design token system and component themes for the Fission UI framework.
+//!
+//! This crate defines the complete visual language: colors, spacing, typography,
+//! corner radii, elevations (box shadows), and per-component theme overrides.
+//! It follows the Material Design 3 token architecture.
+//!
+//! # Usage
+//!
+//! ```rust,ignore
+//! use fission_theme::Theme;
+//!
+//! let light = Theme::default();
+//! let dark = Theme::dark();
+//! ```
+
 use fission_ir::op::{BoxShadow, Color, Stroke};
 use serde::{Deserialize, Serialize};
 
+/// Semantic color palette for the application.
+///
+/// Provides primary, secondary, surface, background, error, border, and text
+/// colors. Each color has an `on_*` counterpart for content displayed on that
+/// surface (e.g., `on_primary` is the text/icon color used on `primary` backgrounds).
+///
+/// The [`Default`] implementation provides a light theme. Use [`ColorTokens::dark()`]
+/// for dark mode colors.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct ColorTokens {
     pub primary: Color,
@@ -58,6 +81,9 @@ impl ColorTokens {
     }
 }
 
+/// Standard spacing scale used for padding, margins, and gaps.
+///
+/// Values: `none` (0), `xs` (4), `s` (8), `m` (16), `l` (24), `xl` (32).
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct SpacingTokens {
     pub none: f32, // 0
@@ -81,6 +107,10 @@ impl Default for SpacingTokens {
     }
 }
 
+/// Font size scale for text elements.
+///
+/// Sizes: `label_large_size` (15), `body_medium_size` (15), `body_large_size` (17),
+/// `heading_size` (28).
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct TypographyTokens {
     pub label_large_size: f32,
@@ -100,6 +130,9 @@ impl Default for TypographyTokens {
     }
 }
 
+/// Corner radius scale for rounded containers.
+///
+/// Values: `small` (4), `medium` (8), `large` (12), `full` (9999 -- fully rounded pill).
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct RadiusTokens {
     pub small: f32,
@@ -119,6 +152,10 @@ impl Default for RadiusTokens {
     }
 }
 
+/// Box shadow levels for surface elevation.
+///
+/// Six levels (0-5). Levels 0, 4, and 5 default to `None`. Levels 1-3 provide
+/// progressively stronger shadows with increasing blur radius and y-offset.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct ElevationTokens {
     pub level0: Option<BoxShadow>,
@@ -143,6 +180,11 @@ impl Default for ElevationTokens {
     }
 }
 
+/// The complete set of primitive design tokens.
+///
+/// Combines [`ColorTokens`], [`SpacingTokens`], [`TypographyTokens`],
+/// [`RadiusTokens`], and [`ElevationTokens`]. The [`Default`] implementation
+/// provides light-mode values. Use [`Tokens::dark()`] for dark mode.
 #[derive(Clone, Debug, PartialEq, Default, Serialize, Deserialize)]
 pub struct Tokens {
     pub colors: ColorTokens,
@@ -166,6 +208,10 @@ impl Tokens {
 
 // --- Component Themes ---
 
+/// Visual parameters for the `Button` widget.
+///
+/// Includes dimensions, padding, corner radius, text size, elevation for
+/// rest/hover/pressed states, and an optional focus stroke.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct ButtonTheme {
     pub height: f32,
@@ -198,6 +244,10 @@ impl ButtonTheme {
     }
 }
 
+/// Visual parameters for the `TextInput` widget.
+///
+/// Controls height, horizontal padding, corner radius, font size, and colors
+/// for border, focus ring, text, and placeholder.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct TextInputTheme {
     pub height: f32,
@@ -227,6 +277,7 @@ impl TextInputTheme {
     }
 }
 
+/// Visual parameters for the `Calendar` widget.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct CalendarTheme {
     pub bg_color: Color,
@@ -250,6 +301,7 @@ impl CalendarTheme {
     }
 }
 
+/// Visual parameters for the `Pagination` widget.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct PaginationTheme {
     pub spacing: f32,
@@ -267,6 +319,7 @@ impl PaginationTheme {
     }
 }
 
+/// Visual parameters for the `Timeline` widget.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct TimelineTheme {
     pub dot_size: f32,
@@ -286,6 +339,7 @@ impl TimelineTheme {
     }
 }
 
+/// Visual parameters for the `SegmentedControl` widget.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct SegmentedControlTheme {
     pub bg_color: Color,
@@ -307,6 +361,7 @@ impl SegmentedControlTheme {
     }
 }
 
+/// Visual parameters for the `Alert` widget, with per-severity background colors.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct AlertTheme {
     pub info_bg: Color,
@@ -328,6 +383,7 @@ impl AlertTheme {
     }
 }
 
+/// Visual parameters for the `Badge` widget.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct BadgeTheme {
     pub radius: f32,
@@ -343,6 +399,7 @@ impl BadgeTheme {
     }
 }
 
+/// Visual parameters for the `Tabs` widget.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct TabsTheme {
     pub active_color: Color,
@@ -364,6 +421,9 @@ impl TabsTheme {
     }
 }
 
+/// Visual parameters for the `Modal` widget.
+///
+/// Controls the dialog background color, corner radius, shadow, and maximum width.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct ModalTheme {
     pub bg_color: Color,
@@ -383,6 +443,7 @@ impl ModalTheme {
     }
 }
 
+/// Visual parameters for the `TreeView` widget.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct TreeViewTheme {
     pub indent: f32,
@@ -400,6 +461,7 @@ impl TreeViewTheme {
     }
 }
 
+/// Visual parameters for the `ProgressBar` widget.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct ProgressTheme {
     pub height: f32,
@@ -417,6 +479,7 @@ impl ProgressTheme {
     }
 }
 
+/// Visual parameters for the `Tooltip` widget.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct TooltipTheme {
     pub bg_color: Color,
@@ -436,6 +499,10 @@ impl TooltipTheme {
     }
 }
 
+/// Aggregates all per-component visual themes.
+///
+/// Each field holds the theme for a specific widget type. Construct via
+/// [`ComponentTheme::from_tokens()`] to derive all values from the primitive tokens.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct ComponentTheme {
     pub button: ButtonTheme,
@@ -473,6 +540,11 @@ impl ComponentTheme {
     }
 }
 
+/// The top-level theme combining primitive [`Tokens`] and derived [`ComponentTheme`].
+///
+/// Use [`Theme::default()`] for light mode and [`Theme::dark()`] for dark mode.
+/// For custom themes, construct [`Tokens`] manually and derive components via
+/// [`ComponentTheme::from_tokens()`].
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct Theme {
     pub tokens: Tokens,
@@ -495,6 +567,9 @@ impl Theme {
     }
 }
 
+/// Bundled font files embedded at compile time.
+///
+/// Provides Noto Sans Regular (the default) and Inter 24pt Regular.
 pub mod fonts {
     pub const NOTO_SANS_REGULAR_TTF: &[u8] = include_bytes!("../fonts/Noto_Sans/static/NotoSans-Regular.ttf");
     pub const INTER_24PT_REGULAR_TTF: &[u8] = include_bytes!("../fonts/Inter/static/Inter_24pt-Regular.ttf");

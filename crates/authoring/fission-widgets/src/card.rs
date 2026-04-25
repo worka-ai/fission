@@ -2,6 +2,11 @@ use fission_core::ui::{Container, Node};
 use fission_core::{BuildCtx, View, Widget};
 use serde::{Deserialize, Serialize};
 
+/// An elevated surface container with rounded corners and a box shadow.
+///
+/// Cards provide a visual grouping for related content. They use the theme's
+/// `surface` background color, `medium` border radius, and `level1` elevation
+/// shadow. Content is padded with the `spacing.m` (16px) token.
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct Card {
     pub child: Box<Node>,

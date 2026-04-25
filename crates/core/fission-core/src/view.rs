@@ -1,3 +1,10 @@
+//! Read-only view, widget trait, and selector pattern.
+//!
+//! During [`Widget::build`], the framework provides a [`View`] that gives
+//! read-only access to the current [`AppState`], theme, i18n registry,
+//! layout snapshot, and animation values. Widgets use this to decide what
+//! to render without any side-effects.
+
 use crate::{
     env::VideoState,
     registry::{AnimationPropertyId, VideoRegistration},
@@ -9,10 +16,32 @@ use fission_ir::{NodeId, WidgetNodeId};
 use fission_layout::BoxConstraints;
 use fission_theme::Theme;
 
+/// Read-only access to application state and environment during widget building.
+///
+/// `View` is the primary way widgets read data. It is parameterised over the
+/// concrete [`AppState`] type `S`, giving type-safe access to `state` while
+/// also exposing the theme, i18n registry, layout snapshot from the previous
+/// frame, and animation values.
+///
+/// # Example
+///
+/// ```rust,ignore
+/// fn build(&self, _ctx: &mut BuildCtx<MyState>, view: &View<MyState>) -> Node {
+///     let name = &view.state.user_name;
+///     let theme = view.theme();
+///     Text::new(format!("Hello, {}!", name))
+///         .color(theme.tokens.colors.primary)
+///         .into_node()
+/// }
+/// ```
 pub struct View<'a, S: AppState> {
+    /// Reference to the current application state.
     pub state: &'a S,
+    /// Runtime interaction, scroll, text-edit, and animation state.
     pub runtime: &'a RuntimeState,
+    /// Environment (theme, i18n, viewport size, locale).
     pub env: &'a Env,
+    /// Layout snapshot from the previous frame, if available.
     pub layout: Option<&'a LayoutSnapshot>,
 }
 
@@ -65,12 +94,59 @@ impl<'a, S: AppState> View<'a, S> {
     }
 }
 
+/// A selector that derives a value from the [`View`].
+///
+/// Selectors extract and transform data from state so widgets can depend on
+/// derived values without coupling to the full state shape.
+///
+/// # Example
+///
+/// ```rust,ignore
+/// struct ItemCount;
+/// impl Selector<MyState> for ItemCount {
+///     type Output = usize;
+///     fn select(view: &View<MyState>) -> usize {
+///         view.state.items.len()
+///     }
+/// }
+///
+/// // In a widget:
+/// let count: usize = view.select::<ItemCount>();
+/// ```
 pub trait Selector<S: AppState> {
+    /// The type produced by the selector.
     type Output;
+    /// Extract the value from the given view.
     fn select(view: &View<S>) -> Self::Output;
 }
 
+/// The core trait for composable UI components.
+///
+/// A `Widget` produces a [`Node`] tree given read-only access to state
+/// ([`View`]) and a mutable build context ([`BuildCtx`]) for binding actions,
+/// registering portals, and requesting animations.
+///
+/// # Example
+///
+/// ```rust,ignore
+/// struct Greeting;
+///
+/// impl Widget<AppState> for Greeting {
+///     fn build(&self, ctx: &mut BuildCtx<AppState>, view: &View<AppState>) -> Node {
+///         let on_press = ctx.bind(SayHello, handle_hello as fn(&mut AppState, SayHello));
+///         Button {
+///             child: Some(Box::new(Text::new("Hello!").into_node())),
+///             on_press: Some(on_press),
+///             ..Default::default()
+///         }.into_node()
+///     }
+/// }
+/// ```
 pub trait Widget<S: AppState> {
+    /// Build the widget's node tree.
+    ///
+    /// Called once per frame. Implementations must be pure -- all side-effects
+    /// go through `ctx` (action binding, portals, animations).
     fn build(&self, ctx: &mut BuildCtx<S>, view: &View<S>) -> Node;
 }
 

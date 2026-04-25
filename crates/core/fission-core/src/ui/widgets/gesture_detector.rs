@@ -8,22 +8,63 @@ use fission_ir::{
 };
 use serde::{Deserialize, Serialize};
 
+/// Detects pointer gestures on its child and dispatches corresponding actions.
+///
+/// `GestureDetector` wraps a child widget and attaches semantic actions for
+/// tap, double-tap, long-press, drag, hover, drop, and secondary-click
+/// events.
+///
+/// # Example
+///
+/// ```rust,ignore
+/// let on_tap = ctx.bind(ItemTapped { id: 42 }, handle_tap as fn(&mut S, ItemTapped));
+/// let on_secondary = ctx.bind(ShowMenu { id: 42 }, handle_menu as fn(&mut S, ShowMenu));
+///
+/// GestureDetector {
+///     child: Box::new(item_content),
+///     on_tap: Some(on_tap),
+///     on_secondary_click: Some(on_secondary),
+///     ..Default::default()
+/// }
+/// ```
+///
+/// # Drag and drop
+///
+/// Set `on_drag_start` / `on_drag_update` / `on_drag_end` for the source, and
+/// `on_drop` / `on_drag_enter` / `on_drag_leave` for the target. Attach
+/// `drag_payload` bytes to the source so the target can inspect the data.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct GestureDetector {
+    /// Explicit node identity.
     pub id: Option<NodeId>,
+    /// The child widget that receives gesture detection.
     pub child: Box<Node>,
+    /// Action dispatched on a single tap (pointer up after pointer down).
     pub on_tap: Option<ActionEnvelope>,
+    /// Action dispatched on a double-tap.
     pub on_double_tap: Option<ActionEnvelope>,
+    /// Action dispatched after a long press.
     pub on_long_press: Option<ActionEnvelope>,
+    /// Action dispatched when a drag gesture begins.
     pub on_drag_start: Option<ActionEnvelope>,
+    /// Action dispatched as the drag gesture moves.
     pub on_drag_update: Option<ActionEnvelope>,
+    /// Action dispatched when the drag gesture ends.
     pub on_drag_end: Option<ActionEnvelope>,
+    /// Action dispatched when the pointer enters the child bounds.
     pub on_hover_enter: Option<ActionEnvelope>,
+    /// Action dispatched when the pointer leaves the child bounds.
     pub on_hover_exit: Option<ActionEnvelope>,
+    /// Action dispatched when a dragged item is dropped on this widget.
     pub on_drop: Option<ActionEnvelope>,
+    /// Action dispatched on a right-click / secondary button press.
     pub on_secondary_click: Option<ActionEnvelope>,
-    pub on_drag_enter: Option<ActionEnvelope>, // Drag over
+    /// Action dispatched when a drag enters this widget's bounds.
+    pub on_drag_enter: Option<ActionEnvelope>,
+    /// Action dispatched when a drag leaves this widget's bounds.
     pub on_drag_leave: Option<ActionEnvelope>,
+    /// Opaque byte payload attached to the drag source for drop targets to
+    /// inspect.
     pub drag_payload: Option<Vec<u8>>,
 }
 

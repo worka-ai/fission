@@ -4,6 +4,17 @@ use fission_core::{ActionEnvelope, BuildCtx, View, Widget};
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 
+/// A horizontal row of toggle buttons where exactly one option is active.
+///
+/// The active segment uses `ButtonVariant::Filled` with the theme's active color.
+/// Inactive segments use `ButtonVariant::Ghost`. The entire control is wrapped in
+/// a bordered, rounded container.
+///
+/// # Fields
+///
+/// * `options` - The label text for each segment.
+/// * `selected_index` - Index of the currently active segment.
+/// * `on_change` - Closure that produces an action for the newly selected index.
 pub struct SegmentedControl {
     pub options: Vec<String>,
     pub selected_index: usize,

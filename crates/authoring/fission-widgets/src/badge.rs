@@ -3,6 +3,20 @@ use fission_core::ui::{Align, Container, Node, Text, TextContent};
 use fission_core::{BuildCtx, View, Widget};
 use serde::{Deserialize, Serialize};
 
+/// A small colored label for counts, statuses, or categories.
+///
+/// Renders as a rounded pill with centered text. Colors default to the theme's
+/// `secondary` / `on_secondary` tokens but can be overridden per instance.
+///
+/// # Example
+///
+/// ```rust,ignore
+/// Badge {
+///     text: "42".into(),
+///     color: Some(Color { r: 220, g: 50, b: 50, a: 255 }),
+///     ..Default::default()
+/// }
+/// ```
 #[derive(Default, Clone, Debug, Serialize, Deserialize)]
 pub struct Badge {
     pub text: String,

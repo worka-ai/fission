@@ -14,11 +14,20 @@ use std::any::TypeId;
 use std::collections::{BTreeMap, HashMap};
 use std::sync::Arc;
 
-// The canonical handler signature
+/// The canonical 3-argument handler signature for modern reducers.
+///
+/// ```rust,ignore
+/// fn handle_increment(state: &mut Counter, _: Increment, _ctx: &mut ReducerContext<Counter>) {
+///     state.count += 1;
+/// }
+/// ```
 pub type Handler<S, A> = for<'a, 'b, 'c> fn(&mut S, A, &mut ReducerContext<'a, 'b, 'c, S>);
 
-// The trait for backward compatibility
+/// Trait that allows both 2-argument (legacy) and 3-argument (modern) handler
+/// functions to be used with [`ActionRegistry::register`] and
+/// [`BuildCtx::bind`].
 pub trait IntoHandler<S: AppState, A> {
+    /// Invoke the handler with the given state, action, and context.
     fn call<'a, 'b, 'c>(&self, state: &mut S, action: A, ctx: &mut ReducerContext<'a, 'b, 'c, S>);
 }
 
@@ -39,6 +48,11 @@ impl<S: AppState, A> IntoHandler<S, A> for for<'a, 'b, 'c> fn(&mut S, A, &mut Re
 // Internal typed reducer storage
 type TypedReducer<S> = Box<dyn for<'a, 'b, 'c> Fn(&mut S, &ActionEnvelope, &mut Effects<'a, S>, &'b ActionInput) -> Result<()> + Send + Sync>;
 
+/// A per-frame collection of action handlers registered during widget building.
+///
+/// `ActionRegistry` is populated by [`BuildCtx::bind`] calls. After the widget
+/// tree is built, the registry is absorbed into the [`Runtime`](crate::Runtime)
+/// via [`Runtime::absorb_registry`](crate::Runtime::absorb_registry).
 pub struct ActionRegistry<S: AppState> {
     handlers: BTreeMap<ActionId, TypedReducer<S>>,
 }
@@ -116,7 +130,23 @@ impl<S: AppState> ActionRegistry<S> {
     }
 }
 
-// ... Rest of file same ...
+/// Identifies which visual property an animation targets.
+///
+/// Built-in properties have well-known default values (e.g. opacity defaults
+/// to 1.0, translation defaults to 0.0). Custom properties use 0.0.
+///
+/// # Example
+///
+/// ```rust,ignore
+/// ctx.anim_for(widget_id).request(AnimationRequest {
+///     property: AnimationPropertyId::Opacity,
+///     from: AnimationStartValue::Current,
+///     to: 0.0,
+///     duration_ms: 300,
+///     repeat: false,
+///     delay_ms: 0,
+/// });
+/// ```
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub enum AnimationPropertyId {
     Opacity,
@@ -143,59 +173,125 @@ impl AnimationPropertyId {
     }
 }
 
+/// Where an animation starts from.
 #[derive(Clone, Debug)]
 pub enum AnimationStartValue {
+    /// Start from an explicit value.
     Explicit(f32),
+    /// Start from whatever the current animated value is.
     Current,
 }
 
+/// A request to animate a visual property on a widget.
+///
+/// Registered via [`BuildCtx::request_animation_for`] or
+/// [`AnimCtx::request`].
 #[derive(Clone, Debug)]
 pub struct AnimationRequest {
+    /// The property to animate.
     pub property: AnimationPropertyId,
+    /// Starting value.
     pub from: AnimationStartValue,
+    /// Target value.
     pub to: f32,
+    /// Duration in milliseconds.
     pub duration_ms: u64,
+    /// Whether to loop the animation.
     pub repeat: bool,
+    /// Delay before the animation starts (in milliseconds).
     pub delay_ms: u64,
 }
 
+/// Registration data for a [`Video`](crate::ui::Video) widget collected during
+/// widget building.
 #[derive(Clone, Debug)]
 pub struct VideoRegistration {
+    /// The stable widget identity of the video node.
     pub node_id: WidgetNodeId,
+    /// URL or asset path to the video file.
     pub source: String,
+    /// Whether to start playing automatically.
     pub autoplay: bool,
+    /// Whether to loop playback.
     pub loop_playback: bool,
 }
 
+/// Registration data for a platform web view collected during widget building.
 #[derive(Clone, Debug)]
 pub struct WebRegistration {
+    /// The stable widget identity of the web view node.
     pub node_id: WidgetNodeId,
+    /// The URL to load.
     pub url: String,
+    /// Optional custom user-agent string.
     pub user_agent: Option<String>,
 }
 
+/// The mutable context passed to [`Widget::build`](crate::Widget::build).
+///
+/// `BuildCtx` is where widgets register side-effects that must survive beyond
+/// the build phase:
+///
+/// - **Action binding** -- [`bind`](BuildCtx::bind) registers a handler and
+///   returns an [`ActionEnvelope`] that can be stored in widget fields like
+///   `on_press`.
+/// - **Portals** -- [`register_portal`](BuildCtx::register_portal) places a
+///   node in the global overlay stack (modals, toasts, flyouts).
+/// - **Animations** -- [`request_animation_for`](BuildCtx::request_animation_for)
+///   or the [`anim_for`](BuildCtx::anim_for) helper.
+/// - **Video / WebView registration** -- [`register_video`](BuildCtx::register_video),
+///   [`register_web_view`](BuildCtx::register_web_view).
+///
+/// # Example
+///
+/// ```rust,ignore
+/// fn build(&self, ctx: &mut BuildCtx<S>, view: &View<S>) -> Node {
+///     let on_press = ctx.bind(MyAction { .. }, handler as fn(&mut S, MyAction));
+///     Button { on_press: Some(on_press), ..Default::default() }.into_node()
+/// }
+/// ```
 pub struct BuildCtx<S: AppState> {
+    /// The action registry that accumulates handlers during the build phase.
     pub registry: ActionRegistry<S>,
+    /// Pending animation requests.
     pub animation_requests: Vec<(WidgetNodeId, AnimationRequest)>,
+    /// Registered video nodes.
     pub video_nodes: Vec<VideoRegistration>,
+    /// Registered web view nodes.
     pub web_nodes: Vec<WebRegistration>,
+    /// Portal entries (overlays, modals, toasts).
     pub portals: Vec<PortalEntry>,
     portal_seq: u64,
 }
 
+/// Z-order layer for portal entries.
+///
+/// Portals are sorted by layer (then by registration order within a layer).
+/// Higher layers paint on top of lower layers.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
 pub enum PortalLayer {
+    /// Default overlay layer.
     Default = 0,
+    /// Modal dialog layer.
     Modal = 100,
+    /// Flyout / dropdown layer.
     Flyout = 200,
+    /// Toast notification layer (topmost).
     Toast = 300,
 }
 
+/// An entry in the portal overlay stack.
+///
+/// Created by [`BuildCtx::register_portal`] and friends.
 #[derive(Clone, Debug)]
 pub struct PortalEntry {
+    /// Which overlay layer this portal belongs to.
     pub layer: PortalLayer,
+    /// Insertion order (for stable ordering within a layer).
     pub seq: u64,
+    /// Optional stable identity.
     pub id: Option<WidgetNodeId>,
+    /// The portal's widget tree.
     pub node: Node,
 }
 

@@ -8,35 +8,90 @@ use fission_ir::{
 };
 use serde::{Deserialize, Serialize};
 
+/// Visual style variant for a [`Button`].
+///
+/// - `Filled` -- solid background with the primary colour (default).
+/// - `Outline` -- transparent background with a border stroke.
+/// - `Ghost` -- no background or border; just text/icon.
+///
+/// # Example
+///
+/// ```rust,ignore
+/// Button {
+///     variant: ButtonVariant::Outline,
+///     child: Some(Box::new(Text::new("Cancel").into_node())),
+///     ..Default::default()
+/// }
+/// ```
 #[derive(Debug, Default, Clone, Copy, PartialEq, Serialize, Deserialize)]
 pub enum ButtonVariant {
+    /// Solid primary-colour background.
     #[default]
     Filled,
+    /// Transparent background with a border.
     Outline,
+    /// No background, no border.
     Ghost,
 }
 
+/// Horizontal alignment of a [`Button`]'s child content.
+///
+/// Defaults to `Center`.
 #[derive(Debug, Default, Clone, Copy, PartialEq, Serialize, Deserialize)]
 pub enum ButtonContentAlign {
+    /// Center the child horizontally and vertically (default).
     #[default]
     Center,
+    /// Align the child to the leading edge.
     Start,
+    /// Align the child to the trailing edge.
     End,
 }
 
+/// A pressable button widget with built-in theming, hover/press states, and
+/// focus ring.
+///
+/// Buttons come in three visual [`ButtonVariant`]s (Filled, Outline, Ghost)
+/// and support flexible content alignment via [`ButtonContentAlign`].
+///
+/// # Example
+///
+/// ```rust,ignore
+/// let on_press = ctx.bind(Submit, handle_submit as fn(&mut S, Submit));
+///
+/// Button {
+///     child: Some(Box::new(Text::new("Submit").into_node())),
+///     on_press: Some(on_press),
+///     variant: ButtonVariant::Filled,
+///     content_align: ButtonContentAlign::Center,
+///     ..Default::default()
+/// }
+/// ```
 #[derive(Debug, Default, Clone, Serialize, Deserialize)]
 pub struct Button {
+    /// Explicit node identity (auto-generated if `None`).
     pub id: Option<NodeId>,
+    /// The button's content widget (typically [`Text`] or [`Icon`]).
     pub child: Option<Box<Node>>,
+    /// Action dispatched when the button is pressed.
     pub on_press: Option<ActionEnvelope>,
+    /// Custom semantics (overrides the default button semantics).
     pub semantics: Option<Semantics>,
+    /// Fixed width in layout points.
     pub width: Option<f32>,
+    /// Fixed height in layout points.
     pub height: Option<f32>,
+    /// Custom padding `[left, right, top, bottom]` (overrides theme defaults).
     pub padding: Option<[f32; 4]>,
+    /// Style overrides (reserved for future use).
     pub style: Option<ButtonStyleOverride>,
+    /// Visual variant (Filled, Outline, or Ghost).
     pub variant: ButtonVariant,
+    /// Horizontal alignment of the child content.
     #[serde(default)]
     pub content_align: ButtonContentAlign,
+    /// When `true`, the button is greyed out and its `on_press` action is not
+    /// attached.
     pub disabled: bool,
 }
 

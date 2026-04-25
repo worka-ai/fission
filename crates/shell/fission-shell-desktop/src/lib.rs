@@ -1,3 +1,12 @@
+//! Desktop shell for Fission applications.
+//!
+//! Provides the native window, GPU-accelerated rendering pipeline (via Vello + wgpu),
+//! input handling, clipboard, IME, and platform video integration needed to run a
+//! Fission UI on macOS, Windows, and Linux.
+//!
+//! The main entry point is [`DesktopApp::new(root_widget)`](DesktopApp::new), which
+//! creates a winit event loop and runs the full build-layout-paint-present cycle.
+
 use anyhow::Result;
 use std::collections::{HashMap, VecDeque};
 use std::num::NonZeroU32;
@@ -576,9 +585,22 @@ fn flush_text_traces(
     }
 }
 
+/// Type alias for an application-level key handler.
+///
+/// Receives `(&mut S, &KeyCode, modifiers)` and returns `true` if the key was consumed.
 pub type KeyHandler<S> = Arc<dyn Fn(&mut S, &fission_core::KeyCode, u8) -> bool + Send + Sync>;
+
+/// Type alias for a per-frame hook callback.
+///
+/// Receives `(&mut S)` and returns `true` to request a redraw.
 pub type FrameHook<S> = Arc<dyn Fn(&mut S) -> bool + Send + Sync>;
 
+/// The desktop application shell that owns the window, event loop, and rendering pipeline.
+///
+/// Generic over `S` (the application state type) and `W` (the root widget type).
+/// Construct via [`DesktopApp::new()`] and configure with builder methods
+/// (`with_title`, `with_state_init`, `with_key_handler`, etc.) before calling
+/// [`run()`](DesktopApp::run) to start the event loop.
 pub struct DesktopApp<S: AppState, W: Widget<S>> {
     runtime: Runtime,
     layout_engine: LayoutEngine,

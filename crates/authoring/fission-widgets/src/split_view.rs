@@ -4,12 +4,26 @@ use fission_core::ui::{Column, Container, Node, Row};
 use fission_core::{ActionEnvelope, BuildCtx, NodeId, View, Widget, WidgetNodeId};
 use serde::{Deserialize, Serialize};
 
+/// The axis along which a [`SplitView`] divides its two panes.
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub enum SplitDirection {
     Horizontal,
     Vertical,
 }
 
+/// A resizable split pane that divides space between two children.
+///
+/// The split ratio is controlled by `split_ratio` (0.0 to 1.0), which sets the
+/// `flex_grow` of each pane. A thin drag handle separates the panes. The handle
+/// is a 4px transparent hit area with a 1px visible border line.
+///
+/// # Fields
+///
+/// * `id` - Stable widget identity.
+/// * `direction` - `Horizontal` splits left/right, `Vertical` splits top/bottom.
+/// * `first` / `second` - The two pane content nodes.
+/// * `split_ratio` - Proportion of space given to the first pane (clamped to 0.1..0.9).
+/// * `on_resize` - Action dispatched when the handle is dragged (user must update `split_ratio`).
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct SplitView {
     pub id: WidgetNodeId,

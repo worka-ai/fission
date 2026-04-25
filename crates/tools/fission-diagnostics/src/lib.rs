@@ -1,3 +1,21 @@
+//! Structured diagnostics and telemetry for the Fission rendering pipeline.
+//!
+//! Provides a global, thread-safe diagnostics system that emits structured JSON
+//! events covering every stage of the frame lifecycle. Configure via environment
+//! variables ([`init_from_env()`]) or programmatically ([`init()`]).
+//!
+//! # Quick start
+//!
+//! ```rust,ignore
+//! use fission_diagnostics::prelude::*;
+//! init_from_env();
+//! begin_frame(None);
+//! emit(DiagCategory::Layout, DiagLevel::Debug, DiagEventKind::LayoutSummary {
+//!     nodes: 100, dirty_count: 2, full_rebuild: false, duration_ns: 500_000,
+//! });
+//! end_frame(FrameStats::default());
+//! ```
+
 use once_cell::sync::OnceCell;
 use parking_lot::RwLock;
 use serde::{Deserialize, Serialize};
@@ -9,6 +27,11 @@ use std::sync::atomic::{AtomicU64, Ordering};
 
 // --------- Public Types ---------
 
+/// Severity level for diagnostic events.
+///
+/// Ordered from most to least severe: `Error` > `Warn` > `Info` > `Debug` > `Trace`.
+/// The [`allows()`](DiagLevel::allows) method checks if a given level passes the
+/// configured minimum threshold.
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Hash)]
 #[serde(rename_all = "lowercase")]
 pub enum DiagLevel {
@@ -40,6 +63,10 @@ impl DiagLevel {
     }
 }
 
+/// Pipeline subsystem that a diagnostic event belongs to.
+///
+/// Used for category-based filtering. Enable specific categories via the
+/// `FISSION_DIAG` environment variable (comma-separated, or `*` for all).
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Hash, Ord, PartialOrd)]
 #[serde(rename_all = "lowercase")]
 pub enum DiagCategory {
@@ -56,6 +83,11 @@ pub enum DiagCategory {
     Test,
 }
 
+/// The top-level diagnostic event envelope.
+///
+/// Contains metadata (schema version, timestamp, frame number, category, level)
+/// and the concrete event payload ([`DiagEventKind`]).
+/// Serialized as a single JSON line (JSONL).
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct DiagEvent {
     pub schema_version: u16, // v1 = 1
@@ -67,6 +99,10 @@ pub struct DiagEvent {
     pub event: DiagEventKind,
 }
 
+/// The concrete payload for a diagnostic event.
+///
+/// Each variant covers a specific pipeline stage or cross-cutting concern.
+/// Serialized with `#[serde(tag = "kind", content = "payload")]`.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "kind", content = "payload")]
 pub enum DiagEventKind {
@@ -221,6 +257,7 @@ pub enum DiagEventKind {
     },
 }
 
+/// Summary statistics for a completed frame, attached to [`DiagEventKind::FrameEnd`].
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct FrameStats {
     pub dirty_nodes: u32,
@@ -230,6 +267,10 @@ pub struct FrameStats {
     pub video_surfaces: u32,
 }
 
+/// Configuration for the diagnostics system.
+///
+/// Controls which categories and levels are emitted, the output sink, and
+/// the sampling rate.
 #[derive(Debug, Clone)]
 pub struct DiagnosticsConfig {
     pub enabled_categories: BTreeSet<DiagCategory>,
@@ -251,6 +292,7 @@ impl Default for DiagnosticsConfig {
 
 // --------- Sinks ---------
 
+/// Output destination for diagnostic events.
 #[derive(Debug, Clone)]
 pub enum DiagSink {
     Stdout,
@@ -319,6 +361,10 @@ impl DiagnosticsInner {
 
 static DIAGNOSTICS: OnceCell<RwLock<DiagnosticsInner>> = OnceCell::new();
 
+/// Initialize the diagnostics system from environment variables.
+///
+/// Reads `FISSION_DIAG` (categories), `FISSION_DIAG_LEVEL`, `FISSION_DIAG_SINK`,
+/// and `FISSION_DIAG_SAMPLING`. See the crate-level documentation for details.
 pub fn init_from_env() {
     // Categories
     let cats = std::env::var("FISSION_DIAG").unwrap_or_default();
@@ -398,6 +444,9 @@ pub fn init_from_env() {
     init(cfg);
 }
 
+/// Initialize the diagnostics system with the given configuration.
+///
+/// Can only be called once (uses `OnceCell`). Subsequent calls are silently ignored.
 pub fn init(config: DiagnosticsConfig) {
     let sink_impl: Box<dyn SinkImpl> = match &config.sink {
         DiagSink::Stdout => Box::new(StdoutSinkImpl),
@@ -432,6 +481,8 @@ fn with_diag_mut<T>(f: impl FnOnce(&mut DiagnosticsInner) -> T) -> Option<T> {
     })
 }
 
+/// Mark the start of a new frame. Increments the frame counter and emits a
+/// [`DiagEventKind::FrameStart`] event.
 pub fn begin_frame(root: Option<u128>) {
     let _ = with_diag_mut(|d| {
         let ts = d.timestamp_ns.fetch_add(16666666, Ordering::Relaxed) + 1; // ~60fps increment
@@ -450,6 +501,7 @@ pub fn begin_frame(root: Option<u128>) {
     });
 }
 
+/// Mark the end of the current frame, attaching the given [`FrameStats`].
 pub fn end_frame(stats: FrameStats) {
     let _ = with_diag_mut(|d| {
         let ts = d.timestamp_ns.fetch_add(1, Ordering::Relaxed) + 1;
@@ -468,6 +520,10 @@ pub fn end_frame(stats: FrameStats) {
     });
 }
 
+/// Emit a diagnostic event if the given category and level pass the current filter.
+///
+/// This is the primary entry point for all diagnostic events. The event is
+/// automatically timestamped and tagged with the current frame number.
 pub fn emit(category: DiagCategory, level: DiagLevel, event: DiagEventKind) {
     let _ = with_diag_mut(|d| {
         if !d.should_emit(&category, level) { return; }
@@ -485,22 +541,25 @@ pub fn emit(category: DiagCategory, level: DiagLevel, event: DiagEventKind) {
     });
 }
 
-// Helpers for common categories
+/// Convenience re-exports for common diagnostic operations.
 pub mod prelude {
     pub use super::{begin_frame, end_frame, emit, DiagCategory, DiagEventKind, DiagLevel, FrameStats, init_from_env};
 }
 
 // --------- Snapshot Provider (v1 minimal) ---------
 
+/// The type of snapshot that a [`SnapshotProvider`] can produce.
 #[derive(Debug, Clone, Copy)]
 pub enum SnapshotKind { Layout }
 
+/// A serialized snapshot blob containing JSON data.
 #[derive(Debug, Clone)]
 pub struct SnapshotBlob {
     pub kind: SnapshotKind,
     pub json: String,
 }
 
+/// Trait for components that can produce a JSON snapshot of their internal state.
 pub trait SnapshotProvider {
     fn snapshot(&self, kind: SnapshotKind) -> Option<SnapshotBlob>;
 }

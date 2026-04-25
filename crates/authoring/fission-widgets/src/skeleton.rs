@@ -6,6 +6,18 @@ use fission_core::{
 };
 use serde::{Deserialize, Serialize};
 
+/// A placeholder shimmer rectangle used as a loading indicator.
+///
+/// Animates opacity between 0.4 and 0.8 in an 800ms repeating loop, creating
+/// a subtle pulsing effect. Use `circle: true` for a fully rounded skeleton
+/// (e.g., avatar placeholder).
+///
+/// # Fields
+///
+/// * `id` - Stable widget identity (required for animation state).
+/// * `width` - Rectangle width (default 100).
+/// * `height` - Rectangle height (default 20).
+/// * `circle` - If `true`, uses `border_radius: 9999` for a circular shape.
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct Skeleton {
     pub id: WidgetNodeId,

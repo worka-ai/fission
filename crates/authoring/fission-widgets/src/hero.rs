@@ -4,6 +4,16 @@ use fission_core::{
 use fission_ir::{semantics::Role, Op, Semantics};
 use serde::{Deserialize, Serialize};
 
+/// A shared-element transition tag for cross-navigation animations.
+///
+/// Wraps a child widget with a `hero_tag` semantic annotation. When two `Hero`
+/// widgets with the same `tag` appear in consecutive navigation frames, the
+/// framework can animate the element's position and size between the two locations.
+///
+/// # Fields
+///
+/// * `tag` - A unique string identifying this hero element across routes.
+/// * `child` - The widget to animate.
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct Hero {
     pub tag: String,

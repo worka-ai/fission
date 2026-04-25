@@ -3,6 +3,17 @@ use fission_core::ui::{Container, Image, Node, Text, TextContent};
 use fission_core::{BuildCtx, View, Widget};
 use serde::{Deserialize, Serialize};
 
+/// A circular user avatar displaying an image or initials.
+///
+/// When `src` is provided, the avatar renders the image with `Cover` fit.
+/// Otherwise, it extracts up to two initials from `name` (e.g., "John Doe" -> "JD")
+/// and displays them centered on the primary-colored circle.
+///
+/// # Fields
+///
+/// * `name` - User's display name (used for initials fallback).
+/// * `src` - Image URL or asset path.
+/// * `size` - Diameter in logical pixels (default 40).
 #[derive(Default, Clone, Debug, Serialize, Deserialize)]
 pub struct Avatar {
     pub name: Option<String>,

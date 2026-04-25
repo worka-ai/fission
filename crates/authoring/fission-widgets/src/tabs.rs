@@ -3,6 +3,7 @@ use fission_core::ui::{Button, ButtonVariant, Container, Node, Text};
 use fission_core::{ActionEnvelope, BuildCtx, View, Widget};
 use serde::{Deserialize, Serialize};
 
+/// A single tab definition containing a title, content node, and selection action.
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct TabItem {
     pub title: String,
@@ -10,6 +11,23 @@ pub struct TabItem {
     pub on_press: Option<ActionEnvelope>,
 }
 
+/// A tab bar with an active indicator and swappable content area.
+///
+/// The tab bar displays a horizontal row of tab buttons. The active tab shows
+/// a colored indicator bar below its label. The content area below the tab bar
+/// displays the `content` node of the tab at `active_index`.
+///
+/// # Example
+///
+/// ```rust,ignore
+/// Tabs {
+///     active_index: 0,
+///     items: vec![
+///         TabItem { title: "General".into(), content: general_view, on_press: Some(tab0) },
+///         TabItem { title: "Advanced".into(), content: advanced_view, on_press: Some(tab1) },
+///     ],
+/// }
+/// ```
 #[derive(Default, Clone, Debug, Serialize, Deserialize)]
 pub struct Tabs {
     pub active_index: usize,

@@ -2,6 +2,9 @@
 name = "fission-render"
 version = "0.1.0"
 edition = "2021"
+license = "MIT"
+repository = "https://github.com/worka-ai/fission"
+description = "Render"
 
 [dependencies]
 fission-layout = { path = "../../core/fission-layout" }

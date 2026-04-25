@@ -1,7 +1,23 @@
+//! Procedural macros for the Fission UI framework.
+//!
+//! Provides `#[derive(Action)]` to generate `Action` trait implementations,
+//! and `#[derive(Widget)]` (currently a no-op placeholder).
+
 use proc_macro::TokenStream;
 use quote::{format_ident, quote};
 use syn::{parse_macro_input, DeriveInput};
 
+/// Derives the `Action` trait for a struct.
+///
+/// Generates:
+/// 1. A `lazy_static` constant `<NAME>_ACTION_ID` computed by hashing the
+///    fully qualified type path.
+/// 2. An `impl Action for <Name>` with `static_id()` returning that ID.
+///
+/// # Requirements
+///
+/// - The struct should derive `Serialize` and `Deserialize` for dispatch.
+/// - The `lazy_static` crate must be in the consumer's dependency tree.
 #[proc_macro_derive(Action)]
 pub fn derive_action(input: TokenStream) -> TokenStream {
     let input = parse_macro_input!(input as DeriveInput);
@@ -31,6 +47,7 @@ pub fn derive_action(input: TokenStream) -> TokenStream {
     expanded.into()
 }
 
+/// Reserved derive macro for future widget code generation. Currently a no-op.
 #[proc_macro_derive(Widget, attributes(widget))]
 pub fn derive_widget(_input: TokenStream) -> TokenStream {
     quote!().into()

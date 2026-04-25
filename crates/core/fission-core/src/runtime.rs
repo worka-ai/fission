@@ -20,18 +20,58 @@ use std::any::{Any, TypeId};
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 
+/// The core runtime that owns application state, reducers, and the effect queue.
+///
+/// `Runtime` is the single entry point for the action/reducer pipeline. Platform
+/// shells create one `Runtime`, register their `AppState`, build the widget tree
+/// each frame, absorb the resulting [`ActionRegistry`], and call
+/// [`Runtime::handle_input`] to process user events.
+///
+/// # Lifecycle
+///
+/// ```text
+/// 1. runtime = Runtime::default()
+///        .with_measurer(measurer)
+///        .with_clipboard(clipboard);
+/// 2. runtime.add_app_state(Box::new(MyState::default()))?;
+/// 3. loop {
+///        let mut ctx = BuildCtx::new();
+///        let tree = my_widget.build(&mut ctx, &view);
+///        runtime.clear_reducers();
+///        runtime.absorb_registry(ctx.registry);
+///        // lower tree -> IR -> layout -> render
+///        runtime.handle_input(event, &ir, &layout)?;
+///        runtime.tick(dt)?;
+///    }
+/// ```
+///
+/// # Example
+///
+/// ```rust,ignore
+/// let mut runtime = Runtime::default();
+/// runtime.add_app_state(Box::new(Counter { count: 0 }))?;
+/// runtime.tick(16)?;
+/// ```
 pub struct Runtime {
+    /// Per-frame reducers, cleared and re-populated every frame via
+    /// [`absorb_registry`](Runtime::absorb_registry).
     pub reducers: HashMap<ActionId, Vec<BoxedReducer>>,
+    /// Persistent reducers that survive [`clear_reducers`](Runtime::clear_reducers)
+    /// calls, installed once at app startup.
     pub persistent_reducers: HashMap<ActionId, Vec<BoxedReducer>>,
+    /// Type-indexed application state store.
     pub app_states: HashMap<TypeId, Box<dyn AppState>>,
+    /// Mutable runtime state (interaction, scroll, text editing, animations).
     pub runtime_state: RuntimeState,
+    /// Platform-provided text measurer for layout.
     pub measurer: Option<Arc<dyn TextMeasurer>>,
+    /// Platform-provided clipboard backend.
     pub clipboard_backend: Option<Arc<dyn Clipboard>>,
+    /// Platform-provided IME (Input Method Editor) handler.
     pub ime_handler: Option<Arc<dyn ImeHandler>>,
-
-    // Effects
+    /// Effects emitted by reducers, awaiting platform execution.
     pub pending_effects: Vec<EffectEnvelope>,
-    // For ReqId generation (seeded/deterministic)
+    /// Monotonically increasing counter for deterministic request id generation.
     pub next_req_id: u64,
 }
 

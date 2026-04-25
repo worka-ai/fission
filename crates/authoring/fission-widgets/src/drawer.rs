@@ -5,12 +5,25 @@ use fission_core::{
 };
 use serde::{Deserialize, Serialize};
 
+/// The edge from which a [`Drawer`] slides out.
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub enum DrawerSide {
     Left,
     Right,
 }
 
+/// A slide-out panel from the left or right edge of the screen.
+///
+/// When `is_open` is `true`, the drawer renders as a portal overlay with a
+/// semi-transparent backdrop and a fixed-width panel positioned against the
+/// specified `side`. Tapping the backdrop dispatches `on_dismiss`.
+///
+/// # Fields
+///
+/// * `side` - `Left` or `Right` edge.
+/// * `width` - Panel width in logical pixels (default 300).
+/// * `is_open` - Controls visibility.
+/// * `on_dismiss` - Action dispatched when the backdrop is tapped.
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct Drawer {
     pub id: WidgetNodeId,

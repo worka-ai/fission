@@ -4,15 +4,40 @@ use crate::ui::Node;
 use fission_ir::{op::{LayoutOp, Op}, NodeId};
 use serde::{Deserialize, Serialize};
 
+/// Absolutely positions a child within a [`ZStack`](super::ZStack).
+///
+/// Specify one or more edge offsets (`left`, `top`, `right`, `bottom`) and
+/// optional explicit `width`/`height`. Omitting both horizontal offsets (or
+/// both vertical offsets) leaves the child unconstrained on that axis.
+///
+/// # Example
+///
+/// ```rust,ignore
+/// // Pin a badge to the top-right corner
+/// Positioned {
+///     top: Some(8.0),
+///     right: Some(8.0),
+///     child: Some(Box::new(badge_widget)),
+///     ..Default::default()
+/// }
+/// ```
 #[derive(Debug, Default, Clone, Serialize, Deserialize)]
 pub struct Positioned {
+    /// Explicit node identity.
     pub id: Option<NodeId>,
+    /// Distance from the left edge of the parent.
     pub left: Option<f32>,
+    /// Distance from the top edge of the parent.
     pub top: Option<f32>,
+    /// Distance from the right edge of the parent.
     pub right: Option<f32>,
+    /// Distance from the bottom edge of the parent.
     pub bottom: Option<f32>,
+    /// Explicit width override.
     pub width: Option<f32>,
+    /// Explicit height override.
     pub height: Option<f32>,
+    /// The child widget to position.
     pub child: Option<Box<Node>>,
 }
 

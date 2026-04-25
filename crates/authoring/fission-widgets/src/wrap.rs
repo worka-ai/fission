@@ -3,6 +3,16 @@ use fission_core::{BuildCtx, View, Widget};
 use fission_ir::op::{FlexDirection, FlexWrap};
 use serde::{Deserialize, Serialize};
 
+/// A flow layout that wraps children to the next line when they exceed the
+/// available width (or height, for column direction).
+///
+/// Uses `FlexWrap::Wrap` on the underlying `Row` or `Column` layout node.
+///
+/// # Fields
+///
+/// * `direction` - `FlexDirection::Row` (default) or `FlexDirection::Column`.
+/// * `spacing` - Gap between children (applied as `gap`).
+/// * `children` - The child nodes to lay out.
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct Wrap {
     pub direction: FlexDirection,

@@ -5,6 +5,10 @@ use fission_core::ui::{Button, ButtonVariant, Container, Node, Text, TextContent
 use fission_core::{BuildCtx, View, Widget};
 use serde::{Deserialize, Serialize};
 
+/// A pill-shaped label with an optional close button.
+///
+/// Tags are typically used for removable filters, categories, or selections.
+/// The close button (an "x" character) appears when `on_close` is provided.
 #[derive(Default, Clone, Debug, Serialize, Deserialize)]
 pub struct Tag {
     pub label: String,

@@ -6,6 +6,7 @@ use fission_core::{ActionEnvelope, BuildCtx, View, Widget, WidgetNodeId};
 use fission_icons::material;
 use serde::{Deserialize, Serialize};
 
+/// The severity level of a [`Toast`] notification, which determines the icon and color.
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub enum ToastKind {
     Info,
@@ -14,6 +15,15 @@ pub enum ToastKind {
     Error,
 }
 
+/// A notification message with an icon, text, and close button.
+///
+/// Toasts are typically positioned at the top or bottom of the screen by the
+/// application. The icon and color are determined by `kind`: Info (primary),
+/// Success (check), Warning (orange triangle), or Error (red circle).
+///
+/// The toast renders with an elevated shadow and rounded corners. It does not
+/// auto-dismiss -- the application must manage its lifecycle and remove it
+/// when `on_close` fires or after a timeout.
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct Toast {
     pub id: WidgetNodeId,

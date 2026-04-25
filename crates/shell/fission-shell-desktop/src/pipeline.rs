@@ -17,6 +17,12 @@ use std::fs::File;
 use std::io::Write;
 use std::sync::Arc;
 
+/// The render pipeline that manages incremental IR diffing, layout computation,
+/// paint caching, and display list generation.
+///
+/// Each frame, the pipeline receives a new [`CoreIR`] tree, diffs it against the
+/// previous frame, recomputes layout for dirty subtrees, generates a display list,
+/// and hands it to the renderer.
 pub struct Pipeline {
     pub prev_ir: Option<CoreIR>, 
     pub last_snapshot: Option<LayoutSnapshot>,
@@ -27,6 +33,7 @@ pub struct Pipeline {
     pub layout_full_rebuild_count: u32,
 }
 
+/// Per-frame statistics from the render pipeline.
 pub struct PipelineStats {
     pub dirty_nodes: usize,
     pub layout_updates: usize,

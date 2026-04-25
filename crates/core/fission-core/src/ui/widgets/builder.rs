@@ -2,6 +2,17 @@ use crate::{AppState, BuildCtx, BoxConstraints, Node, NodeId, View, Widget, Widg
 use crate::ui::Container;
 use std::sync::Arc;
 
+/// A closure-based widget that builds a [`Node`] tree from a function.
+///
+/// `Builder` lets you define inline widgets without creating a named struct.
+///
+/// # Example
+///
+/// ```rust,ignore
+/// let widget = Builder::new(|ctx, view| {
+///     Text::new(format!("Count: {}", view.state.count)).into_node()
+/// });
+/// ```
 pub struct Builder<S: AppState> {
     builder: Arc<dyn Fn(&mut BuildCtx<S>, &View<S>) -> Node + Send + Sync>,
 }
@@ -23,9 +34,27 @@ impl<S: AppState> Widget<S> for Builder<S> {
     }
 }
 
+/// A closure-based widget that receives its parent's [`BoxConstraints`].
+///
+/// `LayoutBuilder` is the layout-aware counterpart of [`Builder`]. The closure
+/// receives the constraints from the previous frame (or a fallback derived
+/// from the viewport) so it can adapt its output to the available space.
+///
+/// # Example
+///
+/// ```rust,ignore
+/// let widget = LayoutBuilder::new(|ctx, view, constraints| {
+///     let cols = if constraints.max_width > 600.0 { 3 } else { 1 };
+///     build_grid(ctx, view, cols)
+/// })
+/// .flex_grow(1.0);
+/// ```
 pub struct LayoutBuilder<S: AppState> {
+    /// Optional stable identity for constraint look-up across frames.
     pub id: Option<WidgetNodeId>,
+    /// Flex grow factor.
     pub flex_grow: f32,
+    /// Flex shrink factor.
     pub flex_shrink: f32,
     builder: Arc<dyn Fn(&mut BuildCtx<S>, &View<S>, BoxConstraints) -> Node + Send + Sync>,
 }
