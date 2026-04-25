@@ -4,7 +4,14 @@ version = "0.1.0"
 edition = "2021"
 license = "MIT"
 repository = "https://github.com/worka-ai/fission"
-description = "Theme"
+description = "Design tokens and theming for the Fission UI framework"
+include = [
+    "src/**/*",
+    "README.md",
+    "Cargo.toml",
+    "fonts/Inter/static/Inter_24pt-Regular.ttf",
+    "fonts/Noto_Sans/static/NotoSans-Regular.ttf",
+]
 
 [dependencies]
 fission-ir = { path = "../fission-ir", version = "0.1.0" }
