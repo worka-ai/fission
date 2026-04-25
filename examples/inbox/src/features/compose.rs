@@ -295,7 +295,7 @@ impl Widget<InboxState> for ComposeModal {
                 (|s: &mut InboxState, a: SetComposeOpen, _| s.show_compose = a.0)
                     as Handler<InboxState, SetComposeOpen>,
             )),
-            width: Some(600.0),
+            width: Some(700.0),
             content: Box::new(
                 FocusScope {
                     id: None,

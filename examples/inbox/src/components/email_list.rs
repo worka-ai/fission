@@ -203,7 +203,7 @@ impl Widget<InboxState> for EmailList {
                                 }.into_node()
                             )
                             .padding_all(12.0)
-                            .max_width(200.0)
+                            .max_width(180.0)
                             .into_node()
                         ),
                     }.build(ctx, view),
@@ -318,7 +318,7 @@ impl Widget<InboxState> for EmailList {
                         }.into_node(),
                         Container::new(
                             VStack {
-                                spacing: Some(4.0),
+                                spacing: Some(6.0),
                                 children: vec![
                                 HStack {
                                     spacing: Some(8.0),
@@ -355,8 +355,8 @@ impl Widget<InboxState> for EmailList {
                                 Container::new(
                                     Text {
                                         content: TextContent::Literal({
-                                            let preview: String = email.preview.chars().take(60).collect();
-                                            if email.preview.chars().count() > 60 {
+                                            let preview: String = email.preview.chars().take(45).collect();
+                                            if email.preview.chars().count() > 45 {
                                                 format!("{}...", preview)
                                             } else {
                                                 preview
@@ -364,11 +364,12 @@ impl Widget<InboxState> for EmailList {
                                         }),
                                         font_size: Some(13.0),
                                         color: Some(tokens.colors.text_secondary),
-                                        max_height: Some(18.0),
+                                        max_height: Some(16.0),
                                         ..Default::default()
                                     }.into()
                                 )
-                                .max_width(320.0)
+                                .max_width(280.0)
+                                .flex_shrink(0.0)
                                 .into_node(),
                                 Wrap {
                                     direction: fission_ir::op::FlexDirection::Row,

@@ -55,7 +55,7 @@ echo "1. Initial state"
 shot "01_initial"
 
 echo "2. Click first email"
-cmd '{"cmd":"TapText","text":"Welcome to Fission"}'
+cmd '{"cmd":"TapText","text":"Quarterly planning sync"}'
 cmd '{"cmd":"Pump"}'
 shot "02_email_selected"
 
