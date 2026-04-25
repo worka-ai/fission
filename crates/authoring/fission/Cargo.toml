@@ -18,5 +18,5 @@ fission-icons = { path = "../fission-icons", version = "0.1.0" }
 fission-shell-desktop = { path = "../../shell/fission-shell-desktop", version = "0.1.0" }
 fission-render = { path = "../../rendering/fission-render", version = "0.1.0" }
 fission-diagnostics = { path = "../../tools/fission-diagnostics", version = "0.1.0" }
-fission-test-driver = { path = "../../tools/fission-test-driver" }
+fission-test-driver = { path = "../../tools/fission-test-driver", version = "0.1.0" }
 serde = { version = "1.0", features = ["derive"] }
