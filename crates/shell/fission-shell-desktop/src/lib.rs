@@ -1436,9 +1436,12 @@ impl<S: AppState + Default, W: Widget<S> + 'static> DesktopApp<S, W> {
                         // Check if we need a redraw (Animation or Video playing)
                         // Only force continuous redraws for non-repeating animations
                         // or active video players. Repeating animations (spinners, skeleton
-                        // shimmer) should not burn CPU when idle.
+                        // shimmer) use a lower-frequency timer (30fps) to stay smooth
+                        // without burning CPU at max rate.
                         let has_finite_animation = runtime.runtime_state.animation.active.values()
                             .any(|a| !a.repeat);
+                        let has_repeating_animation = runtime.runtime_state.animation.active.values()
+                            .any(|a| a.repeat);
                         let needs_redraw = has_finite_animation || !players.is_empty();
 
                         let focused_text_input = focused_text_input_id(&runtime, pipeline.prev_ir.as_ref());
@@ -1468,6 +1471,15 @@ impl<S: AppState + Default, W: Widget<S> + 'static> DesktopApp<S, W> {
 
                         let blink_wake_at = if blink_enabled && blink_focus_id.is_some() {
                             Some(last_blink_toggle + blink_period)
+                        } else {
+                            None
+                        };
+
+                        // Repeating animations (spinners, skeleton shimmer) need
+                        // periodic redraws at a modest frame rate (30fps = 33ms)
+                        // so they animate smoothly without burning 100% CPU.
+                        let repeating_anim_wake_at = if has_repeating_animation {
+                            Some(now + Duration::from_millis(33))
                         } else {
                             None
                         };
@@ -1509,7 +1521,7 @@ impl<S: AppState + Default, W: Widget<S> + 'static> DesktopApp<S, W> {
                             None
                         };
 
-                        if needs_redraw || redraw_pending || effect_results_dispatched || frame_hook_wants_redraw {
+                        if needs_redraw || redraw_pending || effect_results_dispatched || frame_hook_wants_redraw || has_repeating_animation {
                             request_redraw_throttled(&window, elwt, &mut last_redraw_at, min_frame, &mut redraw_pending);
                             let mut wake_at = last_redraw_at + min_frame;
                             if let Some(blink_at) = blink_wake_at {
@@ -1520,6 +1532,11 @@ impl<S: AppState + Default, W: Widget<S> + 'static> DesktopApp<S, W> {
                             if let Some(hook_at) = frame_hook_wake_at {
                                 if hook_at < wake_at {
                                     wake_at = hook_at;
+                                }
+                            }
+                            if let Some(anim_at) = repeating_anim_wake_at {
+                                if anim_at < wake_at {
+                                    wake_at = anim_at;
                                 }
                             }
                             elwt.set_control_flow(ControlFlow::WaitUntil(wake_at));

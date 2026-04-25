@@ -1,5 +1,5 @@
 use fission_core::{BuildCtx, View, Widget, WidgetNodeId, Handler, ActionEnvelope, ActionId};
-use fission_core::ui::{Text, TextContent, Node, Container, Grid, GridItem, ZStack, Positioned, Button, ButtonVariant};
+use fission_core::ui::{Text, TextContent, Node, Container, Grid, GridItem, ZStack, Positioned, Button, ButtonVariant, Scroll};
 use fission_core::ui::widgets::{Clip, GestureDetector, Transform};
 use fission_core::op::{Color, GridTrack};
 use fission_widgets::{
@@ -300,7 +300,12 @@ impl Widget<InboxState> for SettingsModal {
             on_dismiss: Some(ctx.bind(SetSettingsOpen(false), (|s, a, _| s.show_settings = a.0) as Handler<InboxState, SetSettingsOpen>)),
             width: Some(560.0),
             content: Box::new(
-                VStack {
+                Scroll {
+                    direction: fission_ir::op::FlexDirection::Column,
+                    height: Some(520.0),
+                    flex_grow: 1.0,
+                    flex_shrink: 1.0,
+                    child: Some(Box::new(VStack {
                     spacing: Some(16.0),
                     children: vec![
                         Text::new(TextContent::Key("settings.general".into())).size(14.0).into_node(),
@@ -396,16 +401,20 @@ impl Widget<InboxState> for SettingsModal {
                             required: false,
                             error: None,
                             helper: Some(t("settings.zoom.helper")),
-                            child: Box::new(Slider {
-                                id: None,
-                                value: view.state.zoom_level,
-                                min: 0.75,
-                                max: 1.25,
-                                on_change: Some(ActionEnvelope {
-                                    id: zoom_id,
-                                    payload: serde_json::to_vec(&SetZoomLevel(view.state.zoom_level)).unwrap(),
-                                }),
-                            }.into_node()),
+                            child: Box::new(
+                                Container::new(
+                                    Slider {
+                                        id: None,
+                                        value: view.state.zoom_level,
+                                        min: 0.75,
+                                        max: 1.25,
+                                        on_change: Some(ActionEnvelope {
+                                            id: zoom_id,
+                                            payload: serde_json::to_vec(&SetZoomLevel(view.state.zoom_level)).unwrap(),
+                                        }),
+                                    }.into_node()
+                                ).min_height(32.0).into_node()
+                            ),
                         }.build(ctx, view),
 
                         Grid {
@@ -456,7 +465,11 @@ impl Widget<InboxState> for SettingsModal {
                             required: false,
                             error: None,
                             helper: Some("Displayed at the end of new emails".into()),
-                            child: Box::new(signature_editor),
+                            child: Box::new(
+                                Container::new(signature_editor)
+                                    .min_height(48.0)
+                                    .into_node()
+                            ),
                         }.build(ctx, view),
                         Button {
                             variant: ButtonVariant::Outline,
@@ -568,18 +581,24 @@ impl Widget<InboxState> for SettingsModal {
                             required: false,
                             error: None,
                             helper: Some("Rows per page".into()),
-                            child: Box::new(NumberInput {
-                                id: None,
-                                value: 50.0,
-                                min: Some(10.0),
-                                max: Some(100.0),
-                                step: 10.0,
-                                on_increment: None,
-                                on_decrement: None,
-                                on_change: None,
-                            }.build(ctx, view)),
+                            child: Box::new(
+                                Container::new(
+                                    NumberInput {
+                                        id: None,
+                                        value: 50.0,
+                                        min: Some(10.0),
+                                        max: Some(100.0),
+                                        step: 10.0,
+                                        on_increment: None,
+                                        on_decrement: None,
+                                        on_change: None,
+                                    }.build(ctx, view)
+                                ).min_height(36.0).into_node()
+                            ),
                         }.build(ctx, view),
                     ]
+                }.into_node())),
+                ..Default::default()
                 }.into_node()
             ),
             actions: vec![
