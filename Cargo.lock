@@ -850,7 +850,7 @@ checksum = "3a3076410a55c90011c298b04d0cfa770b00fa04e1e3c97d3f6c9de105a03844"
 
 [[package]]
 name = "fission"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "fission-core",
  "fission-diagnostics",
@@ -869,7 +869,7 @@ dependencies = [
 
 [[package]]
 name = "fission-core"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "anyhow",
  "blake3",
@@ -890,7 +890,7 @@ dependencies = [
 
 [[package]]
 name = "fission-diagnostics"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "bitflags 2.10.0",
  "once_cell",
@@ -926,14 +926,14 @@ dependencies = [
 
 [[package]]
 name = "fission-i18n"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "serde",
 ]
 
 [[package]]
 name = "fission-icons"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "heck",
  "serde_json",
@@ -942,7 +942,7 @@ dependencies = [
 
 [[package]]
 name = "fission-ir"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "blake3",
  "serde",
@@ -952,7 +952,7 @@ dependencies = [
 
 [[package]]
 name = "fission-layout"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "anyhow",
  "fission-diagnostics",
@@ -962,7 +962,7 @@ dependencies = [
 
 [[package]]
 name = "fission-macros"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -971,7 +971,7 @@ dependencies = [
 
 [[package]]
 name = "fission-render"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "anyhow",
  "fission-ir",
@@ -982,7 +982,7 @@ dependencies = [
 
 [[package]]
 name = "fission-render-vello"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "anyhow",
  "fission-diagnostics",
@@ -998,7 +998,7 @@ dependencies = [
 
 [[package]]
 name = "fission-semantics"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "fission-ir",
  "serde",
@@ -1007,7 +1007,7 @@ dependencies = [
 
 [[package]]
 name = "fission-shell"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "anyhow",
  "fission-core",
@@ -1019,7 +1019,7 @@ dependencies = [
 
 [[package]]
 name = "fission-shell-desktop"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "anyhow",
  "arboard",
@@ -1052,21 +1052,21 @@ dependencies = [
 
 [[package]]
 name = "fission-shell-mobile"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "fission-shell",
 ]
 
 [[package]]
 name = "fission-shell-web"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "fission-shell",
 ]
 
 [[package]]
 name = "fission-test"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "anyhow",
  "fission-core",
@@ -1089,7 +1089,7 @@ dependencies = [
 
 [[package]]
 name = "fission-test-driver"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "anyhow",
  "serde",
@@ -1099,7 +1099,7 @@ dependencies = [
 
 [[package]]
 name = "fission-theme"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "fission-ir",
  "serde",
@@ -1107,7 +1107,7 @@ dependencies = [
 
 [[package]]
 name = "fission-widgets"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "anyhow",
  "chrono",
