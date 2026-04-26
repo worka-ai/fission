@@ -2066,6 +2066,7 @@ fn recreate_target_texture(
         format: wgpu::TextureFormat::Rgba8Unorm, // Must match Vello's internal format
         usage: wgpu::TextureUsages::STORAGE_BINDING
             | wgpu::TextureUsages::TEXTURE_BINDING
+            | wgpu::TextureUsages::RENDER_ATTACHMENT
             | wgpu::TextureUsages::COPY_SRC,
         view_formats: &[],
     });
