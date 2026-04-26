@@ -7,12 +7,38 @@ use fission_ir::{
 };
 use serde::{Deserialize, Serialize};
 
+/// A continuous value selector rendered as a horizontal track with a draggable
+/// thumb.
+///
+/// The thumb position is determined by `value` within the `[min, max]` range.
+/// Dragging dispatches the `on_change` action with the new value carried as
+/// pointer input (see [`ActionInput::as_pointer`]).
+///
+/// # Example
+///
+/// ```rust,ignore
+/// Slider {
+///     value: view.state.volume,
+///     min: 0.0,
+///     max: 1.0,
+///     on_change: Some(ctx.bind(
+///         VolumeChanged,
+///         handle_volume as fn(&mut S, VolumeChanged),
+///     )),
+///     ..Default::default()
+/// }
+/// ```
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Slider {
+    /// Explicit node identity.
     pub id: Option<NodeId>,
+    /// Current value (clamped to `[min, max]`).
     pub value: f32,
+    /// Minimum value (default: 0.0).
     pub min: f32,
+    /// Maximum value (default: 1.0).
     pub max: f32,
+    /// Action dispatched when the user drags the thumb.
     pub on_change: Option<ActionEnvelope>,
 }
 

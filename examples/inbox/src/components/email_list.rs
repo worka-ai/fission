@@ -174,7 +174,7 @@ impl Widget<InboxState> for EmailList {
                         content: Box::new(
                             Container::new(
                                 VStack {
-                                    spacing: Some(12.0),
+                                    spacing: Some(16.0),
                                     children: vec![
                                         Text::new(TextContent::Key("filter.date_range".into())).size(12.0).into_node(),
                                         DateRangePicker {
@@ -203,7 +203,7 @@ impl Widget<InboxState> for EmailList {
                                 }.into_node()
                             )
                             .padding_all(12.0)
-                            .width(260.0)
+                            .max_width(180.0)
                             .into_node()
                         ),
                     }.build(ctx, view),
@@ -318,7 +318,7 @@ impl Widget<InboxState> for EmailList {
                         }.into_node(),
                         Container::new(
                             VStack {
-                                spacing: Some(3.0),
+                                spacing: Some(6.0),
                                 children: vec![
                                 HStack {
                                     spacing: Some(8.0),
@@ -352,13 +352,25 @@ impl Widget<InboxState> for EmailList {
                                         ..Default::default()
                                     }.into()),
                                 }.build(ctx, view),
-                                Text {
-                                    content: TextContent::Literal(email.preview.chars().take(80).collect::<String>()),
-                                    font_size: Some(13.0),
-                                    color: Some(tokens.colors.text_secondary),
-                                    max_height: Some(20.0),
-                                    ..Default::default()
-                                }.into(),
+                                Container::new(
+                                    Text {
+                                        content: TextContent::Literal({
+                                            let preview: String = email.preview.chars().take(45).collect();
+                                            if email.preview.chars().count() > 45 {
+                                                format!("{}...", preview)
+                                            } else {
+                                                preview
+                                            }
+                                        }),
+                                        font_size: Some(13.0),
+                                        color: Some(tokens.colors.text_secondary),
+                                        max_height: Some(16.0),
+                                        ..Default::default()
+                                    }.into()
+                                )
+                                .max_width(280.0)
+                                .flex_shrink(0.0)
+                                .into_node(),
                                 Wrap {
                                     direction: fission_ir::op::FlexDirection::Row,
                                     spacing: Some(6.0),

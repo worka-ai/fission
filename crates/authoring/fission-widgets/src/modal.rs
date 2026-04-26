@@ -7,6 +7,39 @@ use fission_core::ui::{
 use fission_core::{ActionEnvelope, BuildCtx, NodeId, View, Widget, WidgetNodeId};
 use serde::{Deserialize, Serialize};
 
+/// A modal dialog with a dimmed backdrop, title bar, content area, and action buttons.
+///
+/// When `is_open` is `true`, the modal renders as a centered card on a full-screen
+/// semi-transparent backdrop. Tapping the backdrop dispatches `on_dismiss`. The modal
+/// is rendered into the portal overlay layer (`PortalLayer::Modal`), so it appears
+/// above all other content.
+///
+/// # Fields
+///
+/// * `id` - Stable widget identity for the portal system.
+/// * `title` - Text displayed in the modal header.
+/// * `content` - The main body content node.
+/// * `is_open` - Controls visibility. When `false`, renders an invisible spacer.
+/// * `on_dismiss` - Action dispatched when the backdrop or close button is tapped.
+/// * `actions` - Footer buttons (e.g., Cancel, OK).
+/// * `width` - Optional fixed width. Falls back to `ModalTheme::max_width` (600px).
+///
+/// # Example
+///
+/// ```rust,ignore
+/// Modal {
+///     id: WidgetNodeId::explicit("confirm"),
+///     title: "Delete item?".into(),
+///     content: Box::new(Text::new("This cannot be undone.").into_node()),
+///     is_open: state.show_confirm,
+///     on_dismiss: Some(dismiss_action),
+///     actions: vec![
+///         ModalAction { label: "Cancel".into(), on_press: Some(cancel), is_primary: false },
+///         ModalAction { label: "Delete".into(), on_press: Some(delete), is_primary: true },
+///     ],
+///     width: None,
+/// }
+/// ```
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct Modal {
     pub id: WidgetNodeId,
@@ -18,6 +51,10 @@ pub struct Modal {
     pub width: Option<f32>,
 }
 
+/// A single action button displayed in the modal footer.
+///
+/// When `is_primary` is `true`, the button uses `ButtonVariant::Filled` with
+/// the primary color. Otherwise it uses `ButtonVariant::Outline`.
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct ModalAction {
     pub label: String,
@@ -41,7 +78,7 @@ impl<S: fission_core::AppState> Widget<S> for Modal {
                     r: 0,
                     g: 0,
                     b: 0,
-                    a: 128,
+                    a: 220,
                 })
                 .flex_grow(1.0)
                 .into_node();

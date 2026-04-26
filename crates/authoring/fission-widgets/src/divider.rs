@@ -2,6 +2,7 @@ use fission_core::ui::{Container, Node};
 use fission_core::{BuildCtx, View, Widget};
 use serde::{Deserialize, Serialize};
 
+/// The direction of a [`Divider`] line.
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
 pub enum Orientation {
     Horizontal,
@@ -14,6 +15,11 @@ impl Default for Orientation {
     }
 }
 
+/// A 1px visual separator line.
+///
+/// Renders a thin line in the theme's `border` color. Defaults to horizontal
+/// orientation. The divider uses `flex_grow: 1.0` to fill the available width
+/// (horizontal) or height (vertical).
 #[derive(Default, Clone, Debug, Serialize, Deserialize)]
 pub struct Divider {
     pub orientation: Orientation,

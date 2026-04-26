@@ -6,12 +6,33 @@ use fission_ir::{
 };
 use serde::{Deserialize, Serialize};
 
+/// A raster image widget.
+///
+/// Displays an image from a URL or asset path. The `fit` property controls
+/// how the image is scaled within its layout box.
+///
+/// # Example
+///
+/// ```rust,ignore
+/// Image {
+///     source: "https://example.com/photo.jpg".into(),
+///     width: Some(200.0),
+///     height: Some(150.0),
+///     fit: Some(ImageFit::Cover),
+///     ..Default::default()
+/// }
+/// ```
 #[derive(Debug, Default, Clone, Serialize, Deserialize)]
 pub struct Image {
+    /// Explicit node identity.
     pub id: Option<NodeId>,
+    /// URL or asset path to the image.
     pub source: String,
+    /// Fixed width in layout points.
     pub width: Option<f32>,
+    /// Fixed height in layout points.
     pub height: Option<f32>,
+    /// How the image is scaled to fit its layout box (default: `Contain`).
     pub fit: Option<ImageFit>,
 }
 

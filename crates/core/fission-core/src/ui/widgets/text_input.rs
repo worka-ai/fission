@@ -9,35 +9,87 @@ use fission_ir::{
 use serde::{Deserialize, Serialize};
 use unicode_segmentation::UnicodeSegmentation;
 
+/// An editable text field with support for single-line and multiline input,
+/// syntax highlighting, password masking, and IME composition.
+///
+/// `TextInput` is the primary text-editing widget. It manages its own scroll
+/// container, caret, selection, and (when `styled_runs` is provided)
+/// multi-colour syntax-highlighted rendering.
+///
+/// # Example
+///
+/// ```rust,ignore
+/// let on_change = ctx.bind(TextChanged { .. }, handle_text as fn(&mut S, TextChanged));
+///
+/// TextInput {
+///     value: view.state.query.clone(),
+///     placeholder: Some("Search...".into()),
+///     on_change: Some(on_change),
+///     ..Default::default()
+/// }
+/// ```
+///
+/// # Code editor mode
+///
+/// For embedding in a code editor, enable `borderless`, `capture_tab`,
+/// `auto_indent`, and provide `styled_runs` for syntax highlighting:
+///
+/// ```rust,ignore
+/// TextInput {
+///     value: source_code.clone(),
+///     multiline: true,
+///     borderless: true,
+///     capture_tab: true,
+///     auto_indent: true,
+///     styled_runs: Some(highlighted_runs),
+///     ..Default::default()
+/// }
+/// ```
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TextInput {
+    /// Explicit node identity (used for focus tracking and scroll state).
     pub id: Option<NodeId>,
+    /// The current text value (controlled by the application).
     pub value: String,
+    /// Placeholder text shown when `value` is empty.
     pub placeholder: Option<TextContent>,
+    /// Action dispatched when the text changes.
     pub on_change: Option<ActionEnvelope>,
+    /// Fixed width in layout points.
     pub width: Option<f32>,
+    /// Fixed height in layout points.
     pub height: Option<f32>,
+    /// When `true`, the input accepts newlines and scrolls vertically.
     pub multiline: bool,
+    /// Minimum number of visible lines (multiline only).
     pub min_lines: Option<usize>,
+    /// Maximum number of visible lines (multiline only).
     pub max_lines: Option<usize>,
+    /// When `true`, display each grapheme as `obscuring_character` (password mode).
     pub obscure_text: bool,
+    /// The character used when `obscure_text` is `true` (default: `'•'`).
     pub obscuring_character: char,
+    /// Structural input mask (e.g. phone number, date).
     pub mask: Option<fission_ir::semantics::InputMask>,
-    /// Pre-styled text runs for syntax highlighting. When provided and no selection
-    /// is active, these runs are used instead of the default single-color rendering.
-    /// The concatenated text of all runs MUST match `value` exactly.
+    /// Pre-styled text runs for syntax highlighting.
+    ///
+    /// When provided and no selection is active, these runs are rendered instead
+    /// of the default single-colour text. The concatenated text of all runs
+    /// **must** match `value` exactly.
     pub styled_runs: Option<Vec<fission_ir::op::TextRun>>,
-    /// When true, skip drawing the background rect and border (for embedding in editors).
+    /// When `true`, the background rect and border are omitted (for embedding
+    /// in editor chrome).
     pub borderless: bool,
-    /// When true, the Tab key inserts a tab/spaces instead of moving focus.
+    /// When `true`, the Tab key inserts whitespace instead of moving focus.
     pub capture_tab: bool,
-    /// When true, pressing Enter copies the leading whitespace of the current line.
+    /// When `true`, pressing Enter copies the leading whitespace of the current
+    /// line (auto-indentation).
     pub auto_indent: bool,
-    /// Optional callback fired when the caret/anchor position changes.
-    /// The payload carries the new (caret, anchor) byte offsets.
+    /// Action dispatched when the caret or selection anchor changes.
     pub on_cursor_change: Option<ActionEnvelope>,
-    /// Ranges to highlight in the text, e.g. for find-match highlighting.
-    /// Each entry is (start_byte, end_byte, color).
+    /// Ranges to highlight in the text (e.g. find-match results).
+    ///
+    /// Each entry is `(start_byte, end_byte, background_color)`.
     pub highlight_ranges: Vec<(usize, usize, IrColor)>,
 }
 

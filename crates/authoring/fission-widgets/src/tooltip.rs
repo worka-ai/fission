@@ -2,6 +2,19 @@ use fission_core::ui::{Container, Node, Text};
 use fission_core::{BuildCtx, View, Widget, WidgetNodeId};
 use serde::{Deserialize, Serialize};
 
+/// A hover-activated text tooltip displayed near a trigger widget.
+///
+/// The tooltip appears when the trigger widget is hovered (detected via
+/// `view.runtime.interaction.is_hovered`) or when `is_visible` is explicitly
+/// set to `true`. The tooltip card is styled using `TooltipTheme` and rendered
+/// in the flyout portal layer.
+///
+/// # Fields
+///
+/// * `id` - Stable widget identity.
+/// * `child` - The trigger widget that the tooltip is attached to.
+/// * `text` - The tooltip message text (max width 220px).
+/// * `is_visible` - Force the tooltip visible regardless of hover state.
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct Tooltip {
     pub id: WidgetNodeId,

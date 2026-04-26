@@ -4,10 +4,27 @@ use crate::ui::{Node, Text, TextContent};
 use fission_ir::{LayoutOp, NodeId, Op};
 use serde::{Deserialize, Serialize};
 
+/// A widget that renders an overlay layer on top of its content.
+///
+/// The `content` is drawn first, then `overlay` is drawn on top, filling the
+/// same bounds via a [`ZStack`](super::ZStack) internally.
+///
+/// # Example
+///
+/// ```rust,ignore
+/// Overlay {
+///     content: Box::new(main_content),
+///     overlay: Box::new(loading_spinner),
+///     ..Default::default()
+/// }
+/// ```
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Overlay {
+    /// Explicit node identity.
     pub id: Option<NodeId>,
+    /// The primary content (drawn first / underneath).
     pub content: Box<Node>,
+    /// The overlay content (drawn second / on top).
     pub overlay: Box<Node>,
 }
 

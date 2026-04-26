@@ -6,6 +6,16 @@ use fission_core::{
 };
 use serde::{Deserialize, Serialize};
 
+/// A three-dot animated loading indicator.
+///
+/// Each dot pulses between 30% and 100% opacity in a 600ms cycle, with a 200ms
+/// stagger between dots, creating a wave effect. The dot color defaults to the
+/// theme's primary color.
+///
+/// # Fields
+///
+/// * `id` - Stable widget identity (required for animation state).
+/// * `color` - Override dot color (defaults to `tokens.colors.primary`).
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct Spinner {
     pub id: WidgetNodeId,

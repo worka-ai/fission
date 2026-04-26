@@ -6,10 +6,18 @@ use fission_ir::{
 };
 use serde::{Deserialize, Serialize};
 
+/// The source of an [`Icon`]'s vector graphic.
+///
+/// - `Path` -- an SVG path data string (e.g. `"M12 2L2 22h20L12 2z"`).
+/// - `File` -- a filesystem path to an SVG file.
+/// - `SvgContent` -- inline SVG markup.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum IconSource {
+    /// SVG path data string (`d` attribute content).
     Path(String),
+    /// Filesystem path to an SVG file.
     File(String),
+    /// Complete inline SVG markup.
     SvgContent(String),
 }
 
@@ -25,12 +33,36 @@ impl From<String> for IconSource {
     }
 }
 
+/// A vector icon rendered from an SVG path, file, or inline SVG content.
+///
+/// Icons default to the theme's primary text colour and 24x24 layout points.
+/// Use `color()`, `size()`, and `stroke()` to customise.
+///
+/// # Example
+///
+/// ```rust,ignore
+/// // From an SVG path string
+/// Icon::path("M12 2L2 22h20L12 2z")
+///     .size(20.0)
+///     .color(theme.tokens.colors.primary)
+///
+/// // From a file
+/// Icon::file("assets/icons/star.svg").size(16.0)
+///
+/// // From inline SVG
+/// Icon::svg("<svg>...</svg>")
+/// ```
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Icon {
+    /// Explicit node identity.
     pub id: Option<NodeId>,
+    /// The vector graphic source.
     pub source: IconSource,
+    /// Fill colour (falls back to the theme's primary text colour).
     pub color: Option<Color>,
+    /// Layout size in points (default: 24.0).
     pub size: Option<f32>,
+    /// Optional stroke (when set, the fill is suppressed).
     pub stroke: Option<Stroke>,
 }
 

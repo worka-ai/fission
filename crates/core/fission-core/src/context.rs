@@ -1,3 +1,10 @@
+//! Reducer context and effect builder.
+//!
+//! When a reducer needs to emit side-effects or inspect the [`ActionInput`]
+//! that triggered it, it receives a [`ReducerContext`]. The context provides
+//! an [`Effects`] builder for issuing system effects (HTTP, file I/O, alerts)
+//! and binding callback actions.
+
 use crate::action::{Action, ActionEnvelope, ActionId, AppState};
 use crate::effect::{ActionInput, Effect, EffectEnvelope, SystemEffect, EffectPayload};
 use crate::NodeId;
@@ -6,15 +13,59 @@ use std::collections::HashMap;
 use std::marker::PhantomData;
 use serde::Serialize;
 
+/// The context passed to modern 3-argument reducer handlers.
+///
+/// Provides access to the [`Effects`] builder (for emitting side-effects) and
+/// the [`ActionInput`] that accompanied the dispatch (e.g. effect results,
+/// pointer coordinates, drop payloads).
+///
+/// # Example
+///
+/// ```rust,ignore
+/// fn handle_click(
+///     state: &mut AppState,
+///     action: ClickAction,
+///     ctx: &mut ReducerContext<AppState>,
+/// ) {
+///     // Read pointer position from the input
+///     if let Some((x, y, _, _)) = ctx.input.as_pointer() {
+///         state.last_click = (x, y);
+///     }
+///     // Issue an HTTP GET effect
+///     ctx.effects.http_get("https://api.example.com/clicked");
+/// }
+/// ```
 pub struct ReducerContext<'a, 'b, 'c, S: AppState> {
+    /// Mutable reference to the effects builder.
     pub effects: &'a mut Effects<'b, S>,
+    /// The input data that accompanied this action dispatch.
     pub input: &'c ActionInput,
 }
 
+/// Builder for emitting side-effects from within a reducer.
+///
+/// `Effects` accumulates [`EffectEnvelope`] values that the runtime collects
+/// after the reducer returns. Each effect can carry optional `on_ok` and
+/// `on_err` callbacks.
+///
+/// # Example
+///
+/// ```rust,ignore
+/// fn handle_save(
+///     state: &mut MyState,
+///     _action: Save,
+///     ctx: &mut ReducerContext<MyState>,
+/// ) {
+///     ctx.effects.http_get("https://api.example.com/save")
+///         .on_ok(ctx.effects.bind(SaveOk, handle_save_ok as fn(&mut MyState, SaveOk)))
+///         .on_err(ctx.effects.bind(SaveErr, handle_save_err as fn(&mut MyState, SaveErr)));
+/// }
+/// ```
 pub struct Effects<'a, S: AppState> {
+    /// Accumulated effect envelopes, drained by the runtime after the reducer.
     pub out: Vec<EffectEnvelope>,
     next_req_id: u64,
-    pub(crate) registry: Option<&'a mut ActionRegistry<S>>, 
+    pub(crate) registry: Option<&'a mut ActionRegistry<S>>,
     _phantom: PhantomData<S>,
 }
 
@@ -102,6 +153,19 @@ impl<'a, S: AppState> Effects<'a, S> {
     }
 }
 
+/// Fluent builder returned by [`Effects::system_effect`], [`Effects::http_get`],
+/// and [`Effects::file_read`].
+///
+/// Attach `on_ok` and `on_err` callback envelopes before the builder is dropped.
+///
+/// # Example
+///
+/// ```rust,ignore
+/// ctx.effects.http_get("https://api.example.com")
+///     .on_ok(ok_envelope)
+///     .on_err(err_envelope)
+///     .dispatch(); // optional -- dropping also finalises
+/// ```
 pub struct EffectBuilder<'a, 'b, S: AppState> {
     effects: &'a mut Effects<'b, S>,
     index: usize,

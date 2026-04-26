@@ -7,11 +7,32 @@ use fission_ir::{
 };
 use serde::{Deserialize, Serialize};
 
+/// A boolean toggle with a square check indicator and optional label.
+///
+/// When pressed, the `on_toggle` action is dispatched. The application is
+/// responsible for toggling `checked` in the corresponding reducer.
+///
+/// # Example
+///
+/// ```rust,ignore
+/// let on_toggle = ctx.bind(ToggleAgree, handle_toggle as fn(&mut S, ToggleAgree));
+///
+/// Checkbox {
+///     checked: view.state.agreed,
+///     on_toggle: Some(on_toggle),
+///     label: Some("I agree to the terms".into()),
+///     ..Default::default()
+/// }
+/// ```
 #[derive(Debug, Default, Clone, Serialize, Deserialize)]
 pub struct Checkbox {
+    /// Explicit node identity.
     pub id: Option<NodeId>,
+    /// Current checked state.
     pub checked: bool,
+    /// Action dispatched when the checkbox is tapped.
     pub on_toggle: Option<ActionEnvelope>,
+    /// Optional text label rendered next to the indicator.
     pub label: Option<String>,
 }
 

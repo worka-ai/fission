@@ -7,27 +7,62 @@ use fission_ir::{
 };
 use serde::{Deserialize, Serialize};
 
+/// The universal wrapper widget: background colour, border, padding, size
+/// constraints, and box shadow on a single child.
+///
+/// `Container` is the workhorse of layout composition. Use it whenever you
+/// need to add visual decoration or spacing around a child widget.
+///
+/// # Example
+///
+/// ```rust,ignore
+/// Container::new(Text::new("Card body").into_node())
+///     .bg(theme.tokens.colors.surface)
+///     .border(theme.tokens.colors.border, 1.0)
+///     .border_radius(8.0)
+///     .padding_all(16.0)
+///     .width(320.0)
+///     .flex_grow(1.0)
+/// ```
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Container {
+    /// Explicit node identity.
     pub id: Option<NodeId>,
+    /// The single child widget.
     pub child: Option<Box<Node>>,
-    
-    // Layout
+
+    // -- Layout constraints --
+
+    /// Fixed width in layout points.
     pub width: Option<f32>,
+    /// Fixed height in layout points.
     pub height: Option<f32>,
+    /// Minimum width constraint.
     pub min_width: Option<f32>,
+    /// Maximum width constraint.
     pub max_width: Option<f32>,
+    /// Minimum height constraint.
     pub min_height: Option<f32>,
+    /// Maximum height constraint.
     pub max_height: Option<f32>,
+    /// Padding `[left, right, top, bottom]`.
     pub padding: [f32; 4],
+    /// Flex grow factor (how much extra space this container absorbs).
     pub flex_grow: f32,
+    /// Flex shrink factor (how much this container shrinks when space is tight).
     pub flex_shrink: f32,
-    
-    // Style
+
+    // -- Visual style --
+
+    /// Background fill colour.
     pub background_color: Option<Color>,
+    /// Border stroke colour.
     pub border_color: Option<Color>,
+    /// Border stroke width in layout points.
     pub border_width: f32,
+    /// Corner radius for rounded corners.
     pub border_radius: f32,
+    /// Optional drop shadow.
     pub shadow: Option<BoxShadow>,
 }
 

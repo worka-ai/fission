@@ -8,6 +8,7 @@ use fission_core::{ActionEnvelope, BuildCtx, NodeId, View, Widget, WidgetNodeId}
 use fission_icons::material;
 use serde::{Deserialize, Serialize};
 
+/// A single entry in a [`Menu`]: label text, optional SVG icon, and selection action.
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct MenuItem {
     pub label: String,
@@ -15,6 +16,14 @@ pub struct MenuItem {
     pub on_select: Option<ActionEnvelope>,
 }
 
+/// A vertical dropdown menu rendered as a scrollable list of [`MenuItem`] entries.
+///
+/// The menu is displayed inside a bordered, elevated container with rounded corners.
+/// Items are separated by [`Divider`](crate::Divider) lines. When the total item
+/// height exceeds `max_height` (default 300px), a scrollbar appears.
+///
+/// `Menu` is typically not used directly -- it is composed by [`MenuButton`],
+/// [`Select`], and other selection widgets.
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct Menu {
     pub items: Vec<MenuItem>,
@@ -120,6 +129,11 @@ impl<S: fission_core::AppState> Widget<S> for Menu {
     }
 }
 
+/// A button that toggles a [`Menu`] popover when clicked.
+///
+/// Renders an outline button with a label and a chevron icon. When `is_open`
+/// is `true`, a flyout portal containing the menu items is displayed anchored
+/// to the button.
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct MenuButton {
     pub id: WidgetNodeId,

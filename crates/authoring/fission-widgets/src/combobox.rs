@@ -5,6 +5,21 @@ use fission_core::{ActionEnvelope, BuildCtx, NodeId, View, Widget, WidgetNodeId}
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 
+/// A searchable dropdown that combines a text input with a filterable item list.
+///
+/// The user types into a `TextInput` (the trigger), which filters the available
+/// items. The filtered list is displayed in a [`Popover`] anchored to the input.
+/// Selecting an item dispatches `on_select` with the chosen value.
+///
+/// # Fields
+///
+/// * `id` - Stable widget identity.
+/// * `value` - Current text input value (controlled).
+/// * `items` - The list of available options to display.
+/// * `is_open` - Whether the dropdown list is visible.
+/// * `on_change` - Action dispatched when the text input value changes.
+/// * `on_select` - Closure that produces an action when an item is picked.
+/// * `on_toggle` - Action dispatched to open/close the dropdown.
 pub struct Combobox {
     pub id: WidgetNodeId,
     pub value: String,

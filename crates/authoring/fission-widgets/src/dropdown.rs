@@ -5,6 +5,12 @@ use fission_core::ui::{Button, ButtonContentAlign, Text, TextContent};
 use fission_core::{BuildCtx, Node, View, Widget};
 use fission_icons::material;
 
+/// A simplified dropdown trigger button.
+///
+/// Renders as an outline button with the selected value (or "Select an option")
+/// and a chevron icon. This is a trigger-only widget -- it does not render the
+/// dropdown list itself. Use [`Select`](crate::Select) for a complete dropdown
+/// with a popup menu.
 #[derive(Default, Clone)]
 pub struct DropDown {
     pub on_toggle: Option<ActionEnvelope>,

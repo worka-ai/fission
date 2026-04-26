@@ -3,16 +3,45 @@ use fission_ir::{FlexDirection, LayoutOp, NodeId, Op, Semantics};
 use fission_ir::op::{FlexWrap, AlignItems, JustifyContent};
 use serde::{Deserialize, Serialize};
 
+/// A horizontal flex container that lays out children in a row.
+///
+/// Children are arranged left-to-right (in LTR locales). Use `align_items` to
+/// control cross-axis (vertical) alignment and `justify_content` for main-axis
+/// (horizontal) distribution.
+///
+/// # Example
+///
+/// ```rust,ignore
+/// Row {
+///     children: vec![
+///         Icon::path("M12 2L2 22h20L12 2z").into_node().into(),
+///         Text::new("Warning").into_node().into(),
+///     ],
+///     gap: Some(8.0),
+///     align_items: AlignItems::Center,
+///     justify_content: JustifyContent::Start,
+///     ..Default::default()
+/// }
+/// ```
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Row {
+    /// Explicit node identity.
     pub id: Option<NodeId>,
+    /// The child widgets laid out left-to-right.
     pub children: Vec<Node>,
+    /// Custom semantics for accessibility.
     pub semantics: Option<Semantics>,
+    /// Flex grow factor.
     pub flex_grow: f32,
+    /// Flex shrink factor.
     pub flex_shrink: f32,
+    /// Spacing between children in layout points.
     pub gap: Option<f32>,
+    /// Whether children wrap to a new line when they overflow.
     pub wrap: FlexWrap,
+    /// Cross-axis (vertical) alignment of children (default: `Center`).
     pub align_items: AlignItems,
+    /// Main-axis (horizontal) distribution of children (default: `Start`).
     pub justify_content: JustifyContent,
 }
 

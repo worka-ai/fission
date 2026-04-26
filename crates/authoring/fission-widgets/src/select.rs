@@ -8,6 +8,7 @@ use fission_core::{ActionEnvelope, BuildCtx, NodeId, View, Widget, WidgetNodeId}
 use fission_icons::material;
 use serde::{Deserialize, Serialize};
 
+/// A single option in a [`Select`] dropdown.
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct SelectItem {
     pub label: String,
@@ -15,6 +16,28 @@ pub struct SelectItem {
     pub on_select: ActionEnvelope,
 }
 
+/// A dropdown selector that displays the selected label and opens a [`Menu`] flyout.
+///
+/// Renders an outline button showing the current selection (or a placeholder).
+/// When `is_open` is `true`, a scrollable menu of [`SelectItem`] entries appears
+/// anchored to the button via the flyout portal system.
+///
+/// # Example
+///
+/// ```rust,ignore
+/// Select {
+///     id: WidgetNodeId::explicit("country"),
+///     selected_label: Some("United States".into()),
+///     items: vec![
+///         SelectItem { label: "United States".into(), icon: None, on_select: us_action },
+///         SelectItem { label: "Canada".into(), icon: None, on_select: ca_action },
+///     ],
+///     is_open: state.country_open,
+///     on_toggle: Some(toggle_action),
+///     placeholder: "Choose country...".into(),
+///     width: Some(250.0),
+/// }
+/// ```
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct Select {
     pub id: WidgetNodeId,

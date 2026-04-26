@@ -6,9 +6,25 @@ use fission_ir::{
 };
 use serde::{Deserialize, Serialize};
 
+/// The content source for a [`Text`] widget.
+///
+/// `Literal` renders a plain string. `Key` looks up a localised string in the
+/// i18n registry at build time.
+///
+/// # Example
+///
+/// ```rust,ignore
+/// // Literal text
+/// Text::new("Hello, world!");
+///
+/// // i18n key (resolved via the active locale)
+/// Text { content: TextContent::Key("greeting_label".into()), ..Default::default() }
+/// ```
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub enum TextContent {
+    /// A plain, inline string.
     Literal(String),
+    /// An i18n key resolved at build time.
     Key(String),
 }
 
@@ -30,21 +46,49 @@ impl Default for TextContent {
     }
 }
 
+/// A read-only text label.
+///
+/// Renders a single run of styled text. Supports literal strings and i18n
+/// keys, custom font size, colour, underline, and flex properties.
+///
+/// # Example
+///
+/// ```rust,ignore
+/// Text::new("Total: 42")
+///     .size(18.0)
+///     .color(theme.tokens.colors.primary)
+///     .underline(true)
+///     .flex_grow(1.0)
+/// ```
 #[derive(Debug, Default, Clone, Serialize, Deserialize)]
 pub struct Text {
+    /// Explicit node identity.
     pub id: Option<NodeId>,
+    /// The text content (literal string or i18n key).
     pub content: TextContent,
+    /// Custom semantics for accessibility.
     pub semantics: Option<Semantics>,
+    /// Fixed width in layout points.
     pub width: Option<f32>,
+    /// Fixed height in layout points.
     pub height: Option<f32>,
+    /// Minimum width constraint.
     pub min_width: Option<f32>,
+    /// Maximum width constraint.
     pub max_width: Option<f32>,
+    /// Minimum height constraint.
     pub min_height: Option<f32>,
+    /// Maximum height constraint.
     pub max_height: Option<f32>,
+    /// Font size in points (falls back to the theme's body size).
     pub font_size: Option<f32>,
+    /// Text colour (falls back to the theme's primary text colour).
     pub color: Option<IrColor>,
+    /// Whether to render an underline decoration.
     pub underline: bool,
+    /// Flex grow factor (0.0 by default -- does not stretch).
     pub flex_grow: f32,
+    /// Flex shrink factor (0.0 by default -- does not shrink).
     pub flex_shrink: f32,
 }
 

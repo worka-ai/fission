@@ -1,3 +1,38 @@
+//! High-level, composable UI widgets for the Fission framework.
+//!
+//! This crate provides a comprehensive widget library built on top of `fission-core`
+//! primitives. Each widget follows a declarative, data-driven pattern: construct the
+//! widget struct with its configuration, and the framework calls [`Widget::build()`]
+//! to produce the low-level [`Node`] tree.
+//!
+//! Widgets do not own state. They receive all data through struct fields and communicate
+//! user interactions back to the application via [`ActionEnvelope`](fission_core::ActionEnvelope)
+//! callbacks.
+//!
+//! # Widget categories
+//!
+//! - **Layout**: [`HStack`], [`VStack`], [`Center`], [`Wrap`], [`SplitView`], [`Divider`]
+//! - **Overlays**: [`Modal`], [`Popover`], [`Tooltip`], [`Drawer`], [`Toast`], [`Portal`]
+//! - **Menus**: [`Menu`], [`MenuButton`], [`MenuItem`], [`Select`], [`Combobox`], [`SegmentedControl`]
+//! - **Navigation**: [`Tabs`], [`Accordion`]
+//! - **Display**: [`Badge`], [`Tag`], [`Card`], [`Avatar`], [`EmptyState`], [`Icon`]
+//! - **Loading**: [`ProgressBar`], [`Spinner`], [`Skeleton`]
+//! - **Transitions**: [`Hero`]
+//!
+//! # Example
+//!
+//! ```rust,ignore
+//! use fission_widgets::{VStack, Badge, Card};
+//!
+//! let layout = VStack {
+//!     spacing: Some(8.0),
+//!     children: vec![
+//!         Badge { text: "New".into(), ..Default::default() }.build(&mut ctx, &view),
+//!         Card { child: Box::new(content) }.build(&mut ctx, &view),
+//!     ],
+//! }.into_node();
+//! ```
+
 pub use fission_core::ui::widgets::Icon;
 pub use fission_core::ui::{
     Button, ButtonContentAlign, ButtonVariant, Checkbox, Column, Container, CustomNode, FocusScope,
@@ -170,7 +205,10 @@ use fission_core::{
 };
 use std::sync::Arc;
 
-// Canvas (CustomPaint) convenience
+/// Internal lowerer for the [`canvas()`] free function.
+///
+/// Wraps a painter closure that produces child node IDs within a `Group` node,
+/// placed inside a fixed-size `Box` layout node.
 pub struct CanvasLowerer {
     pub width: Option<f32>,
     pub height: Option<f32>,
@@ -217,6 +255,20 @@ impl LowerDyn for CanvasLowerer {
     }
 }
 
+/// Creates a custom paint node from a closure.
+///
+/// The `painter` closure receives a [`LoweringContext`] and returns a list of child
+/// node IDs. These are grouped inside a fixed-size box with the given `width` and
+/// `height` (both optional).
+///
+/// # Example
+///
+/// ```rust,ignore
+/// let custom_node = canvas(Some(100.0), Some(50.0), |cx| {
+///     // Create and return child node IDs
+///     vec![]
+/// });
+/// ```
 pub fn canvas<F>(width: Option<f32>, height: Option<f32>, painter: F) -> Node
 where
     F: Fn(&mut LoweringContext) -> Vec<NodeId> + Send + Sync + 'static,
@@ -253,6 +305,8 @@ impl LowerDyn for AbsoluteFillLowerer {
     }
 }
 
+/// Wraps a child node in an `AbsoluteFill` layout node, causing it to stretch
+/// to fill its parent's bounds.
 pub fn absolute_fill(child: Node) -> Node {
     Node::Custom(fission_core::CustomNode {
         debug_tag: "AbsoluteFill".into(),
@@ -292,6 +346,16 @@ impl LowerDyn for FlyoutLowerer {
     }
 }
 
+/// Positions `content` relative to an `anchor` node using the flyout layout system.
+///
+/// The layout engine places the content adjacent to the anchor's computed rect.
+/// This is the foundation for [`Popover`], [`Tooltip`], [`Menu`], and [`Select`]
+/// popups.
+///
+/// # Arguments
+///
+/// * `anchor` - The `NodeId` of the widget that the flyout should be positioned relative to.
+/// * `content` - The node tree to render in the flyout popup.
 pub fn flyout(anchor: NodeId, content: Node) -> Node {
     Node::Custom(fission_core::CustomNode {
         debug_tag: "Flyout".into(),
@@ -300,7 +364,15 @@ pub fn flyout(anchor: NodeId, content: Node) -> Node {
     })
 }
 
-// Portal
+/// Renders its child into the overlay layer, outside the normal layout tree.
+///
+/// `Portal` registers its child as a portal node during build. In the rendered
+/// output, the child appears above all non-portal content, composited into a
+/// full-viewport `ZStack` overlay. The portal itself produces an invisible
+/// spacer in the normal tree.
+///
+/// This is the low-level building block used by [`Modal`], [`Drawer`],
+/// [`Popover`], and [`Tooltip`] to render above the main content.
 #[derive(Debug, Clone)]
 pub struct Portal {
     pub child: Node,

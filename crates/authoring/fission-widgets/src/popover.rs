@@ -3,6 +3,21 @@ use fission_core::ui::{Container, GestureDetector, Node};
 use fission_core::{ActionEnvelope, BuildCtx, NodeId, View, Widget, WidgetNodeId};
 use serde::{Deserialize, Serialize};
 
+/// An anchor-relative popup that renders content positioned next to a trigger widget.
+///
+/// The trigger widget is rendered inline in the normal layout tree. When `is_open`
+/// is `true`, the `content` is placed into a flyout portal positioned relative to
+/// the trigger's computed rect. An optional transparent backdrop handles dismiss
+/// via `on_close`.
+///
+/// # Fields
+///
+/// * `id` - Stable widget identity for the portal system.
+/// * `is_open` - Controls visibility of the popup content.
+/// * `on_toggle` - Action dispatched to toggle the popover.
+/// * `on_close` - Action dispatched when the backdrop is tapped (if set, a backdrop is rendered).
+/// * `trigger` - The inline widget that the popover is anchored to.
+/// * `content` - The popup content rendered in the flyout layer.
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct Popover {
     pub id: WidgetNodeId,

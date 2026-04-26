@@ -7,11 +7,37 @@ use fission_ir::{
 };
 use serde::{Deserialize, Serialize};
 
+/// A single-select radio button with a circular indicator and optional label.
+///
+/// Radio buttons are typically used in a group where exactly one is selected
+/// at a time. The `on_select` action is dispatched when the user taps the
+/// button; the application updates which option is selected in the reducer.
+///
+/// # Example
+///
+/// ```rust,ignore
+/// for (i, option) in options.iter().enumerate() {
+///     let on_select = ctx.bind(
+///         SelectOption { index: i },
+///         handle_select as fn(&mut S, SelectOption),
+///     );
+///     children.push(Radio {
+///         checked: view.state.selected == i,
+///         on_select: Some(on_select),
+///         label: Some(option.clone()),
+///         ..Default::default()
+///     }.into_node().into());
+/// }
+/// ```
 #[derive(Debug, Default, Clone, Serialize, Deserialize)]
 pub struct Radio {
+    /// Explicit node identity.
     pub id: Option<NodeId>,
+    /// Whether this radio button is currently selected.
     pub checked: bool,
+    /// Action dispatched when this radio button is tapped.
     pub on_select: Option<ActionEnvelope>,
+    /// Optional text label rendered next to the indicator.
     pub label: Option<String>,
 }
 

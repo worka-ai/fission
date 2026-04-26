@@ -7,10 +7,28 @@ use fission_ir::{
 };
 use serde::{Deserialize, Serialize};
 
+/// A boolean toggle rendered as a sliding thumb on a track.
+///
+/// Visually similar to iOS/Material "switch" controls. The `on_toggle` action
+/// is dispatched when the user taps the switch; the application toggles
+/// `checked` in the reducer.
+///
+/// # Example
+///
+/// ```rust,ignore
+/// Switch {
+///     checked: view.state.dark_mode,
+///     on_toggle: Some(ctx.bind(ToggleDarkMode, handler as fn(&mut S, ToggleDarkMode))),
+///     ..Default::default()
+/// }
+/// ```
 #[derive(Debug, Default, Clone, Serialize, Deserialize)]
 pub struct Switch {
+    /// Explicit node identity.
     pub id: Option<NodeId>,
+    /// Current on/off state.
     pub checked: bool,
+    /// Action dispatched when the switch is tapped.
     pub on_toggle: Option<ActionEnvelope>,
 }
 

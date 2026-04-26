@@ -6,13 +6,37 @@ use fission_ir::{
 };
 use serde::{Deserialize, Serialize};
 
+/// A platform-native video player widget.
+///
+/// The video is rendered by the platform's native player and embedded into the
+/// Fission layout as an opaque surface. Use [`BuildCtx::video_controls`] to
+/// create play/pause/seek action envelopes.
+///
+/// # Example
+///
+/// ```rust,ignore
+/// Video {
+///     source: "https://example.com/clip.mp4".into(),
+///     width: Some(640.0),
+///     height: Some(360.0),
+///     autoplay: true,
+///     loop_playback: false,
+///     ..Default::default()
+/// }
+/// ```
 #[derive(Debug, Default, Clone, Serialize, Deserialize)]
 pub struct Video {
+    /// Stable widget identity (auto-derived from `source` if `None`).
     pub id: Option<WidgetNodeId>,
+    /// URL or asset path to the video file.
     pub source: String,
+    /// Fixed width in layout points.
     pub width: Option<f32>,
+    /// Fixed height in layout points.
     pub height: Option<f32>,
+    /// Whether to start playing immediately.
     pub autoplay: bool,
+    /// Whether to loop playback when the video ends.
     pub loop_playback: bool,
 }
 

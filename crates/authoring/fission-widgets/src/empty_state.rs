@@ -4,6 +4,11 @@ use fission_core::ui::{Container, Node, Text};
 use fission_core::{BuildCtx, View, Widget};
 use serde::{Deserialize, Serialize};
 
+/// A centered placeholder displayed when a view has no content.
+///
+/// Shows an optional icon, a title, an optional description, and an optional
+/// action button (e.g., "Create new item"). The entire block is centered in its
+/// parent using [`Center`](crate::Center).
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct EmptyState {
     pub icon: Option<Box<Node>>,

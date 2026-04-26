@@ -3,16 +3,44 @@ use fission_ir::{FlexDirection, LayoutOp, NodeId, Op, Semantics};
 use fission_ir::op::{FlexWrap, AlignItems, JustifyContent};
 use serde::{Deserialize, Serialize};
 
+/// A vertical flex container that lays out children in a column.
+///
+/// Children are arranged top-to-bottom. Use `align_items` to control
+/// cross-axis (horizontal) alignment and `justify_content` for main-axis
+/// (vertical) distribution.
+///
+/// # Example
+///
+/// ```rust,ignore
+/// Column {
+///     children: vec![
+///         Text::new("Title").size(24.0).into_node().into(),
+///         Text::new("Subtitle").size(14.0).into_node().into(),
+///     ],
+///     gap: Some(4.0),
+///     align_items: AlignItems::Stretch,
+///     ..Default::default()
+/// }
+/// ```
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Column {
+    /// Explicit node identity.
     pub id: Option<NodeId>,
+    /// The child widgets laid out top-to-bottom.
     pub children: Vec<Node>,
+    /// Custom semantics for accessibility.
     pub semantics: Option<Semantics>,
+    /// Flex grow factor.
     pub flex_grow: f32,
+    /// Flex shrink factor.
     pub flex_shrink: f32,
+    /// Spacing between children in layout points.
     pub gap: Option<f32>,
+    /// Whether children wrap when they overflow.
     pub wrap: FlexWrap,
+    /// Cross-axis (horizontal) alignment (default: `Stretch`).
     pub align_items: AlignItems,
+    /// Main-axis (vertical) distribution (default: `Start`).
     pub justify_content: JustifyContent,
 }
 

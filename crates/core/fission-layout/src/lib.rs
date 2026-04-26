@@ -1,3 +1,33 @@
+//! Constraint-based layout engine for the Fission UI framework.
+//!
+//! This crate takes a flat list of [`LayoutInputNode`]s (produced from the
+//! [`fission-ir`](fission_ir) intermediate representation) and computes the
+//! absolute position and size of every node on screen. It implements:
+//!
+//! * **Box layout** -- constrained containers with padding, min/max, and aspect ratio.
+//! * **Flexbox** -- single-axis distribution with grow, shrink, wrap, alignment, and justification.
+//! * **CSS Grid** -- two-dimensional track-based layout with `fr`, `%`, and fixed sizing.
+//! * **Scroll containers** -- clipped viewports with infinite content axes.
+//! * **Absolute positioning** -- `top`/`left`/`right`/`bottom` offsets.
+//! * **ZStack** -- overlapping children.
+//! * **Flyout anchoring** -- popups positioned relative to an anchor node.
+//!
+//! The engine is pure computation with no platform dependencies. Give it nodes and
+//! a viewport size, and it returns a [`LayoutSnapshot`] mapping every
+//! [`NodeId`](fission_ir::NodeId) to a [`LayoutRect`].
+//!
+//! # Example
+//!
+//! ```rust,no_run
+//! use fission_layout::*;
+//! use fission_ir::{NodeId, LayoutOp};
+//!
+//! let mut engine = LayoutEngine::new();
+//! let root_id = NodeId::explicit("root");
+//! // ... build LayoutInputNode list ...
+//! // let snapshot = engine.compute_layout(&nodes, root_id, viewport, &|_| 0.0).unwrap();
+//! ```
+
 use anyhow::Result;
 use fission_diagnostics::prelude as diag;
 use fission_ir::op::TextRun;
@@ -8,7 +38,24 @@ use std::sync::Arc;
 
 pub use fission_ir::{FlexDirection, GridPlacement, GridTrack, LayoutOp};
 
+/// A source of scroll offsets for scroll containers.
+///
+/// The layout engine calls [`get_offset`](ScrollDataSource::get_offset) for each
+/// [`LayoutOp::Scroll`] node to learn how far the user has scrolled. Platform
+/// backends implement this trait (or pass a closure, which also implements it).
+///
+/// # Example
+///
+/// ```rust
+/// use fission_layout::ScrollDataSource;
+/// use fission_ir::NodeId;
+///
+/// // A closure works as a ScrollDataSource:
+/// let source = |_node: NodeId| -> f32 { 0.0 };
+/// assert_eq!(source.get_offset(NodeId::explicit("scroll")), 0.0);
+/// ```
 pub trait ScrollDataSource {
+    /// Returns the current scroll offset for the given scroll container node.
     fn get_offset(&self, node_id: NodeId) -> f32;
 }
 
@@ -21,8 +68,12 @@ where
     }
 }
 
+/// The scalar type used for all layout measurements.
+///
+/// Currently `f32`. Matches [`fission_ir::op::LayoutUnit`].
 pub type LayoutUnit = f32;
 
+/// Returns `value` if it is finite, otherwise `fallback`.
 fn finite_or(value: LayoutUnit, fallback: LayoutUnit) -> LayoutUnit {
     if value.is_finite() {
         value
@@ -31,44 +82,94 @@ fn finite_or(value: LayoutUnit, fallback: LayoutUnit) -> LayoutUnit {
     }
 }
 
+/// A 2D point in layout coordinate space.
+///
+/// Represents an (x, y) position in logical pixels. Used for node origins and
+/// coordinate calculations throughout the layout engine.
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize, Default)]
 pub struct LayoutPoint {
+    /// Horizontal position in logical pixels.
     pub x: LayoutUnit,
+    /// Vertical position in logical pixels.
     pub y: LayoutUnit,
 }
 
 impl LayoutPoint {
+    /// The origin point: `(0.0, 0.0)`.
     pub const ZERO: Self = Self { x: 0.0, y: 0.0 };
+
+    /// Creates a new point from x and y coordinates.
     pub fn new(x: LayoutUnit, y: LayoutUnit) -> Self {
         Self { x, y }
     }
 }
 
+/// A 2D size in layout coordinate space.
+///
+/// Represents a width and height in logical pixels. Used as the output of layout
+/// measurement and as input to constraints.
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize, Default)]
 pub struct LayoutSize {
+    /// Width in logical pixels.
     pub width: LayoutUnit,
+    /// Height in logical pixels.
     pub height: LayoutUnit,
 }
 
 impl LayoutSize {
+    /// A zero-sized size: `(0.0, 0.0)`.
     pub const ZERO: Self = Self {
         width: 0.0,
         height: 0.0,
     };
+
+    /// Creates a new size from width and height values.
     pub fn new(width: LayoutUnit, height: LayoutUnit) -> Self {
         Self { width, height }
     }
 }
 
+/// Minimum and maximum width/height bounds passed from parent to child during layout.
+///
+/// `BoxConstraints` is the fundamental mechanism for top-down size negotiation. A
+/// parent creates constraints describing the space available to a child, and the
+/// child returns a [`LayoutSize`] that satisfies those constraints.
+///
+/// There are two common patterns:
+///
+/// * **Tight constraints** -- `min == max`, forcing the child to a specific size.
+///   Created with [`BoxConstraints::tight`].
+/// * **Loose constraints** -- `min == 0`, giving the child freedom to be smaller
+///   than the max. Created with [`BoxConstraints::loose`].
+///
+/// # Example
+///
+/// ```rust
+/// use fission_layout::{BoxConstraints, LayoutSize};
+///
+/// let constraints = BoxConstraints::loose(800.0, 600.0);
+/// assert_eq!(constraints.min_w, 0.0);
+///
+/// let child_wants = LayoutSize::new(300.0, 200.0);
+/// let actual = constraints.constrain(child_wants);
+/// assert_eq!(actual, child_wants); // fits within the constraints
+/// ```
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct BoxConstraints {
+    /// Minimum width the child must occupy.
     pub min_w: LayoutUnit,
+    /// Maximum width the child may occupy. Can be `f32::INFINITY` for unbounded.
     pub max_w: LayoutUnit,
+    /// Minimum height the child must occupy.
     pub min_h: LayoutUnit,
+    /// Maximum height the child may occupy. Can be `f32::INFINITY` for unbounded.
     pub max_h: LayoutUnit,
 }
 
 impl BoxConstraints {
+    /// Creates tight constraints that force a child to exactly `size`.
+    ///
+    /// Both min and max are set to the given width/height.
     pub fn tight(size: LayoutSize) -> Self {
         Self {
             min_w: size.width,
@@ -78,6 +179,9 @@ impl BoxConstraints {
         }
     }
 
+    /// Creates loose constraints: min is zero, max is the given values.
+    ///
+    /// The child can be anywhere from zero to `max_w` x `max_h`.
     pub fn loose(max_w: LayoutUnit, max_h: LayoutUnit) -> Self {
         Self {
             min_w: 0.0,
@@ -87,14 +191,20 @@ impl BoxConstraints {
         }
     }
 
+    /// Returns `true` if the maximum width is finite (not `f32::INFINITY`).
     pub fn is_width_bounded(&self) -> bool {
         self.max_w.is_finite()
     }
 
+    /// Returns `true` if the maximum height is finite (not `f32::INFINITY`).
     pub fn is_height_bounded(&self) -> bool {
         self.max_h.is_finite()
     }
 
+    /// Clamps `size` so it falls within these constraints.
+    ///
+    /// The returned width is `max(min_w, min(size.width, max_w))`, and likewise
+    /// for height.
     pub fn constrain(&self, size: LayoutSize) -> LayoutSize {
         LayoutSize {
             width: size.width.max(self.min_w).min(self.max_w),
@@ -102,10 +212,16 @@ impl BoxConstraints {
         }
     }
 
+    /// Returns the smallest size that satisfies these constraints: `(min_w, min_h)`.
     pub fn smallest(&self) -> LayoutSize {
         LayoutSize::new(self.min_w, self.min_h)
     }
 
+    /// Returns new constraints shrunk inward by `padding`.
+    ///
+    /// Padding is `[left, right, top, bottom]`. Horizontal padding reduces the
+    /// width bounds; vertical padding reduces the height bounds. Bounds are
+    /// clamped to zero.
     pub fn deflate(&self, padding: [LayoutUnit; 4]) -> Self {
         let horiz = padding[0] + padding[1];
         let vert = padding[2] + padding[3];
@@ -121,6 +237,10 @@ impl BoxConstraints {
         }
     }
 
+    /// Makes the constraints tighter by fixing the width and/or height.
+    ///
+    /// If `width` is `Some`, both `min_w` and `max_w` are set to that value
+    /// (clamped to the current bounds). Same for `height`.
     pub fn tighten(&self, width: Option<LayoutUnit>, height: Option<LayoutUnit>) -> Self {
         let mut out = *self;
         if let Some(w) = width {
@@ -142,6 +262,11 @@ impl BoxConstraints {
         out
     }
 
+    /// Applies additional min/max constraints on top of the current ones.
+    ///
+    /// Each `Some` value further restricts the corresponding bound. `None` values
+    /// leave the bound unchanged. After adjustment, max is clamped to be at least
+    /// min.
     pub fn apply_min_max(
         &self,
         min_w: Option<LayoutUnit>,
@@ -171,6 +296,10 @@ impl BoxConstraints {
         out
     }
 
+    /// Returns loose constraints with the same maximums but zeroed minimums.
+    ///
+    /// Useful when a parent wants to let a child be as small as it likes while
+    /// still capping its maximum size.
     pub fn loosen(&self) -> Self {
         Self {
             min_w: 0.0,
@@ -181,13 +310,30 @@ impl BoxConstraints {
     }
 }
 
+/// An axis-aligned rectangle: an origin point plus a size.
+///
+/// `LayoutRect` is the final output for every node after layout: it says exactly
+/// where the node sits on screen and how large it is.
+///
+/// # Example
+///
+/// ```rust
+/// use fission_layout::{LayoutRect, LayoutPoint};
+///
+/// let rect = LayoutRect::new(10.0, 20.0, 300.0, 200.0);
+/// assert_eq!(rect.right(), 310.0);
+/// assert!(rect.contains(LayoutPoint::new(15.0, 25.0)));
+/// ```
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
 pub struct LayoutRect {
+    /// The top-left corner of the rectangle.
     pub origin: LayoutPoint,
+    /// The width and height of the rectangle.
     pub size: LayoutSize,
 }
 
 impl LayoutRect {
+    /// Creates a rectangle from x, y, width, and height.
     pub fn new(x: LayoutUnit, y: LayoutUnit, width: LayoutUnit, height: LayoutUnit) -> Self {
         Self {
             origin: LayoutPoint { x, y },
@@ -195,46 +341,82 @@ impl LayoutRect {
         }
     }
 
+    /// The x coordinate of the left edge.
     pub fn x(&self) -> LayoutUnit {
         self.origin.x
     }
+    /// The y coordinate of the top edge.
     pub fn y(&self) -> LayoutUnit {
         self.origin.y
     }
+    /// The width of the rectangle.
     pub fn width(&self) -> LayoutUnit {
         self.size.width
     }
+    /// The height of the rectangle.
     pub fn height(&self) -> LayoutUnit {
         self.size.height
     }
 
+    /// The x coordinate of the right edge (`x + width`).
     pub fn right(&self) -> LayoutUnit {
         self.origin.x + self.size.width
     }
+    /// The y coordinate of the bottom edge (`y + height`).
     pub fn bottom(&self) -> LayoutUnit {
         self.origin.y + self.size.height
     }
 
+    /// Returns `true` if the point `p` lies within this rectangle (inclusive on
+    /// the left/top edges, exclusive on the right/bottom edges).
     pub fn contains(&self, p: LayoutPoint) -> bool {
         p.x >= self.x() && p.x < self.right() && p.y >= self.y() && p.y < self.bottom()
     }
 }
 
+/// The computed geometry of a single layout node.
+///
+/// After layout, every node has a bounding rectangle (its position and size on
+/// screen) and a content size (how large its content actually is, which may exceed
+/// the rect for scroll containers).
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct LayoutNodeGeometry {
+    /// The bounding rectangle of this node in absolute (screen) coordinates.
     pub rect: LayoutRect,
+    /// The natural size of the node's content before clipping. For scroll containers,
+    /// this may be larger than `rect.size`, indicating scrollable overflow.
     pub content_size: LayoutSize,
 }
 
+/// The complete output of a layout pass.
+///
+/// `LayoutSnapshot` maps every node to its computed geometry and records the
+/// viewport size that was used. It is the primary interface between the layout
+/// engine and downstream consumers (the renderer, hit testing, accessibility).
+///
+/// # Example
+///
+/// ```rust,no_run
+/// use fission_layout::{LayoutSnapshot, LayoutSize};
+/// use fission_ir::NodeId;
+///
+/// let snapshot = LayoutSnapshot::new(LayoutSize::new(800.0, 600.0));
+/// assert_eq!(snapshot.viewport_size.width, 800.0);
+/// ```
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
 pub struct LayoutSnapshot {
+    /// Computed geometry for every node, keyed by [`NodeId`].
     pub nodes: HashMap<NodeId, LayoutNodeGeometry>,
+    /// The constraints that were passed to each node during layout. Useful for
+    /// debugging. Skipped during serialization.
     #[serde(skip)]
     pub constraints: HashMap<NodeId, BoxConstraints>,
+    /// The viewport size used for this layout pass.
     pub viewport_size: LayoutSize,
 }
 
 impl LayoutSnapshot {
+    /// Creates an empty snapshot for the given viewport size.
     pub fn new(viewport_size: LayoutSize) -> Self {
         Self {
             nodes: HashMap::new(),
@@ -243,43 +425,105 @@ impl LayoutSnapshot {
         }
     }
 
+    /// Returns the full geometry (rect + content size) for a node, or `None` if
+    /// the node was not part of this layout pass.
     pub fn get_node_geometry(&self, node_id: NodeId) -> Option<&LayoutNodeGeometry> {
         self.nodes.get(&node_id)
     }
 
+    /// Returns just the bounding rectangle for a node, or `None` if not found.
     pub fn get_node_rect(&self, node_id: NodeId) -> Option<LayoutRect> {
         self.nodes.get(&node_id).map(|g| g.rect)
     }
 
+    /// Returns the constraints that were passed to a node during layout, or `None`
+    /// if not found. Useful for debugging layout issues.
     pub fn get_node_constraints(&self, node_id: NodeId) -> Option<BoxConstraints> {
         self.constraints.get(&node_id).copied()
     }
 }
 
+/// A flattened representation of a layout node, ready for the layout engine.
+///
+/// The widget compiler produces a list of `LayoutInputNode`s from the IR. Each node
+/// carries its layout operation, parent/child relationships, flex participation
+/// parameters, and optional rich text content for text measurement.
+///
+/// The layout engine operates on `&[LayoutInputNode]` rather than traversing the
+/// IR directly, which keeps the engine decoupled from the IR's internal structure.
 #[derive(Debug, Clone)]
 pub struct LayoutInputNode {
+    /// The unique identity of this node.
     pub id: NodeId,
+    /// The parent node's ID, or `None` for the root.
     pub parent_id: Option<NodeId>,
+    /// The layout operation this node performs.
     pub op: LayoutOp,
+    /// Ordered list of child node IDs.
     pub children_ids: Vec<NodeId>,
+    /// A human-readable name for debugging and diagnostics.
     pub debug_name: String,
+    /// Explicit width override, or `None` to derive from constraints.
     pub width: Option<LayoutUnit>,
+    /// Explicit height override, or `None` to derive from constraints.
     pub height: Option<LayoutUnit>,
+    /// How much extra main-axis space this node claims from its flex parent.
     pub flex_grow: LayoutUnit,
+    /// How much this node shrinks when its flex parent overflows.
     pub flex_shrink: LayoutUnit,
+    /// Optional rich text content. When present, the layout engine uses the
+    /// [`TextMeasurer`] to determine the node's intrinsic size from the text.
     pub rich_text: Option<Vec<TextRun>>,
 }
 
+/// Per-line metrics returned by text measurement.
+///
+/// When the layout engine or hit-testing code needs to know about individual lines
+/// of text (e.g., for cursor positioning in a multi-line text field), it calls
+/// [`TextMeasurer::get_line_metrics`] and receives a `Vec<LineMetric>`.
 pub struct LineMetric {
+    /// Byte index where this line starts in the source string.
     pub start_index: usize,
+    /// Byte index where this line ends in the source string (exclusive).
     pub end_index: usize,
+    /// Distance from the top of the line to its alphabetic baseline, in logical pixels.
     pub baseline: f32,
+    /// Total height of the line (ascent + descent + leading), in logical pixels.
     pub height: f32,
+    /// Measured width of the line's content, in logical pixels.
     pub width: f32,
 }
 
+/// A platform-provided text measurement backend.
+///
+/// The layout engine does not shape or measure text itself. Instead, platform
+/// backends implement `TextMeasurer` to wrap their native text engine (CoreText
+/// on macOS, DirectWrite on Windows, HarfBuzz + FreeType on Linux, etc.).
+///
+/// All methods have default implementations that return zero-sized results, so
+/// you only need to override the methods your backend supports.
+///
+/// # Required
+///
+/// * [`measure`](TextMeasurer::measure) -- must be implemented to get correct text layout.
+///
+/// # Optional
+///
+/// * [`hit_test`](TextMeasurer::hit_test) -- needed for click-to-cursor in text fields.
+/// * [`get_line_metrics`](TextMeasurer::get_line_metrics) -- needed for multi-line cursor navigation.
+/// * [`get_caret_position`](TextMeasurer::get_caret_position) -- needed for drawing the text cursor.
+/// * [`measure_rich_text`](TextMeasurer::measure_rich_text) -- needed for mixed-style text.
 pub trait TextMeasurer: Send + Sync {
+    /// Measures single-style text and returns `(width, height)` in logical pixels.
+    ///
+    /// If `available_width` is `Some`, the text should be wrapped at that width.
+    /// If `None`, the text is measured as a single unwrapped line.
     fn measure(&self, text: &str, font_size: f32, available_width: Option<f32>) -> (f32, f32);
+
+    /// Returns the byte index of the character closest to the point `(x, y)`,
+    /// relative to the text's origin. Used for click-to-cursor in text fields.
+    ///
+    /// The default implementation returns `0`.
     fn hit_test(
         &self,
         _text: &str,
@@ -290,6 +534,11 @@ pub trait TextMeasurer: Send + Sync {
     ) -> usize {
         0
     }
+
+    /// Returns per-line metrics for the given text. Used for multi-line text fields
+    /// and line-based cursor navigation.
+    ///
+    /// The default implementation returns an empty vec.
     fn get_line_metrics(
         &self,
         text: &str,
@@ -298,6 +547,11 @@ pub trait TextMeasurer: Send + Sync {
     ) -> Vec<LineMetric> {
         vec![]
     }
+
+    /// Returns the `(x, y)` position of the text cursor at `caret_index` (byte offset),
+    /// relative to the text's origin.
+    ///
+    /// The default implementation returns `(0.0, 0.0)`.
     fn get_caret_position(
         &self,
         _text: &str,
@@ -308,6 +562,9 @@ pub trait TextMeasurer: Send + Sync {
         (0.0, 0.0)
     }
 
+    /// Measures multi-style (rich) text and returns `(width, height)` in logical pixels.
+    ///
+    /// The default implementation returns `(0.0, 0.0)`.
     fn measure_rich_text(&self, _runs: &[TextRun], _available_width: Option<f32>) -> (f32, f32) {
         (0.0, 0.0)
     }
@@ -329,29 +586,68 @@ pub trait TextMeasurer: Send + Sync {
     }
 }
 
+/// The constraint-based layout solver.
+///
+/// `LayoutEngine` walks the node tree top-down, passing [`BoxConstraints`] from
+/// parent to child, and bottom-up, returning [`LayoutSize`] from child to parent.
+/// The final result is a [`LayoutSnapshot`] that maps every node to its absolute
+/// screen-space rectangle.
+///
+/// The engine optionally holds a [`TextMeasurer`] for sizing text nodes. Without
+/// one, text nodes are treated as zero-sized.
+///
+/// # Example
+///
+/// ```rust,no_run
+/// use fission_layout::*;
+/// use fission_ir::NodeId;
+/// use std::sync::Arc;
+///
+/// let mut engine = LayoutEngine::new();
+/// // engine = engine.with_measurer(my_text_measurer);
+///
+/// // let snapshot = engine.compute_layout(&nodes, root_id, viewport, &|_| 0.0).unwrap();
+/// ```
 pub struct LayoutEngine {
     measurer: Option<Arc<dyn TextMeasurer>>,
 }
 
 impl LayoutEngine {
+    /// Creates a new layout engine with no text measurer.
+    ///
+    /// Text nodes will be treated as zero-sized until a measurer is provided
+    /// via [`with_measurer`](LayoutEngine::with_measurer).
     pub fn new() -> Self {
         Self { measurer: None }
     }
 
+    /// Returns a new engine with the given text measurer attached.
+    ///
+    /// This is a builder-style method that consumes and returns `self`.
     pub fn with_measurer(mut self, measurer: Arc<dyn TextMeasurer>) -> Self {
         self.measurer = Some(measurer);
         self
     }
 
+    /// Incrementally updates layout for the given dirty nodes.
+    ///
+    /// Currently a no-op placeholder for future incremental layout support.
     pub fn update(&mut self, input_nodes: &[LayoutInputNode], _dirty_set: &HashSet<NodeId>) {
         let _ = input_nodes;
     }
 
+    /// Rebuilds internal data structures from the full node list.
+    ///
+    /// Currently a no-op placeholder for future optimization.
     pub fn rebuild(&mut self, input_nodes: &[LayoutInputNode]) -> Result<()> {
         let _ = input_nodes;
         Ok(())
     }
 
+    /// Verifies parent-child consistency and checks for cycles in the node graph.
+    ///
+    /// Call this during development/testing to catch malformed IR before it causes
+    /// layout panics. Returns `Err` with a description of the first problem found.
     pub fn verify_post_update(&self, input_nodes: &[LayoutInputNode], root: NodeId) -> Result<()> {
         let node_map: HashMap<NodeId, &LayoutInputNode> =
             input_nodes.iter().map(|n| (n.id, n)).collect();
@@ -395,6 +691,23 @@ impl LayoutEngine {
         Ok(())
     }
 
+    /// Computes layout for the entire node tree and returns a snapshot.
+    ///
+    /// This is the main entry point. It runs the constraint-based layout algorithm
+    /// starting from `root_node_id`, using `viewport_size` as the root constraints,
+    /// and querying `scroll_source` for scroll offsets. After layout, it emits scroll
+    /// diagnostics for debugging.
+    ///
+    /// # Arguments
+    ///
+    /// * `input_nodes` -- The flat list of all layout nodes.
+    /// * `root_node_id` -- Which node is the root of the tree.
+    /// * `viewport_size` -- The size of the window/screen.
+    /// * `scroll_source` -- Provides scroll offsets for scroll containers.
+    ///
+    /// # Errors
+    ///
+    /// Returns `Err` if a cycle is detected or a required node is missing.
     pub fn compute_layout(
         &mut self,
         input_nodes: &[LayoutInputNode],
@@ -412,6 +725,10 @@ impl LayoutEngine {
         Ok(snapshot)
     }
 
+    /// Lower-level layout that skips scroll diagnostics.
+    ///
+    /// Same as [`compute_layout`](LayoutEngine::compute_layout) but does not emit
+    /// diagnostic events. Useful when you need the snapshot but not the debug output.
     pub fn compute_layout_constraints(
         &self,
         input_nodes: &[LayoutInputNode],

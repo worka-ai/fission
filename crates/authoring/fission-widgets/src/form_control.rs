@@ -4,6 +4,26 @@ use fission_core::ui::{Container, Node, Text, TextContent};
 use fission_core::{BuildCtx, View, Widget, WidgetNodeId};
 use serde::{Deserialize, Serialize};
 
+/// A form field wrapper that adds a label, error message, and helper text.
+///
+/// Wraps any child widget (typically a `TextInput`, `Select`, or `Combobox`)
+/// with a vertical stack containing:
+/// 1. An optional label (with a required-field asterisk when `required` is `true`).
+/// 2. The child widget.
+/// 3. An error message (red) or helper text (secondary color).
+///
+/// # Example
+///
+/// ```rust,ignore
+/// FormControl {
+///     id: None,
+///     label: Some("Email".into()),
+///     child: Box::new(text_input_node),
+///     error: if invalid { Some("Invalid email".into()) } else { None },
+///     helper: Some("We'll never share your email.".into()),
+///     required: true,
+/// }
+/// ```
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct FormControl {
     pub id: Option<WidgetNodeId>,

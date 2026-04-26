@@ -1,8 +1,24 @@
+//! Automated UI testing client and protocol for Fission applications.
+//!
+//! This crate provides the JSON protocol types (shared between the test client
+//! and the desktop shell server) and a [`LiveTestClient`] that drives a running
+//! Fission application over HTTP.
+//!
+//! # Architecture
+//!
+//! The application must be launched with `FISSION_TEST_CONTROL_PORT=<port>`.
+//! The [`LiveTestClient`] connects to `http://127.0.0.1:<port>` and sends
+//! [`TestCommand`] JSON payloads to `/cmd`, receiving [`TestResponse`] replies.
+
 use anyhow::{anyhow, Result};
 use serde::{Deserialize, Serialize};
 
 // --- Protocol types (shared between client and server) ---
 
+/// A command sent from the test client to the running application.
+///
+/// Serialized with `#[serde(tag = "cmd")]`. See the crate-level docs for
+/// the full command reference.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "cmd")]
 pub enum TestCommand {
@@ -55,6 +71,7 @@ pub enum TestEvent {
     Wait { ms: u64 },
 }
 
+/// A visible text element with its bounding rectangle, returned by [`TestCommand::GetText`].
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TextItem {
     pub text: String,
@@ -64,6 +81,7 @@ pub struct TextItem {
     pub height: f32,
 }
 
+/// A node in the semantic accessibility tree, returned by [`TestCommand::GetTree`].
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SemanticNode {
     pub role: String,
@@ -76,6 +94,7 @@ pub struct SemanticNode {
     pub height: f32,
 }
 
+/// The response from the application to a [`TestCommand`].
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "status")]
 pub enum TestResponse {
@@ -87,6 +106,21 @@ pub enum TestResponse {
 
 // --- Client ---
 
+/// An HTTP client that drives a running Fission application for automated UI testing.
+///
+/// Connect to a running application via [`LiveTestClient::connect(port)`]. The
+/// application must have been started with `FISSION_TEST_CONTROL_PORT=<port>`.
+///
+/// # Example
+///
+/// ```rust,ignore
+/// let client = LiveTestClient::connect(9876);
+/// client.wait_for_ready(5000).unwrap();
+/// client.tap_text("Submit").unwrap();
+/// client.assert_text_visible("Success").unwrap();
+/// client.screenshot("/tmp/result.png").unwrap();
+/// client.quit().unwrap();
+/// ```
 pub struct LiveTestClient {
     base_url: String,
 }
