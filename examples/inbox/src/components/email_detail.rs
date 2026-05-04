@@ -226,7 +226,11 @@ impl Widget<InboxState> for EmailDetail {
                     HStack {
                         spacing: Some(8.0),
                         children: vec![
-                            Spinner { id: WidgetNodeId::explicit("attachments_spinner"), color: None }.build(ctx, view),
+                            Spinner {
+                                id: WidgetNodeId::explicit("attachments_spinner"),
+                                color: None,
+                                animated: true,
+                            }.build(ctx, view),
                             Text::new(TextContent::Key("email.scanning_attachments".into()))
                                 .size(12.0)
                                 .color(tokens.colors.text_secondary)

@@ -1,6 +1,8 @@
-use crate::editor_render_node::{offset_to_line_col, EditorRenderNode};
+use crate::editor_render_node::EditorRenderNode;
 use crate::minimap::Minimap;
-use crate::model::{EditorState, UpdateCursorPosition, UpdateFileContent, UpdateScrollY};
+use crate::model::{
+    ApplyEditorEdit, EditorState, SetEditorPreedit, UpdateCursorPosition, UpdateScrollY,
+};
 use fission_core::op::Color;
 use fission_core::ui::custom_render::CustomRenderObject;
 use fission_core::ui::traits::LowerDyn;
@@ -30,29 +32,42 @@ impl Widget<EditorState> for EditorSurface {
             UpdateCursorPosition { caret: 0, anchor: 0 },
             (|s: &mut EditorState, a: UpdateCursorPosition, _| {
                 if let Some((_tab, buf)) = s.active_buffer_mut() {
-                    let content = buf.content();
-                    let (line, col) = offset_to_line_col(&content, a.caret);
-                    buf.cursor_line = line;
-                    buf.cursor_col = col;
-                    let (aline, acol) = offset_to_line_col(&content, a.anchor);
-                    buf.anchor_line = aline;
-                    buf.anchor_col = acol;
+                    buf.clear_preedit();
+                    buf.set_selection_offsets(a.caret, a.anchor);
                 }
             }) as Handler<EditorState, UpdateCursorPosition>,
         );
 
         ctx.bind(
-            UpdateFileContent(String::new()),
-            (|s: &mut EditorState, a: UpdateFileContent, _| {
+            ApplyEditorEdit {
+                range_start: 0,
+                range_end: 0,
+                new_text: String::new(),
+                caret: 0,
+                anchor: 0,
+            },
+            (|s: &mut EditorState, a: ApplyEditorEdit, _| {
+                if let Some(tab) = s.open_tabs.get(s.active_tab) {
+                    let path = tab.path.clone();
+                    if let Some(buf) = s.file_contents.get_mut(&path) {
+                        buf.apply_edit(a.range_start..a.range_end, &a.new_text);
+                        buf.set_selection_offsets(a.caret, a.anchor);
+                    }
+                    s.mark_active_tab_dirty();
+                    s.notify_buffer_changed(&path);
+                }
+            }) as Handler<EditorState, ApplyEditorEdit>,
+        );
+
+        ctx.bind(
+            SetEditorPreedit {
+                text: String::new(),
+            },
+            (|s: &mut EditorState, a: SetEditorPreedit, _| {
                 if let Some((_tab, buf)) = s.active_buffer_mut() {
-                    buf.push_undo_force();
-                    buf.set_content(&a.0);
-                    // Mark tab dirty.
+                    buf.set_preedit(a.text);
                 }
-                if let Some(tab) = s.open_tabs.get_mut(s.active_tab) {
-                    tab.is_dirty = true;
-                }
-            }) as Handler<EditorState, UpdateFileContent>,
+            }) as Handler<EditorState, SetEditorPreedit>,
         );
 
         ctx.bind(

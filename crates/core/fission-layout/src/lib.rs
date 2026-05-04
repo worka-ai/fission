@@ -310,6 +310,27 @@ impl BoxConstraints {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+struct MeasureCacheKey {
+    node_id: u128,
+    min_w: u32,
+    max_w: u32,
+    min_h: u32,
+    max_h: u32,
+}
+
+impl MeasureCacheKey {
+    fn new(node_id: NodeId, constraints: BoxConstraints) -> Self {
+        Self {
+            node_id: node_id.as_u128(),
+            min_w: constraints.min_w.to_bits(),
+            max_w: constraints.max_w.to_bits(),
+            min_h: constraints.min_h.to_bits(),
+            max_h: constraints.max_h.to_bits(),
+        }
+    }
+}
+
 /// An axis-aligned rectangle: an origin point plus a size.
 ///
 /// `LayoutRect` is the final output for every node after layout: it says exactly
@@ -749,6 +770,7 @@ impl LayoutEngine {
         }
 
         let mut snapshot = LayoutSnapshot::new(viewport_size);
+        let mut measure_cache = HashMap::new();
         self.layout_node_constraints(
             root_node_id,
             constraints,
@@ -756,6 +778,7 @@ impl LayoutEngine {
             &node_map,
             &mut snapshot.nodes,
             &mut snapshot.constraints,
+            &mut measure_cache,
             scroll_source,
             true,
             0,
@@ -897,12 +920,19 @@ impl LayoutEngine {
         node_map: &HashMap<NodeId, &LayoutInputNode>,
         out: &mut HashMap<NodeId, LayoutNodeGeometry>,
         constraints_out: &mut HashMap<NodeId, BoxConstraints>,
+        measure_cache: &mut HashMap<MeasureCacheKey, LayoutSize>,
         scroll_source: &impl ScrollDataSource,
         record: bool,
         depth: usize,
     ) -> LayoutSize {
         if depth > 100 {
             panic!("Stack overflow safeguard: depth > 100 at node {:?}", node_id);
+        }
+        if !record {
+            let cache_key = MeasureCacheKey::new(node_id, constraints);
+            if let Some(cached) = measure_cache.get(&cache_key).copied() {
+                return cached;
+            }
         }
         let node = match node_map.get(&node_id) {
             Some(n) => *n,
@@ -1027,6 +1057,7 @@ impl LayoutEngine {
                         node_map,
                         out,
                         constraints_out,
+                        measure_cache,
                         scroll_source,
                         false,
                         depth + 1,
@@ -1049,6 +1080,7 @@ impl LayoutEngine {
                             node_map,
                             out,
                             constraints_out,
+                            measure_cache,
                             scroll_source,
                             record,
                             depth + 1,
@@ -1064,6 +1096,7 @@ impl LayoutEngine {
                                 node_map,
                                 out,
                                 constraints_out,
+                                measure_cache,
                                 scroll_source,
                                 record,
                                 depth + 1,
@@ -1135,6 +1168,7 @@ impl LayoutEngine {
                             node_map,
                             out,
                             constraints_out,
+                            measure_cache,
                             scroll_source,
                             false,
                             depth + 1,
@@ -1301,6 +1335,7 @@ impl LayoutEngine {
                                 node_map,
                                 out,
                                 constraints_out,
+                                measure_cache,
                                 scroll_source,
                                 record,
                                 depth + 1,
@@ -1321,6 +1356,7 @@ impl LayoutEngine {
                                 node_map,
                                 out,
                                 constraints_out,
+                                measure_cache,
                                 scroll_source,
                                 record,
                                 depth + 1,
@@ -1408,6 +1444,7 @@ impl LayoutEngine {
                             node_map,
                             out,
                             constraints_out,
+                            measure_cache,
                             scroll_source,
                             false,
                             depth + 1,
@@ -1495,6 +1532,7 @@ impl LayoutEngine {
                             node_map,
                             out,
                             constraints_out,
+                            measure_cache,
                             scroll_source,
                             false,
                             depth + 1,
@@ -1578,6 +1616,7 @@ impl LayoutEngine {
                                     node_map,
                                     out,
                                     constraints_out,
+                                    measure_cache,
                                     scroll_source,
                                     false,
                                     depth + 1,
@@ -1713,6 +1752,7 @@ impl LayoutEngine {
                             node_map,
                             out,
                             constraints_out,
+                            measure_cache,
                             scroll_source,
                             record,
                             depth + 1,
@@ -1730,6 +1770,7 @@ impl LayoutEngine {
                                 node_map,
                                 out,
                                 constraints_out,
+                                measure_cache,
                                 scroll_source,
                                 record,
                                 depth + 1,
@@ -1861,7 +1902,7 @@ impl LayoutEngine {
                         min_h: 0.0,
                         max_h: if row_heights[*row] > 0.0 { row_heights[*row] } else { f32::INFINITY },
                     };
-                    let child_size = self.layout_node_constraints(*child_id, cell_constraints, LayoutPoint::ZERO, node_map, out, constraints_out, scroll_source, false, depth + 1);
+                    let child_size = self.layout_node_constraints(*child_id, cell_constraints, LayoutPoint::ZERO, node_map, out, constraints_out, measure_cache, scroll_source, false, depth + 1);
                     if row_heights[*row] == 0.0 {
                         row_heights[*row] = child_size.height;
                     } else {
@@ -1885,14 +1926,14 @@ impl LayoutEngine {
                         let cell_w = col_widths[*col];
                         let cell_h = row_heights[*row];
                         let child_constraints = BoxConstraints { min_w: cell_w, max_w: cell_w, min_h: cell_h, max_h: cell_h };
-                        self.layout_node_constraints(*child_id, child_constraints, LayoutPoint::new(cell_x, cell_y), node_map, out, constraints_out, scroll_source, record, depth + 1);
+                        self.layout_node_constraints(*child_id, child_constraints, LayoutPoint::new(cell_x, cell_y), node_map, out, constraints_out, measure_cache, scroll_source, record, depth + 1);
                     }
                 }
 
                 if record && !abs_children.is_empty() {
                     let abs_constraints = BoxConstraints::loose(size.width, size.height);
                     for child_id in abs_children {
-                        self.layout_node_constraints(child_id, abs_constraints, origin, node_map, out, constraints_out, scroll_source, record, depth + 1);
+                        self.layout_node_constraints(child_id, abs_constraints, origin, node_map, out, constraints_out, measure_cache, scroll_source, record, depth + 1);
                     }
                 }
                 content_size = size;
@@ -1901,7 +1942,7 @@ impl LayoutEngine {
             LayoutOp::GridItem { .. } => {
                 let mut child_size = LayoutSize::ZERO;
                 if let Some(child_id) = node.children_ids.first() {
-                    child_size = self.layout_node_constraints(*child_id, constraints, origin, node_map, out, constraints_out, scroll_source, record, depth + 1);
+                    child_size = self.layout_node_constraints(*child_id, constraints, origin, node_map, out, constraints_out, measure_cache, scroll_source, record, depth + 1);
                 }
                 content_size = child_size;
                 constraints.constrain(child_size)
@@ -1920,17 +1961,17 @@ impl LayoutEngine {
                 }
                 let mut child_size = LayoutSize::ZERO;
                 if let Some(child_id) = flow_children.first() {
-                    child_size = self.layout_node_constraints(*child_id, child_constraints, LayoutPoint::ZERO, node_map, out, constraints_out, scroll_source, false, depth + 1);
+                    child_size = self.layout_node_constraints(*child_id, child_constraints, LayoutPoint::ZERO, node_map, out, constraints_out, measure_cache, scroll_source, false, depth + 1);
                 }
                 let size = local.constrain(LayoutSize::new(child_size.width + padding[0] + padding[1], child_size.height + padding[2] + padding[3]));
                 if record {
                     if let Some(child_id) = flow_children.first() {
-                        self.layout_node_constraints(*child_id, child_constraints, LayoutPoint::new(origin.x + padding[0], origin.y + padding[2]), node_map, out, constraints_out, scroll_source, record, depth + 1);
+                        self.layout_node_constraints(*child_id, child_constraints, LayoutPoint::new(origin.x + padding[0], origin.y + padding[2]), node_map, out, constraints_out, measure_cache, scroll_source, record, depth + 1);
                     }
                     if !abs_children.is_empty() {
                         let abs_constraints = BoxConstraints::loose(size.width, size.height);
                         for child_id in abs_children {
-                            self.layout_node_constraints(child_id, abs_constraints, origin, node_map, out, constraints_out, scroll_source, record, depth + 1);
+                            self.layout_node_constraints(child_id, abs_constraints, origin, node_map, out, constraints_out, measure_cache, scroll_source, record, depth + 1);
                         }
                     }
                 }
@@ -1941,7 +1982,7 @@ impl LayoutEngine {
                 let child_constraints = BoxConstraints::loose(constraints.max_w, constraints.max_h);
                 let mut child_size = LayoutSize::ZERO;
                 if let Some(child_id) = flow_children.first() {
-                    child_size = self.layout_node_constraints(*child_id, child_constraints, LayoutPoint::ZERO, node_map, out, constraints_out, scroll_source, false, depth + 1);
+                    child_size = self.layout_node_constraints(*child_id, child_constraints, LayoutPoint::ZERO, node_map, out, constraints_out, measure_cache, scroll_source, false, depth + 1);
                 }
                 let size = if constraints.is_width_bounded() || constraints.is_height_bounded() {
                     constraints.constrain(LayoutSize::new(if constraints.is_width_bounded() { constraints.max_w } else { child_size.width }, if constraints.is_height_bounded() { constraints.max_h } else { child_size.height }))
@@ -1949,12 +1990,12 @@ impl LayoutEngine {
                 if let Some(child_id) = flow_children.first() {
                     let dx = ((size.width - child_size.width) / 2.0).max(0.0);
                     let dy = ((size.height - child_size.height) / 2.0).max(0.0);
-                    self.layout_node_constraints(*child_id, child_constraints, LayoutPoint::new(origin.x + dx, origin.y + dy), node_map, out, constraints_out, scroll_source, record, depth + 1);
+                    self.layout_node_constraints(*child_id, child_constraints, LayoutPoint::new(origin.x + dx, origin.y + dy), node_map, out, constraints_out, measure_cache, scroll_source, record, depth + 1);
                 }
                 if record && !abs_children.is_empty() {
                     let abs_constraints = BoxConstraints::loose(size.width, size.height);
                     for child_id in abs_children {
-                        self.layout_node_constraints(child_id, abs_constraints, origin, node_map, out, constraints_out, scroll_source, record, depth + 1);
+                        self.layout_node_constraints(child_id, abs_constraints, origin, node_map, out, constraints_out, measure_cache, scroll_source, record, depth + 1);
                     }
                 }
                 content_size = child_size;
@@ -1963,7 +2004,7 @@ impl LayoutEngine {
             LayoutOp::ZStack => {
                 let mut max_child = LayoutSize::ZERO;
                 for child_id in &flow_children {
-                    let child_size = self.layout_node_constraints(*child_id, BoxConstraints::loose(constraints.max_w, constraints.max_h), LayoutPoint::ZERO, node_map, out, constraints_out, scroll_source, false, depth + 1);
+                    let child_size = self.layout_node_constraints(*child_id, BoxConstraints::loose(constraints.max_w, constraints.max_h), LayoutPoint::ZERO, node_map, out, constraints_out, measure_cache, scroll_source, false, depth + 1);
                     max_child.width = max_child.width.max(child_size.width);
                     max_child.height = max_child.height.max(child_size.height);
                 }
@@ -1973,12 +2014,12 @@ impl LayoutEngine {
                 for child_id in &flow_children {
                     let child_constraints = BoxConstraints::loose(size.width, size.height);
                     let child_origin = LayoutPoint::new(origin.x, origin.y);
-                    self.layout_node_constraints(*child_id, child_constraints, child_origin, node_map, out, constraints_out, scroll_source, record, depth + 1);
+                    self.layout_node_constraints(*child_id, child_constraints, child_origin, node_map, out, constraints_out, measure_cache, scroll_source, record, depth + 1);
                 }
                 if record && !abs_children.is_empty() {
                     let abs_constraints = BoxConstraints::loose(size.width, size.height);
                     for child_id in abs_children {
-                        self.layout_node_constraints(child_id, abs_constraints, origin, node_map, out, constraints_out, scroll_source, record, depth + 1);
+                        self.layout_node_constraints(child_id, abs_constraints, origin, node_map, out, constraints_out, measure_cache, scroll_source, record, depth + 1);
                     }
                 }
                 content_size = size;
@@ -1999,10 +2040,10 @@ impl LayoutEngine {
                 }
                 child_constraints = child_constraints.tighten(*width, *height);
                 if let Some(child_id) = node.children_ids.first() {
-                    let child_size = self.layout_node_constraints(*child_id, child_constraints, LayoutPoint::ZERO, node_map, out, constraints_out, scroll_source, false, depth + 1);
+                    let child_size = self.layout_node_constraints(*child_id, child_constraints, LayoutPoint::ZERO, node_map, out, constraints_out, measure_cache, scroll_source, false, depth + 1);
                     let x = left.unwrap_or_else(|| { right.map(|r| (size.width - r - child_size.width).max(0.0)).unwrap_or(0.0) });
                     let y = top.unwrap_or_else(|| { bottom.map(|b| (size.height - b - child_size.height).max(0.0)).unwrap_or(0.0) });
-                    self.layout_node_constraints(*child_id, child_constraints, LayoutPoint::new(origin.x + x, origin.y + y), node_map, out, constraints_out, scroll_source, record, depth + 1);
+                    self.layout_node_constraints(*child_id, child_constraints, LayoutPoint::new(origin.x + x, origin.y + y), node_map, out, constraints_out, measure_cache, scroll_source, record, depth + 1);
                 }
                 content_size = size;
                 size
@@ -2020,7 +2061,7 @@ impl LayoutEngine {
                 let target_h = finite_or(constraints.max_h, finite_or(constraints.min_h, 0.0));
                 let size = constraints.constrain(LayoutSize::new(target_w, target_h));
                 for child_id in &node.children_ids {
-                    self.layout_node_constraints(*child_id, BoxConstraints::tight(size), origin, node_map, out, constraints_out, scroll_source, record, depth + 1);
+                    self.layout_node_constraints(*child_id, BoxConstraints::tight(size), origin, node_map, out, constraints_out, measure_cache, scroll_source, record, depth + 1);
                 }
                 content_size = size;
                 size
@@ -2028,7 +2069,7 @@ impl LayoutEngine {
             LayoutOp::Transform { .. } | LayoutOp::Clip { .. } => {
                 let mut child_size = LayoutSize::ZERO;
                 if let Some(child_id) = node.children_ids.first() {
-                    child_size = self.layout_node_constraints(*child_id, constraints, origin, node_map, out, constraints_out, scroll_source, record, depth + 1);
+                    child_size = self.layout_node_constraints(*child_id, constraints, origin, node_map, out, constraints_out, measure_cache, scroll_source, record, depth + 1);
                 }
                 content_size = child_size;
                 constraints.constrain(child_size)
@@ -2040,14 +2081,14 @@ impl LayoutEngine {
                 );
                 let mut child_size = LayoutSize::ZERO;
                 for child_id in &node.children_ids {
-                    child_size = self.layout_node_constraints(*child_id, loose, origin, node_map, out, constraints_out, scroll_source, false, depth + 1);
+                    child_size = self.layout_node_constraints(*child_id, loose, origin, node_map, out, constraints_out, measure_cache, scroll_source, false, depth + 1);
                 }
                 if record {
                     let anchor_rect = out.get(anchor).map(|g| g.rect);
                     let place_x = anchor_rect.map(|r| r.x()).unwrap_or(origin.x);
                     let place_y = anchor_rect.map(|r| r.y() + r.height()).unwrap_or(origin.y);
                     for child_id in &node.children_ids {
-                        self.layout_node_constraints(*child_id, loose, LayoutPoint::new(place_x, place_y), node_map, out, constraints_out, scroll_source, record, depth + 1);
+                        self.layout_node_constraints(*child_id, loose, LayoutPoint::new(place_x, place_y), node_map, out, constraints_out, measure_cache, scroll_source, record, depth + 1);
                     }
                 }
                 content_size = child_size;
@@ -2057,7 +2098,7 @@ impl LayoutEngine {
                 let mut child_size = LayoutSize::ZERO;
                 if !node.children_ids.is_empty() {
                     for child_id in &node.children_ids {
-                        child_size = self.layout_node_constraints(*child_id, constraints, origin, node_map, out, constraints_out, scroll_source, record, depth + 1);
+                        child_size = self.layout_node_constraints(*child_id, constraints, origin, node_map, out, constraints_out, measure_cache, scroll_source, record, depth + 1);
                     }
                 }
                 content_size = child_size;
@@ -2094,14 +2135,23 @@ impl LayoutEngine {
                 let measured = constraints.constrain(text_content);
                 if node.children_ids.is_empty() {
                     content_size = text_content;
-                    return self.record_geometry(node_id, origin, measured, text_content, out, record);
+                    let result =
+                        self.record_geometry(node_id, origin, measured, text_content, out, record);
+                    if !record {
+                        measure_cache.insert(MeasureCacheKey::new(node_id, constraints), result);
+                    }
+                    return result;
                 }
                 content_size.width = content_size.width.max(text_content.width);
                 content_size.height = content_size.height.max(text_content.height);
             }
         }
 
-        self.record_geometry(node_id, origin, size, content_size, out, record)
+        let result = self.record_geometry(node_id, origin, size, content_size, out, record);
+        if !record {
+            measure_cache.insert(MeasureCacheKey::new(node_id, constraints), result);
+        }
+        result
     }
 
     fn record_geometry(

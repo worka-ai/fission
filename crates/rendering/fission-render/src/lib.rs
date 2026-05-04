@@ -84,8 +84,14 @@ pub enum DisplayOp {
     Restore,
     ClipRect(LayoutRect),
     ClipRoundedRect { rect: LayoutRect, radius: LayoutUnit },
+    OpacityLayer { alpha: f32, bounds: LayoutRect },
     Translate(LayoutPoint),
     Transform([LayoutUnit; 16]),
+    CachedScene {
+        cache_key: u64,
+        bounds: LayoutRect,
+        list: Box<DisplayList>,
+    },
     DrawRect {
         rect: LayoutRect,
         fill: Option<Fill>,

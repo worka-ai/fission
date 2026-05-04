@@ -29,6 +29,44 @@ pub enum StructuralOp {
     Group { stable_hash: u64 },
 }
 
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
+pub struct CompositeScalar {
+    pub base: f32,
+    pub animation_target: Option<WidgetNodeId>,
+}
+
+impl CompositeScalar {
+    pub fn new(base: f32) -> Self {
+        Self {
+            base,
+            animation_target: None,
+        }
+    }
+
+    pub fn animated(mut self, target: WidgetNodeId) -> Self {
+        self.animation_target = Some(target);
+        self
+    }
+}
+
+impl std::hash::Hash for CompositeScalar {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        self.base.to_bits().hash(state);
+        self.animation_target.hash(state);
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Hash, Default)]
+pub struct CompositeStyle {
+    pub opacity: Option<CompositeScalar>,
+    pub translate_x: Option<CompositeScalar>,
+    pub translate_y: Option<CompositeScalar>,
+    pub scale: Option<CompositeScalar>,
+    pub rotation: Option<CompositeScalar>,
+    pub clip_to_bounds: bool,
+    pub repaint_boundary: bool,
+}
+
 pub type LayoutUnit = f32;
 
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize, Hash)]

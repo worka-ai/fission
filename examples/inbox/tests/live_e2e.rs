@@ -6,14 +6,22 @@
 /// Run: cargo test -p inbox --test live_e2e -- --ignored --nocapture
 
 use fission_test_driver::LiveTestClient;
+use std::net::TcpListener;
 use std::process::{Child, Command};
 
-const CONTROL_PORT: u16 = 9877;
+fn reserve_control_port() -> u16 {
+    TcpListener::bind(("127.0.0.1", 0))
+        .expect("bind ephemeral test port")
+        .local_addr()
+        .expect("read ephemeral test port")
+        .port()
+}
 
-fn launch_inbox() -> Child {
-    Command::new("cargo")
-        .args(["run", "-p", "inbox"])
-        .env("FISSION_TEST_CONTROL_PORT", CONTROL_PORT.to_string())
+fn launch_inbox(control_port: u16) -> Child {
+    let bin = std::env::var("CARGO_BIN_EXE_inbox")
+        .unwrap_or_else(|_| "target/debug/inbox".to_string());
+    Command::new(bin)
+        .env("FISSION_TEST_CONTROL_PORT", control_port.to_string())
         .spawn()
         .expect("failed to launch inbox")
 }
@@ -28,8 +36,9 @@ fn screenshot_dir() -> String {
 #[test]
 #[ignore]
 fn inbox_initial_render() {
-    let mut child = launch_inbox();
-    let client = LiveTestClient::connect(CONTROL_PORT);
+    let control_port = reserve_control_port();
+    let mut child = launch_inbox(control_port);
+    let client = LiveTestClient::connect(control_port);
     client.wait_for_ready(20_000).expect("inbox did not start");
     client.wait(2000).expect("wait for render");
 
@@ -66,8 +75,9 @@ fn inbox_initial_render() {
 #[test]
 #[ignore]
 fn inbox_scroll_and_interact() {
-    let mut child = launch_inbox();
-    let client = LiveTestClient::connect(CONTROL_PORT);
+    let control_port = reserve_control_port();
+    let mut child = launch_inbox(control_port);
+    let client = LiveTestClient::connect(control_port);
     client.wait_for_ready(20_000).expect("inbox did not start");
     client.wait(2000).expect("wait");
 

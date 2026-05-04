@@ -1,6 +1,9 @@
 use crate::env::{Env, RuntimeState};
 use fission_diagnostics::prelude as diag;
-use fission_ir::{CoreIR, FlexDirection, GridPlacement, LayoutOp, NodeId, Op, PaintOp, WidgetNodeId};
+use fission_ir::{
+    CompositeStyle, CoreIR, FlexDirection, GridPlacement, LayoutOp, NodeId, Op, PaintOp,
+    WidgetNodeId,
+};
 use fission_ir::op::{TextRun, TextStyle};
 use fission_layout::{LayoutInputNode, TextMeasurer, LayoutSnapshot};
 use std::collections::HashMap;
@@ -59,9 +62,20 @@ impl<'a> LoweringContext<'a> {
     }
 
     pub fn insert_node(&mut self, node_id: NodeId, op: Op, children: Vec<NodeId>) -> NodeId {
+        self.insert_node_with_composite(node_id, op, CompositeStyle::default(), children)
+    }
+
+    pub fn insert_node_with_composite(
+        &mut self,
+        node_id: NodeId,
+        op: Op,
+        composite: CompositeStyle,
+        children: Vec<NodeId>,
+    ) -> NodeId {
         use std::hash::{Hash, Hasher};
         let mut hasher = std::collections::hash_map::DefaultHasher::new();
         op.hash(&mut hasher);
+        composite.hash(&mut hasher);
 
         for child_id in &children {
             if let Some(child) = self.ir.nodes.get(child_id) {
@@ -72,7 +86,8 @@ impl<'a> LoweringContext<'a> {
 
         let hash = hasher.finish();
 
-        self.ir.add_node(node_id, op, children);
+        self.ir
+            .add_node_with_composite(node_id, op, composite, children);
 
         if let Some(node) = self.ir.nodes.get_mut(&node_id) {
             node.hash = hash;
@@ -84,6 +99,7 @@ impl<'a> LoweringContext<'a> {
 pub struct NodeBuilder {
     node_id: NodeId,
     op: Op,
+    composite: CompositeStyle,
     children: Vec<NodeId>,
 }
 
@@ -92,8 +108,14 @@ impl NodeBuilder {
         Self {
             node_id,
             op,
+            composite: CompositeStyle::default(),
             children: Vec::new(),
         }
+    }
+
+    pub fn composite(mut self, composite: CompositeStyle) -> Self {
+        self.composite = composite;
+        self
     }
 
     pub fn add_child(&mut self, child: NodeId) {
@@ -108,7 +130,7 @@ impl NodeBuilder {
     }
 
     pub fn build(self, cx: &mut LoweringContext) -> NodeId {
-        cx.insert_node(self.node_id, self.op, self.children);
+        cx.insert_node_with_composite(self.node_id, self.op, self.composite, self.children);
         self.node_id
     }
 }

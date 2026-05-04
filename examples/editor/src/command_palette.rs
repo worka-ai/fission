@@ -113,6 +113,7 @@ impl Widget<EditorState> for CommandPalette {
                 children: vec![
                     Container::new(
                         TextInput {
+                            id: Some(fission_ir::NodeId::explicit("editor_command_palette_input")),
                             value: view.state.command_query.clone(),
                             placeholder: Some("Type a command...".into()),
                             on_change: Some(update_query),

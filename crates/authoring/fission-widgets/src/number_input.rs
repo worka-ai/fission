@@ -1,6 +1,6 @@
 use crate::Icon;
 use fission_core::ui::{Button, ButtonVariant, Container, Node, Row, Text, TextContent, TextInput};
-use fission_core::{ActionEnvelope, BuildCtx, View, Widget, WidgetNodeId};
+use fission_core::{ActionEnvelope, BuildCtx, NodeId, View, Widget, WidgetNodeId};
 use fission_icons::material;
 use serde::{Deserialize, Serialize};
 
@@ -34,6 +34,10 @@ impl Default for NumberInput {
 impl<S: fission_core::AppState> Widget<S> for NumberInput {
     fn build(&self, ctx: &mut BuildCtx<S>, view: &View<S>) -> Node {
         let tokens = &view.env.theme.tokens;
+        let input_id = self
+            .id
+            .as_ref()
+            .map(|id| NodeId::derived(id.as_u128(), &[0]));
 
         Row::default()
             .gap(4.0)
@@ -54,6 +58,7 @@ impl<S: fission_core::AppState> Widget<S> for NumberInput {
                 }
                 .into_node(),
                 TextInput {
+                    id: input_id,
                     value: format!("{}", self.value),
                     width: Some(60.0),
                     // TODO: Parse text input back to float for on_change

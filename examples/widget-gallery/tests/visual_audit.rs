@@ -76,9 +76,9 @@ fn build_all_widgets(ctx: &mut BuildCtx<GS>, view: &View<GS>) -> Node {
         Alert { kind: AlertKind::Warning, title: "Warning".into(), description: None }.build(ctx, view),
         Alert { kind: AlertKind::Error, title: "Error".into(), description: None }.build(ctx, view),
         ProgressBar { value: 0.65 }.build(ctx, view),
-        Spinner { id: WidgetNodeId::explicit("sp"), color: None }.build(ctx, view),
+        Spinner { id: WidgetNodeId::explicit("sp"), color: None, animated: true }.build(ctx, view),
         CircularProgress { value: Some(0.7), size: 40.0, ..Default::default() }.build(ctx, view),
-        Skeleton { id: WidgetNodeId::explicit("sk"), width: Some(120.0), height: Some(20.0), circle: false }.build(ctx, view),
+        Skeleton { id: WidgetNodeId::explicit("sk"), width: Some(120.0), height: Some(20.0), circle: false, animated: true }.build(ctx, view),
         EmptyState { icon: None, title: "Empty".into(), description: Some("Nothing here".into()), action: None }.build(ctx, view),
     ]);
 

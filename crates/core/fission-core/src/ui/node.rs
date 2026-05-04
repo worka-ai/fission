@@ -1,8 +1,9 @@
 use super::custom_render::CustomRenderObject;
 use super::traits::{Lower, LowerDyn};
 use super::widgets::{
-    Align, Button, Checkbox, Clip, Column, Container, GestureDetector, FocusScope, Grid, GridItem, Icon, Image, LazyColumn, Overlay, Positioned, Radio, Row, SafeArea, Scroll, Slider, Spacer,
-    Switch, Text, TextInput, Transform, Video, ZStack,
+    Align, Button, Checkbox, Clip, Column, Composite, Container, GestureDetector, FocusScope,
+    Grid, GridItem, Icon, Image, LazyColumn, Overlay, Positioned, Radio, Row, SafeArea, Scroll,
+    Slider, Spacer, Switch, Text, TextInput, Transform, Video, ZStack,
 };
 use crate::lowering::LoweringContext;
 use fission_ir::{NodeId, Op, StructuralOp};
@@ -38,6 +39,7 @@ pub enum Node {
     Slider(Slider),
     LazyColumn(LazyColumn),
     Icon(Icon),
+    Composite(Composite),
     Custom(CustomNode),
 }
 
@@ -71,6 +73,7 @@ impl Node {
             Node::Slider(w) => w.lower(cx),
             Node::LazyColumn(w) => w.lower(cx),
             Node::Icon(w) => w.lower(cx),
+            Node::Composite(w) => w.lower(cx),
             Node::Custom(w) => {
                 let lowerer = w.lowerer.as_ref().expect("CustomNode lowerer must be set");
                 let child_id = lowerer.lower_dyn(cx);
@@ -216,6 +219,11 @@ impl From<Radio> for Node {
 impl From<SafeArea> for Node {
     fn from(w: SafeArea) -> Self {
         Node::SafeArea(w)
+    }
+}
+impl From<Composite> for Node {
+    fn from(w: Composite) -> Self {
+        Node::Composite(w)
     }
 }
 impl From<Positioned> for Node {

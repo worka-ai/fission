@@ -257,6 +257,7 @@ impl Widget<InboxState> for SettingsModal {
         };
 
         let signature_editor = Editable {
+            id: Some(WidgetNodeId::explicit("settings_signature_editor")),
             value: view.state.signature.clone(),
             placeholder: "Add a signature".into(),
             is_editing: view.state.signature_editing,

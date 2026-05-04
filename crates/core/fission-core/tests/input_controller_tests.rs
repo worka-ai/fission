@@ -2,7 +2,6 @@ use fission_core::env::{Clipboard, InteractionStateMap, ScrollStateMap, TextEdit
 use fission_core::event::{InputEvent, KeyCode, KeyEvent, PointerButton, PointerEvent};
 use fission_core::input::text::TextInputController;
 use fission_core::input::{ControllerContext, InputController};
-use fission_core::ActionInput;
 use fission_ir::op::{Color, TextRun, TextStyle};
 use fission_ir::{
     semantics::ActionTrigger, ActionEntry, ActionSet, CoreIR, NodeId, Op, Role, Semantics,
@@ -255,7 +254,6 @@ fn setup_ctx<'a>(
     text_edit: &'a mut TextEditStateMap,
     interaction: &'a mut InteractionStateMap,
     scroll: &'a mut ScrollStateMap,
-    ime_preedit: &'a mut Option<(NodeId, String)>,
     gesture: &'a mut fission_core::env::GestureState,
     clipboard: &'a Arc<dyn Clipboard>,
     measurer: Option<&'a Arc<dyn TextMeasurer>>,
@@ -266,7 +264,6 @@ fn setup_ctx<'a>(
         text_edit,
         interaction,
         scroll,
-        ime_preedit,
         gesture,
         clipboard: Some(clipboard),
         measurer,
@@ -312,6 +309,7 @@ fn create_text_node(id: NodeId, val: &str, multiline: bool) -> CoreIR {
                 hero_tag: None,
                 focus_index: None, capture_tab: false, auto_indent: false,
             }),
+            composite: fission_ir::CompositeStyle::default(),
             hash: 0,
         },
     );
@@ -363,6 +361,7 @@ fn create_rich_text_input_tree(
                 hero_tag: None,
                 focus_index: None, capture_tab: false, auto_indent: false,
             }),
+            composite: fission_ir::CompositeStyle::default(),
             hash: 0,
         },
     );
@@ -390,6 +389,7 @@ fn create_rich_text_input_tree(
                 flex_grow: 0.0,
                 flex_shrink: 0.0,
             }),
+            composite: fission_ir::CompositeStyle::default(),
             hash: 0,
         },
     );
@@ -412,6 +412,7 @@ fn create_rich_text_input_tree(
                 }],
                 caret_index: None,
             }),
+            composite: fission_ir::CompositeStyle::default(),
             hash: 0,
         },
     );
@@ -428,7 +429,6 @@ fn test_text_input_typing() {
     let mut text_edit = TextEditStateMap::default();
     let mut interaction = InteractionStateMap::default();
     let mut scroll = ScrollStateMap::default();
-    let mut ime_preedit = None;
     let mut gesture = fission_core::env::GestureState::default();
     let clipboard: Arc<dyn Clipboard> = Arc::new(MockClipboard::new());
     let measurer: Arc<dyn TextMeasurer> = Arc::new(MockTextMeasurer);
@@ -443,7 +443,6 @@ fn test_text_input_typing() {
         &mut text_edit,
         &mut interaction,
         &mut scroll,
-        &mut ime_preedit,
         &mut gesture,
         &clipboard,
         Some(&measurer),
@@ -471,7 +470,6 @@ fn test_text_input_typing_without_relayout_does_not_drop_chars() {
     let mut text_edit = TextEditStateMap::default();
     let mut interaction = InteractionStateMap::default();
     let mut scroll = ScrollStateMap::default();
-    let mut ime_preedit = None;
     let mut gesture = fission_core::env::GestureState::default();
     let clipboard: Arc<dyn Clipboard> = Arc::new(MockClipboard::new());
     let measurer: Arc<dyn TextMeasurer> = Arc::new(MockTextMeasurer);
@@ -486,7 +484,6 @@ fn test_text_input_typing_without_relayout_does_not_drop_chars() {
         &mut text_edit,
         &mut interaction,
         &mut scroll,
-        &mut ime_preedit,
         &mut gesture,
         &clipboard,
         Some(&measurer),
@@ -513,7 +510,7 @@ fn test_text_input_typing_without_relayout_does_not_drop_chars() {
     assert_eq!(second_payload, "ab");
 
     let st = ctx.text_edit.get(node_id).unwrap();
-    assert_eq!(st.last_value, "ab");
+    assert_eq!(st.buffer.to_string(), "ab");
     assert_eq!(st.caret, 2);
 }
 
@@ -525,7 +522,6 @@ fn test_text_input_copy_paste() {
     let mut text_edit = TextEditStateMap::default();
     let mut interaction = InteractionStateMap::default();
     let mut scroll = ScrollStateMap::default();
-    let mut ime_preedit = None;
     let mut gesture = fission_core::env::GestureState::default();
     let clipboard: Arc<dyn Clipboard> = Arc::new(MockClipboard::new());
     let measurer: Arc<dyn TextMeasurer> = Arc::new(MockTextMeasurer);
@@ -543,8 +539,7 @@ fn test_text_input_copy_paste() {
             &mut text_edit,
             &mut interaction,
             &mut scroll,
-            &mut ime_preedit,
-            &mut gesture,
+                &mut gesture,
             &clipboard,
             Some(&measurer),
         );
@@ -566,8 +561,7 @@ fn test_text_input_copy_paste() {
             &mut text_edit,
             &mut interaction,
             &mut scroll,
-            &mut ime_preedit,
-            &mut gesture,
+                &mut gesture,
             &clipboard,
             Some(&measurer),
         );
@@ -593,7 +587,6 @@ fn test_emoji_navigation_and_deletion() {
     let mut text_edit = TextEditStateMap::default();
     let mut interaction = InteractionStateMap::default();
     let mut scroll = ScrollStateMap::default();
-    let mut ime_preedit = None;
     let mut gesture = fission_core::env::GestureState::default();
     let clipboard: Arc<dyn Clipboard> = Arc::new(MockClipboard::new());
     let measurer: Arc<dyn TextMeasurer> = Arc::new(MockTextMeasurer);
@@ -612,8 +605,7 @@ fn test_emoji_navigation_and_deletion() {
             &mut text_edit,
             &mut interaction,
             &mut scroll,
-            &mut ime_preedit,
-            &mut gesture,
+                &mut gesture,
             &clipboard,
             Some(&measurer),
         );
@@ -642,8 +634,7 @@ fn test_emoji_navigation_and_deletion() {
             &mut text_edit,
             &mut interaction,
             &mut scroll,
-            &mut ime_preedit,
-            &mut gesture,
+                &mut gesture,
             &clipboard,
             Some(&measurer),
         );
@@ -668,7 +659,6 @@ fn test_word_navigation() {
     let mut text_edit = TextEditStateMap::default();
     let mut interaction = InteractionStateMap::default();
     let mut scroll = ScrollStateMap::default();
-    let mut ime_preedit = None;
     let mut gesture = fission_core::env::GestureState::default();
     let clipboard: Arc<dyn Clipboard> = Arc::new(MockClipboard::new());
     let measurer: Arc<dyn TextMeasurer> = Arc::new(MockTextMeasurer);
@@ -687,8 +677,7 @@ fn test_word_navigation() {
             &mut text_edit,
             &mut interaction,
             &mut scroll,
-            &mut ime_preedit,
-            &mut gesture,
+                &mut gesture,
             &clipboard,
             Some(&measurer),
         );
@@ -709,8 +698,7 @@ fn test_word_navigation() {
             &mut text_edit,
             &mut interaction,
             &mut scroll,
-            &mut ime_preedit,
-            &mut gesture,
+                &mut gesture,
             &clipboard,
             Some(&measurer),
         );
@@ -733,7 +721,6 @@ fn test_selection_mechanics() {
     let mut text_edit = TextEditStateMap::default();
     let mut interaction = InteractionStateMap::default();
     let mut scroll = ScrollStateMap::default();
-    let mut ime_preedit = None;
     let mut gesture = fission_core::env::GestureState::default();
     let clipboard: Arc<dyn Clipboard> = Arc::new(MockClipboard::new());
     let measurer: Arc<dyn TextMeasurer> = Arc::new(MockTextMeasurer);
@@ -751,8 +738,7 @@ fn test_selection_mechanics() {
             &mut text_edit,
             &mut interaction,
             &mut scroll,
-            &mut ime_preedit,
-            &mut gesture,
+                &mut gesture,
             &clipboard,
             Some(&measurer),
         );
@@ -774,8 +760,7 @@ fn test_selection_mechanics() {
             &mut text_edit,
             &mut interaction,
             &mut scroll,
-            &mut ime_preedit,
-            &mut gesture,
+                &mut gesture,
             &clipboard,
             Some(&measurer),
         );
@@ -797,8 +782,7 @@ fn test_selection_mechanics() {
             &mut text_edit,
             &mut interaction,
             &mut scroll,
-            &mut ime_preedit,
-            &mut gesture,
+                &mut gesture,
             &clipboard,
             Some(&measurer),
         );
@@ -827,7 +811,6 @@ fn test_home_end_navigation() {
     let mut text_edit = TextEditStateMap::default();
     let mut interaction = InteractionStateMap::default();
     let mut scroll = ScrollStateMap::default();
-    let mut ime_preedit = None;
     let mut gesture = fission_core::env::GestureState::default();
     let clipboard: Arc<dyn Clipboard> = Arc::new(MockClipboard::new());
     let measurer: Arc<dyn TextMeasurer> = Arc::new(MockTextMeasurer);
@@ -845,8 +828,7 @@ fn test_home_end_navigation() {
             &mut text_edit,
             &mut interaction,
             &mut scroll,
-            &mut ime_preedit,
-            &mut gesture,
+                &mut gesture,
             &clipboard,
             Some(&measurer),
         );
@@ -867,8 +849,7 @@ fn test_home_end_navigation() {
             &mut text_edit,
             &mut interaction,
             &mut scroll,
-            &mut ime_preedit,
-            &mut gesture,
+                &mut gesture,
             &clipboard,
             Some(&measurer),
         );
@@ -902,7 +883,6 @@ fn test_single_line_auto_scroll_with_rich_text_uses_local_coordinates() {
     let mut text_edit = TextEditStateMap::default();
     let mut interaction = InteractionStateMap::default();
     let mut scroll = ScrollStateMap::default();
-    let mut ime_preedit = None;
     let mut gesture = fission_core::env::GestureState::default();
     let clipboard: Arc<dyn Clipboard> = Arc::new(MockClipboard::new());
     let measurer: Arc<dyn TextMeasurer> = Arc::new(MockTextMeasurer);
@@ -917,7 +897,6 @@ fn test_single_line_auto_scroll_with_rich_text_uses_local_coordinates() {
         &mut text_edit,
         &mut interaction,
         &mut scroll,
-        &mut ime_preedit,
         &mut gesture,
         &clipboard,
         Some(&measurer),
@@ -961,7 +940,6 @@ fn test_pointer_hit_test_handles_draw_rich_text_single_line() {
     let mut text_edit = TextEditStateMap::default();
     let mut interaction = InteractionStateMap::default();
     let mut scroll = ScrollStateMap::default();
-    let mut ime_preedit = None;
     let mut gesture = fission_core::env::GestureState::default();
     let clipboard: Arc<dyn Clipboard> = Arc::new(MockClipboard::new());
     let measurer: Arc<dyn TextMeasurer> = Arc::new(MockTextMeasurer);
@@ -976,7 +954,6 @@ fn test_pointer_hit_test_handles_draw_rich_text_single_line() {
         &mut text_edit,
         &mut interaction,
         &mut scroll,
-        &mut ime_preedit,
         &mut gesture,
         &clipboard,
         Some(&measurer),
@@ -1000,7 +977,6 @@ fn test_multiline_enter_key() {
     let mut text_edit = TextEditStateMap::default();
     let mut interaction = InteractionStateMap::default();
     let mut scroll = ScrollStateMap::default();
-    let mut ime_preedit = None;
     let mut gesture = fission_core::env::GestureState::default();
     let clipboard: Arc<dyn Clipboard> = Arc::new(MockClipboard::new());
     let measurer: Arc<dyn TextMeasurer> = Arc::new(MockTextMeasurer);
@@ -1015,7 +991,6 @@ fn test_multiline_enter_key() {
         &mut text_edit,
         &mut interaction,
         &mut scroll,
-        &mut ime_preedit,
         &mut gesture,
         &clipboard,
         Some(&measurer),
@@ -1046,7 +1021,6 @@ fn test_multiline_vertical_navigation_up_down() {
     let mut text_edit = TextEditStateMap::default();
     let mut interaction = InteractionStateMap::default();
     let mut scroll = ScrollStateMap::default();
-    let mut ime_preedit = None;
     let mut gesture = fission_core::env::GestureState::default();
     let clipboard: Arc<dyn Clipboard> = Arc::new(MockClipboard::new());
     let measurer: Arc<dyn TextMeasurer> = Arc::new(MockTextMeasurer);
@@ -1069,8 +1043,7 @@ fn test_multiline_vertical_navigation_up_down() {
             &mut text_edit,
             &mut interaction,
             &mut scroll,
-            &mut ime_preedit,
-            &mut gesture,
+                &mut gesture,
             &clipboard,
             Some(&measurer),
         );
@@ -1096,8 +1069,7 @@ fn test_multiline_vertical_navigation_up_down() {
             &mut text_edit,
             &mut interaction,
             &mut scroll,
-            &mut ime_preedit,
-            &mut gesture,
+                &mut gesture,
             &clipboard,
             Some(&measurer),
         );

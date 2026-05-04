@@ -14,8 +14,10 @@ use std::time::Duration;
 const CONTROL_PORT: u16 = 9876;
 
 fn launch_gallery() -> Child {
-    let child = Command::new("cargo")
-        .args(["run", "-p", "widget-gallery"])
+    let bin = std::env::var("CARGO_BIN_EXE_widget-gallery")
+        .or_else(|_| std::env::var("CARGO_BIN_EXE_widget_gallery"))
+        .unwrap_or_else(|_| "target/debug/widget-gallery".to_string());
+    let child = Command::new(bin)
         .env("FISSION_TEST_CONTROL_PORT", CONTROL_PORT.to_string())
         .spawn()
         .expect("failed to launch widget-gallery");

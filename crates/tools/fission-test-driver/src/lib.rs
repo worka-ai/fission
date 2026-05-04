@@ -63,6 +63,7 @@ pub enum TestEvent {
     GetText,
     GetTree,
     Pump,
+    Wake,
     Quit,
     /// Internal: TapText resolves a text label to coordinates; the server
     /// injects this so the main loop can do the lookup with access to the IR.

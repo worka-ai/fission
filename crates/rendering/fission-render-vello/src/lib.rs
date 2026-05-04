@@ -60,7 +60,7 @@ fn map_stroke(s: &fission_render::Stroke) -> (vello::kurbo::Stroke, Brush) {
 }
 use vello::{Scene, Glyph};
 use std::sync::{Arc, Mutex};
-use std::collections::HashMap;
+use std::collections::{HashMap, VecDeque};
 use std::collections::hash_map::DefaultHasher;
 use std::hash::{Hash, Hasher};
 use lazy_static::lazy_static;
@@ -204,17 +204,75 @@ fn svg_cache_entry(content: &str) -> Arc<SvgCacheEntry> {
 pub struct VelloRenderer<'a> {
     scene: &'a mut Scene,
     measurer: Arc<VelloTextMeasurer>,
+    scene_cache: &'a mut RetainedSceneCache,
     transform_stack: Vec<Affine>,
     current_transform: Affine,
     layer_count_stack: Vec<usize>,
     current_layer_count: usize,
 }
 
+pub struct RetainedSceneCache {
+    entries: HashMap<u64, Scene>,
+    order: VecDeque<u64>,
+    max_entries: usize,
+}
+
+impl Default for RetainedSceneCache {
+    fn default() -> Self {
+        Self::new(256)
+    }
+}
+
+impl RetainedSceneCache {
+    pub fn new(max_entries: usize) -> Self {
+        Self {
+            entries: HashMap::new(),
+            order: VecDeque::new(),
+            max_entries: max_entries.max(1),
+        }
+    }
+
+    pub fn clear(&mut self) {
+        self.entries.clear();
+        self.order.clear();
+    }
+
+    fn contains(&self, key: u64) -> bool {
+        self.entries.contains_key(&key)
+    }
+
+    fn get(&self, key: u64) -> Option<&Scene> {
+        self.entries.get(&key)
+    }
+
+    fn insert(&mut self, key: u64, scene: Scene) {
+        if self.entries.contains_key(&key) {
+            self.entries.insert(key, scene);
+            return;
+        }
+        while self.entries.len() >= self.max_entries {
+            if let Some(oldest) = self.order.pop_front() {
+                self.entries.remove(&oldest);
+            } else {
+                break;
+            }
+        }
+        self.order.push_back(key);
+        self.entries.insert(key, scene);
+    }
+}
+
 impl<'a> VelloRenderer<'a> {
-    pub fn new(scene: &'a mut Scene, measurer: Arc<VelloTextMeasurer>, scale_factor: f64) -> Self {
+    pub fn new(
+        scene: &'a mut Scene,
+        measurer: Arc<VelloTextMeasurer>,
+        scene_cache: &'a mut RetainedSceneCache,
+        scale_factor: f64,
+    ) -> Self {
         Self {
             scene,
             measurer,
+            scene_cache,
             transform_stack: Vec::new(),
             current_transform: Affine::scale(scale_factor),
             layer_count_stack: Vec::new(),
@@ -554,6 +612,24 @@ impl<'a> Renderer for VelloRenderer<'a> {
                     let affine = Self::affine_from_mat4(matrix);
                     self.current_transform = self.current_transform * affine;
                 }
+                DisplayOp::CachedScene { cache_key, list, .. } => {
+                    if !self.scene_cache.contains(*cache_key) {
+                        let mut cached_scene = Scene::new();
+                        {
+                            let mut cached_renderer = VelloRenderer::new(
+                                &mut cached_scene,
+                                Arc::clone(&self.measurer),
+                                self.scene_cache,
+                                1.0,
+                            );
+                            cached_renderer.render(list)?;
+                        }
+                        self.scene_cache.insert(*cache_key, cached_scene);
+                    }
+                    if let Some(cached_scene) = self.scene_cache.get(*cache_key) {
+                        self.scene.append(cached_scene, Some(self.current_transform));
+                    }
+                }
                 DisplayOp::ClipRect(rect) => {
                     let r = Rect::new(
                         rect.origin.x as f64,
@@ -573,6 +649,17 @@ impl<'a> Renderer for VelloRenderer<'a> {
                     );
                     let shape = RoundedRect::from_rect(r, *radius as f64);
                     self.scene.push_layer(Mix::Normal, 1.0, self.current_transform, &shape);
+                    self.current_layer_count += 1;
+                }
+                DisplayOp::OpacityLayer { alpha, bounds } => {
+                    let r = Rect::new(
+                        bounds.origin.x as f64,
+                        bounds.origin.y as f64,
+                        (bounds.origin.x + bounds.size.width) as f64,
+                        (bounds.origin.y + bounds.size.height) as f64,
+                    );
+                    self.scene
+                        .push_layer(Mix::Normal, *alpha, self.current_transform, &r);
                     self.current_layer_count += 1;
                 }
                 DisplayOp::DrawRect {

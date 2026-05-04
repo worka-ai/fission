@@ -155,6 +155,7 @@ impl TerminalPanel {
                 children: vec![
                     Text::new("$").size(13.0).color(green_prompt).into_node(),
                     TextInput {
+                        id: Some(fission_ir::NodeId::explicit("editor_terminal_prompt_input")),
                         value: view.state.terminal_input.clone(),
                         placeholder: Some("".into()),
                         on_change: Some(update_input),

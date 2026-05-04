@@ -107,6 +107,22 @@ dependencies = [
 ]
 
 [[package]]
+name = "animation-gallery"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "fission",
+ "fission-core",
+ "fission-ir",
+ "fission-macros",
+ "fission-shell-desktop",
+ "fission-test-driver",
+ "fission-widgets",
+ "lazy_static",
+ "serde",
+]
+
+[[package]]
 name = "anyhow"
 version = "1.0.100"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -926,6 +942,7 @@ dependencies = [
  "fission-layout",
  "fission-macros",
  "fission-semantics",
+ "fission-text-engine",
  "fission-theme",
  "glam",
  "lazy_static",

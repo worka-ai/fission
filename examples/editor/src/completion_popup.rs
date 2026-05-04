@@ -66,29 +66,15 @@ impl Widget<EditorState> for CompletionPopup {
                 if let Some(label) = label {
                     // Insert the selected completion label into the active buffer
                     if let Some((_tab, buf)) = s.active_buffer_mut() {
-                        // Simple insertion: append the label at cursor position.
-                        // A full implementation would replace the prefix being typed.
-                        let content_str = buf.content();
-                        let lines: Vec<&str> = content_str.lines().collect();
-                        if buf.cursor_line < lines.len() {
-                            let line = lines[buf.cursor_line];
-                            let col = buf.cursor_col.min(line.len());
-                            let mut new_content = String::new();
-                            for (i, l) in content_str.lines().enumerate() {
-                                if i > 0 {
-                                    new_content.push('\n');
-                                }
-                                if i == buf.cursor_line {
-                                    new_content.push_str(&l[..col]);
-                                    new_content.push_str(&label);
-                                    new_content.push_str(&l[col..]);
-                                } else {
-                                    new_content.push_str(l);
-                                }
-                            }
-                            buf.set_content(&new_content);
-                            buf.cursor_col = col + label.len();
-                        }
+                        let (caret, _anchor) = buf.current_offsets();
+                        buf.apply_edit(caret..caret, &label);
+                        let next = caret + label.len();
+                        buf.set_selection_offsets(next, next);
+                    }
+                    s.mark_active_tab_dirty();
+                    if let Some(tab) = s.open_tabs.get(s.active_tab) {
+                        let path = tab.path.clone();
+                        s.notify_buffer_changed(&path);
                     }
                 }
                 s.show_completions = false;

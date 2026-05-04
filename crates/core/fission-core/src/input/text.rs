@@ -2,14 +2,11 @@ use super::{ControllerContext, InputController};
 use crate::event::{InputEvent, KeyCode, KeyEvent, PointerEvent};
 use crate::ActionEnvelope;
 use crate::ActionId;
-use fission_diagnostics::prelude as diag;
-use fission_ir::semantics::InputMask;
 use fission_ir::FlexDirection;
 use fission_ir::{
     op::{self, LayoutOp, Op},
     NodeId, Semantics,
 };
-use fission_layout::LayoutSnapshot;
 use serde_json;
 use unicode_segmentation::UnicodeSegmentation;
 
@@ -24,29 +21,60 @@ impl InputController for TextInputController {
             }) => self.handle_key(ctx, key_code.clone(), *modifiers),
             InputEvent::Ime(ime) => self.handle_ime(ctx, ime),
             InputEvent::Pointer(PointerEvent::Down { point, .. }) => {
-                // Try the currently focused TextInput first.  If nothing is focused,
-                // try to find the TextInput under the click point and focus + place
-                // caret in one step (so the user doesn't need to click twice).
-                let effective_focused = ctx.interaction.focused.or_else(|| {
-                    let hit = crate::hit_test::hit_test_with_scroll(ctx.ir, ctx.layout, ctx.scroll, *point)?;
-                    // Walk up from hit node to find a focusable TextInput
-                    let mut walk = Some(hit);
+                // Only keep handling pointer-down inside the already-focused input
+                // if the hit test still resolves into that subtree. Otherwise we
+                // must fall through so Runtime can move focus to a different
+                // widget instead of swallowing the click.
+                let effective_focused = if let Some(focused_id) = ctx.interaction.focused {
+                    let hit = crate::hit_test::hit_test_with_scroll(
+                        ctx.ir,
+                        ctx.layout,
+                        ctx.scroll,
+                        *point,
+                    );
+                    let mut walk = hit;
+                    let mut belongs_to_focused = false;
                     while let Some(nid) = walk {
-                        if let Some(node) = ctx.ir.nodes.get(&nid) {
-                            if let Op::Semantics(s) = &node.op {
-                                if s.focusable && s.role == fission_ir::semantics::Role::TextInput {
-                                    // Focus it now
-                                    ctx.interaction.set_focused(Some(nid));
-                                    return Some(nid);
-                                }
-                            }
-                            walk = node.parent;
-                        } else {
+                        if nid == focused_id {
+                            belongs_to_focused = true;
                             break;
                         }
+                        walk = ctx.ir.nodes.get(&nid).and_then(|n| n.parent);
                     }
-                    None
-                });
+                    if belongs_to_focused {
+                        Some(focused_id)
+                    } else {
+                        None
+                    }
+                } else {
+                    // If nothing is focused, try to find the TextInput under the
+                    // click point and focus + place the caret in one step.
+                    let hit = crate::hit_test::hit_test_with_scroll(
+                        ctx.ir,
+                        ctx.layout,
+                        ctx.scroll,
+                        *point,
+                    );
+                    hit.and_then(|hit| {
+                        let mut walk = Some(hit);
+                        while let Some(nid) = walk {
+                            if let Some(node) = ctx.ir.nodes.get(&nid) {
+                                if let Op::Semantics(s) = &node.op {
+                                    if s.focusable
+                                        && s.role == fission_ir::semantics::Role::TextInput
+                                    {
+                                        ctx.interaction.set_focused(Some(nid));
+                                        return Some(nid);
+                                    }
+                                }
+                                walk = node.parent;
+                            } else {
+                                break;
+                            }
+                        }
+                        None
+                    })
+                };
                 if let Some(focused_id) = effective_focused {
                     if let Some(node) = ctx.ir.nodes.get(&focused_id) {
                         if let Op::Semantics(sem) = &node.op {
@@ -301,6 +329,9 @@ impl TextInputController {
 
         let (value, mut caret, mut anchor) =
             Self::resolve_editing_value(ctx, focused_id, semantics.value.as_deref().unwrap_or(""));
+        if let Some(st) = ctx.text_edit.states.get_mut(&focused_id) {
+            st.clear_preedit();
+        }
 
         caret = Self::clamp_caret_to_value(&value, caret);
         anchor = Self::clamp_caret_to_value(&value, anchor);
@@ -314,7 +345,7 @@ impl TextInputController {
         // Logic for state changes
         let mut next_caret = caret;
         let mut next_anchor = anchor;
-        let mut next_text: Option<String> = None;
+        let mut next_edit: Option<(std::ops::Range<usize>, String)> = None;
         let mut handled = false;
 
         // Undo/Redo logic result
@@ -322,10 +353,12 @@ impl TextInputController {
 
         match key_code {
             KeyCode::Space => {
-                let (txt, c) = Self::insert_text(&value, caret, sel, " ");
-                next_text = Some(txt);
-                next_caret = c;
-                next_anchor = c;
+                let (s, e) = sel
+                    .map(|(a, b)| if a <= b { (a, b) } else { (b, a) })
+                    .unwrap_or((caret, caret));
+                next_caret = s + 1;
+                next_anchor = next_caret;
+                next_edit = Some((s..e, " ".to_string()));
                 handled = true;
             }
             KeyCode::Char(ch) if ((modifiers & 4) != 0) || ((modifiers & 8) != 0) => {
@@ -351,10 +384,7 @@ impl TextInputController {
                             if let Some(cb) = ctx.clipboard {
                                 cb.set_text(&txt);
                             }
-                            let mut out = String::with_capacity(value.len() - (e - s));
-                            out.push_str(&value[..s]);
-                            out.push_str(&value[e..]);
-                            next_text = Some(out);
+                            next_edit = Some((s..e, String::new()));
                             next_caret = s;
                             next_anchor = s;
                         }
@@ -367,10 +397,12 @@ impl TextInputController {
                             String::new()
                         };
                         if !text_to_paste.is_empty() {
-                            let (txt, c) = Self::insert_text(&value, caret, sel, &text_to_paste);
-                            next_text = Some(txt);
-                            next_caret = c;
-                            next_anchor = c;
+                            let (s, e) = sel
+                                .map(|(a, b)| if a <= b { (a, b) } else { (b, a) })
+                                .unwrap_or((caret, caret));
+                            next_caret = s + text_to_paste.len();
+                            next_anchor = next_caret;
+                            next_edit = Some((s..e, text_to_paste));
                         }
                         handled = true;
                     }
@@ -382,12 +414,12 @@ impl TextInputController {
                         if ctrl_or_super {
                             let st = ctx.text_edit.get_mut_or_default(focused_id);
                             if shift {
-                                if let Some((v, c, a)) = st.history.redo() {
-                                    undo_redo_result = Some((v.clone(), *c, *a));
+                                if let Some((v, c, a)) = st.redo() {
+                                    undo_redo_result = Some((v, c, a));
                                 }
                             } else {
-                                if let Some((v, c, a)) = st.history.undo() {
-                                    undo_redo_result = Some((v.clone(), *c, *a));
+                                if let Some((v, c, a)) = st.undo() {
+                                    undo_redo_result = Some((v, c, a));
                                 }
                             }
                             handled = true;
@@ -403,14 +435,17 @@ impl TextInputController {
                         return true; // Ignore invalid character
                     }
                 }
-                let (txt, nc) = Self::insert_text(&value, caret, sel, &c.to_string());
-                next_text = Some(txt);
-                next_caret = nc;
-                next_anchor = nc;
+                let (s, e) = sel
+                    .map(|(a, b)| if a <= b { (a, b) } else { (b, a) })
+                    .unwrap_or((caret, caret));
+                let inserted = c.to_string();
+                next_caret = s + inserted.len();
+                next_anchor = next_caret;
+                next_edit = Some((s..e, inserted));
                 handled = true;
             }
             KeyCode::Backspace => {
-                let (txt, nc) = if (modifiers & 2) != 0 && sel.is_none() {
+                if (modifiers & 2) != 0 && sel.is_none() {
                     // Ctrl+Backspace
                     let mut at = caret;
                     while at > 0 {
@@ -431,16 +466,24 @@ impl TextInputController {
                             break;
                         }
                     }
-                    let mut out = String::with_capacity(value.len() - (caret - at));
-                    out.push_str(&value[..at]);
-                    out.push_str(&value[caret..]);
-                    (out, at)
+                    next_edit = Some((at..caret, String::new()));
+                    next_caret = at;
+                    next_anchor = at;
                 } else {
-                    Self::delete_prev_grapheme(&value, caret, sel)
-                };
-                next_text = Some(txt);
-                next_caret = nc;
-                next_anchor = nc;
+                    let (s, e) = if let Some((a, b)) = sel {
+                        if a <= b { (a, b) } else { (b, a) }
+                    } else {
+                        let at = caret.min(value.len());
+                        if at == 0 {
+                            (0, 0)
+                        } else {
+                            (Self::prev_grapheme_boundary(&value, at), at)
+                        }
+                    };
+                    next_edit = Some((s..e, String::new()));
+                    next_caret = s;
+                    next_anchor = s;
+                }
                 handled = true;
             }
             KeyCode::Left => {
@@ -505,10 +548,12 @@ impl TextInputController {
                     } else {
                         "\n".to_string()
                     };
-                    let (txt, nc) = Self::insert_text(&value, caret, sel, &insert_str);
-                    next_text = Some(txt);
-                    next_caret = nc;
-                    next_anchor = nc;
+                    let (s, e) = sel
+                        .map(|(a, b)| if a <= b { (a, b) } else { (b, a) })
+                        .unwrap_or((caret, caret));
+                    next_caret = s + insert_str.len();
+                    next_anchor = next_caret;
+                    next_edit = Some((s..e, insert_str));
                     handled = true;
                 }
             }
@@ -531,10 +576,12 @@ impl TextInputController {
             KeyCode::Tab => {
                 if semantics.capture_tab {
                     let tab_str = "    "; // 4 spaces
-                    let (txt, nc) = Self::insert_text(&value, caret, sel, tab_str);
-                    next_text = Some(txt);
-                    next_caret = nc;
-                    next_anchor = nc;
+                    let (s, e) = sel
+                        .map(|(a, b)| if a <= b { (a, b) } else { (b, a) })
+                        .unwrap_or((caret, caret));
+                    next_caret = s + tab_str.len();
+                    next_anchor = next_caret;
+                    next_edit = Some((s..e, tab_str.to_string()));
                     handled = true;
                 }
                 // If capture_tab is false, fall through (return false) so focus
@@ -545,30 +592,23 @@ impl TextInputController {
 
         if let Some((v, c, a)) = undo_redo_result {
             // Apply undo/redo result
-            let st = ctx.text_edit.get_mut_or_default(focused_id);
-            st.caret = c;
-            st.anchor = a;
-            st.last_value = v.clone();
-            self.dispatch_change(ctx, semantics, focused_id, v, c);
+            self.dispatch_change(ctx, semantics, focused_id, v);
             Self::dispatch_cursor_change(ctx, semantics, focused_id, c, a);
             return true;
         }
 
-        if let Some(txt) = next_text {
+        if let Some((range, replacement)) = next_edit {
             // Apply text change
             let st = ctx.text_edit.get_mut_or_default(focused_id);
-            st.caret = next_caret;
-            st.anchor = next_anchor;
-            st.history.push(txt.clone(), next_caret, next_anchor);
-            st.last_value = txt.clone();
-
-            self.dispatch_change(ctx, semantics, focused_id, txt, next_caret);
+            let txt = st.apply_edit(range, &replacement, next_caret, next_anchor);
+            self.dispatch_change(ctx, semantics, focused_id, txt);
             Self::dispatch_cursor_change(ctx, semantics, focused_id, next_caret, next_anchor);
         } else if handled {
             // Cursor movement only
             let st = ctx.text_edit.get_mut_or_default(focused_id);
             st.caret = next_caret;
             st.anchor = next_anchor;
+            st.clear_preedit();
             Self::auto_scroll_textinput(ctx, focused_id);
             Self::dispatch_cursor_change(ctx, semantics, focused_id, next_caret, next_anchor);
         }
@@ -583,18 +623,12 @@ impl TextInputController {
                     if let Some(node) = ctx.ir.nodes.get(&focused_id) {
                         if let Op::Semantics(semantics) = &node.op {
                             if semantics.role == fission_ir::semantics::Role::TextInput {
-                                let (value, caret, anchor) = Self::resolve_editing_value(
+                                let (_value, _caret, _anchor) = Self::resolve_editing_value(
                                     ctx,
                                     focused_id,
                                     semantics.value.as_deref().unwrap_or(""),
                                 );
                                 let st = ctx.text_edit.get_mut_or_default(focused_id);
-                                let caret = Self::clamp_caret_to_value(&value, caret);
-                                let sel = if caret != anchor {
-                                    Some((anchor, caret))
-                                } else {
-                                    None
-                                };
 
                                 let mut filtered_text = String::new();
                                 if let Some(mask) = &semantics.input_mask {
@@ -608,19 +642,30 @@ impl TextInputController {
                                 }
 
                                 if !filtered_text.is_empty() {
-                                    // Only insert if something valid
-                                    let (new_text, new_caret) =
-                                        Self::insert_text(&value, caret, sel, &filtered_text);
-                                    st.caret = new_caret;
-                                    st.anchor = new_caret;
-                                    st.last_value = new_text.clone();
-                                    st.history.push(new_text.clone(), new_caret, new_caret);
-                                    self.dispatch_change(
-                                        ctx, semantics, focused_id, new_text, new_caret,
+                                    let (start, end) = st
+                                        .preedit
+                                        .as_ref()
+                                        .map(|preedit| preedit.range)
+                                        .unwrap_or_else(|| st.selection_range());
+                                    let new_caret = start + filtered_text.len();
+                                    let new_text = st.apply_edit(
+                                        start..end,
+                                        &filtered_text,
+                                        new_caret,
+                                        new_caret,
                                     );
+                                    self.dispatch_change(ctx, semantics, focused_id, new_text);
+                                    Self::dispatch_cursor_change(
+                                        ctx,
+                                        semantics,
+                                        focused_id,
+                                        new_caret,
+                                        new_caret,
+                                    );
+                                } else {
+                                    st.clear_preedit();
                                 }
 
-                                *ctx.ime_preedit = None;
                                 return true;
                             }
                         }
@@ -629,7 +674,8 @@ impl TextInputController {
             }
             crate::event::ImeEvent::Preedit { text } => {
                 if let Some(focused_id) = ctx.interaction.focused {
-                    *ctx.ime_preedit = Some((focused_id, text.clone()));
+                    let st = ctx.text_edit.get_mut_or_default(focused_id);
+                    st.set_preedit(text.clone());
                     Self::auto_scroll_textinput(ctx, focused_id);
                     return true;
                 }
@@ -644,13 +690,7 @@ impl TextInputController {
         semantics: &fission_ir::Semantics,
         node_id: NodeId,
         new_text: String,
-        new_caret: usize,
     ) {
-        if let Some(st) = ctx.text_edit.states.get_mut(&node_id) {
-            st.last_value = new_text.clone();
-            st.pending_model_sync = true;
-        }
-
         if let Some(action_entry) = semantics.actions.entries.iter().find(|e| {
             e.trigger == fission_ir::semantics::ActionTrigger::Change
         }) {
@@ -712,32 +752,8 @@ impl TextInputController {
         semantic_value: &str,
     ) -> (String, usize, usize) {
         let st = ctx.text_edit.get_mut_or_default(focused_id);
-
-        // If the latest lowered semantics value has caught up with local edits,
-        // stop treating local state as newer-than-model.
-        if st.pending_model_sync && st.last_value == semantic_value {
-            st.pending_model_sync = false;
-        }
-
-        // When we are not waiting for model sync, semantics is authoritative.
-        // This picks up external state changes (e.g. programmatic clears/sets).
-        if !st.pending_model_sync && st.last_value != semantic_value {
-            st.last_value = semantic_value.to_string();
-            st.caret = st.caret.min(st.last_value.len());
-            st.anchor = st.anchor.min(st.last_value.len());
-            st.history.push(st.last_value.clone(), st.caret, st.anchor);
-        }
-
-        let value = if st.pending_model_sync {
-            st.last_value.clone()
-        } else {
-            semantic_value.to_string()
-        };
-
-        if st.history.stack.is_empty() {
-            st.history.push(value.clone(), st.caret, st.anchor);
-        }
-
+        st.sync_from_model(semantic_value);
+        let value = st.committed_text();
         (value, st.caret, st.anchor)
     }
 
@@ -813,45 +829,6 @@ impl TextInputController {
             }
         }
         at
-    }
-
-    fn delete_prev_grapheme(
-        value: &str,
-        caret: usize,
-        sel: Option<(usize, usize)>,
-    ) -> (String, usize) {
-        if let Some((a, b)) = sel {
-            let (s, e) = if a <= b { (a, b) } else { (b, a) };
-            let mut out = String::with_capacity(value.len() - (e - s));
-            out.push_str(&value[..s]);
-            out.push_str(&value[e..]);
-            return (out, s);
-        }
-        let at = caret.min(value.len());
-        if at == 0 {
-            return (value.to_string(), 0);
-        }
-        let prev = Self::prev_grapheme_boundary(value, at);
-        let mut out = String::with_capacity(value.len() - (at - prev));
-        out.push_str(&value[..prev]);
-        out.push_str(&value[at..]);
-        (out, prev)
-    }
-
-    fn insert_text(
-        value: &str,
-        caret: usize,
-        sel: Option<(usize, usize)>,
-        text: &str,
-    ) -> (String, usize) {
-        let (s, e) = sel
-            .map(|(a, b)| if a <= b { (a, b) } else { (b, a) })
-            .unwrap_or((caret, caret));
-        let mut out = String::with_capacity(value.len() - (e - s) + text.len());
-        out.push_str(&value[..s]);
-        out.push_str(text);
-        out.push_str(&value[e..]);
-        (out, s + text.len())
     }
 
     fn find_scroll_container_and_text_op(

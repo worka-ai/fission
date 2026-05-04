@@ -92,6 +92,11 @@ impl CustomEventResult {
 /// Implementors are stored behind `Arc<dyn CustomRenderObject>` so they must
 /// be `Send + Sync`.  The trait is object-safe.
 pub trait CustomRenderObject: Send + Sync + Debug {
+    /// Whether this custom render object participates in text input / IME.
+    fn accepts_text_input(&self) -> bool {
+        false
+    }
+
     /// Hit-test the custom content.
     ///
     /// `local_point` is relative to the top-left corner of the node's layout
@@ -122,6 +127,16 @@ pub trait CustomRenderObject: Send + Sync + Debug {
     ) -> CustomEventResult {
         let _ = (node_id, event, node_rect);
         CustomEventResult::ignored()
+    }
+
+    /// Platform IME cursor area for this render object, in absolute layout coordinates.
+    fn ime_cursor_area(&self, _node_rect: LayoutRect) -> Option<LayoutRect> {
+        None
+    }
+
+    /// Actions to dispatch if this render object loses focus.
+    fn blur_actions(&self, _node_id: NodeId) -> Vec<(NodeId, ActionEnvelope)> {
+        Vec::new()
     }
 
     /// Produce paint operations for this custom content.

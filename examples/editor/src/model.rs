@@ -356,6 +356,13 @@ pub struct FileBuffer {
     pub anchor_col: usize,
     pub edit_history: fission_text_engine::EditHistory,
     pub line_index: fission_text_engine::LineIndex,
+    pub preedit: Option<EditorPreeditState>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct EditorPreeditState {
+    pub text: String,
+    pub range: (usize, usize),
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -390,99 +397,191 @@ impl Language {
 }
 
 impl FileBuffer {
+    fn rebuild_line_index(&mut self) {
+        self.line_index = fission_text_engine::LineIndex::build(self.buffer.text());
+    }
+
     /// Materialize the rope into a `String` (for backward compatibility with
     /// code that needs a contiguous `String`).
     pub fn content(&self) -> String {
         self.buffer.to_string()
     }
 
-    /// Snapshot the full buffer content as an undo transaction so the caller
-    /// can mutate `buffer` freely afterwards.  Records a single edit that
-    /// replaces the *entire* content with whatever the buffer currently holds,
-    /// so that undoing it restores the prior state.
-    ///
-    /// The snapshot is intentionally whole-content: callers that do
-    /// fine-grained edits (insert / delete at a byte range) should use
-    /// `edit_history.apply_edit(&mut buffer, range, new_text)` directly.
-    pub fn push_undo_force(&mut self) {
-        // Capture the full text *before* the caller's mutation.
-        let old = self.buffer.to_string();
-        let old_len = old.len();
-        // Record a "replace everything with itself" transaction.  The
-        // *old_text* field is what undo will restore; the *new_text* field is
-        // what redo will restore.  After `set_content` the caller will have
-        // changed the rope to different text, but because we use our own
-        // whole-buffer undo/redo (see below) the byte ranges do not matter --
-        // we only look at old_text / new_text.
-        let edit = fission_text_engine::TextEdit::new(0..old_len, old.clone(), old);
-        let mut txn = fission_text_engine::EditTransaction::new();
-        txn.push(edit);
-        self.edit_history.record(txn);
+    pub fn current_offsets(&self) -> (usize, usize) {
+        let max_offset = self.buffer.len_bytes();
+        let caret = self
+            .line_index
+            .line_col_to_byte(fission_text_engine::LineCol {
+                line: self.cursor_line,
+                col: self.cursor_col,
+            })
+            .unwrap_or(max_offset)
+            .min(max_offset);
+        let anchor = self
+            .line_index
+            .line_col_to_byte(fission_text_engine::LineCol {
+                line: self.anchor_line,
+                col: self.anchor_col,
+            })
+            .unwrap_or(max_offset)
+            .min(max_offset);
+        (caret, anchor)
     }
 
-    /// Replace the entire buffer contents with `new_text`.
-    ///
-    /// This is the primary way tests and the rest of the editor set new
-    /// content.  It rebuilds the `line_index` automatically.
-    pub fn set_content(&mut self, new_text: &str) {
+    pub fn set_selection_offsets(&mut self, caret: usize, anchor: usize) {
+        let max_offset = self.buffer.len_bytes();
+        let caret = caret.min(max_offset);
+        let anchor = anchor.min(max_offset);
+        let caret_lc = self
+            .line_index
+            .byte_to_line_col(caret)
+            .unwrap_or(fission_text_engine::LineCol { line: 0, col: 0 });
+        let anchor_lc = self
+            .line_index
+            .byte_to_line_col(anchor)
+            .unwrap_or(fission_text_engine::LineCol { line: 0, col: 0 });
+        self.cursor_line = caret_lc.line;
+        self.cursor_col = caret_lc.col;
+        self.anchor_line = anchor_lc.line;
+        self.anchor_col = anchor_lc.col;
+    }
+
+    pub fn set_caret_line_col(&mut self, line: usize, col: usize) {
+        let offset = self
+            .line_index
+            .line_col_to_byte(fission_text_engine::LineCol { line, col })
+            .unwrap_or_else(|| {
+                self.line_index
+                    .line_end_byte(line)
+                    .unwrap_or(self.buffer.len_bytes())
+            })
+            .min(self.buffer.len_bytes());
+        self.set_selection_offsets(offset, offset);
+    }
+
+    pub fn preedit_range(&self) -> Option<(usize, usize)> {
+        self.preedit.as_ref().map(|preedit| preedit.range)
+    }
+
+    pub fn display_content(&self) -> String {
+        let committed = self.content();
+        let Some(preedit) = &self.preedit else {
+            return committed;
+        };
+        let start = preedit.range.0.min(committed.len());
+        let end = preedit.range.1.min(committed.len());
+        let mut display = String::with_capacity(
+            committed.len() - (end.saturating_sub(start)) + preedit.text.len(),
+        );
+        display.push_str(&committed[..start]);
+        display.push_str(&preedit.text);
+        display.push_str(&committed[end..]);
+        display
+    }
+
+    pub fn display_offsets(&self) -> (usize, usize) {
+        if let Some(preedit) = &self.preedit {
+            let start = preedit.range.0;
+            return (start + preedit.text.len(), start);
+        }
+        self.current_offsets()
+    }
+
+    pub fn clear_preedit(&mut self) {
+        self.preedit = None;
+    }
+
+    pub fn set_preedit(&mut self, text: String) {
+        if text.is_empty() {
+            self.preedit = None;
+            return;
+        }
+
+        if let Some(preedit) = &mut self.preedit {
+            preedit.text = text;
+            return;
+        }
+
+        let (caret, anchor) = self.current_offsets();
+        self.preedit = Some(EditorPreeditState {
+            text,
+            range: (caret.min(anchor), caret.max(anchor)),
+        });
+    }
+
+    pub fn apply_edit(&mut self, range: std::ops::Range<usize>, new_text: &str) {
+        let (caret, anchor) = self.current_offsets();
+        self.clear_preedit();
+        self.edit_history
+            .apply_edit(&mut self.buffer, range, new_text);
+        self.rebuild_line_index();
+        self.set_selection_offsets(
+            caret.min(self.buffer.len_bytes()),
+            anchor.min(self.buffer.len_bytes()),
+        );
+    }
+
+    pub fn apply_transaction(&mut self, txn: &fission_text_engine::EditTransaction) {
+        let (caret, anchor) = self.current_offsets();
+        self.clear_preedit();
+        self.edit_history.apply(txn, &mut self.buffer);
+        self.rebuild_line_index();
+        self.set_selection_offsets(
+            caret.min(self.buffer.len_bytes()),
+            anchor.min(self.buffer.len_bytes()),
+        );
+    }
+
+    /// Replace the entire document through a single undoable transaction.
+    pub fn replace_document(&mut self, new_text: &str) {
+        let (caret, anchor) = self.current_offsets();
+        self.clear_preedit();
+        let len = self.buffer.len_bytes();
+        self.edit_history
+            .apply_edit(&mut self.buffer, 0..len, new_text);
+        self.rebuild_line_index();
+        self.set_selection_offsets(
+            caret.min(self.buffer.len_bytes()),
+            anchor.min(self.buffer.len_bytes()),
+        );
+    }
+
+    /// Replace the buffer from an external source and clear undo/redo state.
+    pub fn sync_content(&mut self, new_text: &str) {
+        let (caret, anchor) = self.current_offsets();
+        self.clear_preedit();
         self.buffer = fission_text_engine::TextBuffer::from_str(new_text);
-        self.line_index = fission_text_engine::LineIndex::build(self.buffer.text());
+        self.edit_history.clear();
+        self.rebuild_line_index();
+        self.set_selection_offsets(
+            caret.min(self.buffer.len_bytes()),
+            anchor.min(self.buffer.len_bytes()),
+        );
     }
 
     /// Undo the last change.
-    ///
-    /// We use whole-buffer snapshot undo: the `old_text` stored in the most
-    /// recent undo transaction becomes the new buffer content, and the
-    /// *current* content is pushed onto the redo stack so it can be restored.
     pub fn undo(&mut self) {
-        if let Some(txn) = self.edit_history.pop_undo() {
-            if let Some(edit) = txn.edits.first() {
-                let current = self.buffer.to_string();
-                let restore_to = edit.old_text.clone();
-
-                // Build a redo transaction: old_text = the content we are
-                // about to restore to, new_text = current (what redo should
-                // bring back).
-                let redo_edit = fission_text_engine::TextEdit::new(
-                    0..0, // range unused by our whole-buffer undo
-                    restore_to.clone(),
-                    current, // stash current so redo can restore it
-                );
-                let mut redo_txn = fission_text_engine::EditTransaction::new();
-                redo_txn.push(redo_edit);
-                self.edit_history.push_redo(redo_txn);
-
-                // Restore the old content.
-                self.buffer = fission_text_engine::TextBuffer::from_str(&restore_to);
-                self.line_index = fission_text_engine::LineIndex::build(self.buffer.text());
-            }
+        self.clear_preedit();
+        let (caret, anchor) = self.current_offsets();
+        if self.edit_history.undo(&mut self.buffer) {
+            self.rebuild_line_index();
+            self.set_selection_offsets(
+                caret.min(self.buffer.len_bytes()),
+                anchor.min(self.buffer.len_bytes()),
+            );
         }
     }
 
     /// Redo the last undone change.
     pub fn redo(&mut self) {
-        if let Some(txn) = self.edit_history.pop_redo() {
-            if let Some(edit) = txn.edits.first() {
-                let current = self.buffer.to_string();
-                // old_text in the redo entry = what we stored as the content
-                // to restore to.  But actually we stashed the "current at
-                // undo time" in *old_text* -- that is what redo should bring
-                // back.
-                let restore_to = edit.old_text.clone();
-
-                // Build an undo transaction so we can undo this redo.
-                let undo_edit = fission_text_engine::TextEdit::new(
-                    0..0,
-                    current.clone(),
-                    current, // old_text = what was there before redo
-                );
-                let mut undo_txn = fission_text_engine::EditTransaction::new();
-                undo_txn.push(undo_edit);
-                self.edit_history.push_undo(undo_txn);
-
-                self.buffer = fission_text_engine::TextBuffer::from_str(&restore_to);
-                self.line_index = fission_text_engine::LineIndex::build(self.buffer.text());
-            }
+        self.clear_preedit();
+        let (caret, anchor) = self.current_offsets();
+        if self.edit_history.redo(&mut self.buffer) {
+            self.rebuild_line_index();
+            self.set_selection_offsets(
+                caret.min(self.buffer.len_bytes()),
+                anchor.min(self.buffer.len_bytes()),
+            );
         }
     }
 }
@@ -536,8 +635,18 @@ pub struct ToggleTreeNode(pub String);
 pub struct SelectTreeNode(pub String);
 
 #[derive(Action, Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
-#[serde(transparent)]
-pub struct UpdateFileContent(pub String);
+pub struct ApplyEditorEdit {
+    pub range_start: usize,
+    pub range_end: usize,
+    pub new_text: String,
+    pub caret: usize,
+    pub anchor: usize,
+}
+
+#[derive(Action, Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
+pub struct SetEditorPreedit {
+    pub text: String,
+}
 
 #[derive(Action, Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
 pub struct ToggleCommandPalette;
@@ -775,6 +884,7 @@ impl EditorState {
                 anchor_col: 0,
                 edit_history: fission_text_engine::EditHistory::new(),
                 line_index,
+                preedit: None,
             },
         );
 
@@ -827,6 +937,21 @@ impl EditorState {
         let buf = self.file_contents.get_mut(&path)?;
         let tab = &self.open_tabs[self.active_tab];
         Some((tab, buf))
+    }
+
+    pub fn notify_buffer_changed(&self, path: &str) {
+        if let Some(ref handle) = self.lsp_handle {
+            if let Some(buf) = self.file_contents.get(path) {
+                let content = buf.content();
+                handle.notify_change(path, &content);
+            }
+        }
+    }
+
+    pub fn mark_active_tab_dirty(&mut self) {
+        if let Some(tab) = self.open_tabs.get_mut(self.active_tab) {
+            tab.is_dirty = true;
+        }
     }
 
     pub fn save_active_file(&mut self) {
@@ -994,18 +1119,16 @@ impl EditorState {
             if let Some(tab) = self.open_tabs.get(self.active_tab) {
                 let path = tab.path.clone();
                 if let Some(buf) = self.file_contents.get_mut(&path) {
-                    let content_str = buf.content();
-                    let mut lines: Vec<String> = content_str.lines().map(|l| l.to_string()).collect();
-                    if line < lines.len() {
-                        let line_str = &mut lines[line];
-                        if col + query.len() <= line_str.len() {
-                            line_str.replace_range(col..col + query.len(), &replacement);
+                    if let Some(line_start) = buf.line_index.line_start_byte(line) {
+                        let start = line_start.saturating_add(col).min(buf.buffer.len_bytes());
+                        let end = start.saturating_add(query.len()).min(buf.buffer.len_bytes());
+                        if start <= end {
+                            buf.apply_edit(start..end, &replacement);
+                            let caret = start + replacement.len();
+                            buf.set_selection_offsets(caret, caret);
+                            self.mark_active_tab_dirty();
+                            self.notify_buffer_changed(&path);
                         }
-                    }
-                    buf.set_content(&lines.join("\n"));
-                    // Mark dirty
-                    if let Some(tab) = self.open_tabs.get_mut(self.active_tab) {
-                        tab.is_dirty = true;
                     }
                 }
             }
@@ -1028,10 +1151,28 @@ impl EditorState {
         if let Some(tab) = self.open_tabs.get(self.active_tab) {
             let path = tab.path.clone();
             if let Some(buf) = self.file_contents.get_mut(&path) {
-                let new_content = buf.content().replace(&query, &replacement);
-                buf.set_content(&new_content);
-                if let Some(tab) = self.open_tabs.get_mut(self.active_tab) {
-                    tab.is_dirty = true;
+                let content = buf.content();
+                let mut matches = Vec::new();
+                let mut search_from = 0usize;
+                while let Some(found) = content[search_from..].find(&query) {
+                    let start = search_from + found;
+                    let end = start + query.len();
+                    matches.push((start, end));
+                    search_from = end;
+                }
+
+                if !matches.is_empty() {
+                    let mut txn = fission_text_engine::EditTransaction::new();
+                    for (start, end) in matches.into_iter().rev() {
+                        txn.push(fission_text_engine::TextEdit::new(
+                            start..end,
+                            replacement.clone(),
+                            &content[start..end],
+                        ));
+                    }
+                    buf.apply_transaction(&txn);
+                    self.mark_active_tab_dirty();
+                    self.notify_buffer_changed(&path);
                 }
             }
         }
@@ -1068,8 +1209,7 @@ impl EditorState {
             if let Some(tab) = self.open_tabs.get(self.active_tab) {
                 let path = tab.path.clone();
                 if let Some(buf) = self.file_contents.get_mut(&path) {
-                    buf.cursor_line = line;
-                    buf.cursor_col = col;
+                    buf.set_caret_line_col(line, col);
                 }
             }
         }
@@ -1258,6 +1398,8 @@ impl EditorState {
             if let Some(buf) = self.file_contents.get_mut(&path) {
                 buf.undo();
             }
+            self.mark_active_tab_dirty();
+            self.notify_buffer_changed(&path);
         }
     }
 
@@ -1268,6 +1410,8 @@ impl EditorState {
             if let Some(buf) = self.file_contents.get_mut(&path) {
                 buf.redo();
             }
+            self.mark_active_tab_dirty();
+            self.notify_buffer_changed(&path);
         }
     }
 
@@ -1290,27 +1434,30 @@ impl EditorState {
         if let Some(tab) = self.open_tabs.get(self.active_tab) {
             let path = tab.path.clone();
             if let Some(buf) = self.file_contents.get_mut(&path) {
-                let content_str = buf.content();
-                let line_count = content_str.lines().count();
+                let content = buf.content();
+                let line_count = content.lines().count();
                 if buf.cursor_line < line_count {
-                    let lines: Vec<String> = content_str.lines().map(|l| l.to_string()).collect();
-                    self.clipboard = lines[buf.cursor_line].clone();
-                    buf.push_undo_force();
-                    let mut new_lines = lines;
-                    new_lines.remove(buf.cursor_line);
-                    let joined = new_lines.join("\n");
-                    buf.set_content(&joined);
-                    // Adjust cursor if it was on the last line
-                    let new_content = buf.content();
-                    let max_line = new_content.lines().count().saturating_sub(1);
-                    if buf.cursor_line > max_line {
-                        buf.cursor_line = max_line;
+                    self.clipboard = content
+                        .lines()
+                        .nth(buf.cursor_line)
+                        .unwrap_or("")
+                        .to_string();
+                    if let (Some(mut start), Some(end)) = (
+                        buf.line_index.line_start_byte(buf.cursor_line),
+                        buf.line_index.line_end_byte(buf.cursor_line),
+                    ) {
+                        if end == buf.buffer.len_bytes()
+                            && start > 0
+                            && content.as_bytes().get(start - 1) == Some(&b'\n')
+                        {
+                            start -= 1;
+                        }
+                        buf.apply_edit(start..end, "");
+                        buf.set_selection_offsets(start, start);
+                        self.mark_active_tab_dirty();
+                        self.notify_buffer_changed(&path);
+                        self.status_message = Some("Cut line".into());
                     }
-                    buf.cursor_col = 0;
-                    if let Some(tab) = self.open_tabs.get_mut(self.active_tab) {
-                        tab.is_dirty = true;
-                    }
-                    self.status_message = Some("Cut line".into());
                 }
             }
         }
@@ -1325,31 +1472,14 @@ impl EditorState {
         if let Some(tab) = self.open_tabs.get(self.active_tab) {
             let path = tab.path.clone();
             if let Some(buf) = self.file_contents.get_mut(&path) {
-                buf.push_undo_force();
-                let content_str = buf.content();
-                let lines: Vec<&str> = content_str.lines().collect();
-                let line_idx = buf.cursor_line.min(lines.len().saturating_sub(1));
-                let col = if line_idx < lines.len() {
-                    buf.cursor_col.min(lines[line_idx].len())
-                } else {
-                    0
-                };
-                // Compute byte offset for insertion
-                let mut byte_offset = 0;
-                for (i, line) in content_str.lines().enumerate() {
-                    if i == line_idx {
-                        byte_offset += col;
-                        break;
-                    }
-                    byte_offset += line.len() + 1; // +1 for '\n'
-                }
-                byte_offset = byte_offset.min(content_str.len());
-                let mut new_content = content_str;
-                new_content.insert_str(byte_offset, &clip);
-                buf.set_content(&new_content);
-                if let Some(tab) = self.open_tabs.get_mut(self.active_tab) {
-                    tab.is_dirty = true;
-                }
+                let (caret, anchor) = buf.current_offsets();
+                let start = caret.min(anchor);
+                let end = caret.max(anchor);
+                buf.apply_edit(start..end, &clip);
+                let next = start + clip.len();
+                buf.set_selection_offsets(next, next);
+                self.mark_active_tab_dirty();
+                self.notify_buffer_changed(&path);
                 self.status_message = Some("Pasted".into());
             }
         }
@@ -1386,7 +1516,8 @@ impl EditorState {
                 // Reload content from disk
                 if let Ok(new_content) = std::fs::read_to_string(path) {
                     if let Some(buf) = self.file_contents.get_mut(path) {
-                        buf.set_content(&new_content);
+                        buf.sync_content(&new_content);
+                        self.notify_buffer_changed(path);
                     }
                 }
             }
@@ -1401,8 +1532,7 @@ impl EditorState {
             if let Some(buf) = self.file_contents.get_mut(&path) {
                 let content_str = buf.content();
                 let max_line = content_str.lines().count().saturating_sub(1);
-                buf.cursor_line = target.min(max_line);
-                buf.cursor_col = 0;
+                buf.set_caret_line_col(target.min(max_line), 0);
             }
         }
     }
@@ -1504,8 +1634,7 @@ mod tests {
 
         // Modify content
         if let Some(buf) = state.file_contents.get_mut(&path) {
-            buf.push_undo_force();
-            buf.set_content("hello world");
+            buf.replace_document("hello world");
         }
 
         // Undo
@@ -1534,11 +1663,11 @@ mod tests {
             anchor_col: 0,
             edit_history: fission_text_engine::EditHistory::new(),
             line_index: fission_text_engine::LineIndex::build_from_str("a"),
+            preedit: None,
         };
 
         // Change to "b"
-        buf.push_undo_force();
-        buf.set_content("b");
+        buf.replace_document("b");
 
         // Undo back to "a"
         buf.undo();
@@ -1547,8 +1676,7 @@ mod tests {
         assert_eq!(buf.edit_history.redo_depth(), 1);
 
         // New change to "c" should clear redo
-        buf.push_undo_force();
-        buf.set_content("c");
+        buf.replace_document("c");
         assert_eq!(buf.edit_history.redo_depth(), 0);
     }
 
@@ -1563,14 +1691,37 @@ mod tests {
             anchor_col: 0,
             edit_history: fission_text_engine::EditHistory::with_max(100),
             line_index: fission_text_engine::LineIndex::build_from_str("start"),
+            preedit: None,
         };
 
         for i in 0..110 {
-            buf.push_undo_force();
-            buf.set_content(&format!("version_{}", i));
+            buf.replace_document(&format!("version_{}", i));
         }
 
         assert!(buf.edit_history.undo_depth() <= 100);
+    }
+
+    #[test]
+    fn test_sync_content_clears_history() {
+        let mut buf = FileBuffer {
+            buffer: fission_text_engine::TextBuffer::from_str("before"),
+            language: Language::Plain,
+            cursor_line: 0,
+            cursor_col: 0,
+            anchor_line: 0,
+            anchor_col: 0,
+            edit_history: fission_text_engine::EditHistory::new(),
+            line_index: fission_text_engine::LineIndex::build_from_str("before"),
+            preedit: None,
+        };
+
+        buf.replace_document("during");
+        assert_eq!(buf.edit_history.undo_depth(), 1);
+
+        buf.sync_content("after");
+        assert_eq!(buf.content(), "after");
+        assert_eq!(buf.edit_history.undo_depth(), 0);
+        assert_eq!(buf.edit_history.redo_depth(), 0);
     }
 
     #[test]
@@ -1651,8 +1802,7 @@ mod tests {
 
         // Modify content, mark dirty
         if let Some(buf) = state.file_contents.get_mut(&path) {
-            buf.push_undo_force();
-            buf.set_content("modified");
+            buf.replace_document("modified");
         }
         state.open_tabs[0].is_dirty = true;
         assert!(state.open_tabs[0].is_dirty);
@@ -1848,10 +1998,8 @@ mod tests {
 
         // Make several changes
         if let Some(buf) = state.file_contents.get_mut(&path) {
-            buf.push_undo_force();
-            buf.set_content("version_1");
-            buf.push_undo_force();
-            buf.set_content("version_2");
+            buf.replace_document("version_1");
+            buf.replace_document("version_2");
         }
 
         // Undo through the state helper
@@ -2145,8 +2293,7 @@ mod tests {
 
         // Set cursor to line 1, col 5 ("line |two")
         if let Some(buf) = state.file_contents.get_mut(&path) {
-            buf.cursor_line = 1;
-            buf.cursor_col = 5;
+            buf.set_caret_line_col(1, 5);
         }
 
         state.clipboard = "INSERTED".to_string();
@@ -2185,8 +2332,7 @@ mod tests {
 
         // Set cursor to line 1 ("line B")
         if let Some(buf) = state.file_contents.get_mut(&path) {
-            buf.cursor_line = 1;
-            buf.cursor_col = 0;
+            buf.set_caret_line_col(1, 0);
         }
 
         state.cut_line();
@@ -2217,7 +2363,7 @@ mod tests {
         state.open_file(path.clone());
 
         if let Some(buf) = state.file_contents.get_mut(&path) {
-            buf.cursor_line = 2;
+            buf.set_caret_line_col(2, 0);
         }
 
         state.copy_line();
@@ -2292,12 +2438,12 @@ mod tests {
 
         // Modify both
         if let Some(buf) = state.file_contents.get_mut(&p1) {
-            buf.set_content("one_modified");
+            buf.replace_document("one_modified");
         }
         state.open_tabs[0].is_dirty = true;
 
         if let Some(buf) = state.file_contents.get_mut(&p2) {
-            buf.set_content("two_modified");
+            buf.replace_document("two_modified");
         }
         state.open_tabs[1].is_dirty = true;
 
@@ -2637,8 +2783,7 @@ mod tests {
 
         // Paste at end
         if let Some(buf) = state.file_contents.get_mut(&path) {
-            buf.cursor_line = 2;
-            buf.cursor_col = 5; // end of "line3"
+            buf.set_caret_line_col(2, 5); // end of "line3"
         }
         state.paste();
         let content = state.file_contents[&path].content();
@@ -2812,11 +2957,11 @@ mod tests {
             anchor_col: 0,
             edit_history: fission_text_engine::EditHistory::new(),
             line_index: fission_text_engine::LineIndex::build_from_str("initial"),
+            preedit: None,
         };
 
         for i in 0..200 {
-            buf.push_undo_force();
-            buf.set_content(&format!("change_{}", i));
+            buf.replace_document(&format!("change_{}", i));
         }
 
         // The default EditHistory max is 1000, but we pushed 200, so depth == 200.
@@ -2838,12 +2983,12 @@ mod tests {
             anchor_col: 0,
             edit_history: fission_text_engine::EditHistory::new(),
             line_index: fission_text_engine::LineIndex::build_from_str("start"),
+            preedit: None,
         };
 
         // Push 200 changes
         for i in 0..200 {
-            buf.push_undo_force();
-            buf.set_content(&format!("v{}", i));
+            buf.replace_document(&format!("v{}", i));
         }
 
         let undo_depth = buf.edit_history.undo_depth();
@@ -3143,8 +3288,7 @@ mod tests {
         assert!(!state.open_tabs[0].is_dirty);
 
         if let Some(buf) = state.file_contents.get_mut(&path) {
-            buf.push_undo_force();
-            buf.set_content("modified content");
+            buf.replace_document("modified content");
         }
         state.open_tabs[0].is_dirty = true;
 
@@ -3184,8 +3328,7 @@ mod tests {
         state.open_file(path.clone());
 
         if let Some(buf) = state.file_contents.get_mut(&path) {
-            buf.cursor_line = 0;
-            buf.cursor_col = 0;
+            buf.set_caret_line_col(0, 0);
         }
         state.clipboard = "PREFIX ".to_string();
         state.paste();
@@ -3204,7 +3347,7 @@ mod tests {
         state.open_file(path.clone());
 
         if let Some(buf) = state.file_contents.get_mut(&path) {
-            buf.cursor_line = 2; // last line
+            buf.set_caret_line_col(2, 0); // last line
         }
 
         state.cut_line();

@@ -27,7 +27,7 @@ use fission_render::{
     Color as RenderColor, DisplayList, LayoutPoint, LayoutRect, LayoutUnit, Renderer,
 };
 use fission_render_vello::parley::FontContext;
-use fission_render_vello::{VelloRenderer, VelloTextMeasurer};
+use fission_render_vello::{RetainedSceneCache, VelloRenderer, VelloTextMeasurer};
 use fission_shell::{Platform, VideoBackend, VideoEvent, VideoPlayer};
 use fission_theme::fonts;
 use fontique::{Blob, Collection, CollectionOptions, FontInfoOverride, SourceCache};
@@ -41,7 +41,7 @@ use vello::wgpu;
 use vello::{AaConfig, AaSupport, Renderer as VelloSceneRenderer, RendererOptions, Scene};
 
 mod pipeline;
-pub use pipeline::Pipeline;
+pub use pipeline::{InvalidationSet, Pipeline};
 mod video_backend;
 #[cfg(target_os = "macos")]
 use video_backend::MacVideoBackend;
@@ -69,9 +69,18 @@ type EffectResult = (
 /// Callback signature for application-specific effect handlers.
 ///
 /// The handler receives the opaque `Vec<u8>` payload from `Effect::App(...)`,
-/// plus the envelope metadata needed to send a result back on the channel.
+/// plus the envelope metadata needed to send a result back on the channel and
+/// an event-loop proxy it can use to wake the shell after background work
+/// completes.
 pub type AppEffectHandler = Box<
-    dyn Fn(Vec<u8>, u64, Option<ActionEnvelope>, Option<ActionEnvelope>, mpsc::Sender<EffectResult>)
+    dyn Fn(
+            Vec<u8>,
+            u64,
+            Option<ActionEnvelope>,
+            Option<ActionEnvelope>,
+            mpsc::Sender<EffectResult>,
+            EventLoopProxy<TestEvent>,
+        )
         + Send
         + Sync,
 >;
@@ -103,6 +112,74 @@ fn request_redraw_throttled(
     }
 }
 
+fn animation_redraw_interval(
+    has_finite_animation: bool,
+    has_repeating_animation: bool,
+    has_playing_video: bool,
+    min_frame: Duration,
+    repeat_animation_frame: Duration,
+) -> Option<Duration> {
+    if has_finite_animation || has_playing_video {
+        Some(min_frame)
+    } else if has_repeating_animation {
+        Some(repeat_animation_frame)
+    } else {
+        None
+    }
+}
+
+fn pending_work_redraw_interval(
+    invalidations: InvalidationSet,
+    pending_resize: bool,
+    min_frame: Duration,
+    resize_frame: Duration,
+) -> Duration {
+    if pending_resize && !invalidations.build && !invalidations.paint && !invalidations.composite {
+        resize_frame
+    } else {
+        min_frame
+    }
+}
+
+#[derive(Debug)]
+struct LiveResizeController {
+    active_until: Option<Instant>,
+    settle_delay: Duration,
+}
+
+impl LiveResizeController {
+    fn new(settle_delay: Duration) -> Self {
+        Self {
+            active_until: None,
+            settle_delay,
+        }
+    }
+
+    fn note_resize(&mut self, now: Instant) {
+        self.active_until = Some(now + self.settle_delay);
+    }
+
+    fn is_live(&self, now: Instant) -> bool {
+        self.active_until
+            .map(|deadline| now < deadline)
+            .unwrap_or(false)
+    }
+
+    fn should_apply_layout(&mut self, now: Instant, has_layout_snapshot: bool, force: bool) -> bool {
+        if !has_layout_snapshot || force {
+            return true;
+        }
+
+        let settled = !self.is_live(now);
+        if settled {
+            self.active_until = None;
+            true
+        } else {
+            false
+        }
+    }
+}
+
 /// Drain pending effects from the runtime and either execute them synchronously
 /// (fire-and-forget effects like `OpenUrl`) or spawn background threads for I/O
 /// effects (`FileRead`, `HttpGet`) and send results back through `effect_tx`.
@@ -111,6 +188,7 @@ fn request_redraw_throttled(
 fn process_pending_effects(
     runtime: &mut Runtime,
     effect_tx: &mpsc::Sender<EffectResult>,
+    event_proxy: &EventLoopProxy<TestEvent>,
     app_effect_handler: Option<&AppEffectHandler>,
 ) -> bool {
     use std::process::Command;
@@ -236,35 +314,54 @@ fn process_pending_effects(
                     // ── Background: FileRead ─────────────────────────────────
                     SystemEffect::FileRead { path } => {
                         let tx = effect_tx.clone();
+                        let wake_proxy = event_proxy.clone();
                         let on_ok = env.on_ok.clone();
                         let on_err = env.on_err.clone();
                         let req_id = env.req_id;
                         let path = path.clone();
                         std::thread::spawn(move || {
-                            match std::fs::read_to_string(&path) {
+                            match std::fs::read(&path) {
                                 Ok(content) => {
-                                    let payload = EffectPayload::InlineBytes(content.into_bytes());
+                                    let payload = EffectPayload::InlineBytes(content);
                                     let _ = tx.send((req_id, Ok(payload), on_ok, on_err));
                                 }
                                 Err(e) => {
                                     let _ = tx.send((req_id, Err(e.to_string()), on_ok, on_err));
                                 }
                             }
+                            let _ = wake_proxy.send_event(TestEvent::Wake);
                         });
                     }
 
                     // ── Background: HttpGet ───────────────────────────────────
                     SystemEffect::HttpGet { url, headers } => {
                         let tx = effect_tx.clone();
+                        let wake_proxy = event_proxy.clone();
                         let on_ok = env.on_ok.clone();
                         let on_err = env.on_err.clone();
                         let req_id = env.req_id;
                         let url = url.clone();
                         let headers = headers.clone();
                         std::thread::spawn(move || {
+                            let curl_result = (|| -> std::result::Result<Vec<u8>, String> {
+                                let mut command = std::process::Command::new("curl");
+                                command.arg("-fsSL").arg(&url);
+                                for (k, v) in &headers {
+                                    command.arg("-H").arg(format!("{}: {}", k, v));
+                                }
+                                let output = command
+                                    .output()
+                                    .map_err(|e| format!("curl spawn: {}", e))?;
+                                if output.status.success() {
+                                    Ok(output.stdout)
+                                } else {
+                                    Err(String::from_utf8_lossy(&output.stderr).trim().to_string())
+                                }
+                            })();
+
                             // Minimal blocking HTTP GET using std only (no external crate).
                             // This parses the URL, opens a TCP stream, and reads the response.
-                            let result = (|| -> std::result::Result<Vec<u8>, String> {
+                            let result = curl_result.or_else(|_| (|| -> std::result::Result<Vec<u8>, String> {
                                 use std::io::{Read, Write};
                                 use std::net::TcpStream;
 
@@ -329,7 +426,7 @@ fn process_pending_effects(
                                     .unwrap_or(0);
 
                                 Ok(buf[body_start..].to_vec())
-                            })();
+                            })());
 
                             match result {
                                 Ok(bytes) => {
@@ -340,6 +437,7 @@ fn process_pending_effects(
                                     let _ = tx.send((req_id, Err(msg), on_ok, on_err));
                                 }
                             }
+                            let _ = wake_proxy.send_event(TestEvent::Wake);
                         });
                     }
 
@@ -367,6 +465,7 @@ fn process_pending_effects(
                         env.on_ok.clone(),
                         env.on_err.clone(),
                         effect_tx.clone(),
+                        event_proxy.clone(),
                     );
                 } else {
                     diag::emit(
@@ -599,12 +698,14 @@ fn handle_cursor_moved(
     runtime: &mut Runtime,
     pipeline: &Pipeline,
     effect_result_tx: &mpsc::Sender<EffectResult>,
+    event_proxy: &EventLoopProxy<TestEvent>,
     app_effect_handler: Option<&AppEffectHandler>,
     window: &Window,
     elwt: &EventLoopWindowTarget<TestEvent>,
     last_redraw_at: &mut Instant,
     min_frame: Duration,
     redraw_pending: &mut bool,
+    invalidations: &mut InvalidationSet,
 ) {
     if let (Some(ir), Some(layout)) = (&pipeline.prev_ir, &pipeline.last_snapshot) {
         let point = LayoutPoint { x, y };
@@ -612,7 +713,9 @@ fn handle_cursor_moved(
         if let Err(e) = runtime.handle_input(event, ir, layout) {
             eprintln!("Input handling error: {:?}", e);
         }
-        if process_pending_effects(runtime, effect_result_tx, app_effect_handler) {
+        invalidations.mark_build();
+        if process_pending_effects(runtime, effect_result_tx, event_proxy, app_effect_handler) {
+            invalidations.mark_build();
             request_redraw_throttled(window, elwt, last_redraw_at, min_frame, redraw_pending);
         }
         request_redraw_throttled(window, elwt, last_redraw_at, min_frame, redraw_pending);
@@ -629,6 +732,7 @@ fn handle_mouse_button(
     runtime: &mut Runtime,
     pipeline: &Pipeline,
     effect_result_tx: &mpsc::Sender<EffectResult>,
+    event_proxy: &EventLoopProxy<TestEvent>,
     app_effect_handler: Option<&AppEffectHandler>,
     window: &Window,
     elwt: &EventLoopWindowTarget<TestEvent>,
@@ -640,6 +744,7 @@ fn handle_mouse_button(
     next_text_trace_seq: &mut u64,
     presented_frames: u64,
     last_blink_toggle: &mut Instant,
+    invalidations: &mut InvalidationSet,
 ) {
     if let (Some(ir), Some(layout)) = (&pipeline.prev_ir, &pipeline.last_snapshot) {
         let point = LayoutPoint { x, y };
@@ -666,10 +771,12 @@ fn handle_mouse_button(
         if let Err(e) = runtime.handle_input(input_event, ir, layout) {
             eprintln!("Input handling error: {:?}", e);
         }
+        invalidations.mark_build();
 
         mark_text_trace_handled(pending_text_traces, trace_seq);
-        if process_pending_effects(runtime, effect_result_tx, app_effect_handler) {
+        if process_pending_effects(runtime, effect_result_tx, event_proxy, app_effect_handler) {
             mark_text_trace_effects(pending_text_traces, trace_seq);
+            invalidations.mark_build();
             request_redraw_throttled(window, elwt, last_redraw_at, min_frame, redraw_pending);
         }
         if is_pressed {
@@ -694,12 +801,14 @@ fn handle_scroll(
     runtime: &mut Runtime,
     pipeline: &Pipeline,
     effect_result_tx: &mpsc::Sender<EffectResult>,
+    event_proxy: &EventLoopProxy<TestEvent>,
     app_effect_handler: Option<&AppEffectHandler>,
     window: &Window,
     elwt: &EventLoopWindowTarget<TestEvent>,
     last_redraw_at: &mut Instant,
     min_frame: Duration,
     redraw_pending: &mut bool,
+    invalidations: &mut InvalidationSet,
 ) {
     if let (Some(ir), Some(layout)) = (&pipeline.prev_ir, &pipeline.last_snapshot) {
         let point = LayoutPoint { x: point_x, y: point_y };
@@ -708,7 +817,9 @@ fn handle_scroll(
         if let Err(e) = runtime.handle_input(event, ir, layout) {
             eprintln!("Scroll error: {:?}", e);
         }
-        if process_pending_effects(runtime, effect_result_tx, app_effect_handler) {
+        invalidations.mark_composite();
+        if process_pending_effects(runtime, effect_result_tx, event_proxy, app_effect_handler) {
+            invalidations.mark_build();
             request_redraw_throttled(window, elwt, last_redraw_at, min_frame, redraw_pending);
         }
         request_redraw_throttled(window, elwt, last_redraw_at, min_frame, redraw_pending);
@@ -744,6 +855,7 @@ fn handle_key_down<S: AppState>(
     runtime: &mut Runtime,
     pipeline: &Pipeline,
     effect_result_tx: &mpsc::Sender<EffectResult>,
+    event_proxy: &EventLoopProxy<TestEvent>,
     app_effect_handler: Option<&AppEffectHandler>,
     window: &Window,
     elwt: &EventLoopWindowTarget<TestEvent>,
@@ -756,6 +868,7 @@ fn handle_key_down<S: AppState>(
     presented_frames: u64,
     last_blink_toggle: &mut Instant,
     key_handler: Option<&KeyHandler<S>>,
+    invalidations: &mut InvalidationSet,
 ) -> bool {
     let ir_and_snap = match (&pipeline.prev_ir, &pipeline.last_snapshot) {
         (Some(ir), Some(snap)) => Some((ir, snap)),
@@ -767,9 +880,11 @@ fn handle_key_down<S: AppState>(
         let handler = handler.clone();
         if let Some(state) = runtime.get_app_state_mut::<S>() {
             if handler(state, &code, modifiers) {
-                if process_pending_effects(runtime, effect_result_tx, app_effect_handler) {
+                if process_pending_effects(runtime, effect_result_tx, event_proxy, app_effect_handler) {
+                    invalidations.mark_build();
                     request_redraw_throttled(window, elwt, last_redraw_at, min_frame, redraw_pending);
                 }
+                invalidations.mark_build();
                 request_redraw_throttled(window, elwt, last_redraw_at, min_frame, redraw_pending);
                 return true;
             }
@@ -793,9 +908,11 @@ fn handle_key_down<S: AppState>(
         if let Err(e) = runtime.handle_input(input_event, ir, layout) {
             eprintln!("Keyboard error: {:?}", e);
         }
+        invalidations.mark_build();
         mark_text_trace_handled(pending_text_traces, trace_seq);
-        if process_pending_effects(runtime, effect_result_tx, app_effect_handler) {
+        if process_pending_effects(runtime, effect_result_tx, event_proxy, app_effect_handler) {
             mark_text_trace_effects(pending_text_traces, trace_seq);
+            invalidations.mark_build();
             request_redraw_throttled(window, elwt, last_redraw_at, min_frame, redraw_pending);
         }
         reset_text_input_caret(runtime, pipeline.prev_ir.as_ref(), last_blink_toggle);
@@ -1021,7 +1138,14 @@ impl<S: AppState + Default, W: Widget<S> + 'static> DesktopApp<S, W> {
     /// `mpsc::Sender<EffectResult>`.
     pub fn with_app_effect_handler<F>(mut self, handler: F) -> Self
     where
-        F: Fn(Vec<u8>, u64, Option<ActionEnvelope>, Option<ActionEnvelope>, mpsc::Sender<EffectResult>)
+        F: Fn(
+                Vec<u8>,
+                u64,
+                Option<ActionEnvelope>,
+                Option<ActionEnvelope>,
+                mpsc::Sender<EffectResult>,
+                EventLoopProxy<TestEvent>,
+            )
             + Send
             + Sync
             + 'static,
@@ -1106,6 +1230,7 @@ impl<S: AppState + Default, W: Widget<S> + 'static> DesktopApp<S, W> {
         .unwrap();
 
         let mut scene = Scene::new();
+        let mut retained_scene_cache = RetainedSceneCache::default();
 
         window.request_redraw();
 
@@ -1132,6 +1257,28 @@ impl<S: AppState + Default, W: Widget<S> + 'static> DesktopApp<S, W> {
             .filter(|v| *v > 0)
             .unwrap_or(60);
         let min_frame = Duration::from_secs_f32(1.0 / max_fps as f32);
+        let repeat_animation_fps = std::env::var("FISSION_REPEAT_ANIMATION_FPS")
+            .ok()
+            .and_then(|v| v.parse::<u32>().ok())
+            .filter(|v| *v > 0)
+            .map(|v| v.min(max_fps))
+            .unwrap_or(15);
+        let repeat_animation_frame =
+            Duration::from_secs_f32(1.0 / repeat_animation_fps as f32);
+        let resize_fps = std::env::var("FISSION_RESIZE_FPS")
+            .ok()
+            .and_then(|v| v.parse::<u32>().ok())
+            .filter(|v| *v > 0)
+            .map(|v| v.min(max_fps))
+            .unwrap_or(12);
+        let resize_frame = Duration::from_secs_f32(1.0 / resize_fps as f32);
+        let resize_settle_delay = Duration::from_millis(
+            std::env::var("FISSION_RESIZE_SETTLE_MS")
+                .ok()
+                .and_then(|v| v.parse::<u64>().ok())
+                .filter(|v| *v > 0)
+                .unwrap_or(90),
+        );
         let mut last_redraw_at = Instant::now()
             .checked_sub(min_frame)
             .unwrap_or_else(Instant::now);
@@ -1174,6 +1321,14 @@ impl<S: AppState + Default, W: Widget<S> + 'static> DesktopApp<S, W> {
         // Simulated viewport size override for test resize events.
         // When set, layout uses these dimensions instead of window.inner_size().
         let mut simulated_viewport: Option<(u32, u32)> = None;
+        let mut pending_resize = Some(window.inner_size());
+        let mut live_resize = LiveResizeController::new(resize_settle_delay);
+        let mut invalidations = InvalidationSet {
+            build: true,
+            layout: true,
+            paint: true,
+            composite: true,
+        };
 
         event_loop
             .run(move |event, elwt| {
@@ -1195,9 +1350,10 @@ impl<S: AppState + Default, W: Widget<S> + 'static> DesktopApp<S, W> {
                                 handle_cursor_moved(
                                     x, y,
                                     &mut runtime, &pipeline,
-                                    &effect_result_tx, app_effect_handler.as_ref(),
+                                    &effect_result_tx, &event_proxy, app_effect_handler.as_ref(),
                                     &window, elwt,
                                     &mut last_redraw_at, min_frame, &mut redraw_pending,
+                                    &mut invalidations,
                                 );
                             }
                             TestEvent::MouseDown { x, y, button } => {
@@ -1205,12 +1361,13 @@ impl<S: AppState + Default, W: Widget<S> + 'static> DesktopApp<S, W> {
                                 handle_mouse_button(
                                     x, y, btn, true,
                                     &mut runtime, &pipeline,
-                                    &effect_result_tx, app_effect_handler.as_ref(),
+                                    &effect_result_tx, &event_proxy, app_effect_handler.as_ref(),
                                     &window, elwt,
                                     &mut last_redraw_at, min_frame, &mut redraw_pending,
                                     text_trace_enabled, &mut pending_text_traces,
                                     &mut next_text_trace_seq, presented_frames,
                                     &mut last_blink_toggle,
+                                    &mut invalidations,
                                 );
                             }
                             TestEvent::MouseUp { x, y, button } => {
@@ -1218,12 +1375,13 @@ impl<S: AppState + Default, W: Widget<S> + 'static> DesktopApp<S, W> {
                                 handle_mouse_button(
                                     x, y, btn, false,
                                     &mut runtime, &pipeline,
-                                    &effect_result_tx, app_effect_handler.as_ref(),
+                                    &effect_result_tx, &event_proxy, app_effect_handler.as_ref(),
                                     &window, elwt,
                                     &mut last_redraw_at, min_frame, &mut redraw_pending,
                                     text_trace_enabled, &mut pending_text_traces,
                                     &mut next_text_trace_seq, presented_frames,
                                     &mut last_blink_toggle,
+                                    &mut invalidations,
                                 );
                             }
                             TestEvent::KeyDown { key_code, modifiers } => {
@@ -1231,14 +1389,15 @@ impl<S: AppState + Default, W: Widget<S> + 'static> DesktopApp<S, W> {
                                 handle_key_down::<S>(
                                     code, modifiers,
                                     &mut runtime, &pipeline,
-                                    &effect_result_tx, app_effect_handler.as_ref(),
-                                    &window, elwt,
-                                    &mut last_redraw_at, min_frame, &mut redraw_pending,
-                                    text_trace_enabled, &mut pending_text_traces,
-                                    &mut next_text_trace_seq, presented_frames,
-                                    &mut last_blink_toggle,
-                                    self.key_handler.as_ref(),
-                                );
+                                    &effect_result_tx, &event_proxy, app_effect_handler.as_ref(),
+                                        &window, elwt,
+                                        &mut last_redraw_at, min_frame, &mut redraw_pending,
+                                        text_trace_enabled, &mut pending_text_traces,
+                                        &mut next_text_trace_seq, presented_frames,
+                                        &mut last_blink_toggle,
+                                        self.key_handler.as_ref(),
+                                        &mut invalidations,
+                                    );
                             }
                             TestEvent::KeyUp { .. } => {
                                 // Key-up is currently a no-op in the framework
@@ -1255,13 +1414,14 @@ impl<S: AppState + Default, W: Widget<S> + 'static> DesktopApp<S, W> {
                                     handle_key_down::<S>(
                                         key, 0,
                                         &mut runtime, &pipeline,
-                                        &effect_result_tx, app_effect_handler.as_ref(),
+                                        &effect_result_tx, &event_proxy, app_effect_handler.as_ref(),
                                         &window, elwt,
                                         &mut last_redraw_at, min_frame, &mut redraw_pending,
                                         text_trace_enabled, &mut pending_text_traces,
                                         &mut next_text_trace_seq, presented_frames,
                                         &mut last_blink_toggle,
                                         self.key_handler.as_ref(),
+                                        &mut invalidations,
                                     );
                                 }
                             }
@@ -1269,22 +1429,40 @@ impl<S: AppState + Default, W: Widget<S> + 'static> DesktopApp<S, W> {
                                 handle_scroll(
                                     x, y, dx, dy,
                                     &mut runtime, &pipeline,
-                                    &effect_result_tx, app_effect_handler.as_ref(),
+                                    &effect_result_tx, &event_proxy, app_effect_handler.as_ref(),
                                     &window, elwt,
                                     &mut last_redraw_at, min_frame, &mut redraw_pending,
+                                    &mut invalidations,
                                 );
                             }
                             TestEvent::Resize { width, height } => {
                                 if width > 0 && height > 0 {
-                                    // Store the simulated size so layout uses
-                                    // it instead of window.inner_size().
                                     simulated_viewport = Some((width, height));
-                                    pipeline.last_viewport = None;
-                                    window.request_redraw();
+                                    pending_resize = Some(window.inner_size());
+                                    live_resize.note_resize(Instant::now());
+                                    invalidations.mark_layout();
+                                    request_redraw_throttled(
+                                        &window,
+                                        elwt,
+                                        &mut last_redraw_at,
+                                        resize_frame,
+                                        &mut redraw_pending,
+                                    );
                                 }
                             }
                             TestEvent::TapText { text } => {
                                 let resp = handle_tap_text(&text, &mut runtime, &pipeline);
+                                if matches!(resp, fission_test_driver::TestResponse::Ok { .. }) {
+                                    invalidations.mark_build();
+                                    if process_pending_effects(
+                                        &mut runtime,
+                                        &effect_result_tx,
+                                        &event_proxy,
+                                        app_effect_handler.as_ref(),
+                                    ) {
+                                        invalidations.mark_build();
+                                    }
+                                }
                                 if let Some(ref tx) = test_response_tx {
                                     let _ = tx.send(resp);
                                 }
@@ -1311,6 +1489,7 @@ impl<S: AppState + Default, W: Widget<S> + 'static> DesktopApp<S, W> {
                                 pending_screenshot_path = Some("__pump__".into());
                                 window.request_redraw();
                             }
+                            TestEvent::Wake => {}
                             TestEvent::Wait { ms: _ } => {
                                 // Wait is handled on the server thread; this
                                 // should not arrive here. If it does, just
@@ -1330,14 +1509,6 @@ impl<S: AppState + Default, W: Widget<S> + 'static> DesktopApp<S, W> {
                     // ═══════════════════════════════════════════════════════
                     Event::AboutToWait => {
                         let now = Instant::now();
-                        let dt = now.duration_since(last_frame_time);
-                        last_frame_time = now;
-
-                        // Tick Runtime (Animations)
-                        let dt_ms = dt.as_millis() as u64;
-                        if let Err(e) = runtime.tick(dt_ms) {
-                            eprintln!("Runtime tick error: {:?}", e);
-                        }
 
                         // Video Logic
                         let surfaces = pipeline.take_video_surfaces();
@@ -1433,13 +1604,34 @@ impl<S: AppState + Default, W: Widget<S> + 'static> DesktopApp<S, W> {
                             }
                         }
 
-                        // Check if we need a redraw (Animation or Video playing)
-                        // Only force continuous redraws for non-repeating animations
-                        // or active video players. Repeating animations (spinners, skeleton
-                        // shimmer) should not burn CPU when idle.
-                        let has_finite_animation = runtime.runtime_state.animation.active.values()
-                            .any(|a| !a.repeat);
-                        let needs_redraw = has_finite_animation || !players.is_empty();
+                        let has_finite_animation = runtime
+                            .runtime_state
+                            .animation
+                            .active
+                            .values()
+                            .any(|anim| !anim.repeat);
+                        let has_repeating_animation = runtime
+                            .runtime_state
+                            .animation
+                            .active
+                            .values()
+                            .any(|anim| anim.repeat);
+                        let has_playing_video = players.iter().any(|(widget_id, _)| {
+                            runtime
+                                .runtime_state
+                                .video
+                                .states
+                                .get(widget_id)
+                                .map(|state| state.status == VideoStatus::Playing)
+                                .unwrap_or(false)
+                        });
+                        let animation_frame = animation_redraw_interval(
+                            has_finite_animation,
+                            has_repeating_animation,
+                            has_playing_video,
+                            min_frame,
+                            repeat_animation_frame,
+                        );
 
                         let focused_text_input = focused_text_input_id(&runtime, pipeline.prev_ir.as_ref());
                         if focused_text_input != blink_focus_id {
@@ -1450,6 +1642,7 @@ impl<S: AppState + Default, W: Widget<S> + 'static> DesktopApp<S, W> {
                             if let Some(id) = blink_focus_id {
                                 runtime.runtime_state.caret_visible.insert(id, true);
                                 last_blink_toggle = now;
+                                invalidations.mark_build();
                                 request_redraw_throttled(&window, elwt, &mut last_redraw_at, min_frame, &mut redraw_pending);
                             }
                         }
@@ -1461,6 +1654,7 @@ impl<S: AppState + Default, W: Widget<S> + 'static> DesktopApp<S, W> {
                                     let visible = runtime.runtime_state.caret_visible.get(&id).copied().unwrap_or(true);
                                     runtime.runtime_state.caret_visible.insert(id, !visible);
                                     last_blink_toggle = now;
+                                    invalidations.mark_build();
                                     request_redraw_throttled(&window, elwt, &mut last_redraw_at, min_frame, &mut redraw_pending);
                                 }
                             }
@@ -1476,12 +1670,14 @@ impl<S: AppState + Default, W: Widget<S> + 'static> DesktopApp<S, W> {
                         // their continuations back into the runtime on the main thread.
                         let effect_results_dispatched = drain_effect_results(&mut runtime, &effect_result_rx);
                         if effect_results_dispatched {
+                            invalidations.mark_build();
                             // Background work completed — process any new effects
                             // the continuation reducers may have emitted.
-                            if process_pending_effects(&mut runtime, &effect_result_tx, app_effect_handler.as_ref()) {
+                            if process_pending_effects(&mut runtime, &effect_result_tx, &event_proxy, app_effect_handler.as_ref()) {
+                                invalidations.mark_build();
                                 request_redraw_throttled(&window, elwt, &mut last_redraw_at, min_frame, &mut redraw_pending);
                             }
-                            window.request_redraw();
+                            request_redraw_throttled(&window, elwt, &mut last_redraw_at, min_frame, &mut redraw_pending);
                         }
 
                         // Application frame hook (e.g. LSP polling).
@@ -1496,6 +1692,7 @@ impl<S: AppState + Default, W: Widget<S> + 'static> DesktopApp<S, W> {
                             false
                         };
                         if frame_hook_wants_redraw {
+                            invalidations.mark_build();
                             request_redraw_throttled(&window, elwt, &mut last_redraw_at, min_frame, &mut redraw_pending);
                         }
 
@@ -1509,9 +1706,48 @@ impl<S: AppState + Default, W: Widget<S> + 'static> DesktopApp<S, W> {
                             None
                         };
 
-                        if needs_redraw || redraw_pending || effect_results_dispatched || frame_hook_wants_redraw {
-                            request_redraw_throttled(&window, elwt, &mut last_redraw_at, min_frame, &mut redraw_pending);
-                            let mut wake_at = last_redraw_at + min_frame;
+                        let has_pending_work =
+                            redraw_pending
+                                || effect_results_dispatched
+                                || frame_hook_wants_redraw
+                                || invalidations.any()
+                                || pending_resize.is_some();
+
+                        if has_pending_work {
+                            let pending_frame = pending_work_redraw_interval(
+                                invalidations,
+                                pending_resize.is_some(),
+                                min_frame,
+                                resize_frame,
+                            );
+                            request_redraw_throttled(
+                                &window,
+                                elwt,
+                                &mut last_redraw_at,
+                                pending_frame,
+                                &mut redraw_pending,
+                            );
+                            let mut wake_at = last_redraw_at + pending_frame;
+                            if let Some(blink_at) = blink_wake_at {
+                                if blink_at < wake_at {
+                                    wake_at = blink_at;
+                                }
+                            }
+                            if let Some(hook_at) = frame_hook_wake_at {
+                                if hook_at < wake_at {
+                                    wake_at = hook_at;
+                                }
+                            }
+                            elwt.set_control_flow(ControlFlow::WaitUntil(wake_at));
+                        } else if let Some(animation_frame) = animation_frame {
+                            request_redraw_throttled(
+                                &window,
+                                elwt,
+                                &mut last_redraw_at,
+                                animation_frame,
+                                &mut redraw_pending,
+                            );
+                            let mut wake_at = last_redraw_at + animation_frame;
                             if let Some(blink_at) = blink_wake_at {
                                 if blink_at < wake_at {
                                     wake_at = blink_at;
@@ -1545,61 +1781,132 @@ impl<S: AppState + Default, W: Widget<S> + 'static> DesktopApp<S, W> {
                         match event {
                             WindowEvent::Resized(size) => {
                                 if size.width > 0 && size.height > 0 {
-                                    // Invalidate viewport to force full layout rebuild
-                                    pipeline.last_viewport = None;
-                                    request_redraw_throttled(&window, elwt, &mut last_redraw_at, min_frame, &mut redraw_pending);
+                                    pending_resize = Some(size);
+                                    live_resize.note_resize(Instant::now());
+                                    invalidations.mark_layout();
+                                    request_redraw_throttled(
+                                        &window,
+                                        elwt,
+                                        &mut last_redraw_at,
+                                        resize_frame,
+                                        &mut redraw_pending,
+                                    );
                                 }
                             }
                             WindowEvent::ScaleFactorChanged { .. } => {
-                                // Invalidate viewport to force full layout rebuild
-                                pipeline.last_viewport = None;
-                                request_redraw_throttled(&window, elwt, &mut last_redraw_at, min_frame, &mut redraw_pending);
+                                pending_resize = Some(window.inner_size());
+                                live_resize.note_resize(Instant::now());
+                                invalidations.mark_layout();
+                                request_redraw_throttled(
+                                    &window,
+                                    elwt,
+                                    &mut last_redraw_at,
+                                    resize_frame,
+                                    &mut redraw_pending,
+                                );
                             }
                             WindowEvent::RedrawRequested => {
                                 redraw_pending = false;
                                 diag::begin_frame(None);
-                                // Drain pending effects before building the next frame.
-                                // This prevents the effect queue from growing unbounded.
-                                if process_pending_effects(&mut runtime, &effect_result_tx, app_effect_handler.as_ref()) {
+                                let now = Instant::now();
+                                let dt = now.duration_since(last_frame_time);
+                                last_frame_time = now;
+                                let dt_ms = dt.as_millis() as u64;
+                                match runtime.tick(dt_ms) {
+                                    Ok(tick_result) => {
+                                        invalidations.merge(
+                                            pipeline.classify_animation_updates(
+                                                &tick_result.changed_animations,
+                                            ),
+                                        );
+                                    }
+                                    Err(e) => {
+                                        eprintln!("Runtime tick error: {:?}", e);
+                                    }
+                                }
+                                if process_pending_effects(&mut runtime, &effect_result_tx, &event_proxy, app_effect_handler.as_ref()) {
+                                    invalidations.mark_build();
                                     request_redraw_throttled(&window, elwt, &mut last_redraw_at, min_frame, &mut redraw_pending);
                                 }
-                                let size = window.inner_size();
-                                if size.width > 0 && size.height > 0 {
-                                    if size.width != surface.config.width || size.height != surface.config.height {
-                                        render_cx.resize_surface(&mut surface, size.width, size.height);
-                                        // Re-apply alpha mode after resize
-                                        let device_handle = &render_cx.devices[surface.dev_id];
-                                        surface.config.alpha_mode = wgpu::CompositeAlphaMode::PostMultiplied;
-                                        surface.surface.configure(&device_handle.device, &surface.config);
-                                        // Recreate target texture with COPY_SRC for screenshots
-                                        recreate_target_texture(&mut surface, &render_cx);
+                                let surface_size = pending_resize.unwrap_or_else(|| window.inner_size());
+                                if surface_size.width == 0 || surface_size.height == 0 {
+                                    diag::end_frame(diag::FrameStats::default());
+                                    return;
+                                }
+
+                                if surface_size.width != surface.config.width
+                                    || surface_size.height != surface.config.height
+                                {
+                                    render_cx.resize_surface(
+                                        &mut surface,
+                                        surface_size.width,
+                                        surface_size.height,
+                                    );
+                                    let device_handle = &render_cx.devices[surface.dev_id];
+                                    surface.config.alpha_mode = wgpu::CompositeAlphaMode::PostMultiplied;
+                                    surface.surface.configure(&device_handle.device, &surface.config);
+                                    recreate_target_texture(&mut surface, &render_cx);
+                                }
+
+                                let scale_factor = window.scale_factor();
+                                let pending_layout_viewport = if let Some((sw, sh)) = simulated_viewport {
+                                    (sw as f32, sh as f32)
+                                } else {
+                                    (
+                                        (surface_size.width as f64 / scale_factor) as f32,
+                                        (surface_size.height as f64 / scale_factor) as f32,
+                                    )
+                                };
+
+                                let force_resize_layout = invalidations.build
+                                    || pipeline.prev_ir.is_none()
+                                    || pipeline.last_snapshot.is_none();
+                                let apply_resize_layout = if pending_resize.is_some() {
+                                    live_resize.should_apply_layout(
+                                        now,
+                                        pipeline.last_snapshot.is_some(),
+                                        force_resize_layout,
+                                    )
+                                } else {
+                                    force_resize_layout
+                                };
+                                let resize_settled =
+                                    pending_resize.is_some() && !live_resize.is_live(now);
+                                if resize_settled && apply_resize_layout {
+                                    invalidations.mark_build();
+                                }
+
+                                let retained_viewport = pipeline
+                                    .last_viewport
+                                    .map(|viewport| viewport.size)
+                                    .unwrap_or(LayoutSize {
+                                        width: pending_layout_viewport.0,
+                                        height: pending_layout_viewport.1,
+                                    });
+                                let viewport = if apply_resize_layout {
+                                    LayoutSize {
+                                        width: pending_layout_viewport.0,
+                                        height: pending_layout_viewport.1,
                                     }
+                                } else {
+                                    retained_viewport
+                                };
+                                env.viewport_size = viewport;
 
-                                    let scale_factor = window.scale_factor();
-                                    // Use simulated viewport dimensions when
-                                    // a test resize event has been injected,
-                                    // otherwise derive from the real window size.
-                                    let (layout_width, layout_height) = if let Some((sw, sh)) = simulated_viewport {
-                                        (sw as f32, sh as f32)
-                                    } else {
-                                        (
-                                            (size.width as f64 / scale_factor) as f32,
-                                            (size.height as f64 / scale_factor) as f32,
-                                        )
-                                    };
-                                    env.viewport_size = LayoutSize {
-                                        width: layout_width,
-                                        height: layout_height,
-                                    };
+                                if let Some(sync) = &self.sync_env {
+                                    let state = runtime.get_app_state::<S>().unwrap();
+                                    sync(state, &mut env);
+                                }
 
-                                    if let Some(sync) = &self.sync_env {
-                                        let state = runtime.get_app_state::<S>().unwrap();
-                                        sync(state, &mut env);
-                                    }
-
+                                if invalidations.build || pipeline.prev_ir.is_none() {
                                     let (node_tree, registry, anims, videos, web_views, portals) = {
                                         let state = runtime.get_app_state::<S>().unwrap();
-                                        let view = View::new(state, &runtime.runtime_state, &env, pipeline.last_snapshot.as_ref());
+                                        let view = View::new(
+                                            state,
+                                            &runtime.runtime_state,
+                                            &env,
+                                            pipeline.last_snapshot.as_ref(),
+                                        );
                                         let mut ctx = BuildCtx::new();
                                         let node = root_widget.build(&mut ctx, &view);
                                         let anims = ctx.take_animation_requests();
@@ -1607,29 +1914,32 @@ impl<S: AppState + Default, W: Widget<S> + 'static> DesktopApp<S, W> {
                                         let web_views = ctx.take_web_registrations();
                                         let portals_with_ids = ctx.take_portals();
 
-                                        let portals = portals_with_ids.into_iter().map(|(id, node)| {
-                                            if let Some(id) = id {
-                                                // Use a derived ID for the wrapper to avoid conflict with the widget's own node
-                                                let wrapper_id = fission_core::NodeId::derived(id.as_u128(), &[0x0000_F001]);
-                                                fission_core::ui::Container::new(node)
-                                                    .id(wrapper_id)
-                                                    .width(env.viewport_size.width)
-                                                    .height(env.viewport_size.height)
-                                                    .into_node()
-                                            } else {
-                                                node
-                                            }
-                                        }).collect::<Vec<_>>();
+                                        let portals = portals_with_ids
+                                            .into_iter()
+                                            .map(|(id, node)| {
+                                                if let Some(id) = id {
+                                                    let wrapper_id = fission_core::NodeId::derived(
+                                                        id.as_u128(),
+                                                        &[0x0000_F001],
+                                                    );
+                                                    fission_core::ui::Container::new(node)
+                                                        .id(wrapper_id)
+                                                        .width(env.viewport_size.width)
+                                                        .height(env.viewport_size.height)
+                                                        .into_node()
+                                                } else {
+                                                    node
+                                                }
+                                            })
+                                            .collect::<Vec<_>>();
 
-                                        // Emit portal summary to diagnostics
-                                        {
-                                            use fission_diagnostics::prelude as diag;
-                                            diag::emit(
-                                                diag::DiagCategory::Layout,
-                                                diag::DiagLevel::Debug,
-                                                diag::DiagEventKind::PortalsComposed { portal_count: portals.len() as u32 },
-                                            );
-                                        }
+                                        diag::emit(
+                                            diag::DiagCategory::Layout,
+                                            diag::DiagLevel::Debug,
+                                            diag::DiagEventKind::PortalsComposed {
+                                                portal_count: portals.len() as u32,
+                                            },
+                                        );
                                         (node, ctx.registry, anims, videos, web_views, portals)
                                     };
 
@@ -1641,9 +1951,6 @@ impl<S: AppState + Default, W: Widget<S> + 'static> DesktopApp<S, W> {
                                     runtime.sync_video_nodes(&videos);
                                     runtime.sync_web_nodes(&web_views);
 
-                                    // Always compose an overlay layer above content.
-                                    // Portals are injected into that layer and never
-                                    // participate in normal layout.
                                     let final_root = fission_core::Node::Overlay(
                                         fission_core::ui::Overlay {
                                             id: None,
@@ -1654,117 +1961,162 @@ impl<S: AppState + Default, W: Widget<S> + 'static> DesktopApp<S, W> {
                                                     ..Default::default()
                                                 },
                                             )),
-                                        }
+                                        },
                                     );
 
-                                    let mut lower_cx = LoweringContext::new(&env, &runtime.runtime_state, runtime.measurer.as_ref(), pipeline.last_snapshot.as_ref());
+                                    let mut lower_cx = LoweringContext::new(
+                                        &env,
+                                        &runtime.runtime_state,
+                                        runtime.measurer.as_ref(),
+                                        pipeline.last_snapshot.as_ref(),
+                                    );
                                     let root_id = final_root.lower(&mut lower_cx);
                                     lower_cx.ir.root = Some(root_id);
-                                    let cx_ir = lower_cx.ir;
 
-                                    let viewport = LayoutSize {
-                                        width: layout_width,
-                                        height: layout_height,
-                                    };
+                                    let pipeline_invalidations =
+                                        pipeline.replace_ir(lower_cx.ir, &env);
+                                    invalidations.merge(pipeline_invalidations);
+                                }
 
-                                    // Vello Rendering
-                                    scene.reset();
+                                let layout_updates = match pipeline.ensure_layout(
+                                    LayoutRect::new(0.0, 0.0, viewport.width, viewport.height),
+                                    &mut layout_engine,
+                                    &runtime.runtime_state.scroll,
+                                ) {
+                                    Ok(updates) => updates,
+                                    Err(e) => {
+                                        eprintln!("Layout error: {:?}", e);
+                                        diag::end_frame(diag::FrameStats::default());
+                                        return;
+                                    }
+                                };
 
-                                    let mut renderer_wrapper = VelloRenderer::new(&mut scene, measurer.clone(), scale_factor);
+                                if layout_updates > 0 {
+                                    if let (Some(ir), Some(layout)) =
+                                        (pipeline.prev_ir.as_ref(), pipeline.last_snapshot.as_ref())
+                                    {
+                                        runtime.post_layout_hook(ir, layout);
+                                    }
+                                }
 
-                                    match pipeline.render(
-                                        cx_ir,
-                                        viewport,
-                                        &mut layout_engine,
-                                        &runtime.runtime_state.scroll,
-                                        &mut renderer_wrapper,
-                                        &runtime.runtime_state.video,
-                                        &runtime.runtime_state.web,
-                                        &env,
-                                    ) {
-                                        Ok(_stats) => {
-                                            let surface_texture = surface.surface.get_current_texture().expect("failed to get texture");
-                                            let device_handle = &render_cx.devices[surface.dev_id];
+                                scene.reset();
+                                let mut renderer_wrapper =
+                                    VelloRenderer::new(
+                                        &mut scene,
+                                        measurer.clone(),
+                                        &mut retained_scene_cache,
+                                        scale_factor,
+                                    );
 
-                                            let render_params = vello::RenderParams {
-                                                base_color: vello::peniko::Color::from_rgb8(30, 30, 30),
-                                                width: size.width,
-                                                height: size.height,
-                                                antialiasing_method: vello::AaConfig::Area,
-                                            };
+                                match pipeline.render_current(
+                                    LayoutSize {
+                                        width: pending_layout_viewport.0,
+                                        height: pending_layout_viewport.1,
+                                    },
+                                    &mut renderer_wrapper,
+                                    &runtime.runtime_state.scroll,
+                                    &runtime.runtime_state.animation,
+                                    &runtime.runtime_state.video,
+                                    &runtime.runtime_state.web,
+                                ) {
+                                    Ok(_stats) => {
+                                        let surface_texture = surface
+                                            .surface
+                                            .get_current_texture()
+                                            .expect("failed to get texture");
+                                        let device_handle = &render_cx.devices[surface.dev_id];
 
-                                            vello_renderer.render_to_texture(
+                                        let render_params = vello::RenderParams {
+                                            base_color: vello::peniko::Color::from_rgb8(30, 30, 30),
+                                            width: surface_size.width,
+                                            height: surface_size.height,
+                                            antialiasing_method: vello::AaConfig::Area,
+                                        };
+
+                                        vello_renderer
+                                            .render_to_texture(
                                                 &device_handle.device,
                                                 &device_handle.queue,
                                                 &scene,
                                                 &surface.target_view,
                                                 &render_params,
-                                            ).expect("failed to render");
+                                            )
+                                            .expect("failed to render");
 
-                                            for (_, _rect, payload) in &pipeline.scene_3d_surfaces {
-                                                if let Ok(primitives) = bincode::deserialize::<Vec<fission_3d::Primitive3D>>(payload) {
-                                                    let scene3d = fission_3d::Scene3D {
-                                                        width: Some(size.width as f32),
-                                                        height: Some(size.height as f32),
-                                                        primitives,
-                                                    };
-                                                    scene3d_renderer.render(
+                                        for (_, _rect, payload) in &pipeline.scene_3d_surfaces {
+                                            if let Ok(primitives) =
+                                                bincode::deserialize::<Vec<fission_3d::Primitive3D>>(payload)
+                                            {
+                                                let scene3d = fission_3d::Scene3D {
+                                                    width: Some(surface_size.width as f32),
+                                                    height: Some(surface_size.height as f32),
+                                                    primitives,
+                                                };
+                                                scene3d_renderer.render(
+                                                    &device_handle.device,
+                                                    &device_handle.queue,
+                                                    &surface.target_view,
+                                                    &scene3d,
+                                                );
+                                            }
+                                        }
+
+                                        let surface_view = surface_texture
+                                            .texture
+                                            .create_view(&wgpu::TextureViewDescriptor::default());
+
+                                        let mut encoder = device_handle.device.create_command_encoder(
+                                            &wgpu::CommandEncoderDescriptor {
+                                                label: Some("Surface Blit"),
+                                            },
+                                        );
+
+                                        surface.blitter.copy(
+                                            &device_handle.device,
+                                            &mut encoder,
+                                            &surface.target_view,
+                                            &surface_view,
+                                        );
+
+                                        device_handle.queue.submit(Some(encoder.finish()));
+
+                                        if let Some(path) = pending_screenshot_path.take() {
+                                            if let Some(ref tx) = test_response_tx {
+                                                if path == "__pump__" {
+                                                    let _ =
+                                                        tx.send(fission_test_driver::TestResponse::Ok {});
+                                                } else {
+                                                    let resp = gpu_screenshot(
                                                         &device_handle.device,
                                                         &device_handle.queue,
-                                                        &surface.target_view,
-                                                        &scene3d,
+                                                    &surface.target_texture,
+                                                        surface_size.width,
+                                                        surface_size.height,
+                                                        &path,
                                                     );
+                                                    let _ = tx.send(resp);
                                                 }
                                             }
-
-                                            let surface_view = surface_texture.texture.create_view(&wgpu::TextureViewDescriptor::default());
-
-                                            let mut encoder = device_handle.device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
-                                                label: Some("Surface Blit"),
-                                            });
-
-                                            surface.blitter.copy(
-                                                &device_handle.device,
-                                                &mut encoder,
-                                                &surface.target_view,
-                                                &surface_view,
-                                            );
-
-                                            device_handle.queue.submit(Some(encoder.finish()));
-
-                                            // GPU screenshot / pump response BEFORE present
-                                            if let Some(path) = pending_screenshot_path.take() {
-                                                if let Some(ref tx) = test_response_tx {
-                                                    if path == "__pump__" {
-                                                        let _ = tx.send(fission_test_driver::TestResponse::Ok {});
-                                                    } else {
-                                                        let resp = gpu_screenshot(
-                                                            &device_handle.device,
-                                                            &device_handle.queue,
-                                                            &surface.target_texture,
-                                                            size.width,
-                                                            size.height,
-                                                            &path,
-                                                        );
-                                                        let _ = tx.send(resp);
-                                                    }
-                                                }
-                                            }
-
-                                            surface_texture.present();
-
-                                            presented_frames = presented_frames.saturating_add(1);
-                                            flush_text_traces(
-                                                text_trace_enabled,
-                                                &mut pending_text_traces,
-                                                presented_frames,
-                                            );
-
-                                            diag::end_frame(diag::FrameStats::default());
                                         }
-                                        Err(e) => {
-                                            eprintln!("Pipeline error: {:?}", e);
+
+                                        surface_texture.present();
+                                        if apply_resize_layout {
+                                            pending_resize = None;
                                         }
+                                        invalidations = InvalidationSet::default();
+
+                                        presented_frames = presented_frames.saturating_add(1);
+                                        flush_text_traces(
+                                            text_trace_enabled,
+                                            &mut pending_text_traces,
+                                            presented_frames,
+                                        );
+
+                                        diag::end_frame(diag::FrameStats::default());
+                                    }
+                                    Err(e) => {
+                                        eprintln!("Pipeline error: {:?}", e);
+                                        diag::end_frame(diag::FrameStats::default());
                                     }
                                 }
                             }
@@ -1781,9 +2133,10 @@ impl<S: AppState + Default, W: Widget<S> + 'static> DesktopApp<S, W> {
                                 handle_cursor_moved(
                                     x, y,
                                     &mut runtime, &pipeline,
-                                    &effect_result_tx, app_effect_handler.as_ref(),
+                                    &effect_result_tx, &event_proxy, app_effect_handler.as_ref(),
                                     &window, elwt,
                                     &mut last_redraw_at, min_frame, &mut redraw_pending,
+                                    &mut invalidations,
                                 );
                             }
                             WindowEvent::MouseInput { state, button, .. } => {
@@ -1796,12 +2149,13 @@ impl<S: AppState + Default, W: Widget<S> + 'static> DesktopApp<S, W> {
                                         handle_mouse_button(
                                             x, y, btn, is_pressed,
                                             &mut runtime, &pipeline,
-                                            &effect_result_tx, app_effect_handler.as_ref(),
+                                            &effect_result_tx, &event_proxy, app_effect_handler.as_ref(),
                                             &window, elwt,
                                             &mut last_redraw_at, min_frame, &mut redraw_pending,
                                             text_trace_enabled, &mut pending_text_traces,
                                             &mut next_text_trace_seq, presented_frames,
                                             &mut last_blink_toggle,
+                                            &mut invalidations,
                                         );
                                     }
                                 }
@@ -1829,9 +2183,10 @@ impl<S: AppState + Default, W: Widget<S> + 'static> DesktopApp<S, W> {
                                     handle_scroll(
                                         point_x, point_y, dx, dy,
                                         &mut runtime, &pipeline,
-                                        &effect_result_tx, app_effect_handler.as_ref(),
+                                        &effect_result_tx, &event_proxy, app_effect_handler.as_ref(),
                                         &window, elwt,
                                         &mut last_redraw_at, min_frame, &mut redraw_pending,
+                                        &mut invalidations,
                                     );
                                 }
                             }
@@ -1870,13 +2225,14 @@ impl<S: AppState + Default, W: Widget<S> + 'static> DesktopApp<S, W> {
                                         handle_key_down::<S>(
                                             code, current_mods,
                                             &mut runtime, &pipeline,
-                                            &effect_result_tx, app_effect_handler.as_ref(),
+                                            &effect_result_tx, &event_proxy, app_effect_handler.as_ref(),
                                             &window, elwt,
                                             &mut last_redraw_at, min_frame, &mut redraw_pending,
                                             text_trace_enabled, &mut pending_text_traces,
                                             &mut next_text_trace_seq, presented_frames,
                                             &mut last_blink_toggle,
                                             self.key_handler.as_ref(),
+                                            &mut invalidations,
                                         );
                                     }
                                 }
@@ -1906,9 +2262,11 @@ impl<S: AppState + Default, W: Widget<S> + 'static> DesktopApp<S, W> {
                                             presented_frames,
                                         );
                                         runtime.handle_input(e, ir, layout).ok();
+                                        invalidations.mark_build();
                                         mark_text_trace_handled(&mut pending_text_traces, trace_seq);
-                                        if process_pending_effects(&mut runtime, &effect_result_tx, app_effect_handler.as_ref()) {
+                                        if process_pending_effects(&mut runtime, &effect_result_tx, &event_proxy, app_effect_handler.as_ref()) {
                                             mark_text_trace_effects(&mut pending_text_traces, trace_seq);
+                                            invalidations.mark_build();
                                             request_redraw_throttled(&window, elwt, &mut last_redraw_at, min_frame, &mut redraw_pending);
                                         }
                                         reset_text_input_caret(&mut runtime, pipeline.prev_ir.as_ref(), &mut last_blink_toggle);
@@ -2073,4 +2431,78 @@ fn recreate_target_texture(
     let new_view = new_texture.create_view(&wgpu::TextureViewDescriptor::default());
     surface.target_texture = new_texture;
     surface.target_view = new_view;
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{animation_redraw_interval, LiveResizeController};
+    use std::time::Duration;
+
+    #[test]
+    fn repeating_animation_uses_reduced_frame_rate() {
+        let min_frame = Duration::from_millis(16);
+        let repeat_frame = Duration::from_millis(66);
+        assert_eq!(
+            animation_redraw_interval(false, true, false, min_frame, repeat_frame),
+            Some(repeat_frame)
+        );
+    }
+
+    #[test]
+    fn finite_animation_keeps_full_frame_rate() {
+        let min_frame = Duration::from_millis(16);
+        let repeat_frame = Duration::from_millis(66);
+        assert_eq!(
+            animation_redraw_interval(true, false, false, min_frame, repeat_frame),
+            Some(min_frame)
+        );
+        assert_eq!(
+            animation_redraw_interval(false, false, true, min_frame, repeat_frame),
+            Some(min_frame)
+        );
+    }
+
+    #[test]
+    fn idle_video_does_not_force_full_frame_rate() {
+        let min_frame = Duration::from_millis(16);
+        let repeat_frame = Duration::from_millis(66);
+        assert_eq!(
+            animation_redraw_interval(false, true, false, min_frame, repeat_frame),
+            Some(repeat_frame)
+        );
+    }
+
+    #[test]
+    fn live_resize_defers_layout_until_settled() {
+        let settle = Duration::from_millis(90);
+        let mut resize = LiveResizeController::new(settle);
+        let now = std::time::Instant::now();
+        resize.note_resize(now);
+
+        assert!(resize.is_live(now + Duration::from_millis(30)));
+        assert!(!resize.should_apply_layout(
+            now + Duration::from_millis(30),
+            true,
+            false
+        ));
+        assert!(resize.should_apply_layout(
+            now + Duration::from_millis(95),
+            true,
+            false
+        ));
+    }
+
+    #[test]
+    fn live_resize_force_path_bypasses_settle_delay() {
+        let settle = Duration::from_millis(90);
+        let mut resize = LiveResizeController::new(settle);
+        let now = std::time::Instant::now();
+        resize.note_resize(now);
+
+        assert!(resize.should_apply_layout(
+            now + Duration::from_millis(10),
+            true,
+            true
+        ));
+    }
 }

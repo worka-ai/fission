@@ -423,6 +423,7 @@ impl Widget<GalleryState> for GalleryApp {
                         Spinner {
                             id: WidgetNodeId::explicit("spinner1"),
                             color: None,
+                            animated: true,
                         }
                         .build(ctx, view),
                         CircularProgress {
@@ -436,6 +437,7 @@ impl Widget<GalleryState> for GalleryApp {
                             width: Some(120.0),
                             height: Some(20.0),
                             circle: false,
+                            animated: true,
                         }
                         .build(ctx, view),
                     ],

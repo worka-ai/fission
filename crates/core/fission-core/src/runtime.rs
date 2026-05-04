@@ -4,7 +4,9 @@ use crate::env::{
     ActiveAnimation, AnimationStateMap, Env, InteractionStateMap, RuntimeState, ScrollStateMap,
     VideoStateMap, VideoStatus,
 };
-use crate::registry::{ActionRegistry, AnimationRequest, AnimationStartValue, VideoRegistration};
+use crate::registry::{
+    ActionRegistry, AnimationPropertyId, AnimationRequest, AnimationStartValue, VideoRegistration,
+};
 use crate::BoxedReducer;
 use crate::{
     Clipboard, Clock, CurrentTime, ImeHandler, InputEvent, KeyCode, KeyEvent, PointerButton,
@@ -19,6 +21,11 @@ use serde_json;
 use std::any::{Any, TypeId};
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
+
+#[derive(Debug, Default, Clone)]
+pub struct TickResult {
+    pub changed_animations: Vec<(WidgetNodeId, AnimationPropertyId)>,
+}
 
 /// The core runtime that owns application state, reducers, and the effect queue.
 ///
@@ -333,7 +340,7 @@ impl Runtime {
         Ok(())
     }
 
-    pub fn tick(&mut self, dt: CurrentTime) -> Result<()> {
+    pub fn tick(&mut self, dt: CurrentTime) -> Result<TickResult> {
         use crate::Tick;
         let action = Tick { dt };
         let envelope: ActionEnvelope = action.into();
@@ -342,7 +349,7 @@ impl Runtime {
         let current_time = self.clock().current_time();
 
         let mut finished = Vec::new();
-        let mut has_animation_changes = false;
+        let mut result = TickResult::default();
         for ((target, property), anim) in self.runtime_state.animation.active.iter_mut() {
             let elapsed = current_time.saturating_sub(anim.start_time);
             let mut progress = if anim.duration == 0 {
@@ -370,18 +377,17 @@ impl Runtime {
                     .animation
                     .values
                     .insert((*target, property.clone()), value);
-                has_animation_changes = true;
+                result
+                    .changed_animations
+                    .push((*target, property.clone()));
             }
         }
 
         for key in finished {
             self.runtime_state.animation.active.remove(&key);
-            has_animation_changes = true;
         }
 
-        let _ = has_animation_changes;
-
-        Ok(())
+        Ok(result)
     }
 
     pub fn enqueue_animation(&mut self, target: WidgetNodeId, request: AnimationRequest) {
@@ -404,15 +410,23 @@ impl Runtime {
             .animation
             .values
             .get(&key)
-            .copied()
-            .unwrap_or_else(|| request.property.default_value());
+            .copied();
+        let current_value = current_value.unwrap_or_else(|| request.property.default_value());
 
-        // If we are already at the target value and no animation is running, do we need to start one?
-        // Yes, because we might want to ensure it's "set" or trigger completion events (if we had them).
-        // But if start == end and duration > 0, it's a no-op animation?
-        // Optimization: if current == to, maybe skip?
-        // But if we want to "hold" the value, active animation keeps it?
-        // Let's simpler logic: Start new if target changed.
+        // Declarative builds can re-emit the same terminal transition every frame.
+        // If the current visible value already matches the target and nothing is
+        // animating, treat it as satisfied instead of starting a zero-delta
+        // animation that would keep the shell redrawing forever.
+        if !request.repeat
+            && self.runtime_state.animation.values.contains_key(&key)
+            && (current_value - request.to).abs() < 0.001
+        {
+            self.runtime_state
+                .animation
+                .values
+                .insert(key, request.to);
+            return;
+        }
 
         let start_value = match request.from {
             AnimationStartValue::Explicit(v) => v,
@@ -602,7 +616,21 @@ impl Runtime {
                         if result.handled {
                             // Set focus to this node so keyboard events route here
                             if matches!(event, InputEvent::Pointer(PointerEvent::Down { .. })) {
+                                let old_focused_id = self.runtime_state.interaction.focused;
+                                if Some(nid) != old_focused_id {
+                                    self.clear_text_pending_on_blur(old_focused_id, Some(nid));
+                                    self.dispatch_custom_blur_actions(ir, old_focused_id)?;
+                                }
                                 self.runtime_state.interaction.set_focused(Some(nid));
+                                if let Some(ime_handler) = &self.ime_handler {
+                                    let accepts_text = render_obj.accepts_text_input();
+                                    ime_handler.set_ime_allowed(accepts_text);
+                                    if accepts_text {
+                                        if let Some(rect) = render_obj.ime_cursor_area(node_rect) {
+                                            ime_handler.set_ime_cursor_area(rect);
+                                        }
+                                    }
+                                }
                             }
                             // Dispatch any actions the render object produced.
                             for (target, envelope) in result.actions {
@@ -620,7 +648,7 @@ impl Runtime {
         // (if any) and walk up its ancestor chain looking for a custom render
         // object.  This allows custom editor nodes to handle arrow keys,
         // typing, etc. before the framework's default focus-navigation logic.
-        if matches!(event, InputEvent::Keyboard(_)) {
+        if matches!(event, InputEvent::Keyboard(_) | InputEvent::Ime(_)) {
             if let Some(focused_id) = self.runtime_state.interaction.focused {
                 let mut walk_id = Some(focused_id);
                 while let Some(nid) = walk_id {
@@ -653,7 +681,6 @@ impl Runtime {
                 text_edit: &mut self.runtime_state.text_edit,
                 interaction: &mut self.runtime_state.interaction,
                 scroll: &mut self.runtime_state.scroll,
-                ime_preedit: &mut self.runtime_state.ime_preedit,
                 gesture: &mut self.runtime_state.gesture,
                 clipboard: self.clipboard_backend.as_ref(),
                 measurer: self.measurer.as_ref(),
@@ -802,8 +829,8 @@ impl Runtime {
                     let next =
                         find_next_focus_node(ir, self.runtime_state.interaction.focused, reverse);
                     if next != old_focus {
-                        self.runtime_state.ime_preedit = None;
                         self.clear_text_pending_on_blur(old_focus, next);
+                        self.dispatch_custom_blur_actions(ir, old_focus)?;
                     }
                     self.runtime_state.interaction.set_focused(next);
                 }
@@ -817,8 +844,8 @@ impl Runtime {
                             _ => unreachable!(),
                         };
                         if let Some(next) = find_neighbor_focus_node(ir, layout, focused, dir) {
-                            self.runtime_state.ime_preedit = None;
                             self.clear_text_pending_on_blur(Some(focused), Some(next));
+                            self.dispatch_custom_blur_actions(ir, Some(focused))?;
                             self.runtime_state.interaction.set_focused(Some(next));
                         }
                     }
@@ -868,11 +895,11 @@ impl Runtime {
                                 if s.focusable {
                                     let old_focused_id = self.runtime_state.interaction.focused;
                                     if Some(node_id) != old_focused_id {
-                                        self.runtime_state.ime_preedit = None;
                                         self.clear_text_pending_on_blur(
                                             old_focused_id,
                                             Some(node_id),
                                         );
+                                        self.dispatch_custom_blur_actions(ir, old_focused_id)?;
 
                                         if s.role == fission_ir::semantics::Role::TextInput {
                                             if let Some(ime_handler) = &self.ime_handler {
@@ -905,6 +932,7 @@ impl Runtime {
                             }
                         }
                         self.clear_text_pending_on_blur(old_focused_id, None);
+                        self.dispatch_custom_blur_actions(ir, old_focused_id)?;
                         self.runtime_state.interaction.set_focused(None);
                     }
 
@@ -946,6 +974,7 @@ impl Runtime {
                         }
                     }
                     self.clear_text_pending_on_blur(old_focused_id, None);
+                    self.dispatch_custom_blur_actions(ir, old_focused_id)?;
                     self.runtime_state.interaction.set_focused(None);
                 }
             }
@@ -1000,8 +1029,32 @@ impl Runtime {
         if let Some(old_id) = old_focus {
             if let Some(st) = self.runtime_state.text_edit.states.get_mut(&old_id) {
                 st.pending_model_sync = false;
+                st.clear_preedit();
             }
         }
+    }
+
+    fn dispatch_custom_blur_actions(
+        &mut self,
+        ir: &CoreIR,
+        old_focus: Option<NodeId>,
+    ) -> Result<()> {
+        if let Some(old_id) = old_focus {
+            if let Some(any_ro) = ir.custom_render_objects.get(&old_id) {
+                if let Some(render_obj) = crate::ui::custom_render::downcast_render_object(any_ro)
+                {
+                    if render_obj.accepts_text_input() {
+                        if let Some(ime_handler) = &self.ime_handler {
+                            ime_handler.set_ime_allowed(false);
+                        }
+                    }
+                    for (target, envelope) in render_obj.blur_actions(old_id) {
+                        self.dispatch(envelope, target)?;
+                    }
+                }
+            }
+        }
+        Ok(())
     }
 
     pub fn hit_test(

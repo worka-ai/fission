@@ -22,6 +22,7 @@ pub mod spacer;
 pub mod slider;
 pub mod lazy_column;
 pub mod icon;
+pub mod composite;
 
 pub use button::{Button, ButtonContentAlign, ButtonVariant};
 pub use align::Align;
@@ -47,6 +48,7 @@ pub use spacer::Spacer;
 pub use slider::Slider;
 pub use lazy_column::LazyColumn;
 pub use icon::Icon;
+pub use composite::Composite;
 
 pub mod gesture_detector;
 pub use gesture_detector::GestureDetector;

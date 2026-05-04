@@ -144,6 +144,62 @@ fn node_rect(h: &TestHarness<InboxState>, node_id: NodeId) -> Option<LayoutRect>
         .and_then(|snap| snap.get_node_rect(node_id))
 }
 
+fn describe_hit_path(h: &TestHarness<InboxState>, node_id: Option<NodeId>) -> String {
+    let Some(node_id) = node_id else {
+        return "none".into();
+    };
+    let ir = match h.last_ir.as_ref() {
+        Some(ir) => ir,
+        None => return format!("{node_id:?} (no ir)"),
+    };
+    let mut out = Vec::new();
+    let mut current = Some(node_id);
+    while let Some(id) = current {
+        let Some(node) = ir.nodes.get(&id) else {
+            out.push(format!("{id:?}: <missing>"));
+            break;
+        };
+        let part = match &node.op {
+            Op::Semantics(s) => format!(
+                "{id:?}: Semantics(role={:?}, focusable={}, draggable={}, actions={:?}, value={:?}, drag_payload={})",
+                s.role,
+                s.focusable,
+                s.draggable,
+                s.actions.entries.iter().map(|e| e.trigger).collect::<Vec<_>>(),
+                s.value,
+                s.drag_payload.is_some()
+            ),
+            Op::Layout(layout) => format!("{id:?}: Layout({layout:?})"),
+            Op::Paint(paint) => format!("{id:?}: Paint({paint:?})"),
+            other => format!("{id:?}: {other:?}"),
+        };
+        out.push(part);
+        current = node.parent;
+    }
+    out.join(" <- ")
+}
+
+fn find_semantic_node_rects(
+    h: &TestHarness<InboxState>,
+    predicate: impl Fn(&fission_ir::Semantics) -> bool,
+) -> Vec<(NodeId, LayoutRect)> {
+    let mut rects = Vec::new();
+    let ir = match h.last_ir.as_ref() {
+        Some(ir) => ir,
+        None => return rects,
+    };
+    for (node_id, node) in &ir.nodes {
+        if let Op::Semantics(semantics) = &node.op {
+            if predicate(semantics) {
+                if let Some(rect) = node_rect(h, *node_id) {
+                    rects.push((*node_id, rect));
+                }
+            }
+        }
+    }
+    rects
+}
+
 fn find_text_node_rects(h: &TestHarness<InboxState>, needle: &str) -> Vec<LayoutRect> {
     let mut rects = Vec::new();
     let ir = match h.last_ir.as_ref() {
@@ -647,8 +703,34 @@ fn calendar_select_updates_state() -> Result<()> {
 #[test]
 fn drag_tag_updates_pinned_label() -> Result<()> {
     let mut h = pump_state(state_settings())?;
-    let target = find_text_node_rect(&h, "Drop label here to pin").expect("drop target rect");
-    let start = find_text_node_rect_near(&h, "Work", target).expect("drag tag rect");
+    let target = find_semantic_node_rects(&h, |s| {
+        s.actions
+            .entries
+            .iter()
+            .any(|entry| entry.trigger == ActionTrigger::Drop)
+    })
+    .into_iter()
+    .map(|(_, rect)| rect)
+    .min_by(|a, b| {
+        a.y()
+            .partial_cmp(&b.y())
+            .unwrap_or(std::cmp::Ordering::Equal)
+            .then_with(|| {
+                a.x()
+                    .partial_cmp(&b.x())
+                    .unwrap_or(std::cmp::Ordering::Equal)
+            })
+    })
+    .expect("drop target rect");
+    let start = find_semantic_node_rects(&h, |s| s.drag_payload.as_ref().is_some())
+        .into_iter()
+        .map(|(_, rect)| rect)
+        .min_by(|a, b| {
+            let da = (a.x() - target.x()).powi(2) + (a.y() - target.y()).powi(2);
+            let db = (b.x() - target.x()).powi(2) + (b.y() - target.y()).powi(2);
+            da.partial_cmp(&db).unwrap_or(std::cmp::Ordering::Equal)
+        })
+        .expect("drag source rect");
 
     let start_point = fission_core::LayoutPoint::new(start.x() + 4.0, start.y() + 4.0);
     let target_point = fission_core::LayoutPoint::new(
@@ -669,7 +751,31 @@ fn drag_tag_updates_pinned_label() -> Result<()> {
     }))?;
 
     let state = h.runtime.get_app_state::<InboxState>().unwrap();
-    assert_eq!(state.last_drag_label.as_deref(), Some("Work"));
+    if state.last_drag_label.as_deref() != Some("Work") {
+        let ir = h.last_ir.as_ref().unwrap();
+        let snapshot = h.last_snapshot.as_ref().unwrap();
+        let start_hit = fission_core::hit_test::hit_test_with_scroll(
+            ir,
+            snapshot,
+            &h.runtime.runtime_state.scroll,
+            start_point,
+        );
+        let target_hit = fission_core::hit_test::hit_test_with_scroll(
+            ir,
+            snapshot,
+            &h.runtime.runtime_state.scroll,
+            target_point,
+        );
+        panic!(
+            "expected pinned label to update; last_drag_label={:?} drag_in_progress={} start_hit={} target_hit={} start={:?} target={:?}",
+            state.last_drag_label,
+            state.drag_in_progress,
+            describe_hit_path(&h, start_hit),
+            describe_hit_path(&h, target_hit),
+            start,
+            target,
+        );
+    }
     Ok(())
 }
 
@@ -1163,7 +1269,7 @@ fn circular_progress_draw_path_present() -> Result<()> {
 }
 
 #[test]
-fn spinner_animation_present() -> Result<()> {
+fn spinner_animation_present_in_default_inbox() -> Result<()> {
     let h = pump_state(state_default())?;
     let base = WidgetNodeId::explicit("sync_spinner");
     let mut found = 0;
@@ -1173,17 +1279,17 @@ fn spinner_animation_present() -> Result<()> {
             found += 1;
         }
     }
-    assert!(found >= 3, "expected spinner opacity animations");
+    assert_eq!(found, 3, "default inbox should schedule all three spinner dot animations");
     Ok(())
 }
 
 #[test]
-fn skeleton_animation_present() -> Result<()> {
+fn skeleton_animation_present_in_default_inbox() -> Result<()> {
     let h = pump_state(state_default())?;
     let id = WidgetNodeId::explicit("sync_skeleton");
     assert!(
         runtime_has_animation(&h, id, AnimationPropertyId::Opacity),
-        "expected skeleton opacity animation"
+        "default inbox should schedule skeleton opacity animation"
     );
     Ok(())
 }

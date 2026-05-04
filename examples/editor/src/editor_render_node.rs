@@ -12,7 +12,9 @@
 //! The struct is built from `EditorState` via [`EditorRenderNode::from_state`]
 //! and wrapped in a `Node::Custom(CustomNode { .. })` by `EditorSurface`.
 
-use crate::model::{EditorState, Language, UpdateCursorPosition, UpdateFileContent, UpdateScrollY};
+use crate::model::{
+    ApplyEditorEdit, EditorState, Language, SetEditorPreedit, UpdateCursorPosition, UpdateScrollY,
+};
 use crate::syntax;
 use fission_core::action::ActionEnvelope;
 use fission_core::event::{InputEvent, KeyCode, KeyEvent, PointerEvent};
@@ -57,6 +59,8 @@ pub struct EditorRenderNode {
     pub cursor_offset: usize,
     /// Byte offset of the selection anchor within `content`.
     pub anchor_offset: usize,
+    /// Active IME preedit range in display coordinates, if any.
+    pub preedit_range: Option<(usize, usize)>,
     /// Pre-computed syntax spans, one `Vec<SyntaxSpan>` per source line.
     pub syntax_cache: Vec<Vec<SyntaxSpan>>,
     /// Height of a single line in logical pixels.
@@ -79,6 +83,7 @@ impl fmt::Debug for EditorRenderNode {
             .field("language", &self.language)
             .field("cursor_offset", &self.cursor_offset)
             .field("anchor_offset", &self.anchor_offset)
+            .field("preedit_range", &self.preedit_range)
             .field("line_height", &self.line_height)
             .field("font_size", &self.font_size)
             .field("gutter_width", &self.gutter_width)
@@ -100,13 +105,13 @@ impl EditorRenderNode {
     /// to the welcome screen).
     pub fn from_state(state: &EditorState) -> Option<Self> {
         let (tab, buffer) = state.active_buffer()?;
-        let content = buffer.content();
+        let content = buffer.display_content();
         let language = buffer.language;
         let file_path = tab.path.clone();
 
-        // --- Compute cursor byte offset from (line, col) ---
-        let cursor_offset = line_col_to_offset(&content, buffer.cursor_line, buffer.cursor_col);
-        let anchor_offset = line_col_to_offset(&content, buffer.anchor_line, buffer.anchor_col);
+        // --- Compute cursor byte offset from current editing/preedit state ---
+        let (cursor_offset, anchor_offset) = buffer.display_offsets();
+        let preedit_range = buffer.preedit_range();
 
         // --- Build syntax cache ---
         let line_count = content.lines().count().max(1);
@@ -152,6 +157,7 @@ impl EditorRenderNode {
             language,
             cursor_offset,
             anchor_offset,
+            preedit_range,
             syntax_cache,
             line_height: 20.0,
             font_size: 13.0,
@@ -211,7 +217,7 @@ impl LowerDyn for EditorRenderNode {
 
             if has_selection && line_idx >= sel_start_line && line_idx <= sel_end_line {
                 let line_text = all_lines.get(line_idx).copied().unwrap_or("");
-                let line_len = line_text.len();
+                let line_len = line_text.chars().count();
 
                 let highlight_start_col = if line_idx == sel_start_line {
                     sel_start_col
@@ -524,6 +530,10 @@ impl LowerDyn for EditorRenderNode {
 // ---------------------------------------------------------------------------
 
 impl CustomRenderObject for EditorRenderNode {
+    fn accepts_text_input(&self) -> bool {
+        true
+    }
+
     fn hit_test(&self, local_point: LayoutPoint, _node_rect: LayoutRect) -> CustomHitResult {
         let byte_offset = self.point_to_offset(local_point);
         CustomHitResult::inside(Some(byte_offset))
@@ -544,12 +554,23 @@ impl CustomRenderObject for EditorRenderNode {
                 );
                 let byte_offset = self.point_to_offset(local_point);
 
-                let action = UpdateCursorPosition {
-                    caret: byte_offset,
-                    anchor: byte_offset,
-                };
-                let envelope = ActionEnvelope::from(action);
-                CustomEventResult::consumed_with(vec![(node_id, envelope)])
+                let mut actions = Vec::new();
+                if self.preedit_range.is_some() {
+                    actions.push((
+                        node_id,
+                        ActionEnvelope::from(SetEditorPreedit {
+                            text: String::new(),
+                        }),
+                    ));
+                }
+                actions.push((
+                    node_id,
+                    ActionEnvelope::from(UpdateCursorPosition {
+                        caret: byte_offset,
+                        anchor: byte_offset,
+                    }),
+                ));
+                CustomEventResult::consumed_with(actions)
             }
 
             // --- Keyboard input ---
@@ -557,7 +578,35 @@ impl CustomRenderObject for EditorRenderNode {
                 self.handle_key(node_id, key_code, *modifiers)
             }
 
+            InputEvent::Ime(fission_core::event::ImeEvent::Preedit { text }) => {
+                CustomEventResult::consumed_with(vec![(
+                    node_id,
+                    ActionEnvelope::from(SetEditorPreedit { text: text.clone() }),
+                )])
+            }
+
+            InputEvent::Ime(fission_core::event::ImeEvent::Commit { text }) => {
+                self.handle_ime_commit(node_id, text)
+            }
+
             _ => CustomEventResult::ignored(),
+        }
+    }
+
+    fn ime_cursor_area(&self, node_rect: LayoutRect) -> Option<LayoutRect> {
+        Some(self.caret_rect(node_rect))
+    }
+
+    fn blur_actions(&self, node_id: NodeId) -> Vec<(NodeId, ActionEnvelope)> {
+        if self.preedit_range.is_some() {
+            vec![(
+                node_id,
+                ActionEnvelope::from(SetEditorPreedit {
+                    text: String::new(),
+                }),
+            )]
+        } else {
+            Vec::new()
         }
     }
 }
@@ -652,25 +701,23 @@ impl EditorRenderNode {
     ) -> CustomEventResult {
         let shift = (modifiers & 1) != 0;
         let ctrl_or_cmd = (modifiers & 4) != 0 || (modifiers & 8) != 0;
-
-        let mut content = self.content.clone();
-        let mut offset = self.cursor_offset;
-        let mut anchor = self.anchor_offset;
+        let content = self.content.as_str();
+        let mut offset = self.cursor_offset.min(content.len());
+        let mut anchor = self.anchor_offset.min(content.len());
         let content_len = content.len();
+        let mut replacement: Option<(std::ops::Range<usize>, String)> = None;
 
-        // Helper: delete the current selection (if any) before inserting.
-        let delete_selection = |content: &mut String, cursor: &mut usize, anch: &mut usize| {
-            let sel_start = (*cursor).min(*anch);
-            let sel_end = (*cursor).max(*anch);
-            if sel_start != sel_end {
-                content.replace_range(sel_start..sel_end, "");
-                *cursor = sel_start;
-                *anch = sel_start;
-                true
-            } else {
-                false
-            }
-        };
+        if self.preedit_range.is_some() {
+            return match key_code {
+                KeyCode::Escape => CustomEventResult::consumed_with(vec![(
+                    node_id,
+                    ActionEnvelope::from(SetEditorPreedit {
+                        text: String::new(),
+                    }),
+                )]),
+                _ => CustomEventResult::ignored(),
+            };
+        }
 
         match key_code {
             // -- Ctrl/Cmd+A: select all --
@@ -683,7 +730,7 @@ impl EditorRenderNode {
             KeyCode::Char('e') | KeyCode::Char('E') if ctrl_or_cmd => {
                 let (line, _) = offset_to_line_col(&content, offset);
                 let line_text = content.lines().nth(line).unwrap_or("");
-                offset = line_col_to_offset(&content, line, line_text.len());
+                offset = line_col_to_offset(&content, line, line_text.chars().count());
                 if !shift {
                     anchor = offset;
                 }
@@ -695,51 +742,40 @@ impl EditorRenderNode {
                 if ctrl_or_cmd {
                     return CustomEventResult::ignored();
                 }
-                delete_selection(&mut content, &mut offset, &mut anchor);
-                let clamped = offset.min(content.len());
-                content.insert(clamped, *ch);
-                offset = clamped + ch.len_utf8();
+                let (start, end) = selection_bounds(offset, anchor);
+                replacement = Some((start..end, ch.to_string()));
+                offset = start + ch.len_utf8();
                 anchor = offset;
             }
             KeyCode::Space => {
-                delete_selection(&mut content, &mut offset, &mut anchor);
-                let clamped = offset.min(content.len());
-                content.insert(clamped, ' ');
-                offset = clamped + 1;
+                let (start, end) = selection_bounds(offset, anchor);
+                replacement = Some((start..end, " ".to_string()));
+                offset = start + 1;
                 anchor = offset;
             }
             KeyCode::Enter => {
-                delete_selection(&mut content, &mut offset, &mut anchor);
-                let clamped = offset.min(content.len());
-                content.insert(clamped, '\n');
-                offset = clamped + 1;
+                let (start, end) = selection_bounds(offset, anchor);
+                replacement = Some((start..end, "\n".to_string()));
+                offset = start + 1;
                 anchor = offset;
             }
             KeyCode::Tab => {
-                delete_selection(&mut content, &mut offset, &mut anchor);
-                let clamped = offset.min(content.len());
-                content.insert_str(clamped, "    ");
-                offset = clamped + 4;
+                let (start, end) = selection_bounds(offset, anchor);
+                replacement = Some((start..end, "    ".to_string()));
+                offset = start + 4;
                 anchor = offset;
             }
 
             // -- Deletion --
             KeyCode::Backspace => {
-                let sel_start = offset.min(anchor);
-                let sel_end = offset.max(anchor);
+                let (sel_start, sel_end) = selection_bounds(offset, anchor);
                 if sel_start != sel_end {
-                    // Delete the selection.
-                    content.replace_range(sel_start..sel_end, "");
+                    replacement = Some((sel_start..sel_end, String::new()));
                     offset = sel_start;
                     anchor = sel_start;
                 } else if offset > 0 {
-                    // Find the start of the preceding character.
-                    let prev_boundary = content[..offset]
-                        .char_indices()
-                        .next_back()
-                        .map(|(i, _)| i)
-                        .unwrap_or(0);
-                    content.remove(prev_boundary);
+                    let prev_boundary = prev_char_boundary(content, offset);
+                    replacement = Some((prev_boundary..offset, String::new()));
                     offset = prev_boundary;
                     anchor = offset;
                 }
@@ -748,11 +784,7 @@ impl EditorRenderNode {
             // -- Arrow key navigation --
             KeyCode::Left => {
                 if offset > 0 {
-                    offset = content[..offset]
-                        .char_indices()
-                        .next_back()
-                        .map(|(i, _)| i)
-                        .unwrap_or(0);
+                    offset = prev_char_boundary(content, offset);
                 }
                 if !shift {
                     anchor = offset;
@@ -760,11 +792,7 @@ impl EditorRenderNode {
             }
             KeyCode::Right => {
                 if offset < content.len() {
-                    offset = content[offset..]
-                        .char_indices()
-                        .nth(1)
-                        .map(|(i, _)| offset + i)
-                        .unwrap_or(content.len());
+                    offset = next_char_boundary(content, offset);
                 }
                 if !shift {
                     anchor = offset;
@@ -798,7 +826,7 @@ impl EditorRenderNode {
                 // Move to end of current line.
                 let (line, _) = offset_to_line_col(&content, offset);
                 let line_text = content.lines().nth(line).unwrap_or("");
-                offset = line_col_to_offset(&content, line, line_text.len());
+                offset = line_col_to_offset(&content, line, line_text.chars().count());
                 if !shift {
                     anchor = offset;
                 }
@@ -814,15 +842,28 @@ impl EditorRenderNode {
             }
         }
 
-        // Build actions: always update cursor, and update file content if it
-        // changed.
         let mut actions: Vec<(NodeId, ActionEnvelope)> = Vec::new();
-
-        if content != self.content {
+        if let Some((range, new_text)) = replacement {
+            let preview = apply_preview_edit(content, range.clone(), &new_text);
             actions.push((
                 node_id,
-                ActionEnvelope::from(UpdateFileContent(content.clone())),
+                ActionEnvelope::from(ApplyEditorEdit {
+                    range_start: range.start,
+                    range_end: range.end,
+                    new_text,
+                    caret: offset,
+                    anchor,
+                }),
             ));
+
+            let (cursor_line, _) = offset_to_line_col(&preview, offset);
+            if let Some(new_scroll) = self.scroll_y_to_reveal_line(cursor_line) {
+                actions.push((
+                    node_id,
+                    ActionEnvelope::from(UpdateScrollY(new_scroll)),
+                ));
+            }
+            return CustomEventResult::consumed_with(actions);
         }
 
         actions.push((
@@ -833,8 +874,7 @@ impl EditorRenderNode {
             }),
         ));
 
-        // Scroll to keep cursor visible.
-        let (cursor_line, _) = offset_to_line_col(&content, offset);
+        let (cursor_line, _) = offset_to_line_col(content, offset);
         if let Some(new_scroll) = self.scroll_y_to_reveal_line(cursor_line) {
             actions.push((
                 node_id,
@@ -843,6 +883,54 @@ impl EditorRenderNode {
         }
 
         CustomEventResult::consumed_with(actions)
+    }
+
+    fn handle_ime_commit(&self, node_id: NodeId, text: &str) -> CustomEventResult {
+        if text.is_empty() {
+            if self.preedit_range.is_some() {
+                return CustomEventResult::consumed_with(vec![(
+                    node_id,
+                    ActionEnvelope::from(SetEditorPreedit {
+                        text: String::new(),
+                    }),
+                )]);
+            }
+            return CustomEventResult::ignored();
+        }
+
+        let (start, end) = self
+            .preedit_range
+            .unwrap_or_else(|| selection_bounds(self.cursor_offset, self.anchor_offset));
+        let caret = start + text.len();
+        let mut actions = vec![(
+            node_id,
+            ActionEnvelope::from(ApplyEditorEdit {
+                range_start: start,
+                range_end: end,
+                new_text: text.to_string(),
+                caret,
+                anchor: caret,
+            }),
+        )];
+
+        let preview = apply_preview_edit(self.content.as_str(), start..end, text);
+        let (cursor_line, _) = offset_to_line_col(&preview, caret);
+        if let Some(new_scroll) = self.scroll_y_to_reveal_line(cursor_line) {
+            actions.push((node_id, ActionEnvelope::from(UpdateScrollY(new_scroll))));
+        }
+
+        CustomEventResult::consumed_with(actions)
+    }
+
+    fn caret_rect(&self, node_rect: LayoutRect) -> LayoutRect {
+        let char_width = self.font_size * 0.6;
+        let (line, col) = offset_to_line_col(&self.content, self.cursor_offset.min(self.content.len()));
+        LayoutRect::new(
+            node_rect.origin.x + self.gutter_width + col as f32 * char_width,
+            node_rect.origin.y + line as f32 * self.line_height - self.scroll_y,
+            2.0,
+            self.line_height,
+        )
     }
 }
 
@@ -855,21 +943,92 @@ fn is_word_char(b: u8) -> bool {
     b.is_ascii_alphanumeric() || b == b'_'
 }
 
+fn selection_bounds(a: usize, b: usize) -> (usize, usize) {
+    if a <= b {
+        (a, b)
+    } else {
+        (b, a)
+    }
+}
+
+fn clamp_to_char_boundary(content: &str, offset: usize) -> usize {
+    let mut boundary = offset.min(content.len());
+    while boundary > 0 && !content.is_char_boundary(boundary) {
+        boundary -= 1;
+    }
+    boundary
+}
+
+fn prev_char_boundary(content: &str, offset: usize) -> usize {
+    let boundary = clamp_to_char_boundary(content, offset);
+    if boundary == 0 {
+        return 0;
+    }
+    content[..boundary]
+        .char_indices()
+        .last()
+        .map(|(idx, _)| idx)
+        .unwrap_or(0)
+}
+
+fn next_char_boundary(content: &str, offset: usize) -> usize {
+    let boundary = clamp_to_char_boundary(content, offset);
+    if boundary >= content.len() {
+        return content.len();
+    }
+    let ch = content[boundary..].chars().next().unwrap();
+    boundary + ch.len_utf8()
+}
+
+fn apply_preview_edit(content: &str, range: std::ops::Range<usize>, new_text: &str) -> String {
+    let start = clamp_to_char_boundary(content, range.start);
+    let end = clamp_to_char_boundary(content, range.end.max(start));
+    let mut preview = String::with_capacity(content.len() - (end - start) + new_text.len());
+    preview.push_str(&content[..start]);
+    preview.push_str(new_text);
+    preview.push_str(&content[end..]);
+    preview
+}
+
+fn char_col_to_byte(line: &str, col: usize) -> usize {
+    if col == 0 {
+        return 0;
+    }
+    for (char_idx, (byte_idx, _)) in line.char_indices().enumerate() {
+        if char_idx == col {
+            return byte_idx;
+        }
+    }
+    line.len()
+}
+
 /// Convert a (line, col) pair to a byte offset in `content`.
 pub(crate) fn line_col_to_offset(content: &str, line: usize, col: usize) -> usize {
-    let mut offset = 0;
-    for (i, text_line) in content.lines().enumerate() {
-        if i == line {
-            return offset + col.min(text_line.len());
-        }
-        offset += text_line.len() + 1; // +1 for '\n'
+    if content.is_empty() {
+        return 0;
     }
-    // Past the end -- clamp to content length.
+
+    let mut offset = 0usize;
+    let mut current_line = 0usize;
+    for segment in content.split_inclusive('\n') {
+        let text_line = segment.strip_suffix('\n').unwrap_or(segment);
+        if current_line == line {
+            return offset + char_col_to_byte(text_line, col);
+        }
+        offset += segment.len();
+        current_line += 1;
+    }
+
+    if current_line == line {
+        return content.len();
+    }
+
     content.len()
 }
 
 /// Convert a byte offset to a (line, col) pair.
 pub(crate) fn offset_to_line_col(content: &str, offset: usize) -> (usize, usize) {
+    let offset = clamp_to_char_boundary(content, offset);
     let mut line = 0;
     let mut col = 0;
     for (i, ch) in content.char_indices() {

@@ -1,4 +1,7 @@
-use fission_core::{env::ActiveAnimation, AnimationPropertyId, Runtime, WidgetNodeId};
+use fission_core::{
+    env::ActiveAnimation, AnimationPropertyId, AnimationRequest, AnimationStartValue, Runtime,
+    WidgetNodeId,
+};
 
 #[test]
 fn test_animation_tick() {
@@ -51,4 +54,43 @@ fn test_animation_tick() {
     // Note: tick() updates THEN removes if finished.
     // At 1000ms, progress is 1.0. finished_indices collects it.
     assert!(runtime.runtime_state.animation.active.is_empty());
+}
+
+#[test]
+fn test_enqueue_animation_skips_noop_terminal_transition() {
+    let mut runtime = Runtime::default();
+    let widget_id = WidgetNodeId::explicit("noop_anim");
+    let property = AnimationPropertyId::opacity();
+
+    runtime
+        .runtime_state
+        .animation
+        .values
+        .insert((widget_id, property.clone()), 1.0);
+
+    runtime.enqueue_animation(
+        widget_id,
+        AnimationRequest {
+            property: property.clone(),
+            from: AnimationStartValue::Explicit(0.0),
+            to: 1.0,
+            duration_ms: 300,
+            repeat: false,
+            delay_ms: 0,
+        },
+    );
+
+    assert!(
+        runtime.runtime_state.animation.active.is_empty(),
+        "terminal transition should not create a zero-delta active animation"
+    );
+    assert_eq!(
+        runtime
+            .runtime_state
+            .animation
+            .values
+            .get(&(widget_id, property))
+            .copied(),
+        Some(1.0)
+    );
 }

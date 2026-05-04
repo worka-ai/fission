@@ -111,7 +111,12 @@ impl TextMeasurer for SkiaTextMeasurer {
 impl<'r> Renderer for SkiaRenderer<'r> {
     fn render(&mut self, display_list: &DisplayList) -> Result<()> {
         self.canvas.clear(SkColor::WHITE);
+        self.render_ops(display_list)
+    }
+}
 
+impl<'r> SkiaRenderer<'r> {
+    fn render_ops(&mut self, display_list: &DisplayList) -> Result<()> {
         for op in &display_list.ops {
             match op {
                 DisplayOp::Save => {
@@ -135,6 +140,10 @@ impl<'r> Renderer for SkiaRenderer<'r> {
                     );
                     self.canvas.clip_rrect(rrect, skia_safe::ClipOp::Intersect, true);
                 }
+                DisplayOp::OpacityLayer { alpha, bounds } => {
+                    let rect = Rect::new(bounds.x(), bounds.y(), bounds.right(), bounds.bottom());
+                    self.canvas.save_layer_alpha_f(Some(&rect), *alpha);
+                }
                 DisplayOp::Translate(point) => {
                     self.canvas.translate((point.x, point.y));
                 }
@@ -151,6 +160,9 @@ impl<'r> Renderer for SkiaRenderer<'r> {
                         0.0, 0.0, 1.0,
                     );
                     self.canvas.concat(&m);
+                }
+                DisplayOp::CachedScene { list, .. } => {
+                    self.render_ops(list)?;
                 }
                 DisplayOp::DrawRect {
                     rect,

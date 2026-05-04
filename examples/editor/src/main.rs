@@ -553,6 +553,7 @@ impl Widget<EditorState> for FindReplaceBar {
 
         let replace_input = Container::new(
             TextInput {
+                id: Some(fission_ir::NodeId::explicit("replace_input")),
                 value: view.state.replace_query.clone(),
                 placeholder: Some("Replace".into()),
                 on_change: Some(update_replace),

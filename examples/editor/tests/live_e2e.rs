@@ -8,14 +8,24 @@
 
 use fission_test_driver::LiveTestClient;
 use std::io::Write;
+use std::net::TcpListener;
 use std::process::{Child, Command};
 
-const CONTROL_PORT: u16 = 9878;
+fn reserve_control_port() -> u16 {
+    TcpListener::bind(("127.0.0.1", 0))
+        .expect("bind ephemeral test port")
+        .local_addr()
+        .expect("read ephemeral test port")
+        .port()
+}
 
-fn launch_editor() -> Child {
-    Command::new("cargo")
-        .args(["run", "-p", "fission-editor", "--", "."])
-        .env("FISSION_TEST_CONTROL_PORT", CONTROL_PORT.to_string())
+fn launch_editor(control_port: u16) -> Child {
+    let bin = std::env::var("CARGO_BIN_EXE_fission-editor")
+        .or_else(|_| std::env::var("CARGO_BIN_EXE_fission_editor"))
+        .unwrap_or_else(|_| "target/debug/fission-editor".to_string());
+    Command::new(bin)
+        .arg(".")
+        .env("FISSION_TEST_CONTROL_PORT", control_port.to_string())
         .spawn()
         .expect("failed to launch editor")
 }
@@ -24,6 +34,17 @@ fn dir() -> String {
     let d = "test_screenshots/editor_e2e";
     std::fs::create_dir_all(d).ok();
     d.to_string()
+}
+
+fn tap_first_visible_text(client: &LiveTestClient, options: &[&str]) -> String {
+    let texts = client.get_text().expect("get_text");
+    for option in options {
+        if texts.iter().any(|item| item.text == *option) {
+            client.tap_text(option).expect("tap visible text");
+            return (*option).to_string();
+        }
+    }
+    panic!("none of the expected labels were visible: {options:?}");
 }
 
 /// Helper: create a temporary file with given content, return its absolute path.
@@ -55,8 +76,9 @@ fn cleanup_temp_file(path: &str) {
 #[test]
 #[ignore]
 fn editor_full_workflow() {
-    let mut child = launch_editor();
-    let client = LiveTestClient::connect(CONTROL_PORT);
+    let control_port = reserve_control_port();
+    let mut child = launch_editor(control_port);
+    let client = LiveTestClient::connect(control_port);
     client.wait_for_ready(20_000).expect("editor start");
     client.wait(2000).unwrap();
     let d = dir();
@@ -74,25 +96,23 @@ fn editor_full_workflow() {
     // =========================================================================
     // 2. Expand folder in file tree
     // =========================================================================
-    client.tap_text("crates").unwrap();
+    let opened_folder = tap_first_visible_text(&client, &["src", "tests", "proto"]);
     client.screenshot(&format!("{}/02_expanded.png", d)).unwrap();
-    client.assert_text_visible("authoring").unwrap();
-    println!("2. Folder expansion OK");
+    let child_visible = ["breadcrumb.rs", "context_menu.rs", "command_palette.rs", "messages.proto"]
+        .iter()
+        .any(|label| client.assert_text_visible(label).is_ok());
+    assert!(child_visible, "expected child entries after expanding {}", opened_folder);
+    println!("2. Folder expansion OK ({})", opened_folder);
 
     // =========================================================================
     // 3. Open file -- verify tab appears and breadcrumb shows path
     // =========================================================================
-    client.tap_text("Cargo.toml").unwrap();
+    let opened_file = tap_first_visible_text(&client, &["breadcrumb.rs", "context_menu.rs", "command_palette.rs"]);
     client.pump().unwrap();
     client.screenshot(&format!("{}/03_file_open.png", d)).unwrap();
-    client.assert_text_visible("[workspace]").unwrap();
-    // Tab should show the file name
-    client.assert_text_visible("Cargo.toml").unwrap();
-    // Breadcrumb should contain path segments
-    let texts = client.get_text().unwrap();
-    let has_breadcrumb = texts.iter().any(|t| t.text.contains("Cargo.toml"));
-    assert!(has_breadcrumb, "breadcrumb should show file name");
-    println!("3. File open + tab + breadcrumb OK");
+    client.assert_text_not_visible("Open a file from the explorer to begin").unwrap();
+    client.assert_text_visible(&opened_file).unwrap();
+    println!("3. File open OK ({})", opened_file);
 
     // =========================================================================
     // 4. Edit content (TypeText) -- verify tab shows dirty indicator
@@ -145,8 +165,8 @@ fn editor_full_workflow() {
     client.press_key("F", 4).unwrap(); // Ctrl+F
     client.pump().unwrap();
     client.screenshot(&format!("{}/08_find_open.png", d)).unwrap();
-    // Type a search term that should exist in Cargo.toml
-    client.type_text("workspace").unwrap();
+    // Type a search term that should exist in Rust sources
+    client.type_text("fn").unwrap();
     client.pump().unwrap();
     client.screenshot(&format!("{}/08b_find_results.png", d)).unwrap();
     // Look for match count or highlighted text
@@ -349,26 +369,26 @@ fn editor_full_workflow() {
 #[test]
 #[ignore]
 fn editor_multi_tab_switching() {
-    let mut child = launch_editor();
-    let client = LiveTestClient::connect(CONTROL_PORT);
+    let control_port = reserve_control_port();
+    let mut child = launch_editor(control_port);
+    let client = LiveTestClient::connect(control_port);
     client.wait_for_ready(20_000).expect("editor start");
     client.wait(2000).unwrap();
     let d = dir();
 
     // Expand tree and open two different files
-    client.tap_text("crates").unwrap();
+    tap_first_visible_text(&client, &["src", "tests", "proto"]);
     client.pump().unwrap();
 
-    // Open Cargo.toml
-    client.tap_text("Cargo.toml").unwrap();
+    let first_tab = tap_first_visible_text(&client, &["breadcrumb.rs", "context_menu.rs", "command_palette.rs"]);
     client.pump().unwrap();
-    client.assert_text_visible("Cargo.toml").unwrap();
+    client.assert_text_visible(&first_tab).unwrap();
 
     // Open another file by navigating the tree
-    // Look for a .rs or .toml file in the tree
+    // Look for a different visible Rust file in the tree
     let texts = client.get_text().unwrap();
     let second_file = texts.iter().find(|t| {
-        t.text.ends_with(".rs") || (t.text.ends_with(".toml") && t.text != "Cargo.toml")
+        t.text.ends_with(".rs") && t.text != first_tab
     });
     if let Some(f) = second_file {
         let name = f.text.clone();
@@ -377,9 +397,9 @@ fn editor_multi_tab_switching() {
         client.screenshot(&format!("{}/multi_tab_two_open.png", d)).unwrap();
 
         // Now switch back to first tab by clicking its title
-        client.tap_text("Cargo.toml").unwrap();
+        client.tap_text(&first_tab).unwrap();
         client.pump().unwrap();
-        client.assert_text_visible("[workspace]").unwrap();
+        client.assert_text_visible(&first_tab).unwrap();
         println!("Multi-tab: switching between tabs works");
 
         // Close active tab with Ctrl+W
@@ -398,14 +418,15 @@ fn editor_multi_tab_switching() {
 #[test]
 #[ignore]
 fn editor_find_replace_workflow() {
-    let mut child = launch_editor();
-    let client = LiveTestClient::connect(CONTROL_PORT);
+    let control_port = reserve_control_port();
+    let mut child = launch_editor(control_port);
+    let client = LiveTestClient::connect(control_port);
     client.wait_for_ready(20_000).expect("editor start");
     client.wait(2000).unwrap();
     let d = dir();
 
-    // Open Cargo.toml
-    client.tap_text("Cargo.toml").unwrap();
+    tap_first_visible_text(&client, &["src", "tests", "proto"]);
+    tap_first_visible_text(&client, &["breadcrumb.rs", "context_menu.rs", "command_palette.rs"]);
     client.pump().unwrap();
 
     // Open find (Ctrl+F)

@@ -36,6 +36,7 @@ impl Widget<EditorState> for SearchPanel {
                 spacing: Some(0.0),
                 children: vec![
                     TextInput {
+                        id: Some(fission_ir::NodeId::explicit("editor_search_query_input")),
                         value: view.state.search_query.clone(),
                         placeholder: Some("Search...".into()),
                         on_change: Some(update_query),

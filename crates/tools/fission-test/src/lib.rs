@@ -217,8 +217,7 @@ impl<S: AppState> TestHarness<S> {
     }
 
     pub fn tick(&mut self, dt: CurrentTime) -> Result<()> {
-        let action = Tick { dt };
-        self.dispatch(action)
+        self.runtime.tick(dt).map(|_| ())
     }
 
     pub fn advance_to(&mut self, time: CurrentTime) -> Result<()> {
@@ -351,7 +350,15 @@ impl<S: AppState> TestHarness<S> {
         if let (Some(ir), Some(snapshot)) = (&self.last_ir, &self.last_snapshot) {
             if let Some(root_id) = ir.root {
                 let scroll_map = &self.runtime.runtime_state.scroll;
-                generate_display_list(root_id, ir, snapshot, scroll_map, &mut display_list);
+                let animation_map = &self.runtime.runtime_state.animation;
+                generate_display_list(
+                    root_id,
+                    ir,
+                    snapshot,
+                    scroll_map,
+                    animation_map,
+                    &mut display_list,
+                );
             }
         }
 
@@ -450,11 +457,20 @@ fn generate_display_list(
     ir: &CoreIR,
     snapshot: &LayoutSnapshot,
     scroll_map: &ScrollStateMap,
+    animation_map: &fission_core::env::AnimationStateMap,
     list: &mut DisplayList,
 ) {
     use std::collections::HashSet;
     let mut visited = HashSet::new();
-    generate_display_list_with_visited(node_id, ir, snapshot, scroll_map, list, &mut visited);
+    generate_display_list_with_visited(
+        node_id,
+        ir,
+        snapshot,
+        scroll_map,
+        animation_map,
+        list,
+        &mut visited,
+    );
 }
 
 fn generate_display_list_with_visited(
@@ -462,6 +478,7 @@ fn generate_display_list_with_visited(
     ir: &CoreIR,
     snapshot: &LayoutSnapshot,
     scroll_map: &ScrollStateMap,
+    animation_map: &fission_core::env::AnimationStateMap,
     list: &mut DisplayList,
     visited: &mut std::collections::HashSet<NodeId>,
 ) {
@@ -471,19 +488,59 @@ fn generate_display_list_with_visited(
     if let Some(geom) = snapshot.nodes.get(&node_id) {
         if let Some(node) = ir.nodes.get(&node_id) {
             let mut pushed_state = false;
+            let mut clip_applied = false;
+            let rect = geom.rect;
+
+            let opacity = resolve_composite_scalar(
+                node.composite.opacity.as_ref(),
+                animation_map,
+                fission_core::registry::AnimationPropertyId::Opacity,
+            );
+            let tx = resolve_composite_scalar(
+                node.composite.translate_x.as_ref(),
+                animation_map,
+                fission_core::registry::AnimationPropertyId::TranslateX,
+            )
+            .unwrap_or(0.0);
+            let ty = resolve_composite_scalar(
+                node.composite.translate_y.as_ref(),
+                animation_map,
+                fission_core::registry::AnimationPropertyId::TranslateY,
+            )
+            .unwrap_or(0.0);
+            let scale = resolve_composite_scalar(
+                node.composite.scale.as_ref(),
+                animation_map,
+                fission_core::registry::AnimationPropertyId::Scale,
+            )
+            .unwrap_or(1.0);
+            let rotation = resolve_composite_scalar(
+                node.composite.rotation.as_ref(),
+                animation_map,
+                fission_core::registry::AnimationPropertyId::Rotation,
+            )
+            .unwrap_or(0.0);
 
             match &node.op {
-                fission_ir::Op::Layout(fission_ir::LayoutOp::Scroll { .. }) => {
+                fission_ir::Op::Layout(fission_ir::LayoutOp::Scroll { direction, .. }) => {
                     let offset = scroll_map.get_offset(node_id);
-
                     list.push(DisplayOp::Save);
-                    list.push(DisplayOp::ClipRect(geom.rect));
-                    list.push(DisplayOp::Translate(LayoutPoint::new(0.0, -offset)));
+                    list.push(DisplayOp::ClipRect(rect));
+                    clip_applied = true;
+                    match direction {
+                        fission_ir::FlexDirection::Row => {
+                            list.push(DisplayOp::Translate(LayoutPoint::new(-offset, 0.0)));
+                        }
+                        fission_ir::FlexDirection::Column => {
+                            list.push(DisplayOp::Translate(LayoutPoint::new(0.0, -offset)));
+                        }
+                    }
                     pushed_state = true;
                 }
                 fission_ir::Op::Layout(fission_ir::LayoutOp::Clip { .. }) => {
                     list.push(DisplayOp::Save);
-                    list.push(DisplayOp::ClipRect(geom.rect));
+                    list.push(DisplayOp::ClipRect(rect));
+                    clip_applied = true;
                     pushed_state = true;
                 }
                 fission_ir::Op::Layout(fission_ir::LayoutOp::Transform { transform }) => {
@@ -491,6 +548,45 @@ fn generate_display_list_with_visited(
                     list.push(DisplayOp::Transform(*transform));
                     pushed_state = true;
                 }
+                _ => {}
+            }
+
+            if node.composite.clip_to_bounds && !clip_applied {
+                if !pushed_state {
+                    list.push(DisplayOp::Save);
+                    pushed_state = true;
+                }
+                list.push(DisplayOp::ClipRect(rect));
+            }
+
+            if let Some(opacity) = opacity {
+                if (opacity - 1.0).abs() > 0.001 {
+                    if !pushed_state {
+                        list.push(DisplayOp::Save);
+                        pushed_state = true;
+                    }
+                    list.push(DisplayOp::OpacityLayer {
+                        alpha: opacity,
+                        bounds: rect,
+                    });
+                }
+            }
+
+            if tx.abs() > 0.001
+                || ty.abs() > 0.001
+                || (scale - 1.0).abs() > 0.001
+                || rotation.abs() > 0.001
+            {
+                if !pushed_state {
+                    list.push(DisplayOp::Save);
+                    pushed_state = true;
+                }
+                list.push(DisplayOp::Transform(composite_transform_matrix(
+                    rect, tx, ty, scale, rotation,
+                )));
+            }
+
+            match &node.op {
                 fission_ir::Op::Paint(fission_ir::PaintOp::DrawRect {
                     fill,
                     stroke,
@@ -516,12 +612,23 @@ fn generate_display_list_with_visited(
                         node_id: Some(node_id),
                     });
                 }
-                fission_ir::Op::Paint(fission_ir::PaintOp::DrawText { text, size, color, underline, caret_index }) => {
+                fission_ir::Op::Paint(fission_ir::PaintOp::DrawText {
+                    text,
+                    size,
+                    color,
+                    underline,
+                    caret_index,
+                }) => {
                     list.push(DisplayOp::DrawText {
                         text: text.clone(),
                         position: LayoutPoint::new(geom.rect.x(), geom.rect.y()),
                         size: *size,
-                        color: fission_render::Color { r: color.r, g: color.g, b: color.b, a: color.a },
+                        color: fission_render::Color {
+                            r: color.r,
+                            g: color.g,
+                            b: color.b,
+                            a: color.a,
+                        },
                         bounds: geom.rect,
                         node_id: Some(node_id),
                         underline: *underline,
@@ -530,17 +637,30 @@ fn generate_display_list_with_visited(
                 }
                 fission_ir::Op::Paint(fission_ir::PaintOp::DrawRichText { runs, caret_index }) => {
                     list.push(DisplayOp::DrawRichText {
-                        runs: runs.iter().map(|r| fission_render::TextRun {
-                            text: r.text.clone(),
-                            style: fission_render::TextStyle {
-                                font_size: r.style.font_size,
-                                color: fission_render::Color { r: r.style.color.r, g: r.style.color.g, b: r.style.color.b, a: r.style.color.a },
-                                underline: r.style.underline,
-                                background_color: r.style.background_color.map(|c| fission_render::Color {
-                                    r: c.r, g: c.g, b: c.b, a: c.a,
-                                }),
-                            },
-                        }).collect(),
+                        runs: runs
+                            .iter()
+                            .map(|r| fission_render::TextRun {
+                                text: r.text.clone(),
+                                style: fission_render::TextStyle {
+                                    font_size: r.style.font_size,
+                                    color: fission_render::Color {
+                                        r: r.style.color.r,
+                                        g: r.style.color.g,
+                                        b: r.style.color.b,
+                                        a: r.style.color.a,
+                                    },
+                                    underline: r.style.underline,
+                                    background_color: r.style.background_color.map(|c| {
+                                        fission_render::Color {
+                                            r: c.r,
+                                            g: c.g,
+                                            b: c.b,
+                                            a: c.a,
+                                        }
+                                    }),
+                                },
+                            })
+                            .collect(),
                         position: LayoutPoint::new(geom.rect.x(), geom.rect.y()),
                         bounds: geom.rect,
                         node_id: Some(node_id),
@@ -583,7 +703,15 @@ fn generate_display_list_with_visited(
             }
 
             for child in &node.children {
-                generate_display_list_with_visited(*child, ir, snapshot, scroll_map, list, visited);
+                generate_display_list_with_visited(
+                    *child,
+                    ir,
+                    snapshot,
+                    scroll_map,
+                    animation_map,
+                    list,
+                    visited,
+                );
             }
 
             if pushed_state {
@@ -592,3 +720,86 @@ fn generate_display_list_with_visited(
         }
     }
 }
+
+fn resolve_composite_scalar(
+    scalar: Option<&fission_ir::CompositeScalar>,
+    animation_map: &fission_core::env::AnimationStateMap,
+    property: fission_core::registry::AnimationPropertyId,
+) -> Option<f32> {
+    let scalar = scalar?;
+    Some(
+        scalar
+            .animation_target
+            .and_then(|target| animation_map.values.get(&(target, property)).copied())
+            .unwrap_or(scalar.base),
+    )
+}
+
+fn composite_transform_matrix(
+    rect: LayoutRect,
+    translate_x: f32,
+    translate_y: f32,
+    scale: f32,
+    rotation: f32,
+) -> [f32; 16] {
+    let center_x = rect.origin.x + rect.size.width * 0.5;
+    let center_y = rect.origin.y + rect.size.height * 0.5;
+
+    let to_center = translation_matrix(center_x, center_y);
+    let from_center = translation_matrix(-center_x, -center_y);
+    let scale_matrix = scale_matrix(scale);
+    let rotation_matrix = rotation_z_matrix(rotation);
+    let animated_translate = translation_matrix(translate_x, translate_y);
+
+    multiply_matrix(
+        animated_translate,
+        multiply_matrix(
+            to_center,
+            multiply_matrix(rotation_matrix, multiply_matrix(scale_matrix, from_center)),
+        ),
+    )
+}
+
+fn translation_matrix(tx: f32, ty: f32) -> [f32; 16] {
+    [
+        1.0, 0.0, 0.0, 0.0,
+        0.0, 1.0, 0.0, 0.0,
+        0.0, 0.0, 1.0, 0.0,
+        tx, ty, 0.0, 1.0,
+    ]
+}
+
+fn scale_matrix(scale: f32) -> [f32; 16] {
+    [
+        scale, 0.0, 0.0, 0.0,
+        0.0, scale, 0.0, 0.0,
+        0.0, 0.0, 1.0, 0.0,
+        0.0, 0.0, 0.0, 1.0,
+    ]
+}
+
+fn rotation_z_matrix(radians: f32) -> [f32; 16] {
+    let sin = radians.sin();
+    let cos = radians.cos();
+    [
+        cos, sin, 0.0, 0.0,
+        -sin, cos, 0.0, 0.0,
+        0.0, 0.0, 1.0, 0.0,
+        0.0, 0.0, 0.0, 1.0,
+    ]
+}
+
+fn multiply_matrix(a: [f32; 16], b: [f32; 16]) -> [f32; 16] {
+    let mut out = [0.0; 16];
+    for row in 0..4 {
+        for col in 0..4 {
+            let mut sum = 0.0;
+            for k in 0..4 {
+                sum += a[row * 4 + k] * b[k * 4 + col];
+            }
+            out[row * 4 + col] = sum;
+        }
+    }
+    out
+}
+

@@ -3,7 +3,7 @@ use crate::ui::traits::Lower;
 use crate::ui::TextContent;
 use crate::ActionEnvelope;
 use fission_ir::{
-    op::{Color as IrColor, Fill, LayoutOp, Op, PaintOp, Stroke},
+    op::{Color as IrColor, LayoutOp, Op, PaintOp},
     NodeId, Role, Semantics, FlexDirection
 };
 use serde::{Deserialize, Serialize};
@@ -180,29 +180,39 @@ impl Lower for TextInput {
         };
 
         // 2. Text Preparation
-        let preedit_text = if is_focused {
-            cx.runtime_state.ime_preedit.clone().filter(|(id, _)| *id == input_id).map(|(_, t)| t)
-        } else { None };
+        let session = cx.runtime_state.text_edit.get(input_id);
+        let session_display = if is_focused {
+            session.map(|st| st.display_text())
+        } else {
+            None
+        };
 
-        let (display_text, caret, anchor) = if self.obscure_text {
+        let (display_text, preedit_range, caret, anchor) = if self.obscure_text {
             let obs = self.obscuring_character.to_string();
-            let obs_len = obs.len();
             let mut combined = self.value.clone();
-            if let Some(pre) = &preedit_text { combined.push_str(pre); }
+            if let Some((display, _)) = &session_display {
+                combined = display.clone();
+            }
             let g_count = combined.graphemes(true).count();
             let masked = obs.repeat(g_count);
             
             // Caret mapping not implemented for masked yet, defaulting to end
-            (masked, 0, 0) 
+            (masked, None, 0, 0)
         } else {
-            let mut combined = self.value.clone();
-            if let Some(pre) = &preedit_text { combined.push_str(pre); }
-            let (caret, anchor) = if let Some(st) = cx.runtime_state.text_edit.get(input_id) {
-                (st.caret, st.anchor)
-            } else {
-                (0, 0)
-            };
-            (combined, caret, anchor)
+            match session_display {
+                Some((combined, preedit_range)) => {
+                    let (caret, anchor) = session
+                        .map(|st| (st.caret, st.anchor))
+                        .unwrap_or((0, 0));
+                    (combined, preedit_range, caret, anchor)
+                }
+                None => {
+                    let (caret, anchor) = session
+                        .map(|st| (st.caret, st.anchor))
+                        .unwrap_or((0, 0));
+                    (self.value.clone(), None, caret, anchor)
+                }
+            }
         };
 
         // Construct Runs
@@ -298,7 +308,14 @@ impl Lower for TextInput {
 
         let caret_idx = if is_focused && !self.obscure_text { 
             let show = cx.runtime_state.caret_visible.get(&input_id).copied().unwrap_or(true);
-            if show { Some(caret.min(display_text.len())) } else { None }
+            if show {
+                Some(
+                    preedit_range
+                        .map(|(_, end)| end)
+                        .unwrap_or(caret)
+                        .min(display_text.len()),
+                )
+            } else { None }
         } else { None };
 
         let text_id = NodeBuilder::new(
@@ -374,7 +391,7 @@ impl Lower for TextInput {
             multiline: self.multiline,
             masked: self.obscure_text,
             input_mask: self.mask.clone(),
-            ime_preedit_range: None, // TODO: Fix preedit highlighting
+            ime_preedit_range: preedit_range,
             checked: None,
             disabled: false,
             draggable: false,

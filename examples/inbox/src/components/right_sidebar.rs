@@ -88,12 +88,14 @@ impl Widget<InboxState> for RightSidebar {
                                             Spinner {
                                                 id: WidgetNodeId::explicit("sync_spinner"),
                                                 color: Some(tokens.colors.primary),
+                                                animated: true,
                                             }.build(ctx, view),
                                             Skeleton {
                                                 id: WidgetNodeId::explicit("sync_skeleton"),
                                                 width: Some(20.0),
                                                 height: Some(4.0),
                                                 circle: false,
+                                                animated: true,
                                             }.build(ctx, view),
                                         ],
                                     }.into_node(),
