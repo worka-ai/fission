@@ -2,7 +2,7 @@ use fission_core::action::AppState;
 use fission_core::env::{Env, RuntimeState};
 use fission_core::lowering::{build_layout_tree, LoweringContext};
 use fission_core::{BuildCtx, View, Widget};
-use fission_ir::op::{Color, Fill};
+use fission_ir::op::Color;
 use fission_ir::{CoreIR, LayoutOp, NodeId, Op, PaintOp};
 use fission_layout::{LayoutEngine, LayoutSize, TextMeasurer};
 use fission_theme::{ComponentTheme, Theme, Tokens};

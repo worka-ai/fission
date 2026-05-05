@@ -9,7 +9,6 @@ use crate::{
 };
 use anyhow::{anyhow, Result};
 use fission_ir::{NodeId, WidgetNodeId};
-use serde::{Deserialize, Serialize};
 use std::any::TypeId;
 use std::collections::{BTreeMap, HashMap};
 use std::sync::Arc;

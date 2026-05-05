@@ -1,3 +1,5 @@
+#![allow(dead_code)]
+
 //! Plugin message types.
 //!
 //! These mirror what a protobuf schema would generate. The wire format is:

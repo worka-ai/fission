@@ -5,7 +5,7 @@ use fission_ir::Role;
 use fission_test::{detect_ir_cycle, TestHarness};
 
 #[derive(Debug, Default, Clone)]
-struct AppState { text: String, checked: bool }
+struct AppState { _text: String, checked: bool }
 impl fission_core::action::AppState for AppState {}
 
 #[test]
@@ -43,7 +43,7 @@ fn checkbox_toggle_has_no_ir_cycles() -> Result<()> {
     use fission_core::view::Widget;
     use fission_widgets::Checkbox;
     use fission_core::{BuildCtx, View};
-    use fission_core::action::Action;
+    
     use serde::{Deserialize, Serialize};
     use fission_core::event::{PointerButton, PointerEvent};
 

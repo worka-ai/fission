@@ -1,3 +1,5 @@
+#![allow(dead_code)]
+
 //! Host-side plugin runtime.
 //!
 //! This manages loaded WASM plugins and routes messages between the editor

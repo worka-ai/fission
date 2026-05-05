@@ -1,9 +1,8 @@
 use fission_core::ui::{Composite, Node};
 use fission_core::{
-    AnimationPropertyId, AnimationRequest, AnimationStartValue, BuildCtx, NodeId, View, Widget,
+    AnimationPropertyId, AnimationRequest, AnimationStartValue, BuildCtx, View, Widget,
     WidgetNodeId,
 };
-use serde::{Deserialize, Serialize};
 
 #[derive(Clone, Debug)]
 pub struct Transition {

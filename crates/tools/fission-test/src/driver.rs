@@ -6,7 +6,7 @@ use fission_core::event::{
 };
 use fission_ir::{NodeId, Op, LayoutOp};
 use fission_layout::{LayoutPoint, LayoutRect, LayoutSize};
-use fission_render::{DisplayList, DisplayOp};
+use fission_render::DisplayOp;
 
 #[derive(Debug, Clone)]
 pub struct TextMatch {

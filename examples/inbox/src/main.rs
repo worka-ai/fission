@@ -1,15 +1,13 @@
-use fission_core::{BuildCtx, View, Widget, NodeId, WidgetNodeId, Env, Handler};
-use fission_core::ui::{Container, Node, Row, Text};
-use fission_core::op::{Color, BoxShadow};
+use fission_core::{BuildCtx, View, Widget, WidgetNodeId, Env, Handler};
+use fission_core::ui::{Container, Node, Row};
 use fission_widgets::{
-    Grid, GridItem, SplitView, SplitDirection, Router, Route, Toast, ToastKind, Drawer, DrawerSide, SafeArea,
+    SplitView, SplitDirection, Router, Route, Toast, ToastKind, Drawer, DrawerSide, SafeArea,
     Overlay, Transition, Center
 };
 use fission_shell_desktop::DesktopApp;
-use fission_i18n::{I18nRegistry, Locale, TranslationBundle};
+use fission_i18n::{Locale, TranslationBundle};
 use fission_theme::Theme;
-use serde::{Deserialize, Serialize};
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 use std::sync::Arc;
 
 mod model;
@@ -19,7 +17,7 @@ mod features;
 use model::*;
 use components::{Sidebar, EmailList, EmailDetail, RightSidebar};
 use features::{SettingsModal, ContactsModal, ComposeModal, BrowserModal};
-use fission_core::{SystemEffect, ReducerContext, ActionInput, Action, ActionRegistry};
+use fission_core::{SystemEffect, ReducerContext, ActionRegistry};
 
 // --- APP ---
 

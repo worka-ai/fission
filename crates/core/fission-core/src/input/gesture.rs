@@ -71,9 +71,7 @@ impl InputController for GestureController {
                             // Internal Drop
                             if let Some(payload) = ctx.gesture.dragging_payload.take() {
                                 if let Some(up_hit) = crate::hit_test::hit_test_with_scroll(ctx.ir, ctx.layout, ctx.scroll, *point) {
-                                    if self.dispatch_internal_drop(ctx, up_hit, payload, *point) {
-                                        handled = true;
-                                    }
+                                    let _ = self.dispatch_internal_drop(ctx, up_hit, payload, *point);
                                 }
                             }
 

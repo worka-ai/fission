@@ -1,8 +1,7 @@
-use fission_core::ui::{Container, Text, TextContent};
+use fission_core::ui::Container;
 use fission_core::{AppState, BuildCtx, View, Widget, Node};
 use fission_core::op::Color;
 use fission_test::TestHarness;
-use fission_layout::LayoutRect;
 
 #[derive(Debug, Default, Clone)]
 struct State;
@@ -18,7 +17,7 @@ fn test_container_background_fills_border_box() {
     let width = 100.0;
     let height = 100.0;
 
-    struct Root { p: f32, w: f32, h: f32 }
+    struct Root { p: f32, _w: f32, _h: f32 }
     impl Widget<State> for Root {
         fn build(&self, _ctx: &mut BuildCtx<State>, _view: &View<State>) -> Node {
             // Use Align to prevent stretching the test container
@@ -37,7 +36,7 @@ fn test_container_background_fills_border_box() {
     }
 
     let mut h = TestHarness::new(State);
-    h = h.with_root_widget(Root { p: padding, w: width, h: height });
+    h = h.with_root_widget(Root { p: padding, _w: width, _h: height });
     h.pump().unwrap();
 
     let ir = h.last_ir.as_ref().unwrap();

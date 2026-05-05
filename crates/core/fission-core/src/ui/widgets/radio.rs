@@ -2,7 +2,7 @@ use crate::lowering::{LoweringContext, NodeBuilder};
 use crate::ui::traits::Lower;
 use crate::ActionEnvelope;
 use fission_ir::{
-    op::{Color, Fill, LayoutOp, Op, PaintOp, Stroke},
+    op::{LayoutOp, Op, PaintOp},
     NodeId,
 };
 use serde::{Deserialize, Serialize};
@@ -55,7 +55,7 @@ impl Lower for Radio {
         let tokens = &cx.env.theme.tokens;
         let size = 18.0;
         let dot_size = size * 0.5;
-        let radius = size / 2.0;
+        let _radius = size / 2.0;
         let border_color = tokens.colors.text_secondary;
         let active_color = tokens.colors.primary;
         let text_color = tokens.colors.text_primary;

@@ -30,7 +30,7 @@ pub struct Popover {
 }
 
 impl<S: fission_core::AppState> Widget<S> for Popover {
-    fn build(&self, ctx: &mut BuildCtx<S>, view: &View<S>) -> Node {
+    fn build(&self, ctx: &mut BuildCtx<S>, _view: &View<S>) -> Node {
         // Derive stable anchor ID
         let anchor_id = NodeId::derived(self.id.as_u128(), &[0]);
 

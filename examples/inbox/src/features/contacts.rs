@@ -1,4 +1,4 @@
-use fission_core::{BuildCtx, View, Widget, WidgetNodeId, NodeId, Handler};
+use fission_core::{BuildCtx, View, Widget, WidgetNodeId, Handler};
 use fission_core::ui::Node;
 use fission_widgets::{Modal, ModalAction, DataTable, TableColumn, TableRow};
 use crate::model::{InboxState, SetContactsOpen, ToggleContactSelection};

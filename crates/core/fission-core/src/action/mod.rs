@@ -18,7 +18,6 @@ use serde::{de::DeserializeOwned, Deserialize, Serialize};
 use serde_json;
 use std::any::Any;
 
-use crate as fission_core;
 
 pub mod video;
 

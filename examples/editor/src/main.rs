@@ -3,11 +3,9 @@ use fission_core::ui::{
     Align, Button, ButtonContentAlign, ButtonVariant, Column, Container, GestureDetector, Icon, Node,
     Positioned, Row, Text, TextInput, ZStack,
 };
-use fission_core::{ActionEnvelope, AppState, BuildCtx, Handler, PortalLayer, View, Widget, WidgetNodeId};
-use fission_macros::Action;
+use fission_core::{ActionEnvelope, BuildCtx, Handler, PortalLayer, View, Widget, WidgetNodeId};
 use fission_shell_desktop::DesktopApp;
-use fission_widgets::{HStack, Spacer, SplitDirection, SplitView, VStack};
-use serde::{Deserialize, Serialize};
+use fission_widgets::{Spacer, VStack};
 use std::path::PathBuf;
 
 mod model;
@@ -41,7 +39,6 @@ use command_palette::CommandPalette;
 
 const MENU_BAR_BG: Color = Color { r: 51, g: 51, b: 51, a: 255 };
 const SURFACE_BG: Color = Color { r: 37, g: 37, b: 38, a: 255 };
-const DARK_BG: Color = Color { r: 30, g: 30, b: 30, a: 255 };
 const BORDER_COLOR: Color = Color { r: 48, g: 48, b: 49, a: 255 };
 const DIM_TEXT: Color = Color { r: 140, g: 140, b: 140, a: 255 };
 const BRIGHT_TEXT: Color = Color { r: 220, g: 220, b: 220, a: 255 };
@@ -735,7 +732,7 @@ impl Widget<EditorState> for ContextMenu {
             }) as Handler<EditorState, DismissContextMenu>,
         );
 
-        let noop = ctx.bind(
+        let _noop = ctx.bind(
             Noop,
             (|s: &mut EditorState, _, _| {
                 s.context_menu_visible = false;

@@ -1,15 +1,14 @@
 use fission_core::ui::{
-    Button, Column, Container, Node, Row, Text, TextInput, ZStack
+    Container, Node, Text
 };
-use fission_core::{AppState, BuildCtx, View, Widget, ActionEnvelope};
+use fission_core::{AppState, BuildCtx, View, Widget};
 use fission_test::TestHarness;
-use fission_core::op::Color;
 use fission_widgets::{NumberInput, SplitView, SplitDirection};
 
 #[derive(Debug, Default, Clone)]
 struct State {
-    counter: f32,
-    text: String,
+    _counter: f32,
+    _text: String,
     modal_open: bool,
 }
 impl AppState for State {}

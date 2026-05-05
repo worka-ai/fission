@@ -1,8 +1,8 @@
-use crate::model::{DiagSeverity, EditorState, NavigateDiagnostic, OpenFile};
+use crate::model::{DiagSeverity, EditorState, OpenFile};
 use fission_core::op::Color;
 use fission_core::ui::{Button, ButtonContentAlign, ButtonVariant, Container, Node, Scroll, Text};
 use fission_core::{ActionEnvelope, BuildCtx, FlexDirection, Handler, View, Widget};
-use fission_widgets::{VStack, HStack, Spacer};
+use fission_widgets::VStack;
 use serde_json;
 
 pub struct DiagnosticsPanel;

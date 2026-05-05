@@ -87,7 +87,7 @@ fn inbox_scroll_and_interact() {
     client.screenshot(&format!("{}/02_before_scroll.png", dir)).expect("screenshot");
 
     // Scroll the email list area (center of window)
-    for i in 0..3 {
+    for _i in 0..3 {
         client.scroll(400.0, 400.0, 0.0, 100.0).expect("scroll");
         client.wait(300).expect("wait");
     }

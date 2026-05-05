@@ -1,8 +1,7 @@
-use fission_core::{AppState, BuildCtx, View, Widget, Node, ActionId, ActionEnvelope, Action, Handler, ReducerContext, Lower};
+use fission_core::{AppState, BuildCtx, View, Widget, Node};
 use fission_widgets::calendar::Calendar;
 use chrono::NaiveDate;
 use serde::{Deserialize, Serialize};
-use std::sync::Arc;
 
 #[derive(Default, Debug, Clone, Serialize, Deserialize, PartialEq)]
 struct TestState {
@@ -16,7 +15,7 @@ fn test_calendar_build() {
     let runtime = fission_core::RuntimeState::default();
     let state = TestState::default();
     let view = View::new(&state, &runtime, &env, None);
-    let mut reg = fission_core::ActionRegistry::<TestState>::new();
+    let _reg = fission_core::ActionRegistry::<TestState>::new();
     let mut ctx = BuildCtx::new();
 
     let calendar = Calendar {

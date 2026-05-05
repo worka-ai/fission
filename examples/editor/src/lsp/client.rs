@@ -180,6 +180,7 @@ impl LspClient {
         self.send_notification("textDocument/didChange", Some(serde_json::to_value(params).unwrap()));
     }
 
+    #[allow(dead_code)]
     pub fn request_completion(&mut self, path: &str, line: u32, character: u32) -> u64 {
         let params = CompletionParams {
             text_document: TextDocumentIdentifier {
@@ -229,6 +230,7 @@ impl LspClient {
     }
 
     /// Send shutdown request and exit notification, then kill the child process.
+    #[allow(dead_code)]
     pub fn shutdown(&mut self) {
         self.send_request("shutdown", None);
         // Give the server a moment to process the shutdown request.

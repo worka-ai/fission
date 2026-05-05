@@ -1,5 +1,5 @@
 use fission_layout::{TextMeasurer, LineMetric};
-use fission_ir::op::{TextRun, LayoutUnit};
+use fission_ir::op::TextRun;
 use parley::layout::{Layout, PositionedLayoutItem};
 use parley::style::{FontStack, StyleProperty};
 use parley::{FontContext, LayoutContext};

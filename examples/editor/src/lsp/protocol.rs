@@ -1,3 +1,5 @@
+#![allow(dead_code)]
+
 //! LSP JSON-RPC protocol types.
 
 use serde::{Deserialize, Serialize};

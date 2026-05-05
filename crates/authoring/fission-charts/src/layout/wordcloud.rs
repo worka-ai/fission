@@ -1,4 +1,3 @@
-use std::f32::consts::PI;
 use fission_layout::LayoutRect;
 
 pub struct WordcloudLayout;

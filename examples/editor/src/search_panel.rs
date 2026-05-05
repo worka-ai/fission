@@ -2,7 +2,7 @@ use crate::model::{EditorState, ExecuteSearch, OpenFile, UpdateSearchQuery};
 use fission_core::op::Color;
 use fission_core::ui::{Button, ButtonContentAlign, ButtonVariant, Container, Node, Scroll, Text, TextInput, Column};
 use fission_core::{ActionEnvelope, BuildCtx, FlexDirection, Handler, View, Widget};
-use fission_widgets::{VStack, HStack, Spacer};
+use fission_widgets::{VStack, HStack};
 use serde_json;
 
 pub struct SearchPanel;

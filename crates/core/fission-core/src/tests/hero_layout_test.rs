@@ -1,8 +1,8 @@
 use crate::env::{Env, RuntimeState};
 use crate::lowering::{LoweringContext, build_layout_tree, NodeBuilder};
-use crate::ui::traits::{Lower, LowerDyn};
+use crate::ui::traits::LowerDyn;
 use crate::ui::Node;
-use fission_ir::{LayoutOp, Op, Semantics};
+use fission_ir::{Op, Semantics};
 use fission_layout::{LayoutEngine, LayoutSize};
 
 #[derive(Debug)]

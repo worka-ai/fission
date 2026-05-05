@@ -83,12 +83,6 @@ fn state_filters_open() -> InboxState {
     state
 }
 
-fn state_menu_open() -> InboxState {
-    let mut state = InboxState::default();
-    state.show_filter_dropdown = true;
-    state
-}
-
 fn state_pagination_ellipsis() -> InboxState {
     let mut state = InboxState::default();
     let mut next_id = state.next_email_id;
@@ -263,19 +257,6 @@ fn find_text_node_rect_rightmost(h: &TestHarness<InboxState>, needle: &str) -> O
             .unwrap_or(std::cmp::Ordering::Equal)
     });
     rects.into_iter().next()
-}
-
-fn find_text_node_rect_near(
-    h: &TestHarness<InboxState>,
-    needle: &str,
-    target: LayoutRect,
-) -> Option<LayoutRect> {
-    let rects = find_text_node_rects(h, needle);
-    rects.into_iter().min_by(|a, b| {
-        let da = (a.x() - target.x()).powi(2) + (a.y() - target.y()).powi(2);
-        let db = (b.x() - target.x()).powi(2) + (b.y() - target.y()).powi(2);
-        da.partial_cmp(&db).unwrap_or(std::cmp::Ordering::Equal)
-    })
 }
 
 fn click_rect(h: &mut TestHarness<InboxState>, rect: LayoutRect) -> Result<()> {
@@ -634,22 +615,6 @@ fn mobile_drawer_backdrop_closes() -> Result<()> {
 fn mobile_drawer_opens_and_closes_from_header() -> Result<()> {
     // Hamburger menu removed from desktop header
     return Ok(());
-    let mut h = pump_state(state_default())?;
-    let menu_id = NodeId::derived(WidgetNodeId::explicit("mobile_menu_button").as_u128(), &[]);
-    click_node(&mut h, menu_id)?;
-    let state = h.runtime.get_app_state::<InboxState>().unwrap();
-    assert!(
-        state.show_mobile_menu,
-        "drawer should open from header button"
-    );
-    h.pump()?;
-    click(&mut h, 700.0, 20.0)?;
-    let state = h.runtime.get_app_state::<InboxState>().unwrap();
-    assert!(
-        !state.show_mobile_menu,
-        "drawer should close on backdrop click"
-    );
-    Ok(())
 }
 
 #[test]

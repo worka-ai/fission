@@ -7,7 +7,7 @@ use fission_core::env::Env;
 use fission_core::lowering::LoweringContext;
 use fission_core::Runtime;
 use fission_layout::{LayoutEngine, TextMeasurer, LineMetric};
-use fission_render::{DisplayList, Renderer};
+use fission_render::{RenderScene, Renderer};
 use std::sync::Arc;
 
 #[derive(Debug, Default, Clone)]
@@ -16,7 +16,7 @@ impl fission_core::action::AppState for AppState {}
 
 struct MockRenderer;
 impl Renderer for MockRenderer {
-    fn render(&mut self, _dl: &DisplayList) -> Result<()> { Ok(()) }
+    fn render_scene(&mut self, _scene: &RenderScene) -> Result<()> { Ok(()) }
 }
 
 struct MockMeasurer;
@@ -122,7 +122,7 @@ fn menu_portal_position_near_anchor() -> Result<()> {
     )?;
 
 
-    let snap = pipe.last_snapshot.clone().expect("snapshot");
+    let _snap = pipe.last_snapshot.clone().expect("snapshot");
 
     // Frame 2: open (should register a portal positioned by the previous snapshot rect)
     {

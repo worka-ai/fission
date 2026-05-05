@@ -1,7 +1,6 @@
-use fission_core::{BuildCtx, View, Widget, WidgetNodeId, NodeId, AppState};
-use fission_core::ui::{Node, Text, TextInput};
-use fission_widgets::{FormControl, Container};
-use std::sync::Arc;
+use fission_core::{BuildCtx, View, Widget, AppState};
+use fission_core::ui::{Node, TextInput};
+use fission_widgets::FormControl;
 
 #[derive(Default, Clone, Debug)]
 struct State;

@@ -74,7 +74,7 @@ fn test_scroll_hit_test_logic() {
 
     let mut runtime = Runtime::default();
 
-    let hit = hit_test_with_scroll(
+    let _hit = hit_test_with_scroll(
         &ir,
         &snapshot,
         &runtime.runtime_state.scroll,
@@ -85,7 +85,7 @@ fn test_scroll_hit_test_logic() {
 
     runtime.runtime_state.scroll.set_offset(scroll_id, 100.0);
 
-    let hit = hit_test_with_scroll(
+    let _hit = hit_test_with_scroll(
         &ir,
         &snapshot,
         &runtime.runtime_state.scroll,

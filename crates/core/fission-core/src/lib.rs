@@ -32,15 +32,10 @@
 //! }
 //! ```
 
-use anyhow::{anyhow, Result};
-use fission_diagnostics::prelude as diag;
-use downcast_rs::Downcast;
-use fission_ir::CoreIR;
+use anyhow::Result;
 use lazy_static::lazy_static;
-use serde_json;
-use std::any::{Any, TypeId};
-use std::collections::{HashMap, HashSet};
-use std::sync::Arc;
+use std::any::TypeId;
+use std::collections::HashMap;
 
 extern crate self as fission_core;
 
@@ -64,7 +59,6 @@ pub mod view;
 #[cfg(test)]
 mod tests;
 
-use crate::env::ActiveAnimation;
 pub use action::{Action, ActionEnvelope, ActionId, AppState};
 pub use context::{ReducerContext, Effects}; // New
 pub use effect::{Effect, EffectEnvelope, EffectPayload, ActionInput, SystemEffect}; // New
@@ -77,7 +71,6 @@ pub use fission_ir::{EmbedKind, NodeId, Op, WidgetNodeId};
 pub use fission_layout::{
     BoxConstraints, FlexDirection, LayoutEngine, LayoutOp, LayoutPoint, LayoutRect, LayoutSize, LayoutSnapshot, LayoutUnit, TextMeasurer,
 };
-use hit_test::{find_next_focus_node, hit_test, hit_test_with_scroll};
 pub use lowering::{LoweringContext, NodeBuilder};
 pub use registry::{
     ActionRegistry, AnimationPropertyId, AnimationRequest, AnimationStartValue, BuildCtx, Handler,

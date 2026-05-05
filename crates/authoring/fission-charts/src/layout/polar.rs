@@ -1,4 +1,3 @@
-use std::f32::consts::PI;
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct PolarCoord {

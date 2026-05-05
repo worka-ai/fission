@@ -30,6 +30,7 @@ fn dir() -> String {
     d.to_string()
 }
 
+#[allow(dead_code)]
 fn create_temp_file(name: &str, content: &str) -> String {
     let path = std::env::temp_dir().join(name);
     let mut f = std::fs::File::create(&path).expect("create temp file");
@@ -37,6 +38,7 @@ fn create_temp_file(name: &str, content: &str) -> String {
     path.to_string_lossy().to_string()
 }
 
+#[allow(dead_code)]
 fn cleanup(path: &str) {
     std::fs::remove_file(path).ok();
 }

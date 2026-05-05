@@ -1,6 +1,5 @@
-use fission_ir::{CoreIR, NodeId, Op, LayoutOp, PaintOp};
+use fission_ir::{CoreIR, NodeId, Op, LayoutOp};
 use fission_layout::{LayoutSnapshot, LayoutRect};
-use std::collections::HashSet;
 
 #[derive(Debug)]
 pub enum LayoutViolation {
@@ -62,7 +61,7 @@ impl<'a> LayoutLinter<'a> {
             // For now, let's check direct flow children.
             
             for child_id in &node.children {
-                if let Some(child_geom) = self.snapshot.get_node_geometry(*child_id) {
+                if let Some(_child_geom) = self.snapshot.get_node_geometry(*child_id) {
                     if let Some(child_node) = self.ir.nodes.get(child_id) {
                         let is_absolute = matches!(child_node.op, Op::Layout(LayoutOp::Positioned { .. }) | Op::Layout(LayoutOp::AbsoluteFill));
                         

@@ -1,8 +1,8 @@
-use crate::{Lower, LoweringContext, Node, NodeBuilder};
+use crate::{Lower, LoweringContext, NodeBuilder};
 use crate::lowering::wrap_zstack_child;
 use crate::ActionEnvelope;
 use fission_ir::{
-    op::{Color, Fill, GridTrack, LayoutOp, Op, PaintOp, Stroke},
+    op::{Color, Fill, GridTrack, LayoutOp, Op, PaintOp},
     NodeId, FlexDirection,
 };
 use serde::{Deserialize, Serialize};
@@ -125,10 +125,10 @@ impl Lower for Slider {
                 })
             );
             track_box.add_child(track_paint);
-            let track_box_id = track_box.build(cx);
+            let _track_box_id = track_box.build(cx);
             
             // Center vertically
-            let mut center_col = NodeBuilder::new(
+            let _center_col = NodeBuilder::new(
                 cx.next_node_id(),
                 Op::Layout(LayoutOp::Flex {
                     direction: FlexDirection::Row,

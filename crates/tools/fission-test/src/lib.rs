@@ -2,13 +2,12 @@ use anyhow::Result;
 use fission_core::lowering::build_layout_tree;
 use fission_core::{
     Action, ActionEnvelope, ActionId, AdvanceTo, AppState, BuildCtx, Clock, CurrentTime, Env,
-    InputEvent, LayoutPoint, Lower, LoweringContext, Node, Runtime, ScrollStateMap, Tick, View,
-    Widget,
+    InputEvent, LayoutPoint, LoweringContext, Runtime, ScrollStateMap, View, Widget,
 };
 use fission_ir::{CoreIR, NodeId};
 use fission_layout::{LayoutEngine, LayoutSize, LayoutSnapshot, TextMeasurer};
 use fission_render::{
-    BoxShadow, Color, DisplayList, DisplayOp, Fill, LayoutRect, Renderer, Stroke,
+    BoxShadow, Color, DisplayList, DisplayOp, LayoutRect, RenderScene, Renderer,
 };
 use fission_render_vello::VelloTextMeasurer;
 use fission_render_vello::parley::FontContext;
@@ -24,9 +23,9 @@ pub struct MockRenderer {
 }
 
 impl Renderer for MockRenderer {
-    fn render(&mut self, display_list: &DisplayList) -> Result<()> {
+    fn render_scene(&mut self, scene: &RenderScene) -> Result<()> {
         let mut lock = self.last_display_list.lock().unwrap();
-        *lock = Some(display_list.clone());
+        *lock = Some(scene.flatten());
         Ok(())
     }
 }
@@ -244,8 +243,6 @@ impl<S: AppState> TestHarness<S> {
             self.env.viewport_size = viewport;
         }
         // 1. Build & Lower
-        let mut layout_input_nodes = Vec::new();
-
         if let Some(root) = &self.root_widget {
             // Build
             if trace {
@@ -319,7 +316,7 @@ impl<S: AppState> TestHarness<S> {
             let root_id = node_tree.lower(&mut cx);
             cx.ir.root = Some(root_id);
 
-            layout_input_nodes = build_layout_tree(&cx.ir, &self.env);
+            let layout_input_nodes = build_layout_tree(&cx.ir, &self.env);
             self.last_ir = Some(cx.ir);
             if trace {
                 eprintln!("[test-trace] lower done nodes={}", layout_input_nodes.len());
@@ -339,6 +336,8 @@ impl<S: AppState> TestHarness<S> {
             if trace {
                 eprintln!("[test-trace] layout done");
             }
+        } else {
+            return Ok(());
         }
 
         // 3. Render
@@ -802,4 +801,3 @@ fn multiply_matrix(a: [f32; 16], b: [f32; 16]) -> [f32; 16] {
     }
     out
 }
-

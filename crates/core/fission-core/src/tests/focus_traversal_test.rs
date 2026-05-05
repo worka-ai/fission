@@ -3,8 +3,8 @@ use crate::lowering::{LoweringContext};
 use crate::ui::traits::Lower;
 use crate::ui::Node;
 use crate::hit_test::find_next_focus_node;
-use fission_core::{ActionEnvelope, ActionId, Op};
-use fission_ir::{CoreIR, NodeId, Semantics, semantics::Role};
+use fission_core::Op;
+use fission_ir::{Semantics, semantics::Role};
 
 #[test]
 fn test_explicit_focus_order() {

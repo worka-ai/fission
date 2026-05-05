@@ -1,5 +1,5 @@
 use fission_3d::{Point3D, Primitive3D, Scene3D, Scene3DLowerer};
-use fission_core::{env::Env, lowering::LoweringContext, op::Color, ui::traits::LowerDyn, NodeId, WidgetNodeId, RuntimeState};
+use fission_core::{env::Env, lowering::LoweringContext, op::Color, ui::traits::LowerDyn, RuntimeState};
 use fission_ir::op::{EmbedKind, LayoutOp};
 
 #[test]

@@ -5,13 +5,11 @@
 //! an [`Effects`] builder for issuing system effects (HTTP, file I/O, alerts)
 //! and binding callback actions.
 
-use crate::action::{Action, ActionEnvelope, ActionId, AppState};
-use crate::effect::{ActionInput, Effect, EffectEnvelope, SystemEffect, EffectPayload};
-use crate::NodeId;
+use crate::action::{Action, ActionEnvelope, AppState};
+use crate::effect::{ActionInput, Effect, EffectEnvelope, SystemEffect};
 use crate::registry::{ActionRegistry, IntoHandler};
 use std::collections::HashMap;
 use std::marker::PhantomData;
-use serde::Serialize;
 
 /// The context passed to modern 3-argument reducer handlers.
 ///

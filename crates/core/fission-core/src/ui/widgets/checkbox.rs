@@ -2,7 +2,7 @@ use crate::lowering::{LoweringContext, NodeBuilder};
 use crate::ui::traits::Lower;
 use crate::ActionEnvelope;
 use fission_ir::{
-    op::{Color, Fill, LayoutOp, Op, PaintOp, Stroke},
+    op::{LayoutOp, Op, PaintOp},
     NodeId,
 };
 use serde::{Deserialize, Serialize};

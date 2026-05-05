@@ -1,7 +1,6 @@
-use fission_core::{BuildCtx, View, Widget, WidgetNodeId, NodeId, AppState};
+use fission_core::{BuildCtx, View, Widget, WidgetNodeId, AppState};
 use fission_core::ui::{Node, Text};
-use fission_widgets::{Drawer, DrawerSide, Container};
-use std::sync::Arc;
+use fission_widgets::{Drawer, DrawerSide};
 
 #[derive(Default, Clone, Debug)]
 struct State;

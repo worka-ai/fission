@@ -1,24 +1,23 @@
-use crate::action::{Action, ActionEnvelope, ActionId, AppState};
+use crate::action::{ActionEnvelope, ActionId, AppState};
 use crate::effect::{ActionInput, EffectEnvelope};
 use crate::env::{
-    ActiveAnimation, AnimationStateMap, Env, InteractionStateMap, RuntimeState, ScrollStateMap,
-    VideoStateMap, VideoStatus,
+    ActiveAnimation, RuntimeState, VideoStatus,
 };
 use crate::registry::{
     ActionRegistry, AnimationPropertyId, AnimationRequest, AnimationStartValue, VideoRegistration,
 };
 use crate::BoxedReducer;
 use crate::{
-    Clipboard, Clock, CurrentTime, ImeHandler, InputEvent, KeyCode, KeyEvent, PointerButton,
+    Clipboard, Clock, CurrentTime, ImeHandler, InputEvent, KeyCode, KeyEvent,
     PointerEvent,
 };
 use anyhow::{anyhow, Result};
 use fission_diagnostics::prelude as diag;
 use fission_ir::{CoreIR, FlexDirection, LayoutOp, NodeId, Op, WidgetNodeId};
-use fission_layout::{LayoutPoint, LayoutRect, LayoutSnapshot, LayoutUnit, TextMeasurer};
+use fission_layout::{LayoutPoint, LayoutRect, LayoutSnapshot, TextMeasurer};
 use glam::{Mat4, Vec4};
 use serde_json;
-use std::any::{Any, TypeId};
+use std::any::TypeId;
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 
@@ -355,7 +354,7 @@ impl Runtime {
             let mut progress = if anim.duration == 0 {
                 1.0
             } else {
-                (elapsed as f32 / anim.duration as f32)
+                elapsed as f32 / anim.duration as f32 
             };
 
             if anim.repeat && progress >= 1.0 {
@@ -671,10 +670,7 @@ impl Runtime {
             }
         }
 
-        let mut dispatched_actions = Vec::new();
-        let mut handled = false;
-
-        {
+        let (handled, dispatched_actions) = {
             let mut ctx = ControllerContext {
                 ir,
                 layout,
@@ -688,21 +684,19 @@ impl Runtime {
             };
 
             let mut gesture_controller = GestureController;
-            if gesture_controller.handle_event(&mut ctx, &event) {
-                handled = true;
+            let handled = if gesture_controller.handle_event(&mut ctx, &event) {
+                true
             } else {
                 let mut text_controller = TextInputController;
                 if text_controller.handle_event(&mut ctx, &event) {
-                    handled = true;
+                    true
                 } else {
                     let mut slider_controller = SliderController;
-                    if slider_controller.handle_event(&mut ctx, &event) {
-                        handled = true;
-                    }
+                    slider_controller.handle_event(&mut ctx, &event)
                 }
-            }
-            dispatched_actions = ctx.dispatched_actions;
-        }
+            };
+            (handled, ctx.dispatched_actions)
+        };
 
         for (target, action, input) in dispatched_actions {
             self.dispatch_with_input(action, target, &input)?;

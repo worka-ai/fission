@@ -562,9 +562,9 @@ pub trait TextMeasurer: Send + Sync {
     /// The default implementation returns an empty vec.
     fn get_line_metrics(
         &self,
-        text: &str,
-        font_size: f32,
-        available_width: Option<f32>,
+        _text: &str,
+        _font_size: f32,
+        _available_width: Option<f32>,
     ) -> Vec<LineMetric> {
         vec![]
     }
@@ -811,7 +811,7 @@ impl LayoutEngine {
                     (snapshot.nodes.get(&anchor), snapshot.nodes.get(&content))
                 {
                     if let Some(anchor_abs) = visual_location(anchor) {
-                        let anchor_w = anchor_geom.rect.width();
+                        let _anchor_w = anchor_geom.rect.width();
                         let anchor_h = anchor_geom.rect.height();
                         let left_rel = anchor_abs.x;
                         let top_rel = anchor_abs.y + anchor_h;
@@ -957,7 +957,7 @@ impl LayoutEngine {
             }
         }
 
-        let mut content_size = LayoutSize::ZERO;
+        let mut content_size;
         let size = match &node.op {
             LayoutOp::Box {
                 width,
@@ -1118,7 +1118,7 @@ impl LayoutEngine {
                 ..
             } => {
                 let gap = gap.unwrap_or(0.0);
-                let mut local = constraints.tighten(node.width, node.height);
+                let local = constraints.tighten(node.width, node.height);
                 let inner = local.deflate(*padding);
                 let is_row = matches!(direction, IrFlexDirection::Row);
 
@@ -1219,7 +1219,7 @@ impl LayoutEngine {
                     let total_lines_cross: f32 =
                         lines.iter().map(|(_, _, cross)| *cross).sum::<f32>()
                             + gap * lines.len().saturating_sub(1) as f32;
-                    let mut container_cross = total_lines_cross.max(min_cross);
+                    let container_cross = total_lines_cross.max(min_cross);
                     let size = if is_row {
                         local.constrain(LayoutSize::new(
                             container_main + padding[0] + padding[1],
@@ -1255,7 +1255,7 @@ impl LayoutEngine {
                     };
 
                     for (line_children, line_main, line_cross) in ordered_lines {
-                        let mut remaining_space = (inner_main - line_main).max(0.0);
+                        let remaining_space = (inner_main - line_main).max(0.0);
                         let mut extra_gap = 0.0;
                         let mut offset_main = 0.0;
                         match justify_content {
@@ -1627,7 +1627,7 @@ impl LayoutEngine {
                         }
                     }
 
-                    let mut container_cross = max_child_cross.max(min_cross);
+                    let container_cross = max_child_cross.max(min_cross);
                     let size = if is_row {
                         local.constrain(LayoutSize::new(
                             container_main + padding[0] + padding[1],
@@ -1662,7 +1662,7 @@ impl LayoutEngine {
                         })
                         .sum();
 
-                    let mut remaining_space =
+                    let remaining_space =
                         (inner_main - final_children_main - gap_total).max(0.0);
                     let mut extra_gap = 0.0;
                     let mut offset_main = 0.0;
@@ -2074,7 +2074,7 @@ impl LayoutEngine {
                 content_size = child_size;
                 constraints.constrain(child_size)
             }
-            LayoutOp::Flyout { anchor, content } => {
+            LayoutOp::Flyout { anchor, content: _ } => {
                 let loose = BoxConstraints::loose(
                     if constraints.is_width_bounded() { constraints.max_w } else { f32::INFINITY },
                     if constraints.is_height_bounded() { constraints.max_h } else { f32::INFINITY },
@@ -2093,16 +2093,6 @@ impl LayoutEngine {
                 }
                 content_size = child_size;
                 child_size
-            }
-            _ => {
-                let mut child_size = LayoutSize::ZERO;
-                if !node.children_ids.is_empty() {
-                    for child_id in &node.children_ids {
-                        child_size = self.layout_node_constraints(*child_id, constraints, origin, node_map, out, constraints_out, measure_cache, scroll_source, record, depth + 1);
-                    }
-                }
-                content_size = child_size;
-                constraints.constrain(child_size)
             }
         };
 
@@ -2134,7 +2124,6 @@ impl LayoutEngine {
                 let text_content = LayoutSize::new(mw, mh);
                 let measured = constraints.constrain(text_content);
                 if node.children_ids.is_empty() {
-                    content_size = text_content;
                     let result =
                         self.record_geometry(node_id, origin, measured, text_content, out, record);
                     if !record {

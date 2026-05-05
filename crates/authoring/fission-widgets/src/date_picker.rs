@@ -3,7 +3,6 @@ use crate::popover::Popover;
 use chrono::{Datelike, NaiveDate};
 use fission_core::ui::{Node, TextInput};
 use fission_core::{ActionEnvelope, BuildCtx, View, Widget, WidgetNodeId};
-use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 
 pub struct DatePicker {
@@ -32,7 +31,7 @@ impl<S: fission_core::AppState> Widget<S> for DatePicker {
             .map(|d| d.format("%Y-%m-%d").to_string())
             .unwrap_or_default();
 
-        let trigger = TextInput {
+        let _trigger = TextInput {
             value: text.clone(),
             placeholder: Some("YYYY-MM-DD".into()),
             on_change: None, // Read-only via text for now, or parse?

@@ -50,16 +50,14 @@ lazy_static! {
 }
 
 #[derive(Default, Clone, Debug)]
-struct State {
-    filter: String,
-}
+struct State;
 
 impl AppState for State {}
 
 struct IconsApp;
 
 impl Widget<State> for IconsApp {
-    fn build(&self, ctx: &mut BuildCtx<State>, _view: &View<State>) -> Node {
+    fn build(&self, _ctx: &mut BuildCtx<State>, _view: &View<State>) -> Node {
         let title = Text::new("Material Icons Gallery")
             .size(32.0);
 

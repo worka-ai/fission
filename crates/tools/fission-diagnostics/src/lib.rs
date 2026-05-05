@@ -19,7 +19,7 @@
 use once_cell::sync::OnceCell;
 use parking_lot::RwLock;
 use serde::{Deserialize, Serialize};
-use std::collections::{BTreeSet, HashSet};
+use std::collections::BTreeSet;
 use std::fs::{File, OpenOptions};
 use std::io::Write as _;
 use std::path::PathBuf;
@@ -465,13 +465,6 @@ pub fn init(config: DiagnosticsConfig) {
         timestamp_ns: AtomicU64::new(0),
     };
     let _ = DIAGNOSTICS.set(RwLock::new(inner));
-}
-
-fn with_diag<T>(f: impl FnOnce(&DiagnosticsInner) -> T) -> Option<T> {
-    DIAGNOSTICS.get().map(|cell| {
-        let guard = cell.read();
-        f(&*guard)
-    })
 }
 
 fn with_diag_mut<T>(f: impl FnOnce(&mut DiagnosticsInner) -> T) -> Option<T> {

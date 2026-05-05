@@ -1,9 +1,7 @@
 use crate::stack::{HStack, VStack};
-use chrono::{Datelike, Local, NaiveDate, Weekday};
-use fission_core::op::Color;
+use chrono::{Datelike, Local, NaiveDate};
 use fission_core::ui::{Button, ButtonVariant, Container, Node, Text};
 use fission_core::{ActionEnvelope, BuildCtx, View, Widget};
-use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 
 pub struct Calendar {

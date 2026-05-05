@@ -9,7 +9,6 @@
 
 use fission_test_driver::LiveTestClient;
 use std::process::{Child, Command};
-use std::time::Duration;
 
 const CONTROL_PORT: u16 = 9876;
 

@@ -7,7 +7,7 @@ use fission_core::env::Env;
 use fission_core::lowering::LoweringContext;
 use fission_core::Runtime;
 use fission_layout::{LayoutEngine, TextMeasurer, LineMetric};
-use fission_render::{DisplayList, Renderer};
+use fission_render::{RenderScene, Renderer};
 use std::sync::Arc;
 
 #[derive(Debug, Default, Clone)]
@@ -16,7 +16,7 @@ impl fission_core::action::AppState for AppState {}
 
 struct MockRenderer;
 impl Renderer for MockRenderer {
-    fn render(&mut self, _dl: &DisplayList) -> Result<()> { Ok(()) }
+    fn render_scene(&mut self, _scene: &RenderScene) -> Result<()> { Ok(()) }
 }
 
 struct MockMeasurer;
@@ -66,7 +66,7 @@ fn flyout_does_not_shift_content() -> Result<()> {
     let mut pipe = Pipeline::new();
     
     // Frame 1: closed
-    let (node_tree, portals) = {
+    let (node_tree, _portals) = {
         let state = runtime.get_app_state::<AppState>().unwrap();
         let view = View::new(state, &runtime.runtime_state, &env, pipe.last_snapshot.as_ref());
         let mut ctx = BuildCtx::new();

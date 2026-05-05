@@ -1,5 +1,5 @@
-use fission_core::{BuildCtx, View, Widget, NodeId, AppState};
-use fission_core::ui::{Node, Text};
+use fission_core::{BuildCtx, View, Widget, AppState};
+use fission_core::ui::Node;
 use fission_widgets::{TreeView, TreeItem};
 use std::collections::HashSet;
 

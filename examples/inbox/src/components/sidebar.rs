@@ -1,8 +1,8 @@
 use fission_core::{BuildCtx, View, Widget, Handler};
 use fission_core::ui::{Button, ButtonContentAlign, ButtonVariant, Container, Node, Text, TextContent};
-use fission_widgets::{VStack, HStack, TreeView, TreeItem, Divider, Icon, Tag, Wrap, ProgressBar, Link};
+use fission_widgets::{VStack, TreeView, TreeItem, Divider, Tag, Wrap};
 use crate::model::{
-    InboxState, Folder, SelectFolder, SetSettingsOpen, SetContactsOpen, ToggleBrowserDemo, SetComposeOpen
+    InboxState, Folder, SelectFolder, SetSettingsOpen, SetContactsOpen, SetComposeOpen
 };
 use serde_json;
 

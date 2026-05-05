@@ -1,11 +1,10 @@
 use crate::series::map::MapSeries;
-use std::collections::HashMap;
 
 pub struct MapLayout;
 
 impl MapLayout {
     pub fn compute_geojson(
-        series: &MapSeries,
+        _series: &MapSeries,
         width: f32,
         height: f32,
     ) -> Vec<(String, String)> { // Name, SVG Path

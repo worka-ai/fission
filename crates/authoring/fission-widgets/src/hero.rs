@@ -1,5 +1,5 @@
 use fission_core::{
-    BuildCtx, Lower, LowerDyn, LoweringContext, Node, NodeBuilder, NodeId, View, Widget,
+    BuildCtx, LowerDyn, LoweringContext, Node, NodeBuilder, NodeId, View, Widget,
 };
 use fission_ir::{semantics::Role, Op, Semantics};
 use serde::{Deserialize, Serialize};

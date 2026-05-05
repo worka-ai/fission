@@ -2,7 +2,6 @@ use fission_core::ui::{Container, Text, Node, Row, Column};
 use fission_core::{AppState, BuildCtx, View, Widget};
 use fission_core::op::Color;
 use fission_test::TestHarness;
-use fission_layout::LayoutRect;
 
 #[derive(Debug, Default, Clone)]
 struct State;

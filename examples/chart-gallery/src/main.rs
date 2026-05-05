@@ -1,8 +1,8 @@
 use fission_charts::{
     Axis, BarSeries, BoxplotSeries, CandlestickSeries, Chart, CustomSeries, EffectScatterSeries,
-    FunnelSeries, GaugeSeries, GraphNode, GraphSeries, Grid, HeatmapSeries, Legend, LineSeries,
+    FunnelSeries, GaugeSeries, GraphNode, GraphSeries, HeatmapSeries, LineSeries,
     LiquidfillSeries, MapSeries, ParallelSeries, PictorialBarSeries, PieSeries, RadarSeries,
-    SankeySeries, ScatterSeries, Series, SunburstSeries, ThemeRiverSeries, Tooltip, TreemapNode,
+    SankeySeries, ScatterSeries, SunburstSeries, ThemeRiverSeries, TreemapNode,
     TreemapSeries, WordcloudSeries,
     Dataset, DataValue, Encode,
 };

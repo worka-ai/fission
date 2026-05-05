@@ -1,5 +1,5 @@
 use fission_core::{Lower, LoweringContext, Env, RuntimeState};
-use fission_widgets::{Slider, Checkbox, Tabs, TabItem};
+use fission_widgets::{Slider, Checkbox};
 use fission_ir::{Op, Role};
 
 #[test]

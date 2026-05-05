@@ -1,6 +1,6 @@
 use crate::model::EditorState;
 use fission_core::op::Color;
-use fission_core::ui::{Container, Node, Text, Icon, Column};
+use fission_core::ui::{Container, Node, Text, Icon};
 use fission_core::{BuildCtx, View, Widget};
 use fission_widgets::{HStack, Spacer};
 use fission_icons::material;
@@ -8,7 +8,7 @@ use fission_icons::material;
 pub struct StatusBar;
 
 impl Widget<EditorState> for StatusBar {
-    fn build(&self, ctx: &mut BuildCtx<EditorState>, view: &View<EditorState>) -> Node {
+    fn build(&self, _ctx: &mut BuildCtx<EditorState>, view: &View<EditorState>) -> Node {
         let bg = Color { r: 37, g: 37, b: 38, a: 255 }; // Workspace dark gray
         let text_color = Color { r: 255, g: 255, b: 255, a: 255 };
 
@@ -69,7 +69,7 @@ impl Widget<EditorState> for StatusBar {
         );
 
         // Active file info
-        if let Some((tab, buf)) = view.state.active_buffer() {
+        if let Some((_tab, buf)) = view.state.active_buffer() {
             items.push(
                 Text::new(format!("Ln {}, Col {}", buf.cursor_line + 1, buf.cursor_col + 1))
                     .size(12.0)

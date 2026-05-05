@@ -1,31 +1,25 @@
-use fission_core::{AppState, BuildCtx, Env, View, Widget, WidgetNodeId};
-use fission_ir::{CoreIR, NodeId, Op, PaintOp, LayoutOp};
-use fission_layout::{LayoutSize, LayoutSnapshot};
-use fission_render::{DisplayList, DisplayOp};
+use fission_core::{AppState, BuildCtx, View, Widget, WidgetNodeId};
+use fission_layout::LayoutSize;
+use fission_render::DisplayOp;
 use fission_test::prelude::*;
 use fission_test::TestHarness;
 use std::collections::HashSet;
 
 // Re-create the gallery state and widget inline (they're in the bin crate, not a lib)
 use fission_core::ui::{
-    Button, ButtonVariant, Checkbox, Column, Container, Node, Row, Scroll, Slider, Switch, Text,
-    TextContent, TextInput,
+    Button, ButtonVariant, Checkbox, Container, Node, Scroll, Slider, Switch, Text, TextInput,
 };
 use fission_core::{
-    ActionEnvelope, BuildCtx as BC, FlexDirection, Handler, ReducerContext,
+    ActionEnvelope, FlexDirection,
 };
-use fission_macros::Action;
 use fission_widgets::{
     Accordion, AccordionItem, Alert, AlertKind, Avatar, Badge, Breadcrumb, BreadcrumbItem, Card,
-    CircularProgress, Code, Divider, EmptyState, HStack,
-    Kbd, Link, MenuButton, MenuItem, Modal, ModalAction, NumberInput, Pagination,
-    ProgressBar, SegmentedControl, Select, SelectItem, Skeleton,
-    Spacer, Spinner, Stat, Stepper, TabItem, Tabs, Tag, Timeline,
-    TimelineItem, Toast, ToastKind, Tooltip, TreeItem, TreeView, VStack,
-    Drawer, DrawerSide,
+    CircularProgress, Code, EmptyState,
+    Kbd, Link, MenuButton, MenuItem, NumberInput, Pagination,
+    ProgressBar, Select, Skeleton, Spinner, Stat, Stepper, TabItem, Tabs, Tag, Timeline,
+    TimelineItem, Tooltip, TreeItem, TreeView, VStack,
 };
 use serde::{Deserialize, Serialize};
-use std::sync::Arc;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 struct GS;
@@ -43,7 +37,7 @@ fn section(title: &str, children: Vec<Node>) -> Node {
 
 // Build a minimal version of each widget category to test rendering
 fn build_all_widgets(ctx: &mut BuildCtx<GS>, view: &View<GS>) -> Node {
-    let noop = ActionEnvelope {
+    let _noop = ActionEnvelope {
         id: fission_core::ActionId::from_u128(9999),
         payload: vec![],
     };
@@ -252,7 +246,7 @@ fn progress_bar_partial_fill() {
     // The bar color is theme.progress.bar_color (primary ~103,85,143)
     let mut bar_rects: Vec<(f32, f32)> = Vec::new();
     for op in &dl.ops {
-        if let DisplayOp::DrawRect { rect, fill: Some(fill), corner_radius, .. } = op {
+        if let DisplayOp::DrawRect { rect, fill: Some(_fill), corner_radius, .. } = op {
             // Progress bar has corner_radius = height/2 = 4.0
             if (*corner_radius - 4.0).abs() < 0.5 && rect.height() > 3.0 && rect.height() < 12.0 {
                 bar_rects.push((rect.width(), rect.height()));
@@ -273,8 +267,8 @@ fn avatar_initials_centered() {
     harness.env.viewport_size = LayoutSize::new(900.0, 3000.0);
     harness.pump().expect("pump");
 
-    let ir = harness.last_ir.as_ref().unwrap();
-    let snapshot = harness.last_snapshot.as_ref().unwrap();
+    let _ir = harness.last_ir.as_ref().unwrap();
+    let _snapshot = harness.last_snapshot.as_ref().unwrap();
 
     let mut jd_text_rect = None;
     let mut avatar_box_rect = None;

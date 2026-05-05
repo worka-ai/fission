@@ -1,7 +1,7 @@
 use fission_core::{BuildCtx, View, Widget, WidgetNodeId, NodeId, Handler};
 use fission_core::ui::{Button, ButtonContentAlign, ButtonVariant, Checkbox, Container, Node, Row, Text, TextContent};
-use fission_widgets::{VStack, HStack, LazyColumn, Tabs, TabItem, TextInput, MenuButton, MenuItem, Badge, Divider, Icon, SegmentedControl, Pagination, EmptyState, Hero, DropDown, Tooltip, Popover, DateRangePicker, RangeSlider, Wrap, Tag};
-use crate::model::{InboxState, Folder, SelectTab, UpdateSearch, ToggleFilterDropdown, ToggleEmailSelection, ToggleFlag, SetComposeOpen, Navigate, SetMobileMenuOpen, SetFilterMode, SetPage, SetAdvancedFiltersOpen, SetSortOption, SetHelpPopoverOpen};
+use fission_widgets::{VStack, HStack, LazyColumn, Tabs, TabItem, TextInput, Badge, Divider, Icon, SegmentedControl, Pagination, EmptyState, Hero, DropDown, Popover, DateRangePicker, RangeSlider, Wrap, Tag};
+use crate::model::{InboxState, Folder, SelectTab, UpdateSearch, ToggleFilterDropdown, ToggleEmailSelection, ToggleFlag, Navigate, SetFilterMode, SetPage, SetAdvancedFiltersOpen, SetSortOption};
 use fission_icons::material;
 use std::sync::Arc;
 use serde_json;
@@ -91,7 +91,7 @@ impl Widget<InboxState> for EmailList {
             }
         }) as Handler<InboxState, Navigate>).id;
         let tab_id = ctx.bind(SelectTab(0), (|s: &mut InboxState, a: SelectTab, _| s.active_tab = a.0) as Handler<InboxState, SelectTab>).id;
-        let menu_toggle = ctx.bind(ToggleFilterDropdown, (|s: &mut InboxState, _: ToggleFilterDropdown, _| s.show_filter_dropdown = !s.show_filter_dropdown) as Handler<InboxState, ToggleFilterDropdown>);
+        let _menu_toggle = ctx.bind(ToggleFilterDropdown, (|s: &mut InboxState, _: ToggleFilterDropdown, _| s.show_filter_dropdown = !s.show_filter_dropdown) as Handler<InboxState, ToggleFilterDropdown>);
         
         // Header
         list_items.push(

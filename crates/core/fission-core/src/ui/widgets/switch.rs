@@ -2,7 +2,7 @@ use crate::lowering::{LoweringContext, NodeBuilder, wrap_zstack_child};
 use crate::ui::traits::Lower;
 use crate::ActionEnvelope;
 use fission_ir::{
-    op::{Color, Fill, LayoutOp, Op, PaintOp, Stroke},
+    op::{Color, LayoutOp, Op, PaintOp},
     NodeId,
 };
 use serde::{Deserialize, Serialize};

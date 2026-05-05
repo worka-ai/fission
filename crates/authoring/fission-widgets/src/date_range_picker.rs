@@ -3,7 +3,6 @@ use crate::stack::HStack;
 use chrono::NaiveDate;
 use fission_core::ui::{Node, Text};
 use fission_core::{ActionEnvelope, BuildCtx, View, Widget, WidgetNodeId};
-use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 
 pub struct DateRangePicker {

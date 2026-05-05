@@ -1,4 +1,4 @@
-use crate::layout::scale::{CategoryScale, LinearScale, Scale};
+use crate::layout::scale::Scale;
 use std::f32::consts::PI;
 
 pub trait CoordSystem {

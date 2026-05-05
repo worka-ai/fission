@@ -1,7 +1,7 @@
 use fission_core::{
     hit_test::hit_test_with_scroll, LayoutPoint, LayoutRect, LayoutSize, LayoutSnapshot, Runtime,
 };
-use fission_ir::{CoreIR, FlexDirection, LayoutOp, NodeId, Op, PaintOp};
+use fission_ir::{CoreIR, FlexDirection, LayoutOp, NodeId, Op};
 use fission_layout::LayoutNodeGeometry;
 
 #[test]

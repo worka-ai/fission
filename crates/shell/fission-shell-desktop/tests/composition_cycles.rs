@@ -1,12 +1,11 @@
 use anyhow::Result;
 use fission_core::action::AppState as CoreAppState;
 use fission_core::env::Env;
-use fission_core::lowering::{build_layout_tree, LoweringContext};
+use fission_core::lowering::LoweringContext;
 use fission_core::ui::{Node, TextInput};
-use fission_core::{BuildCtx, InputEvent, LayoutPoint, Runtime, View};
-use fission_ir::Role;
+use fission_core::{BuildCtx, Runtime, View};
 use fission_layout::{LayoutEngine, LayoutSize, TextMeasurer, LineMetric};
-use fission_render::{DisplayList, Renderer};
+use fission_render::{DisplayList, RenderScene, Renderer};
 use fission_widgets::{Checkbox, Portal};
 use std::sync::{Arc, Mutex};
 
@@ -39,8 +38,8 @@ fn on_update(state: &mut AppState, a: UpdateText) {
 #[derive(Clone, Default)]
 struct MockRenderer(pub Arc<Mutex<Option<DisplayList>>>);
 impl Renderer for MockRenderer {
-    fn render(&mut self, dl: &DisplayList) -> Result<()> {
-        *self.0.lock().unwrap() = Some(dl.clone());
+    fn render_scene(&mut self, scene: &RenderScene) -> Result<()> {
+        *self.0.lock().unwrap() = Some(scene.flatten());
         Ok(())
     }
 }
@@ -55,7 +54,7 @@ impl TextMeasurer for MockMeasurer {
 struct Root;
 impl fission_core::view::Widget<AppState> for Root {
     fn build(&self, ctx: &mut BuildCtx<AppState>, view: &View<AppState>) -> Node {
-        use fission_core::ui::{Column, Row, Scroll, ZStack, Text, TextContent, Video};
+        use fission_core::ui::{Column, Row};
         let mut children: Vec<Node> = vec![
             Checkbox {
                 checked: view.state.checked,

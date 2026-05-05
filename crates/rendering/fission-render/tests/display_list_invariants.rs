@@ -1,6 +1,6 @@
 use anyhow::Result;
 use fission_render::{
-    Color, DisplayList, DisplayOp, LayoutPoint, LayoutRect, LayoutSize, Renderer,
+    DisplayList, DisplayOp, LayoutRect, RenderScene, Renderer,
 };
 
 // A mock renderer that captures what it was asked to render.
@@ -10,8 +10,8 @@ struct MockRenderer {
 }
 
 impl Renderer for MockRenderer {
-    fn render(&mut self, display_list: &DisplayList) -> Result<()> {
-        self.captured_list = Some(display_list.clone());
+    fn render_scene(&mut self, scene: &RenderScene) -> Result<()> {
+        self.captured_list = Some(scene.flatten());
         Ok(())
     }
 }

@@ -2,7 +2,6 @@ use crate::popover::Popover;
 use crate::stack::VStack;
 use fission_core::ui::{Button, ButtonVariant, Container, Node, Scroll, Text, TextInput};
 use fission_core::{ActionEnvelope, BuildCtx, NodeId, View, Widget, WidgetNodeId};
-use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 
 /// A searchable dropdown that combines a text input with a filterable item list.

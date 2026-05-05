@@ -1,8 +1,7 @@
-use fission_widgets::router::{Router, Route, RouteParams};
-use fission_core::{BuildCtx, View, Widget, NodeId, AppState};
+use fission_widgets::router::{Router, Route};
+use fission_core::{BuildCtx, View, Widget, AppState};
 use fission_core::ui::{Node, Text};
 use std::sync::Arc;
-use std::collections::HashMap;
 
 #[derive(Default, Clone, Debug)]
 struct State;

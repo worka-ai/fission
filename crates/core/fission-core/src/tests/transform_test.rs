@@ -1,12 +1,9 @@
 use crate::env::{Env, RuntimeState};
-use crate::lowering::{LoweringContext, build_layout_tree};
+use crate::lowering::LoweringContext;
 use crate::ui::traits::Lower;
-use crate::ui::Node;
 use crate::ui::widgets::container::Container;
 use crate::ui::widgets::transform::Transform;
-use fission_ir::{CoreIR, NodeId, Op, LayoutOp};
-use fission_layout::{LayoutEngine, LayoutSize};
-use std::sync::Arc;
+use fission_ir::{Op, LayoutOp};
 
 #[test]
 fn test_transform_lowering() {

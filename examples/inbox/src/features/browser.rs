@@ -1,11 +1,9 @@
 use fission_core::{BuildCtx, View, Widget, WidgetNodeId, Handler};
-use fission_core::ui::{Text, Node, Container, Button as CoreButton, ButtonVariant};
-use fission_core::op::Color;
-use fission_widgets::{Modal, ModalAction, VStack, HStack, TextInput, WebView};
+use fission_core::ui::{Text, Node, Container};
+use fission_widgets::{Modal, ModalAction, VStack, HStack, WebView};
 use crate::model::{
     InboxState, ToggleBrowserDemo, OpenSystemLink, OpenInAppLink, StartAuth
 };
-use std::sync::Arc;
 
 pub struct BrowserModal;
 

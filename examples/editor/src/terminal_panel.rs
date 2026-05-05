@@ -1,4 +1,4 @@
-use crate::model::{BottomPanelTab, EditorState, SubmitTerminalCommand, UpdateTerminalInput};
+use crate::model::{BottomPanelTab, EditorState, UpdateTerminalInput};
 use fission_core::op::Color;
 use fission_core::ui::{Button, ButtonVariant, Container, Node, Scroll, Text, TextInput};
 use fission_core::{BuildCtx, FlexDirection, Handler, View, Widget};
@@ -110,7 +110,7 @@ impl TerminalPanel {
                 as Handler<EditorState, UpdateTerminalInput>,
         );
 
-        let prompt_color = Color { r: 80, g: 200, b: 80, a: 255 };
+        let _prompt_color = Color { r: 80, g: 200, b: 80, a: 255 };
 
         let prompt_bg = Color { r: 30, g: 30, b: 30, a: 255 };
         let separator_color = Color { r: 58, g: 58, b: 58, a: 255 };

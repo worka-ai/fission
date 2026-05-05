@@ -139,7 +139,7 @@ impl InputController for TextInputController {
                                     focused_id,
                                     sem.multiline,
                                 );
-                                if let Some((scroll_id, _text_op_node_id, scroll_direction)) = scroll_result {
+                                if let Some((scroll_id, _text_op_node_id, _scroll_direction)) = scroll_result {
                                     if let Some(scroll_geom) =
                                         ctx.layout.get_node_geometry(scroll_id)
                                     {
@@ -218,7 +218,7 @@ impl InputController for TextInputController {
                                         if let Some((
                                             scroll_id,
                                             _text_op_node_id,
-                                            scroll_direction,
+                                            _scroll_direction,
                                         )) = Self::find_scroll_container_and_text_op(
                                             ctx.ir,
                                             focused_id,
@@ -870,34 +870,6 @@ impl TextInputController {
         None
     }
 
-    fn find_caret_in_scroll(ir: &fission_ir::CoreIR, scroll_id: NodeId) -> Option<NodeId> {
-        let mut q = vec![scroll_id];
-        while let Some(id) = q.pop() {
-            if let Some(n) = ir.nodes.get(&id) {
-                if let Op::Layout(op::LayoutOp::Box { width: Some(w), .. }) = &n.op {
-                    if (*w - 2.0).abs() < 0.01 {
-                        let mut has_paint = false;
-                        for &cid in &n.children {
-                            if let Some(cn) = ir.nodes.get(&cid) {
-                                if let Op::Paint(fission_ir::PaintOp::DrawRect { .. }) = cn.op {
-                                    has_paint = true;
-                                    break;
-                                }
-                            }
-                        }
-                        if has_paint {
-                            return Some(id);
-                        }
-                    }
-                }
-                for &c in &n.children {
-                    q.push(c);
-                }
-            }
-        }
-        None
-    }
-
     /// Extract rich text runs from the TextInput's DrawRichText child.
     fn extract_rich_runs(ir: &fission_ir::CoreIR, semantics_id: NodeId) -> Option<Vec<fission_ir::op::TextRun>> {
         fn walk(ir: &fission_ir::CoreIR, node_id: NodeId, depth: usize) -> Option<Vec<fission_ir::op::TextRun>> {
@@ -978,13 +950,13 @@ impl TextInputController {
     }
 
     fn caret_from_point_in_text_fallback(
-        value: &str,
-        font_size: f32,
-        viewport_x: f32,
-        viewport_w: f32,
-        content_w: f32,
-        scroll_offset: f32,
-        point_x: f32,
+        _value: &str,
+        _font_size: f32,
+        _viewport_x: f32,
+        _viewport_w: f32,
+        _content_w: f32,
+        _scroll_offset: f32,
+        _point_x: f32,
     ) -> usize {
         // Simplified fallback: always return 0 if no proper measurer is available.
         // In a real scenario, this would ideally not be hit in interactive UIs.
@@ -1105,14 +1077,14 @@ impl TextInputController {
         is_up: bool,
     ) {
         if let Some(measurer) = ctx.measurer {
-            if let Some((scroll_id, _text_op_node_id, scroll_direction)) =
+            if let Some((scroll_id, _text_op_node_id, _scroll_direction)) =
                 Self::find_scroll_container_and_text_op(ctx.ir, focused_id, semantics.multiline)
             {
                 if let Some(scroll_geom) = ctx.layout.get_node_geometry(scroll_id) {
                     let viewport_w = scroll_geom.rect.size.width;
                     let font_size = 16.0;
 
-                    let (current_caret_x, current_caret_y) =
+                    let (current_caret_x, _current_caret_y) =
                         measurer.get_caret_position(value, font_size, Some(viewport_w), caret);
 
                     let line_metrics =

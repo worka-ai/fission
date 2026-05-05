@@ -1,9 +1,9 @@
-use crate::axis::{Axis, AxisType};
+use crate::axis::Axis;
 use crate::grid::Grid;
 use crate::legend::Legend;
 use crate::series::Series;
 use crate::tooltip::Tooltip;
-use crate::layout::scale::{Scale, LinearScale};
+use crate::layout::scale::Scale;
 use crate::layout::calculate_scales;
 use crate::coord::Cartesian2D;
 use fission_core::op::Color;
@@ -744,7 +744,7 @@ impl fission_core::ui::traits::LowerDyn for ChartLowerer {
                     root.add_child(cx.insert_node(id, paint, vec![]));
                 }
                 Series::PictorialBar(pic) => {
-                    let band = coord.x_band_width();
+                    let _band = coord.x_band_width();
                     for (i, &val) in pic.data.iter().enumerate() {
                         let (x, y) = coord.map_val(i as f32, val);
                         let (_, y0) = coord.map_val(0.0, 0.0);

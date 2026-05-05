@@ -1,7 +1,5 @@
 use crate::env::{Env, RuntimeState};
 use crate::lowering::{LoweringContext, build_layout_tree};
-use crate::ui::traits::Lower;
-use crate::ui::Node;
 use fission_ir::{LayoutOp, Op, FlexDirection, NodeId};
 use fission_layout::{LayoutEngine, LayoutSize};
 
@@ -20,7 +18,7 @@ fn test_absolute_fill_inside_grown_container() {
     let zstack_id = cx.next_node_id();
 
     // 1. ZStack
-    let mut zstack = crate::lowering::NodeBuilder::new(zstack_id, Op::Layout(LayoutOp::ZStack));
+    let zstack = crate::lowering::NodeBuilder::new(zstack_id, Op::Layout(LayoutOp::ZStack));
     let zstack_final = zstack.build(&mut cx);
 
     // 2. AbsFill
@@ -68,7 +66,7 @@ fn test_absolute_fill_inside_grown_container() {
         &|_| 0.0
     ).unwrap();
 
-    let container_geom = snapshot.get_node_geometry(container_final).unwrap();
+    let _container_geom = snapshot.get_node_geometry(container_final).unwrap();
     let abs_geom = snapshot.get_node_geometry(abs_final).unwrap();
 
     assert_eq!(abs_geom.rect.width(), 800.0, "AbsFill width");

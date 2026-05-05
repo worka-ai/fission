@@ -1,6 +1,6 @@
 use anyhow::Result;
 use fission_core::ui::{Node, Text, TextContent, Container, Grid, GridItem, Button};
-use fission_core::{BuildCtx, View, Widget, op::{GridTrack, GridPlacement}};
+use fission_core::{BuildCtx, View, Widget, op::GridTrack};
 use fission_widgets::{LazyColumn, VStack};
 use fission_test::TestHarness;
 use std::sync::Arc;

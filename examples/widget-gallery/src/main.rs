@@ -1,10 +1,9 @@
 use fission_core::op::Color as IrColor;
 use fission_core::ui::{
-    Button, ButtonVariant, Checkbox, Column, Container, Node, Row, Scroll, Slider, Switch, Text,
-    TextContent, TextInput,
+    Button, ButtonVariant, Checkbox, Container, Node, Scroll, Slider, Switch, Text, TextInput,
 };
 use fission_core::{
-    ActionEnvelope, AppState, BuildCtx, FlexDirection, Handler, ReducerContext, View, Widget,
+    ActionEnvelope, AppState, BuildCtx, FlexDirection, Handler, View, Widget,
     WidgetNodeId,
 };
 use fission_macros::Action;
@@ -30,7 +29,6 @@ struct GalleryState {
     range_end: f32,
     checked: bool,
     switch_on: bool,
-    radio_choice: usize,
     text_value: String,
     number_val: f32,
     active_tab: usize,
@@ -41,7 +39,6 @@ struct GalleryState {
     modal_open: bool,
     drawer_open: bool,
     tooltip_vis: bool,
-    popover_open: bool,
     segmented_idx: usize,
     current_page: usize,
     tree_expanded: HashSet<String>,
@@ -59,7 +56,6 @@ impl Default for GalleryState {
             range_end: 0.0,
             checked: true,
             switch_on: true,
-            radio_choice: 0,
             text_value: String::new(),
             number_val: 5.0,
             active_tab: 0,
@@ -70,7 +66,6 @@ impl Default for GalleryState {
             modal_open: false,
             drawer_open: false,
             tooltip_vis: false,
-            popover_open: false,
             segmented_idx: 0,
             current_page: 1,
             tree_expanded,
@@ -93,9 +88,6 @@ struct ToggleChecked;
 
 #[derive(Action, Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
 struct ToggleSwitch;
-
-#[derive(Action, Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
-struct SetRadio(usize);
 
 #[derive(Action, Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
 #[serde(transparent)]
@@ -127,9 +119,6 @@ struct ToggleModal;
 
 #[derive(Action, Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
 struct ToggleDrawer;
-
-#[derive(Action, Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
-struct TogglePopover;
 
 #[derive(Action, Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
 struct SetSegmented(usize);

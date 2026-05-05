@@ -1,6 +1,6 @@
 use crate::model::{EditorState, ToggleCommandPalette, ToggleSidebar, ToggleTerminal, UpdateCommandQuery, SaveFile, SaveAllFiles, RefreshGitStatus, SidebarSection, SetSidebarSection};
 use fission_core::op::Color;
-use fission_core::ui::{Button, ButtonContentAlign, ButtonVariant, Container, GestureDetector, Node, Positioned, Text, TextInput, ZStack, Scroll};
+use fission_core::ui::{Button, ButtonContentAlign, ButtonVariant, Container, GestureDetector, Node, Positioned, Text, TextInput, ZStack};
 use fission_core::{BuildCtx, Handler, WidgetNodeId, View, Widget};
 use fission_widgets::{VStack, HStack, Spacer};
 

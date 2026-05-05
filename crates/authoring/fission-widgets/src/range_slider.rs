@@ -4,8 +4,7 @@ use fission_core::{
     ActionEnvelope, BuildCtx, LowerDyn, LoweringContext, NodeBuilder, View, Widget,
 };
 use fission_ir::{
-    op::{Fill, Stroke},
-    FlexDirection, LayoutOp, NodeId, Op, PaintOp,
+    LayoutOp, NodeId, Op, PaintOp,
 };
 use serde::{Deserialize, Serialize};
 

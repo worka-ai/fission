@@ -1,6 +1,5 @@
 use fission_core::ui::{
-    Button, Checkbox, Column, Container, Node, Row, Text, TextInput,
-    Overlay, ZStack,
+    Checkbox, Column, Container, Node, Row, Text, TextInput, ZStack,
 };
 use fission_core::{AppState, BuildCtx, View, Widget};
 use fission_test::TestHarness;
@@ -55,7 +54,7 @@ fn test_modal_layout_cramping() {
 
     // Helper to find container rect by text (text paint -> text layout -> container).
     let find_container_rect = |text: &str| -> fission_layout::LayoutRect {
-        for (id, node) in &ir.nodes {
+        for (_id, node) in &ir.nodes {
             if let fission_ir::Op::Paint(fission_ir::PaintOp::DrawText { text: t, .. }) = &node.op {
                 if t == text {
                     let text_layout_id = node.parent.expect("text layout parent");

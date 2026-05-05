@@ -96,6 +96,7 @@ impl LspHandle {
     }
 
     /// Request completions at the given position.
+    #[allow(dead_code)]
     pub fn request_completions(&self, path: &str, line: usize, col: usize) {
         if let Ok(mut guard) = self.inner.try_lock() {
             if let Some(ref mut client) = *guard {
@@ -105,6 +106,7 @@ impl LspHandle {
     }
 
     /// Shut down the LSP server.
+    #[allow(dead_code)]
     pub fn shutdown(&self) {
         if let Ok(mut guard) = self.inner.try_lock() {
             if let Some(ref mut client) = *guard {
@@ -161,9 +163,6 @@ fn completion_kind_str(kind: Option<u32>) -> String {
     }
 }
 
-/// Maximum number of editor lines to render before truncating.
-pub const MAX_EDITOR_LINES: usize = 200;
-
 /// Maximum file size (in bytes) that the editor will open.  Files larger
 /// than this are rejected with a status-bar message to avoid freezing
 /// the UI with excessive IR node generation.
@@ -206,6 +205,7 @@ pub struct EditorState {
     pub completions: Vec<CompletionItem>,
     pub show_completions: bool,
     pub selected_completion: usize,
+    #[allow(dead_code)]
     pub hover_info: Option<String>,
 
     // Terminal input
@@ -222,6 +222,7 @@ pub struct EditorState {
     pub bottom_panel_tab: BottomPanelTab,
 
     // Menu bar
+    #[allow(dead_code)]
     pub show_menu_bar: bool,
     pub active_menu: Option<String>,
 
@@ -235,6 +236,7 @@ pub struct EditorState {
     pub find_matches: Vec<(String, usize, usize)>, // (path, line, col)
 
     // Hover tooltip
+    #[allow(dead_code)]
     pub show_hover: bool,
     pub hover_position: (f32, f32),
 
@@ -253,6 +255,7 @@ pub struct EditorState {
 
     // File watcher
     pub file_mtimes: HashMap<String, std::time::SystemTime>,
+    #[allow(dead_code)]
     pub key_event_count: u64,
 
     // Cached file tree (avoids re-scanning on every build)
@@ -533,6 +536,7 @@ impl FileBuffer {
     }
 
     /// Replace the entire document through a single undoable transaction.
+    #[allow(dead_code)]
     pub fn replace_document(&mut self, new_text: &str) {
         let (caret, anchor) = self.current_offsets();
         self.clear_preedit();
@@ -547,6 +551,7 @@ impl FileBuffer {
     }
 
     /// Replace the buffer from an external source and clear undo/redo state.
+    #[allow(dead_code)]
     pub fn sync_content(&mut self, new_text: &str) {
         let (caret, anchor) = self.current_offsets();
         self.clear_preedit();
@@ -677,6 +682,7 @@ pub struct SaveAllFiles;
 #[serde(transparent)]
 pub struct UpdateTerminalInput(pub String);
 
+#[allow(dead_code)]
 #[derive(Action, Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
 pub struct SubmitTerminalCommand;
 
@@ -696,6 +702,7 @@ pub struct DismissCompletions;
 #[derive(Action, Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
 pub struct RefreshGitStatus;
 
+#[allow(dead_code)]
 #[derive(Action, Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
 pub struct NavigateDiagnostic {
     pub path: String,
@@ -746,23 +753,28 @@ pub struct ReplaceOne;
 #[derive(Action, Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
 pub struct ReplaceAll;
 
+#[allow(dead_code)]
 #[derive(Action, Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
 #[serde(transparent)]
 pub struct ShowHover(pub String);
 
+#[allow(dead_code)]
 #[derive(Action, Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
 pub struct DismissHover;
 
+#[allow(dead_code)]
 #[derive(Action, Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
 #[serde(transparent)]
 pub struct DeleteFile(pub String);
 
+#[allow(dead_code)]
 #[derive(Action, Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
 pub struct RenameFile {
     pub old: String,
     pub new_name: String,
 }
 
+#[allow(dead_code)]
 #[derive(Action, Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
 pub struct StartRename(pub String);
 
@@ -779,6 +791,7 @@ pub struct UpdateRenameInput(pub String);
 #[derive(Action, Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
 pub struct SetActiveMenu(pub Option<String>);
 
+#[allow(dead_code)]
 #[derive(Action, Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
 pub struct GoToLine(pub usize);
 
@@ -1218,6 +1231,7 @@ impl EditorState {
     // --- File operations ---
 
     /// Create a new file on disk and open it in a tab.
+    #[allow(dead_code)]
     pub fn create_file(&mut self, path: String) {
         if let Some(parent) = Path::new(&path).parent() {
             let _ = std::fs::create_dir_all(parent);
@@ -1235,6 +1249,7 @@ impl EditorState {
     }
 
     /// Create a directory on disk.
+    #[allow(dead_code)]
     pub fn create_folder(&mut self, path: String) {
         match std::fs::create_dir_all(&path) {
             Ok(_) => {
@@ -1248,6 +1263,7 @@ impl EditorState {
     }
 
     /// Delete a file or folder from disk. If the file is open, close its tab.
+    #[allow(dead_code)]
     pub fn delete_file(&mut self, path: String) {
         let p = Path::new(&path);
         let result = if p.is_dir() {
@@ -1272,6 +1288,7 @@ impl EditorState {
     }
 
     /// Rename a file/folder on disk and update any open tabs that reference it.
+    #[allow(dead_code)]
     pub fn rename_file(&mut self, old: String, new_name: String) {
         let old_path = Path::new(&old);
         let new_path = if let Some(parent) = old_path.parent() {
@@ -1491,6 +1508,7 @@ impl EditorState {
     /// value.  If the file was modified externally and the buffer is clean,
     /// reload its contents automatically.  If the buffer is dirty, set a
     /// status-bar warning instead of silently overwriting the user's edits.
+    #[allow(dead_code)]
     pub fn check_external_changes(&mut self) {
         for tab in &self.open_tabs {
             let path = &tab.path;
@@ -1525,6 +1543,7 @@ impl EditorState {
     }
 
     /// Move the cursor to the given line number (1-based).
+    #[allow(dead_code)]
     pub fn go_to_line(&mut self, line: usize) {
         let target = if line > 0 { line - 1 } else { 0 };
         if let Some(tab) = self.open_tabs.get(self.active_tab) {
@@ -1590,6 +1609,7 @@ pub fn scan_directory(path: &Path, depth: usize) -> Vec<FileEntry> {
     entries
 }
 
+#[allow(dead_code)]
 fn search_files_recursive(dir: &Path, query: &str, results: &mut Vec<SearchResult>, depth: usize) {
     if depth > 3 || results.len() > 100 { return; }
     let Ok(entries) = std::fs::read_dir(dir) else { return };

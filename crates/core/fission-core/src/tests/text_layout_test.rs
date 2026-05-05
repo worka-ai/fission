@@ -1,6 +1,5 @@
 use crate::env::{Env, RuntimeState};
 use crate::lowering::{LoweringContext, build_layout_tree};
-use crate::ui::traits::Lower;
 use crate::ui::Node;
 use fission_ir::{LayoutOp, Op};
 use fission_layout::{LayoutEngine, LayoutSize};
@@ -45,7 +44,7 @@ fn test_text_wrapping_in_constrained_flex() {
     let text_id = cx.next_node_id();
 
     // Text "Hello World" (11 chars) -> 110px width.
-    let mut text_builder = crate::lowering::NodeBuilder::new(text_id, Op::Paint(fission_ir::PaintOp::DrawText {
+    let text_builder = crate::lowering::NodeBuilder::new(text_id, Op::Paint(fission_ir::PaintOp::DrawText {
         text: "Hello World".into(),
         size: 16.0,
         color: fission_ir::op::Color::BLACK,

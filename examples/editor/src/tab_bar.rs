@@ -2,14 +2,14 @@ use crate::model::{CloseTab, EditorState, SelectTab};
 use fission_core::op::Color;
 use fission_core::ui::{Button, ButtonContentAlign, ButtonVariant, Container, Node, Text};
 use fission_core::{ActionEnvelope, BuildCtx, Handler, View, Widget};
-use fission_widgets::{HStack, Icon, Spacer};
+use fission_widgets::{HStack, Spacer};
 use serde_json;
 
 pub struct TabBar;
 
 impl Widget<EditorState> for TabBar {
     fn build(&self, ctx: &mut BuildCtx<EditorState>, view: &View<EditorState>) -> Node {
-        let tokens = &view.env.theme.tokens;
+        let _tokens = &view.env.theme.tokens;
 
         if view.state.open_tabs.is_empty() {
             return Spacer { height: Some(0.0), ..Default::default() }.into_node();

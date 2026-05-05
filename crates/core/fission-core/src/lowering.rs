@@ -1,10 +1,8 @@
 use crate::env::{Env, RuntimeState};
-use fission_diagnostics::prelude as diag;
 use fission_ir::{
-    CompositeStyle, CoreIR, FlexDirection, GridPlacement, LayoutOp, NodeId, Op, PaintOp,
+    CompositeStyle, CoreIR, GridPlacement, LayoutOp, NodeId, Op, PaintOp,
     WidgetNodeId,
 };
-use fission_ir::op::{TextRun, TextStyle};
 use fission_layout::{LayoutInputNode, TextMeasurer, LayoutSnapshot};
 use std::collections::HashMap;
 use std::sync::Arc;

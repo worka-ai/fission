@@ -1,10 +1,10 @@
 use crate::stack::{HStack, VStack};
 use crate::Icon;
-use fission_core::op::{BoxShadow, Color};
+use fission_core::op::Color;
 use fission_core::ui::{
-    Align, Button, ButtonVariant, Container, GestureDetector, Node, Text, TextContent, ZStack,
+    Align, Button, ButtonVariant, Container, GestureDetector, Node, Text, ZStack,
 };
-use fission_core::{ActionEnvelope, BuildCtx, NodeId, View, Widget, WidgetNodeId};
+use fission_core::{ActionEnvelope, BuildCtx, View, Widget, WidgetNodeId};
 use serde::{Deserialize, Serialize};
 
 /// A modal dialog with a dimmed backdrop, title bar, content area, and action buttons.

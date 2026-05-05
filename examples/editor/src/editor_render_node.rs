@@ -660,37 +660,6 @@ impl EditorRenderNode {
         }
     }
 
-    /// Find word boundaries around a byte offset.
-    /// Returns `(word_start, word_end)` as byte offsets.
-    fn word_at_offset(&self, offset: usize) -> (usize, usize) {
-        let bytes = self.content.as_bytes();
-        let len = bytes.len();
-        let clamped = offset.min(len);
-
-        // Walk backward to find word start.
-        let mut start = clamped;
-        while start > 0 {
-            let prev = start - 1;
-            if is_word_char(bytes[prev]) {
-                start = prev;
-            } else {
-                break;
-            }
-        }
-
-        // Walk forward to find word end.
-        let mut end = clamped;
-        while end < len {
-            if is_word_char(bytes[end]) {
-                end += 1;
-            } else {
-                break;
-            }
-        }
-
-        (start, end)
-    }
-
     /// Handle a key press, producing a `CustomEventResult` with the
     /// appropriate actions to dispatch.
     fn handle_key(
@@ -937,11 +906,6 @@ impl EditorRenderNode {
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
-
-/// Returns true if the byte is a "word character" (alphanumeric or underscore).
-fn is_word_char(b: u8) -> bool {
-    b.is_ascii_alphanumeric() || b == b'_'
-}
 
 fn selection_bounds(a: usize, b: usize) -> (usize, usize) {
     if a <= b {

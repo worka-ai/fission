@@ -1,7 +1,7 @@
-use fission_core::ui::{Container, Node};
+use fission_core::ui::Node;
 use fission_core::{BuildCtx, LowerDyn, LoweringContext, NodeBuilder, View, Widget};
 use fission_ir::{
-    op::{Color, Stroke},
+    op::Color,
     LayoutOp, NodeId, Op, PaintOp,
 };
 use serde::{Deserialize, Serialize};

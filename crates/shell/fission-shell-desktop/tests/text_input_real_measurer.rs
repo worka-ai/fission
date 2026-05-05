@@ -1,6 +1,6 @@
 use fission_core::Runtime;
 use fission_core::TextMeasurer;
-use fission_render_vello::{VelloRenderer, VelloTextMeasurer};
+use fission_render_vello::VelloTextMeasurer;
 use fission_render_vello::parley::FontContext;
 use std::sync::{Arc, Mutex};
 
@@ -32,10 +32,10 @@ fn test_text_input_hit_test_with_vello() {
     assert!(width_m > width_i * 1.5, "M should be significantly wider than i in variable width font");
     
     let (width_3i, _) = measurer.measure("iii", font_size, None);
-    let (width_3iM, _) = measurer.measure("iiiM", font_size, None);
+    let (width_3i_m, _) = measurer.measure("iiiM", font_size, None);
     
-    let mid_M = (width_3i + width_3iM) / 2.0;
+    let mid_m = (width_3i + width_3i_m) / 2.0;
     
-    let idx_M = runtime.caret_from_point_in_text(text_var, font_size, 0.0, 1000.0, 1000.0, 0.0, mid_M + 0.1);
-    assert_eq!(idx_M, 4, "Click right of center of M should yield index 4");
+    let idx_m = runtime.caret_from_point_in_text(text_var, font_size, 0.0, 1000.0, 1000.0, 0.0, mid_m + 0.1);
+    assert_eq!(idx_m, 4, "Click right of center of M should yield index 4");
 }

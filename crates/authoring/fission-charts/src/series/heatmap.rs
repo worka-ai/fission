@@ -1,5 +1,4 @@
 use serde::{Deserialize, Serialize};
-use fission_core::op::Color;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct HeatmapSeries {

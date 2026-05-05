@@ -1,12 +1,12 @@
 use fission_charts::{
     Axis, BarSeries, BoxplotSeries, CandlestickSeries, Chart, CustomSeries, EffectScatterSeries,
-    FunnelSeries, GaugeSeries, GraphNode, GraphSeries, Grid, HeatmapSeries, Legend, LineSeries,
+    FunnelSeries, GaugeSeries, GraphNode, GraphSeries, Grid, HeatmapSeries, LineSeries,
     LiquidfillSeries, MapSeries, ParallelSeries, PictorialBarSeries, PieSeries, RadarSeries,
-    SankeySeries, ScatterSeries, Series, SunburstSeries, ThemeRiverSeries, Tooltip, TreemapNode,
+    SankeySeries, ScatterSeries, SunburstSeries, ThemeRiverSeries, TreemapNode,
     TreemapSeries, WordcloudSeries,
 };
 use fission_charts::chart::ChartLowerer;
-use fission_core::{env::Env, lowering::LoweringContext, op::Color, ui::traits::LowerDyn, NodeId, WidgetNodeId};
+use fission_core::{env::Env, lowering::LoweringContext, ui::traits::LowerDyn};
 use fission_ir::op::{LayoutOp, PaintOp};
 
 #[test]

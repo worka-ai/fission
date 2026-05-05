@@ -1,22 +1,6 @@
-use fission_ir::{FlexDirection as IrFlexDirection, LayoutOp as IrLayoutOp, NodeId, FlexWrap};
+use fission_ir::{LayoutOp as IrLayoutOp, NodeId};
 use fission_layout::{LayoutEngine, LayoutInputNode, LayoutSize};
 use std::collections::HashSet;
-
-fn make_box(id: u128, width: Option<f32>, height: Option<f32>) -> LayoutInputNode {
-    LayoutInputNode {
-        id: NodeId::from_u128(id),
-        parent_id: None,
-        op: IrLayoutOp::Box {
-            width, height,
-            min_width: None, max_width: None, min_height: None, max_height: None,
-            padding: [0.0; 4],
-            flex_grow: 0.0, flex_shrink: 0.0, aspect_ratio: None,
-        },
-        children_ids: vec![],
-        debug_name: "box".into(),
-        width, height, flex_grow: 0.0, flex_shrink: 0.0, rich_text: None,
-    }
-}
 
 #[test]
 fn test_box_default_stretch() {

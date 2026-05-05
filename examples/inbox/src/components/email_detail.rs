@@ -1,6 +1,6 @@
 use fission_core::{BuildCtx, View, Widget, WidgetNodeId, Handler, ActionEnvelope};
 use fission_core::ui::{Container, Node, Text, TextContent, Button, ButtonVariant, Scroll, Video};
-use fission_core::op::{Color, ImageFit};
+use fission_core::op::ImageFit;
 use fission_icons::material;
 use fission_widgets::{VStack, HStack, Avatar, Accordion, AccordionItem, Card, Image, Spinner, Radio, Alert, AlertKind, Divider, Icon, Timeline, TimelineItem, Hero, Wrap, Tag, SimpleGrid, AspectRatio, Code, Kbd};
 use crate::model::{InboxState, EmailMessage, Folder, ToggleDetails, ToggleToast, SelectReplyMode, SetReplyBody, SendReply, Navigate};
