@@ -13,8 +13,8 @@
 //! and wrapped in a `Node::Custom(CustomNode { .. })` by `EditorSurface`.
 
 use crate::model::{
-    ApplyEditorEdit, EditorState, Language, SetEditorPreedit, UpdateCursorPosition, UpdateScrollY,
-    WrapMode,
+    ApplyEditorEdit, DocumentBacking, EditorState, Language, SetEditorPreedit,
+    ShiftActiveFileWindow, UpdateCursorPosition, UpdateScrollY, WrapMode,
 };
 use crate::syntax;
 use fission_core::action::ActionEnvelope;
@@ -67,6 +67,12 @@ pub struct EditorRenderNode {
     pub language: Language,
     /// Wrap behavior for the current buffer.
     pub wrap_mode: WrapMode,
+    /// Whether the underlying document is editable.
+    pub editable: bool,
+    /// Whether this buffer is backed by a file window.
+    pub windowed_file: bool,
+    pub has_more_before: bool,
+    pub has_more_after: bool,
     /// Byte offset of the cursor (caret) within `content`.
     pub cursor_offset: usize,
     /// Byte offset of the selection anchor within `content`.
@@ -96,6 +102,8 @@ impl fmt::Debug for EditorRenderNode {
         f.debug_struct("EditorRenderNode")
             .field("language", &self.language)
             .field("wrap_mode", &self.wrap_mode)
+            .field("editable", &self.editable)
+            .field("windowed_file", &self.windowed_file)
             .field("cursor_offset", &self.cursor_offset)
             .field("anchor_offset", &self.anchor_offset)
             .field("preedit_range", &self.preedit_range)
@@ -124,6 +132,13 @@ impl EditorRenderNode {
         let content = buffer.display_content();
         let language = buffer.language;
         let wrap_mode = buffer.wrap_mode;
+        let editable = buffer.is_editable();
+        let (windowed_file, has_more_before, has_more_after) = match &buffer.backing {
+            DocumentBacking::FileWindow { window, .. } => {
+                (true, window.has_more_before, window.has_more_after)
+            }
+            DocumentBacking::InMemory => (false, false, false),
+        };
         let file_path = tab.path.clone();
         let font_size = 13.0;
         let line_height = 20.0;
@@ -177,6 +192,10 @@ impl EditorRenderNode {
             content,
             language,
             wrap_mode,
+            editable,
+            windowed_file,
+            has_more_before,
+            has_more_after,
             cursor_offset,
             anchor_offset,
             preedit_range,
@@ -580,6 +599,9 @@ impl CustomRenderObject for EditorRenderNode {
             }) => self.handle_key(node_id, key_code, *modifiers),
 
             InputEvent::Ime(fission_core::event::ImeEvent::Preedit { text }) => {
+                if !self.editable {
+                    return CustomEventResult::consumed();
+                }
                 CustomEventResult::consumed_with(vec![(
                     node_id,
                     ActionEnvelope::from(SetEditorPreedit { text: text.clone() }),
@@ -762,12 +784,13 @@ impl EditorRenderNode {
     /// appropriate actions to dispatch.
     fn handle_key(&self, node_id: NodeId, key_code: &KeyCode, modifiers: u8) -> CustomEventResult {
         let shift = (modifiers & 1) != 0;
-        let ctrl_or_cmd = (modifiers & 2) != 0 || (modifiers & 8) != 0;
+        let ctrl_or_cmd = (modifiers & 4) != 0 || (modifiers & 8) != 0;
         let content = self.content.as_str();
         let mut offset = self.cursor_offset.min(content.len());
         let mut anchor = self.anchor_offset.min(content.len());
         let content_len = content.len();
         let mut replacement: Option<(std::ops::Range<usize>, String)> = None;
+        let mut window_shift: Option<bool> = None;
 
         if self.preedit_range.is_some() {
             return match key_code {
@@ -804,24 +827,36 @@ impl EditorRenderNode {
                 if ctrl_or_cmd {
                     return CustomEventResult::ignored();
                 }
+                if !self.editable {
+                    return CustomEventResult::consumed();
+                }
                 let (start, end) = selection_bounds(offset, anchor);
                 replacement = Some((start..end, ch.to_string()));
                 offset = start + ch.len_utf8();
                 anchor = offset;
             }
             KeyCode::Space => {
+                if !self.editable {
+                    return CustomEventResult::consumed();
+                }
                 let (start, end) = selection_bounds(offset, anchor);
                 replacement = Some((start..end, " ".to_string()));
                 offset = start + 1;
                 anchor = offset;
             }
             KeyCode::Enter => {
+                if !self.editable {
+                    return CustomEventResult::consumed();
+                }
                 let (start, end) = selection_bounds(offset, anchor);
                 replacement = Some((start..end, "\n".to_string()));
                 offset = start + 1;
                 anchor = offset;
             }
             KeyCode::Tab => {
+                if !self.editable {
+                    return CustomEventResult::consumed();
+                }
                 let (start, end) = selection_bounds(offset, anchor);
                 replacement = Some((start..end, "    ".to_string()));
                 offset = start + 4;
@@ -830,6 +865,9 @@ impl EditorRenderNode {
 
             // -- Deletion --
             KeyCode::Backspace => {
+                if !self.editable {
+                    return CustomEventResult::consumed();
+                }
                 let (sel_start, sel_end) = selection_bounds(offset, anchor);
                 if sel_start != sel_end {
                     replacement = Some((sel_start..sel_end, String::new()));
@@ -861,6 +899,7 @@ impl EditorRenderNode {
                 }
             }
             KeyCode::Up => {
+                let before = offset;
                 if self.wraps_softly() {
                     let (row, col) = self.visual_position_for_offset(content, offset);
                     if row > 0 {
@@ -877,8 +916,12 @@ impl EditorRenderNode {
                 if !shift {
                     anchor = offset;
                 }
+                if self.windowed_file && !shift && offset == before && self.has_more_before {
+                    window_shift = Some(false);
+                }
             }
             KeyCode::Down => {
+                let before = offset;
                 if self.wraps_softly() {
                     let (row, col) = self.visual_position_for_offset(content, offset);
                     offset = self.offset_for_visual_position(content, row + 1, col);
@@ -888,6 +931,9 @@ impl EditorRenderNode {
                 }
                 if !shift {
                     anchor = offset;
+                }
+                if self.windowed_file && !shift && offset == before && self.has_more_after {
+                    window_shift = Some(true);
                 }
             }
             KeyCode::Home => {
@@ -919,6 +965,13 @@ impl EditorRenderNode {
         }
 
         let mut actions: Vec<(NodeId, ActionEnvelope)> = Vec::new();
+        if let Some(forward) = window_shift {
+            actions.push((
+                node_id,
+                ActionEnvelope::from(ShiftActiveFileWindow { forward }),
+            ));
+            return CustomEventResult::consumed_with(actions);
+        }
         if let Some((range, new_text)) = replacement {
             let preview = apply_preview_edit(content, range.clone(), &new_text);
             actions.push((
@@ -954,6 +1007,9 @@ impl EditorRenderNode {
     }
 
     fn handle_ime_commit(&self, node_id: NodeId, text: &str) -> CustomEventResult {
+        if !self.editable {
+            return CustomEventResult::consumed();
+        }
         if text.is_empty() {
             if self.preedit_range.is_some() {
                 return CustomEventResult::consumed_with(vec![(
@@ -991,10 +1047,8 @@ impl EditorRenderNode {
 
     fn caret_rect(&self, node_rect: LayoutRect) -> LayoutRect {
         let char_width = self.font_size * 0.6;
-        let (line, col) = self.visual_position_for_offset(
-            &self.content,
-            self.cursor_offset.min(self.content.len()),
-        );
+        let (line, col) = self
+            .visual_position_for_offset(&self.content, self.cursor_offset.min(self.content.len()));
         LayoutRect::new(
             node_rect.origin.x + self.gutter_width + col as f32 * char_width,
             node_rect.origin.y + line as f32 * self.line_height - self.scroll_y,
@@ -1166,6 +1220,10 @@ mod tests {
             content: content.to_string(),
             language: Language::Plain,
             wrap_mode,
+            editable: true,
+            windowed_file: false,
+            has_more_before: false,
+            has_more_after: false,
             cursor_offset: 0,
             anchor_offset: 0,
             preedit_range: None,
@@ -1209,6 +1267,9 @@ mod tests {
     fn soft_wrap_reports_visual_position_for_offsets() {
         let node = render_node("abcdefghi", WrapMode::SoftWrap, 3);
         let offset = line_col_to_offset(&node.content, 0, 7);
-        assert_eq!(node.visual_position_for_offset(&node.content, offset), (2, 1));
+        assert_eq!(
+            node.visual_position_for_offset(&node.content, offset),
+            (2, 1)
+        );
     }
 }

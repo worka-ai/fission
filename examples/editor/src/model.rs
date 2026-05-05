@@ -3,7 +3,7 @@ use fission_macros::Action;
 use fission_widgets::TerminalSession;
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
-use std::io::Read;
+use std::io::{Read, Seek, SeekFrom};
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 
@@ -390,15 +390,31 @@ pub enum DocumentMode {
     Huge,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone)]
 pub enum DocumentBacking {
     InMemory,
-    PreviewFile {
-        path: String,
-        size_bytes: u64,
-        loaded_bytes: usize,
-        truncated: bool,
+    FileWindow {
+        source: Arc<Mutex<FileWindowSource>>,
+        window: FileWindow,
     },
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct FileWindow {
+    pub start_byte: u64,
+    pub end_byte: u64,
+    pub size_bytes: u64,
+    pub content: String,
+    pub has_more_before: bool,
+    pub has_more_after: bool,
+}
+
+#[derive(Debug)]
+pub struct FileWindowSource {
+    path: String,
+    size_bytes: u64,
+    window_bytes: usize,
+    current_start: u64,
 }
 
 impl Language {
@@ -425,9 +441,7 @@ impl Language {
     pub fn default_wrap_mode(&self) -> WrapMode {
         match self {
             Language::Markdown => WrapMode::SoftWrap,
-            Language::Rust | Language::Toml | Language::Json | Language::Plain => {
-                WrapMode::NoWrap
-            }
+            Language::Rust | Language::Toml | Language::Json | Language::Plain => WrapMode::NoWrap,
         }
     }
 }
@@ -439,7 +453,10 @@ pub fn default_wrap_mode_for_path(path: &str, language: Language) -> WrapMode {
         .unwrap_or(path)
         .to_ascii_lowercase();
 
-    if matches!(filename.as_str(), "readme" | "license" | "copying" | "changelog") {
+    if matches!(
+        filename.as_str(),
+        "readme" | "license" | "copying" | "changelog"
+    ) {
         return WrapMode::SoftWrap;
     }
 
@@ -465,31 +482,73 @@ pub fn classify_document_mode_for_size(size_bytes: u64) -> DocumentMode {
     }
 }
 
-fn load_huge_file_preview(path: &str) -> std::io::Result<(String, usize, bool)> {
-    let mut file = std::fs::File::open(path)?;
-    let mut buf = vec![0u8; HUGE_FILE_PREVIEW_BYTES];
-    let read = file.read(&mut buf)?;
-    buf.truncate(read);
-    if let Some(first_nul) = buf.iter().position(|byte| *byte == 0) {
-        buf.truncate(first_nul);
-    }
-    let mut preview = String::from_utf8_lossy(&buf).into_owned();
-    let truncated = read == HUGE_FILE_PREVIEW_BYTES;
-    if truncated {
-        if let Some(boundary) = preview
-            .char_indices()
-            .rev()
-            .find(|(_, ch)| *ch == '\n')
-            .map(|(idx, _)| idx)
-        {
-            preview.truncate(boundary);
+impl FileWindowSource {
+    pub fn new(path: String, size_bytes: u64) -> Self {
+        Self {
+            path,
+            size_bytes,
+            window_bytes: HUGE_FILE_PREVIEW_BYTES,
+            current_start: 0,
         }
-        if !preview.ends_with('\n') {
-            preview.push('\n');
-        }
-        preview.push_str("\n[preview truncated: huge file opened in read-only mode]\n");
     }
-    Ok((preview, read, truncated))
+
+    pub fn current_window(&mut self) -> std::io::Result<FileWindow> {
+        self.load_window_at(self.current_start)
+    }
+
+    pub fn advance_forward(&mut self) -> std::io::Result<FileWindow> {
+        let step = (self.window_bytes as u64).saturating_sub((self.window_bytes / 6) as u64);
+        let requested = self.current_start.saturating_add(step).min(self.size_bytes);
+        self.load_window_at(requested)
+    }
+
+    pub fn advance_backward(&mut self) -> std::io::Result<FileWindow> {
+        let step = (self.window_bytes as u64).saturating_sub((self.window_bytes / 6) as u64);
+        let requested = self.current_start.saturating_sub(step);
+        self.load_window_at(requested)
+    }
+
+    fn load_window_at(&mut self, requested_start: u64) -> std::io::Result<FileWindow> {
+        let mut file = std::fs::File::open(&self.path)?;
+        let mut actual_start = requested_start.min(self.size_bytes);
+
+        if actual_start > 0 {
+            let lookback = actual_start.min(4096);
+            file.seek(SeekFrom::Start(actual_start - lookback))?;
+            let mut prefix = vec![0u8; lookback as usize];
+            let read = file.read(&mut prefix)?;
+            prefix.truncate(read);
+            if let Some(last_newline) = prefix.iter().rposition(|byte| *byte == b'\n') {
+                actual_start = actual_start - lookback + last_newline as u64 + 1;
+            }
+        }
+
+        file.seek(SeekFrom::Start(actual_start))?;
+        let mut buf = vec![0u8; self.window_bytes];
+        let read = file.read(&mut buf)?;
+        buf.truncate(read);
+        if let Some(first_nul) = buf.iter().position(|byte| *byte == 0) {
+            buf.truncate(first_nul);
+        }
+
+        let mut actual_end = actual_start + buf.len() as u64;
+        if actual_end < self.size_bytes {
+            if let Some(last_newline) = buf.iter().rposition(|byte| *byte == b'\n') {
+                buf.truncate(last_newline + 1);
+                actual_end = actual_start + buf.len() as u64;
+            }
+        }
+
+        self.current_start = actual_start;
+        Ok(FileWindow {
+            start_byte: actual_start,
+            end_byte: actual_end.min(self.size_bytes),
+            size_bytes: self.size_bytes,
+            content: String::from_utf8_lossy(&buf).into_owned(),
+            has_more_before: actual_start > 0,
+            has_more_after: actual_end < self.size_bytes,
+        })
+    }
 }
 
 impl FileBuffer {
@@ -936,6 +995,11 @@ pub struct UpdateCursorPosition {
 #[derive(Action, Serialize, Deserialize, Debug, Clone, PartialEq)]
 pub struct UpdateScrollY(pub f32);
 
+#[derive(Action, Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
+pub struct ShiftActiveFileWindow {
+    pub forward: bool,
+}
+
 // --- Additional types ---
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -978,7 +1042,11 @@ impl EditorState {
             .and_then(|e| e.to_str())
             .unwrap_or("");
         let lang = Language::from_extension(ext);
-        let wrap_mode = default_wrap_mode_for_path(&path, lang);
+        let wrap_mode = if matches!(document_mode, DocumentMode::Huge) {
+            WrapMode::NoWrap
+        } else {
+            default_wrap_mode_for_path(&path, lang)
+        };
         let title = Path::new(&path)
             .file_name()
             .and_then(|n| n.to_str())
@@ -986,26 +1054,25 @@ impl EditorState {
             .to_string();
 
         let (content, backing) = match document_mode {
-            DocumentMode::Huge => match load_huge_file_preview(&path) {
-                Ok((preview, loaded_bytes, truncated)) => (
-                    preview,
-                    DocumentBacking::PreviewFile {
-                        path: path.clone(),
+            DocumentMode::Huge => {
+                let source = Arc::new(Mutex::new(FileWindowSource::new(path.clone(), file_size)));
+                let window = source
+                    .lock()
+                    .ok()
+                    .and_then(|mut src| src.current_window().ok())
+                    .unwrap_or(FileWindow {
+                        start_byte: 0,
+                        end_byte: 0,
                         size_bytes: file_size,
-                        loaded_bytes,
-                        truncated,
-                    },
-                ),
-                Err(_) => (
-                    String::new(),
-                    DocumentBacking::PreviewFile {
-                        path: path.clone(),
-                        size_bytes: file_size,
-                        loaded_bytes: 0,
-                        truncated: false,
-                    },
-                ),
-            },
+                        content: String::new(),
+                        has_more_before: false,
+                        has_more_after: false,
+                    });
+                (
+                    window.content.clone(),
+                    DocumentBacking::FileWindow { source, window },
+                )
+            }
             DocumentMode::Normal | DocumentMode::Large => (
                 std::fs::read_to_string(&path).unwrap_or_else(|_| String::new()),
                 DocumentBacking::InMemory,
@@ -1064,10 +1131,19 @@ impl EditorState {
                 "Opened large file ({:.1} MB)",
                 file_size as f64 / 1_000_000.0
             )),
-            DocumentMode::Huge => Some(format!(
-                "Opened huge file in read-only preview mode ({:.1} MB)",
-                file_size as f64 / 1_000_000.0
-            )),
+            DocumentMode::Huge => {
+                self.file_contents
+                    .get(&path)
+                    .and_then(|buf| match &buf.backing {
+                        DocumentBacking::FileWindow { window, .. } => Some(format!(
+                            "Opened huge file in windowed read-only mode ({:.1} MB, bytes {}..{})",
+                            file_size as f64 / 1_000_000.0,
+                            window.start_byte,
+                            window.end_byte
+                        )),
+                        DocumentBacking::InMemory => None,
+                    })
+            }
         };
     }
 
@@ -1094,6 +1170,53 @@ impl EditorState {
         let buf = self.file_contents.get_mut(&path)?;
         let tab = &self.open_tabs[self.active_tab];
         Some((tab, buf))
+    }
+
+    pub fn shift_active_file_window(&mut self, forward: bool) {
+        let Some(path) = self
+            .open_tabs
+            .get(self.active_tab)
+            .map(|tab| tab.path.clone())
+        else {
+            return;
+        };
+        let Some(buf) = self.file_contents.get_mut(&path) else {
+            return;
+        };
+        let (source, current_start, current_end) = match &buf.backing {
+            DocumentBacking::FileWindow { source, window } => {
+                (source.clone(), window.start_byte, window.end_byte)
+            }
+            DocumentBacking::InMemory => return,
+        };
+        let next_window = source.lock().ok().and_then(|mut src| {
+            if forward {
+                src.advance_forward().ok()
+            } else {
+                src.advance_backward().ok()
+            }
+        });
+        let Some(next_window) = next_window else {
+            return;
+        };
+        let moved = next_window.start_byte != current_start || next_window.end_byte != current_end;
+        if let DocumentBacking::FileWindow { window, .. } = &mut buf.backing {
+            *window = next_window.clone();
+        }
+        buf.sync_content(&next_window.content);
+        if forward {
+            buf.set_caret_line_col(0, 0);
+        } else {
+            let last_line = buf.content().lines().count().saturating_sub(1);
+            buf.set_caret_line_col(last_line, 0);
+        }
+        if moved {
+            self.scroll_offset_y = 0.0;
+            self.status_message = Some(format!(
+                "Huge file window {}..{} of {}",
+                next_window.start_byte, next_window.end_byte, next_window.size_bytes
+            ));
+        }
     }
 
     pub fn notify_buffer_changed(&self, path: &str) {
@@ -2384,7 +2507,7 @@ mod tests {
     }
 
     #[test]
-    fn test_open_file_uses_huge_preview_mode() {
+    fn test_open_file_uses_huge_window_mode() {
         let mut state = EditorState::default();
         let dir = std::env::temp_dir().join("fission_editor_huge_preview");
         std::fs::create_dir_all(&dir).ok();
@@ -2405,13 +2528,63 @@ mod tests {
             .expect("buffer should open");
         assert_eq!(buf.document_mode, DocumentMode::Huge);
         assert!(!buf.is_editable());
-        assert!(matches!(buf.backing, DocumentBacking::PreviewFile { .. }));
-        assert!(buf.content().contains("preview truncated"));
+        assert!(matches!(buf.backing, DocumentBacking::FileWindow { .. }));
         assert!(state
             .status_message
             .as_deref()
             .unwrap_or_default()
-            .contains("read-only preview"));
+            .contains("windowed read-only"));
+    }
+
+    #[test]
+    fn test_shift_active_file_window_moves_between_windows() {
+        let mut state = EditorState::default();
+        let dir = std::env::temp_dir().join("fission_editor_huge_window_shift");
+        std::fs::create_dir_all(&dir).ok();
+        let file = dir.join("huge.log");
+        let mut payload = String::new();
+        payload.push_str("WINDOW-000\n");
+        for idx in 1..5000 {
+            payload.push_str(&format!("WINDOW-{idx:04}\n"));
+        }
+        std::fs::write(&file, &payload).unwrap();
+        let sparse = std::fs::OpenOptions::new().write(true).open(&file).unwrap();
+        sparse.set_len(LARGE_FILE_LIMIT + 4096).unwrap();
+
+        state.open_file(file.to_string_lossy().to_string());
+        let initial = state
+            .active_buffer()
+            .map(|(_, buf)| buf.content())
+            .expect("initial huge window content");
+        assert!(initial.contains("WINDOW-000"));
+
+        state.shift_active_file_window(true);
+        let moved = state
+            .active_buffer()
+            .map(|(_, buf)| buf.content())
+            .expect("shifted huge window content");
+        assert_ne!(
+            initial, moved,
+            "forward shift should load a different file window"
+        );
+        assert!(
+            state
+                .status_message
+                .as_deref()
+                .unwrap_or_default()
+                .contains("Huge file window"),
+            "status should describe the active huge-file byte window"
+        );
+
+        state.shift_active_file_window(false);
+        let restored = state
+            .active_buffer()
+            .map(|(_, buf)| buf.content())
+            .expect("restored huge window content");
+        assert_eq!(
+            initial, restored,
+            "backward shift should return to the original window"
+        );
     }
 
     #[test]

@@ -1,7 +1,8 @@
 use crate::editor_render_node::EditorRenderNode;
 use crate::minimap::Minimap;
 use crate::model::{
-    ApplyEditorEdit, EditorState, SetEditorPreedit, UpdateCursorPosition, UpdateScrollY,
+    ApplyEditorEdit, EditorState, SetEditorPreedit, ShiftActiveFileWindow, UpdateCursorPosition,
+    UpdateScrollY,
 };
 use fission_core::op::Color;
 use fission_core::ui::custom_render::CustomRenderObject;
@@ -93,6 +94,13 @@ impl Widget<EditorState> for EditorSurface {
             (|s: &mut EditorState, a: UpdateScrollY, _| {
                 s.scroll_offset_y = a.0;
             }) as Handler<EditorState, UpdateScrollY>,
+        );
+
+        ctx.bind(
+            ShiftActiveFileWindow { forward: true },
+            (|s: &mut EditorState, a: ShiftActiveFileWindow, _| {
+                s.shift_active_file_window(a.forward);
+            }) as Handler<EditorState, ShiftActiveFileWindow>,
         );
 
         // ---- Editor surface via CustomNode ----------------------------------
