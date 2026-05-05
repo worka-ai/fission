@@ -1,19 +1,17 @@
 use anyhow;
 use fission_core::op::PaintOp;
 use fission_core::ui::{
-    Button, Column, Composite, CustomNode, Image, Node, Overlay, Row, Scroll, Text, TextContent,
-    TextInput, ZStack,
+    Button, Column, Composite, Image, Node, Row, Scroll, Text, TextContent, TextInput,
 };
 use fission_core::{
     op::Color as IrColor, AnimationPropertyId, AnimationRequest, AnimationStartValue, AppState,
-    BuildCtx, FlexDirection, Handler, LowerDyn, LoweringContext, NodeBuilder, NodeId,
-    ReducerContext, Selector, View, Widget, WidgetNodeId,
+    BuildCtx, FlexDirection, Handler, NodeBuilder, ReducerContext, Selector, View, Widget,
+    WidgetNodeId,
 };
 use fission_shell_desktop::DesktopApp;
-use fission_widgets::{canvas, Checkbox, Portal, Spacer};
+use fission_widgets::{canvas, Checkbox, Modal, ModalAction, Spacer};
 use lazy_static::lazy_static;
 use serde::{Deserialize, Serialize};
-use std::sync::Arc;
 
 lazy_static! {
     static ref STATUS_WIDGET_ID: WidgetNodeId = WidgetNodeId::explicit("status_indicator");
@@ -276,31 +274,35 @@ impl Widget<CounterState> for CounterApp {
         ];
 
         if view.state.show_modal {
-            let modal = Overlay {
-                id: None,
-                content: Box::new(Node::Column(Column {
-                    children: vec![],
-                    ..Default::default()
-                })),
-                overlay: Box::new(Node::ZStack(ZStack {
-                    children: vec![
-                        Node::Custom(CustomNode {
-                            debug_tag: "Dimmer".into(),
-                            lowerer: Some(Arc::new(ModalDimLowerer)),
-                            render_object: None,
-                        }),
-                        Node::Custom(CustomNode {
-                            debug_tag: "Modal".into(),
-                            lowerer: Some(Arc::new(ModalBoxLowerer)),
-                            render_object: None,
-                        }),
-                    ],
-                    ..Default::default()
-                })),
-            };
             children.push(
-                Portal {
-                    child: Node::Overlay(modal),
+                Modal {
+                    id: WidgetNodeId::explicit("counter_modal"),
+                    title: "Counter Modal".into(),
+                    content: Box::new(
+                        Column {
+                            children: vec![
+                                Text::new("The modal overlay should dim the full surface.").into(),
+                                Text::new("This example is used as a portal/compositor regression.").into(),
+                            ],
+                            gap: Some(8.0),
+                            ..Default::default()
+                        }
+                        .into(),
+                    ),
+                    is_open: true,
+                    on_dismiss: Some(ctx.bind(
+                        ToggleModal,
+                        on_toggle_modal as Handler<CounterState, ToggleModal>,
+                    )),
+                    actions: vec![ModalAction {
+                        label: "Close".into(),
+                        on_press: Some(ctx.bind(
+                            ToggleModal,
+                            on_toggle_modal as Handler<CounterState, ToggleModal>,
+                        )),
+                        is_primary: true,
+                    }],
+                    width: Some(360.0),
                 }
                 .build(ctx, view),
             );
@@ -332,77 +334,6 @@ impl Widget<CounterState> for CounterApp {
             ..Default::default()
         }
         .into()
-    }
-}
-
-#[derive(Debug)]
-struct ModalDimLowerer;
-
-impl LowerDyn for ModalDimLowerer {
-    fn lower_dyn(&self, cx: &mut LoweringContext) -> NodeId {
-        let paint = NodeBuilder::new(
-            cx.next_node_id(),
-            fission_core::Op::Paint(PaintOp::DrawRect {
-                fill: Some(fission_core::op::Fill::Solid(IrColor {
-                    r: 0,
-                    g: 0,
-                    b: 0,
-                    a: 150,
-                })),
-                stroke: None,
-                corner_radius: 0.0,
-                shadow: None,
-            }),
-        )
-        .build(cx);
-        let mut fill = NodeBuilder::new(
-            cx.next_node_id(),
-            fission_core::Op::Layout(fission_core::LayoutOp::AbsoluteFill),
-        );
-        fill.add_child(paint);
-        fill.build(cx)
-    }
-}
-
-#[derive(Debug)]
-struct ModalBoxLowerer;
-
-impl LowerDyn for ModalBoxLowerer {
-    fn lower_dyn(&self, cx: &mut LoweringContext) -> NodeId {
-        let content = NodeBuilder::new(
-            cx.next_node_id(),
-            fission_core::Op::Paint(PaintOp::DrawRect {
-                fill: Some(fission_core::op::Fill::Solid(IrColor::WHITE)),
-                stroke: None,
-                corner_radius: 8.0,
-                shadow: None,
-            }),
-        )
-        .build(cx);
-        let mut inner = NodeBuilder::new(
-            cx.next_node_id(),
-            fission_core::Op::Layout(fission_core::LayoutOp::Box {
-                width: Some(260.0),
-                height: Some(120.0),
-                min_width: None,
-                max_width: None,
-                min_height: None,
-                max_height: None,
-                padding: [16.0; 4],
-                flex_grow: 0.0,
-                flex_shrink: 0.0,
-                aspect_ratio: None,
-            }),
-        );
-        inner.add_child(content);
-        let inner_id = inner.build(cx);
-
-        let mut fill = NodeBuilder::new(
-            cx.next_node_id(),
-            fission_core::Op::Layout(fission_core::LayoutOp::AbsoluteFill),
-        );
-        fill.add_child(inner_id);
-        fill.build(cx)
     }
 }
 

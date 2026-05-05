@@ -41,12 +41,13 @@ fn combobox_popup_appears_and_dismisses_after_selection() {
     client.assert_text_visible("Combobox wrapper").unwrap();
 
     // The inline combobox is the third field on the page in the default 800x600 viewport.
-    client.tap(260.0, 300.0).expect("focus combobox");
+    client.tap(200.0, 420.0).expect("focus combobox");
     client.type_text("alice").expect("type combobox query");
     client.pump().expect("pump query");
     client.wait(300).expect("wait for popup");
+    let open_path = format!("{}/02_popup_open.png", screenshot_dir);
     client
-        .screenshot(&format!("{}/02_popup_open.png", screenshot_dir))
+        .screenshot(&open_path)
         .expect("popup screenshot");
     client
         .assert_text_visible("alice@example.com")
@@ -56,13 +57,90 @@ fn combobox_popup_appears_and_dismisses_after_selection() {
         .tap_text("alice@example.com")
         .expect("select suggestion");
     client.wait(300).expect("wait after selection");
+    let after_path = format!("{}/03_after_selection.png", screenshot_dir);
     client
-        .screenshot(&format!("{}/03_after_selection.png", screenshot_dir))
+        .screenshot(&after_path)
         .expect("post-selection screenshot");
+    let img = image::open(&after_path)
+        .expect("open post-selection screenshot")
+        .to_rgba8();
+    let stale_popup_px = img.get_pixel(100, 460).0;
+    assert!(
+        stale_popup_px[0] < 80 && stale_popup_px[1] < 80 && stale_popup_px[2] < 80,
+        "popup background should be gone after selection, found stale light pixel at (100,460): {:?}",
+        stale_popup_px
+    );
+
+    client.quit().expect("quit");
+    let _ = child.wait();
+}
+
+#[test]
+#[ignore]
+fn modal_remains_visible_while_typing_and_apply_stays_reachable() {
+    let control_port = reserve_control_port();
+    let mut child = launch_text_lab(control_port);
+    let client = LiveTestClient::connect(control_port);
+    client
+        .wait_for_ready(15_000)
+        .expect("text-lab did not start");
+    client.wait(1_500).expect("initial wait");
+
+    let screenshot_dir = std::env::var("FISSION_SCREENSHOT_DIR")
+        .unwrap_or_else(|_| "test_screenshots/text_lab_live".into());
+    std::fs::create_dir_all(&screenshot_dir).ok();
 
     client
-        .assert_text_not_visible("alice@example.com")
-        .expect("popup should dismiss after selection");
+        .tap_text("Open modal text flow")
+        .expect("open modal");
+    client.wait(400).expect("wait for modal");
+    client
+        .screenshot(&format!("{}/04_modal_open.png", screenshot_dir))
+        .expect("modal-open screenshot");
+    client.assert_text_visible("Apply").expect("apply visible");
+
+    // Focus the modal's "To *" field and type.
+    client.tap(180.0, 155.0).expect("focus modal To field");
+    client.type_text("alice").expect("type in modal");
+    client.pump().expect("pump after typing");
+    client.wait(300).expect("wait after typing");
+    client
+        .screenshot(&format!("{}/05_modal_typed.png", screenshot_dir))
+        .expect("modal-typed screenshot");
+
+    client.assert_text_visible("Apply").expect(
+        "modal should remain visible and keep Apply reachable while typing into a nested text field",
+    );
+
+    client.quit().expect("quit");
+    let _ = child.wait();
+}
+
+#[test]
+#[ignore]
+fn modal_apply_clears_recipient_suggestion_overlay() {
+    let control_port = reserve_control_port();
+    let mut child = launch_text_lab(control_port);
+    let client = LiveTestClient::connect(control_port);
+    client
+        .wait_for_ready(15_000)
+        .expect("text-lab did not start");
+    client.wait(1_500).expect("initial wait");
+
+    client
+        .tap_text("Open modal text flow")
+        .expect("open modal");
+    client.wait(400).expect("wait for modal");
+    client.tap(180.0, 155.0).expect("focus modal To field");
+    client.type_text("alice").expect("type in modal");
+    client.pump().expect("pump after typing");
+    client.wait(300).expect("wait after typing");
+    client.tap_text("Apply").expect("apply modal");
+    client.wait(400).expect("wait after apply");
+
+    client.assert_text_not_visible("alice@example.com").expect(
+        "recipient suggestion overlay text should be torn down when the modal closes",
+    );
 
     client.quit().expect("quit");
     let _ = child.wait();

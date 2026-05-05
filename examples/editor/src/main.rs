@@ -1354,7 +1354,7 @@ fn main() -> anyhow::Result<()> {
                 // Tree scanning and external-change checking are handled
                 // asynchronously in the frame hook -- no I/O in the key handler.
 
-                let ctrl = (mods & 4) != 0 || (mods & 8) != 0; // Ctrl or Cmd
+                let ctrl = (mods & 2) != 0 || (mods & 8) != 0; // Ctrl or Cmd
                 let shift = (mods & 1) != 0;
 
                 // Dismiss context menu on any keystroke (except Escape which handles it explicitly)

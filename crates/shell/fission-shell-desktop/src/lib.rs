@@ -968,7 +968,10 @@ fn handle_scroll(
         if let Err(e) = runtime.handle_input(event, ir, layout) {
             eprintln!("Scroll error: {:?}", e);
         }
-        invalidations.mark_composite();
+        // Scroll offsets can affect more than a compositor translation. Virtualized
+        // lists, scrollbars, and scroll-aware wrappers depend on the updated offset
+        // during build/lowering, so treat scroll as a build invalidation.
+        invalidations.mark_build();
         if process_pending_effects(runtime, effect_result_tx, event_proxy, app_effect_handler) {
             invalidations.mark_build();
             request_redraw_logged(
@@ -1166,6 +1169,16 @@ fn build_get_text_response(pipeline: &Pipeline) -> fission_test_driver::TestResp
     TestResponse::Text { items }
 }
 
+fn find_visible_text_center(pipeline: &Pipeline, text: &str) -> Option<(f32, f32)> {
+    let fission_test_driver::TestResponse::Text { items } = build_get_text_response(pipeline) else {
+        return None;
+    };
+    items
+        .into_iter()
+        .find(|item| item.text.contains(text) && item.width > 0.0 && item.height > 0.0)
+        .map(|item| (item.x + item.width / 2.0, item.y + item.height / 2.0))
+}
+
 /// Build the response for a GetTree query.
 fn build_get_tree_response(pipeline: &Pipeline) -> fission_test_driver::TestResponse {
     use fission_test_driver::{SemanticNode, TestResponse};
@@ -1204,39 +1217,7 @@ fn handle_tap_text(
 ) -> fission_test_driver::TestResponse {
     use fission_test_driver::TestResponse;
     if let (Some(ir), Some(snap)) = (pipeline.prev_ir.as_ref(), pipeline.last_snapshot.as_ref()) {
-        let mut found = None;
-        for (id, node) in &ir.nodes {
-            let txt = match &node.op {
-                fission_ir::Op::Paint(fission_ir::PaintOp::DrawText { text: t, .. }) => {
-                    Some(t.as_str())
-                }
-                fission_ir::Op::Paint(fission_ir::PaintOp::DrawRichText { runs, .. }) => {
-                    let combined: String = runs.iter().map(|r| r.text.clone()).collect();
-                    if combined.contains(text) {
-                        Some("")
-                    } else {
-                        None
-                    }
-                }
-                _ => None,
-            };
-            if let Some(t) = txt {
-                if t.contains(text) || t.is_empty() {
-                    let check_id = node.parent.unwrap_or(*id);
-                    if let Some(rect) = snap
-                        .get_node_rect(check_id)
-                        .or_else(|| snap.get_node_rect(*id))
-                    {
-                        found = Some((
-                            rect.x() + rect.width() / 2.0,
-                            rect.y() + rect.height() / 2.0,
-                        ));
-                        break;
-                    }
-                }
-            }
-        }
-        if let Some((cx, cy)) = found {
+        if let Some((cx, cy)) = find_visible_text_center(pipeline, text) {
             let point = LayoutPoint::new(cx, cy);
             let _ = runtime.handle_input(
                 InputEvent::Pointer(PointerEvent::Down {
@@ -1265,6 +1246,44 @@ fn handle_tap_text(
             message: "no frame rendered yet".into(),
         }
     }
+}
+
+fn wrap_portal_for_viewport(id: Option<WidgetNodeId>, node: fission_core::Node, env: &Env) -> fission_core::Node {
+    let builder = fission_core::ui::Container::new(node)
+        .width(env.viewport_size.width)
+        .height(env.viewport_size.height);
+    if let Some(id) = id {
+        builder
+            .id(fission_core::NodeId::derived(id.as_u128(), &[0x0000_F001]))
+            .into_node()
+    } else {
+        builder.into_node()
+    }
+}
+
+fn texture_plan_fits_device_limits(
+    plan: &crate::pipeline::CompositorTexturePlan,
+    scale_factor: f64,
+    max_texture_dimension_2d: u32,
+) -> bool {
+    if plan.scene.is_some() {
+        let width = ((plan.bounds.size.width as f64 * scale_factor).ceil() as u32).max(1);
+        let height = ((plan.bounds.size.height as f64 * scale_factor).ceil() as u32).max(1);
+        if width > max_texture_dimension_2d || height > max_texture_dimension_2d {
+            return false;
+        }
+    }
+    plan.children
+        .iter()
+        .all(|child| texture_plan_fits_device_limits(child, scale_factor, max_texture_dimension_2d))
+}
+
+fn texture_plans_fit_device_limits(
+    plans: &[crate::pipeline::CompositorTexturePlan],
+    scale_factor: f64,
+    max_texture_dimension_2d: u32,
+) -> bool {
+    plans.iter().all(|plan| texture_plan_fits_device_limits(plan, scale_factor, max_texture_dimension_2d))
 }
 
 pub type KeyHandler<S> = Arc<dyn Fn(&mut S, &fission_core::KeyCode, u8) -> bool + Send + Sync>;
@@ -1464,7 +1483,14 @@ impl<S: AppState + Default, W: Widget<S> + 'static> DesktopApp<S, W> {
             .configure(&device_handle.device, &surface.config);
 
         // Recreate target texture with COPY_SRC so GPU screenshots work
-        recreate_target_texture(&mut surface, &render_cx);
+        let initial_target_texture_size = (surface.config.width, surface.config.height);
+        recreate_target_texture(
+            &mut surface,
+            &render_cx,
+            initial_target_texture_size.0,
+            initial_target_texture_size.1,
+        );
+        let mut target_texture_size = initial_target_texture_size;
 
         let mut scene3d_renderer = fission_3d::render::Scene3DRenderer::new(
             &device_handle.device,
@@ -2287,24 +2313,36 @@ impl<S: AppState + Default, W: Widget<S> + 'static> DesktopApp<S, W> {
                                         "redraw:effects",
                                     );
                                 }
-                                let surface_size = pending_resize.unwrap_or_else(|| window.inner_size());
-                                if surface_size.width == 0 || surface_size.height == 0 {
+                                let swapchain_size =
+                                    pending_resize.unwrap_or_else(|| window.inner_size());
+                                if swapchain_size.width == 0 || swapchain_size.height == 0 {
                                     diag::end_frame(diag::FrameStats::default());
                                     return;
                                 }
 
-                                if surface_size.width != surface.config.width
-                                    || surface_size.height != surface.config.height
+                                if swapchain_size.width != surface.config.width
+                                    || swapchain_size.height != surface.config.height
                                 {
                                     render_cx.resize_surface(
                                         &mut surface,
-                                        surface_size.width,
-                                        surface_size.height,
+                                        swapchain_size.width,
+                                        swapchain_size.height,
                                     );
                                     let device_handle = &render_cx.devices[surface.dev_id];
                                     surface.config.alpha_mode = wgpu::CompositeAlphaMode::PostMultiplied;
                                     surface.surface.configure(&device_handle.device, &surface.config);
-                                    recreate_target_texture(&mut surface, &render_cx);
+                                }
+
+                                let render_target_size =
+                                    simulated_viewport.unwrap_or((swapchain_size.width, swapchain_size.height));
+                                if render_target_size != target_texture_size {
+                                    recreate_target_texture(
+                                        &mut surface,
+                                        &render_cx,
+                                        render_target_size.0,
+                                        render_target_size.1,
+                                    );
+                                    target_texture_size = render_target_size;
                                 }
 
                                 let scale_factor = window.scale_factor();
@@ -2312,8 +2350,8 @@ impl<S: AppState + Default, W: Widget<S> + 'static> DesktopApp<S, W> {
                                     (sw as f32, sh as f32)
                                 } else {
                                     (
-                                        (surface_size.width as f64 / scale_factor) as f32,
-                                        (surface_size.height as f64 / scale_factor) as f32,
+                                        (swapchain_size.width as f64 / scale_factor) as f32,
+                                        (swapchain_size.height as f64 / scale_factor) as f32,
                                     )
                                 };
 
@@ -2375,21 +2413,7 @@ impl<S: AppState + Default, W: Widget<S> + 'static> DesktopApp<S, W> {
 
                                         let portals = portals_with_ids
                                             .into_iter()
-                                            .map(|(id, node)| {
-                                                if let Some(id) = id {
-                                                    let wrapper_id = fission_core::NodeId::derived(
-                                                        id.as_u128(),
-                                                        &[0x0000_F001],
-                                                    );
-                                                    fission_core::ui::Container::new(node)
-                                                        .id(wrapper_id)
-                                                        .width(env.viewport_size.width)
-                                                        .height(env.viewport_size.height)
-                                                        .into_node()
-                                                } else {
-                                                    node
-                                                }
-                                            })
+                                            .map(|(id, node)| wrap_portal_for_viewport(id, node, &env))
                                             .collect::<Vec<_>>();
 
                                         diag::emit(
@@ -2479,13 +2503,27 @@ impl<S: AppState + Default, W: Widget<S> + 'static> DesktopApp<S, W> {
                                         let device_handle = &render_cx.devices[surface.dev_id];
 
                                         let texture_plans = pipeline.texture_compositor_plans();
-                                        if texture_plans.is_empty() {
+                                        let clear_color = vello::wgpu::Color {
+                                            r: env.theme.tokens.colors.background.r as f64 / 255.0,
+                                            g: env.theme.tokens.colors.background.g as f64 / 255.0,
+                                            b: env.theme.tokens.colors.background.b as f64 / 255.0,
+                                            a: env.theme.tokens.colors.background.a as f64 / 255.0,
+                                        };
+                                        let texture_plans_fit_limits = texture_plans_fit_device_limits(
+                                            texture_plans,
+                                            scale_factor,
+                                            device_handle.device.limits().max_texture_dimension_2d,
+                                        );
+                                        if texture_plans.is_empty() || !texture_plans_fit_limits {
                                             let render_params = vello::RenderParams {
-                                                base_color: vello::peniko::Color::from_rgb8(
-                                                    30, 30, 30,
+                                                base_color: vello::peniko::Color::from_rgba8(
+                                                    env.theme.tokens.colors.background.r,
+                                                    env.theme.tokens.colors.background.g,
+                                                    env.theme.tokens.colors.background.b,
+                                                    env.theme.tokens.colors.background.a,
                                                 ),
-                                                width: surface_size.width,
-                                                height: surface_size.height,
+                                                width: render_target_size.0,
+                                                height: render_target_size.1,
                                                 antialiasing_method: vello::AaConfig::Area,
                                             };
 
@@ -2512,6 +2550,9 @@ impl<S: AppState + Default, W: Widget<S> + 'static> DesktopApp<S, W> {
                                                 )
                                                 .expect("failed to render");
                                         } else {
+                                            let force_full_compositor_redraw = invalidations.build
+                                                || invalidations.layout
+                                                || invalidations.paint;
                                             let _compositor_stats = texture_compositor
                                                 .render_layers(
                                                     &device_handle.device,
@@ -2520,10 +2561,12 @@ impl<S: AppState + Default, W: Widget<S> + 'static> DesktopApp<S, W> {
                                                     &mut retained_scene_cache,
                                                     measurer.clone(),
                                                     scale_factor,
-                                                    surface_size.width,
-                                                    surface_size.height,
+                                                    render_target_size.0,
+                                                    render_target_size.1,
                                                     pipeline.texture_compositor_root_transform(),
                                                     texture_plans,
+                                                    force_full_compositor_redraw,
+                                                    clear_color,
                                                     &surface.target_view,
                                                 )
                                                 .expect("failed to composite texture layers");
@@ -2534,8 +2577,8 @@ impl<S: AppState + Default, W: Widget<S> + 'static> DesktopApp<S, W> {
                                                 bincode::deserialize::<Vec<fission_3d::Primitive3D>>(payload)
                                             {
                                                 let scene3d = fission_3d::Scene3D {
-                                                    width: Some(surface_size.width as f32),
-                                                    height: Some(surface_size.height as f32),
+                                                    width: Some(render_target_size.0 as f32),
+                                                    height: Some(render_target_size.1 as f32),
                                                     primitives,
                                                 };
                                                 scene3d_renderer.render(
@@ -2576,8 +2619,8 @@ impl<S: AppState + Default, W: Widget<S> + 'static> DesktopApp<S, W> {
                                                         &device_handle.device,
                                                         &device_handle.queue,
                                                     &surface.target_texture,
-                                                        surface_size.width,
-                                                        surface_size.height,
+                                                        render_target_size.0,
+                                                        render_target_size.1,
                                                         &path,
                                                     );
                                                     let _ = tx.send(resp);
@@ -2913,11 +2956,16 @@ fn gpu_screenshot(
     }
 }
 
-fn recreate_target_texture(surface: &mut RenderSurface, render_cx: &RenderContext) {
+fn recreate_target_texture(
+    surface: &mut RenderSurface,
+    render_cx: &RenderContext,
+    width: u32,
+    height: u32,
+) {
     let device = &render_cx.devices[surface.dev_id].device;
     let size = wgpu::Extent3d {
-        width: surface.config.width.max(1),
-        height: surface.config.height.max(1),
+        width: width.max(1),
+        height: height.max(1),
         depth_or_array_layers: 1,
     };
     let new_texture = device.create_texture(&wgpu::TextureDescriptor {
@@ -2940,7 +2988,11 @@ fn recreate_target_texture(surface: &mut RenderSurface, render_cx: &RenderContex
 
 #[cfg(test)]
 mod tests {
-    use super::{animation_redraw_interval, LiveResizeController};
+    use super::{
+        animation_redraw_interval, texture_plans_fit_device_limits, LiveResizeController,
+    };
+    use crate::pipeline::CompositorTexturePlan;
+    use fission_layout::LayoutRect;
     use std::time::Duration;
 
     #[test]
@@ -2997,5 +3049,61 @@ mod tests {
         resize.note_resize(now);
 
         assert!(resize.should_apply_layout(now + Duration::from_millis(10), true, true));
+    }
+
+    #[test]
+    fn oversized_texture_plan_forces_scene_fallback() {
+        let plans = vec![CompositorTexturePlan {
+            key: 1,
+            bounds: LayoutRect::new(0.0, 0.0, 320.0, 9000.0),
+            scene: Some(fission_render::RenderScene::new(LayoutRect::new(
+                0.0, 0.0, 320.0, 9000.0,
+            ))),
+            scene_cache_key: Some(1),
+            content_key: 1,
+            local_dynamic: false,
+            composite_dynamic: false,
+            opacity: 1.0,
+            transform: None,
+            transform_clip: false,
+            clip: None,
+            children: Vec::new(),
+        }];
+        assert!(!texture_plans_fit_device_limits(&plans, 1.0, 8192));
+    }
+
+    #[test]
+    fn nested_texture_plans_must_all_fit_device_limits() {
+        let child = CompositorTexturePlan {
+            key: 2,
+            bounds: LayoutRect::new(0.0, 0.0, 400.0, 8400.0),
+            scene: Some(fission_render::RenderScene::new(LayoutRect::new(
+                0.0, 0.0, 400.0, 8400.0,
+            ))),
+            scene_cache_key: Some(2),
+            content_key: 2,
+            local_dynamic: false,
+            composite_dynamic: false,
+            opacity: 1.0,
+            transform: None,
+            transform_clip: false,
+            clip: None,
+            children: Vec::new(),
+        };
+        let plans = vec![CompositorTexturePlan {
+            key: 1,
+            bounds: LayoutRect::new(0.0, 0.0, 800.0, 600.0),
+            scene: None,
+            scene_cache_key: None,
+            content_key: 3,
+            local_dynamic: false,
+            composite_dynamic: false,
+            opacity: 1.0,
+            transform: None,
+            transform_clip: false,
+            clip: None,
+            children: vec![child],
+        }];
+        assert!(!texture_plans_fit_device_limits(&plans, 1.0, 8192));
     }
 }

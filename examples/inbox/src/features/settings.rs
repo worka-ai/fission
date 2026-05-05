@@ -7,9 +7,12 @@ use crate::model::{
 use fission_core::op::{Color, GridTrack};
 use fission_core::ui::widgets::{Clip, GestureDetector, Transform};
 use fission_core::ui::{
-    Button, ButtonVariant, Container, Grid, GridItem, Node, Positioned, Text, TextContent, ZStack,
+    Button, ButtonVariant, Container, Grid, GridItem, Node, Positioned, Scroll, Text,
+    TextContent, ZStack,
 };
-use fission_core::{ActionEnvelope, ActionId, BuildCtx, Handler, View, Widget, WidgetNodeId};
+use fission_core::{
+    ActionEnvelope, ActionId, BuildCtx, FlexDirection, Handler, View, Widget, WidgetNodeId,
+};
 use fission_i18n::Locale;
 use fission_icons::material;
 use fission_widgets::{
@@ -431,9 +434,15 @@ impl Widget<InboxState> for SettingsModal {
             )),
             width: Some(560.0),
             content: Box::new(
-                VStack {
-                    spacing: Some(16.0),
-                    children: vec![
+                Scroll {
+                    direction: FlexDirection::Column,
+                    width: None,
+                    height: Some(520.0),
+                    show_scrollbar: true,
+                    child: Some(Box::new(
+                        VStack {
+                            spacing: Some(16.0),
+                            children: vec![
                         Text::new(TextContent::Key("settings.general".into()))
                             .size(14.0)
                             .into_node(),
@@ -890,7 +899,11 @@ impl Widget<InboxState> for SettingsModal {
                             ),
                         }
                         .build(ctx, view),
-                    ],
+                            ],
+                        }
+                        .into_node(),
+                    )),
+                    ..Default::default()
                 }
                 .into_node(),
             ),

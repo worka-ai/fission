@@ -150,3 +150,70 @@ fn inbox_scroll_and_interact() {
     let _ = child.wait();
     println!("\nAll screenshots saved to {}/", dir);
 }
+
+#[test]
+#[ignore]
+fn compose_recipient_typing_shows_suggestions() {
+    let control_port = reserve_control_port();
+    let mut child = launch_inbox(control_port);
+    let client = LiveTestClient::connect(control_port);
+    client.wait_for_ready(20_000).expect("inbox did not start");
+    client.wait(1_500).expect("wait");
+
+    let dir = screenshot_dir();
+    client.tap_text("Compose").expect("open compose");
+    client.wait(500).expect("wait for compose");
+    client
+        .screenshot(&format!("{}/07_compose_open.png", dir))
+        .expect("compose open screenshot");
+
+    // Focus the top recipient field and type a known suggestion prefix.
+    client.tap(160.0, 122.0).expect("focus recipient field");
+    client.type_text("alice").expect("type recipient query");
+    client.pump().expect("pump after typing");
+    client.wait(400).expect("wait after typing");
+    client
+        .screenshot(&format!("{}/08_compose_suggestions.png", dir))
+        .expect("compose suggestion screenshot");
+
+    client.assert_text_visible("alice@example.com").expect(
+        "typing in the compose recipient field should show the inline suggestion popup",
+    );
+
+    client.quit().expect("quit");
+    let _ = child.wait();
+}
+
+#[test]
+#[ignore]
+fn settings_modal_layout_has_readable_text_rows() {
+    let control_port = reserve_control_port();
+    let mut child = launch_inbox(control_port);
+    let client = LiveTestClient::connect(control_port);
+    client.wait_for_ready(20_000).expect("inbox did not start");
+    client.wait(1_500).expect("wait");
+
+    let dir = screenshot_dir();
+    client.tap_text("Settings").expect("open settings");
+    client.wait(700).expect("wait for settings");
+    client
+        .screenshot(&format!("{}/10_settings_layout.png", dir))
+        .expect("settings screenshot");
+
+    let texts = client.get_text().expect("get_text after settings");
+    for label in ["General", "Appearance", "Theme"] {
+        let item = texts
+            .iter()
+            .find(|item| item.text == label)
+            .unwrap_or_else(|| panic!("expected settings label '{label}' to be visible"));
+        assert!(
+            item.height >= 10.0,
+            "settings label '{}' should occupy a readable row height, got {:?}",
+            label,
+            item
+        );
+    }
+
+    client.quit().expect("quit");
+    let _ = child.wait();
+}

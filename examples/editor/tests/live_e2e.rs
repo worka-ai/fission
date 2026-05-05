@@ -8,6 +8,7 @@
 use fission_test_driver::LiveTestClient;
 use std::io::Write;
 use std::net::TcpListener;
+use std::path::PathBuf;
 use std::process::{Child, Command};
 
 fn reserve_control_port() -> u16 {
@@ -22,8 +23,14 @@ fn launch_editor(control_port: u16) -> Child {
     let bin = std::env::var("CARGO_BIN_EXE_fission-editor")
         .or_else(|_| std::env::var("CARGO_BIN_EXE_fission_editor"))
         .unwrap_or_else(|_| "target/debug/fission-editor".to_string());
+    let workspace_root = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .parent()
+        .and_then(|p| p.parent())
+        .expect("workspace root")
+        .to_path_buf();
     Command::new(bin)
-        .arg(".")
+        .arg(&workspace_root)
+        .current_dir(&workspace_root)
         .env("FISSION_TEST_CONTROL_PORT", control_port.to_string())
         .spawn()
         .expect("failed to launch editor")
@@ -423,6 +430,57 @@ fn editor_full_workflow() {
     client.quit().unwrap();
     let _ = child.wait();
     println!("\nAll E2E tests passed. Screenshots: {}/", d);
+}
+
+#[test]
+#[ignore]
+fn visible_file_tap_opens_the_file_without_crashing() {
+    let control_port = reserve_control_port();
+    let mut child = launch_editor(control_port);
+    let client = LiveTestClient::connect(control_port);
+    client.wait_for_ready(20_000).expect("editor start");
+    client.wait(2_000).expect("wait");
+
+    client.tap_text("README.md").expect("tap visible file");
+    client.wait(600).expect("wait after tap");
+
+    let d = dir();
+    client
+        .screenshot(&format!("{}/21_readme_open.png", d))
+        .expect("screenshot after opening file");
+    client
+        .assert_text_not_visible("Open a file from the explorer to begin")
+        .expect("tapping a visible file should replace the welcome surface with an editor tab");
+    client.assert_text_visible("README.md").unwrap();
+
+    client.quit().expect("quit");
+    let _ = child.wait();
+}
+
+#[test]
+#[ignore]
+fn ctrl_f_opens_find_bar_on_open_file() {
+    let control_port = reserve_control_port();
+    let mut child = launch_editor(control_port);
+    let client = LiveTestClient::connect(control_port);
+    client.wait_for_ready(20_000).expect("editor start");
+    client.wait(2_000).expect("wait");
+
+    client.tap_text("README.md").expect("open README");
+    client.wait(600).expect("wait after open");
+    client.press_key("f", 2).expect("ctrl+f");
+    client.wait(500).expect("wait after ctrl+f");
+
+    let d = dir();
+    client
+        .screenshot(&format!("{}/22_find_bar.png", d))
+        .expect("find bar screenshot");
+    client
+        .assert_text_visible("Find")
+        .expect("Ctrl+F should open the find bar with a visible Find field");
+
+    client.quit().expect("quit");
+    let _ = child.wait();
 }
 
 /// Separate test: open multiple files and verify tab switching behaviour.

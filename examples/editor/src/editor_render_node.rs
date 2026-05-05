@@ -658,7 +658,7 @@ impl EditorRenderNode {
     /// appropriate actions to dispatch.
     fn handle_key(&self, node_id: NodeId, key_code: &KeyCode, modifiers: u8) -> CustomEventResult {
         let shift = (modifiers & 1) != 0;
-        let ctrl_or_cmd = (modifiers & 4) != 0 || (modifiers & 8) != 0;
+        let ctrl_or_cmd = (modifiers & 2) != 0 || (modifiers & 8) != 0;
         let content = self.content.as_str();
         let mut offset = self.cursor_offset.min(content.len());
         let mut anchor = self.anchor_offset.min(content.len());

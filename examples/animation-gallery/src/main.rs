@@ -131,7 +131,7 @@ impl Widget<AnimationGalleryState> for AnimationGalleryApp {
                             Transition {
                                 id: *OPACITY_ID,
                                 property: AnimationPropertyId::Opacity,
-                                value: if scene_active { 1.0 } else { 0.18 },
+                                value: if scene_active { 0.92 } else { 0.28 },
                                 duration: 550,
                                 child: Box::new(sample_block("Fade", tokens.primary)),
                                 ..Default::default()
@@ -143,7 +143,7 @@ impl Widget<AnimationGalleryState> for AnimationGalleryApp {
                             Transition {
                                 id: *TRANSLATE_ID,
                                 property: AnimationPropertyId::TranslateX,
-                                value: if scene_active { 0.0 } else { -88.0 },
+                                value: if scene_active { 14.0 } else { -28.0 },
                                 duration: 550,
                                 child: Box::new(sample_block("Slide", color(30, 136, 93, 255))),
                                 ..Default::default()
@@ -155,7 +155,7 @@ impl Widget<AnimationGalleryState> for AnimationGalleryApp {
                             Transition {
                                 id: *SCALE_ID,
                                 property: AnimationPropertyId::Scale,
-                                value: if scene_active { 1.0 } else { 0.68 },
+                                value: if scene_active { 0.94 } else { 0.68 },
                                 duration: 550,
                                 child: Box::new(sample_block("Zoom", color(222, 144, 35, 255))),
                                 ..Default::default()
@@ -174,7 +174,7 @@ impl Widget<AnimationGalleryState> for AnimationGalleryApp {
                             Transition {
                                 id: *ROTATION_ID,
                                 property: AnimationPropertyId::Rotation,
-                                value: if scene_active { 0.0 } else { -0.40 },
+                                value: if scene_active { -0.14 } else { 0.24 },
                                 duration: 650,
                                 child: Box::new(sample_block("Rotate", color(54, 96, 168, 255))),
                                 ..Default::default()
@@ -187,7 +187,7 @@ impl Widget<AnimationGalleryState> for AnimationGalleryApp {
                                 Transition {
                                     id: *CLIP_ID,
                                     property: AnimationPropertyId::TranslateX,
-                                    value: if scene_active { 28.0 } else { -64.0 },
+                                    value: if scene_active { 16.0 } else { -28.0 },
                                     duration: 700,
                                     child: Box::new(
                                         Container::new(sample_block("Clipped", tokens.primary))
@@ -320,7 +320,12 @@ fn custom_pulse_card(active: bool, base: IrColor) -> Node {
             .animated_opacity(*CUSTOM_ID, 1.0)
             .into_node()
     } else {
-        Composite::new(block).opacity(0.72).scale(0.92).into_node()
+        Container::new(block)
+            .width(112.0)
+            .height(72.0)
+            .border_radius(16.0)
+            .bg(color(base.r, 196, base.b, 24))
+            .into_node()
     }
 }
 

@@ -919,7 +919,6 @@ impl Widget<GalleryState> for GalleryApp {
             child: Some(Box::new(
                 Container::new(all_sections)
                     .padding_all(24.0)
-                    .flex_grow(1.0)
                     .into_node(),
             )),
             show_scrollbar: true,

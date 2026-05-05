@@ -149,6 +149,7 @@ pub struct CompositorTexturePlan {
     pub composite_dynamic: bool,
     pub opacity: f32,
     pub transform: Option<[f32; 16]>,
+    pub transform_clip: bool,
     pub clip: Option<LayerClip>,
     pub children: Vec<CompositorTexturePlan>,
 }
@@ -731,7 +732,34 @@ impl Pipeline {
                 plans.push(plan);
             }
         }
+        if render_trace_enabled() {
+            for plan in &plans {
+                log_texture_plan(plan, 0);
+            }
+        }
         plans
+    }
+}
+
+fn log_texture_plan(plan: &CompositorTexturePlan, depth: usize) {
+    let indent = "  ".repeat(depth);
+    eprintln!(
+        "[pipeline] {}plan key={} bounds=({}, {}, {}x{}) scene={} clip={} transform=({:.1},{:.1}) transform_clip={} children={}",
+        indent,
+        plan.key,
+        plan.bounds.origin.x,
+        plan.bounds.origin.y,
+        plan.bounds.size.width,
+        plan.bounds.size.height,
+        plan.scene.is_some(),
+        plan.clip.is_some(),
+        plan.transform.map(|m| m[12]).unwrap_or(0.0),
+        plan.transform.map(|m| m[13]).unwrap_or(0.0),
+        plan.transform_clip,
+        plan.children.len()
+    );
+    for child in &plan.children {
+        log_texture_plan(child, depth + 1);
     }
 }
 
@@ -828,23 +856,33 @@ fn build_texture_plan_from_node(
                 composite_dynamic: false,
                 opacity: 1.0,
                 transform: None,
+                transform_clip: true,
                 clip: None,
                 children: Vec::new(),
             })
         }
         RenderNode::Layer(layer) => {
+            let wrapper_only_scroll_plan = !layer.style.transform_clip;
             let mut child_plans = Vec::new();
             let mut local_children = Vec::new();
             for child in &layer.children {
-                if let Some(child_plan) = build_texture_plan_from_node(
-                    child,
-                    false,
-                    runtime_dynamic_nodes,
-                    runtime_dynamic_subtrees,
-                ) {
-                    child_plans.push(child_plan);
+                if wrapper_only_scroll_plan {
+                    child_plans.extend(build_descending_wrapper_plans(
+                        child,
+                        runtime_dynamic_nodes,
+                        runtime_dynamic_subtrees,
+                    ));
                 } else {
-                    local_children.push(child.clone());
+                    if let Some(child_plan) = build_texture_plan_from_node(
+                        child,
+                        false,
+                        runtime_dynamic_nodes,
+                        runtime_dynamic_subtrees,
+                    ) {
+                        child_plans.push(child_plan);
+                    } else {
+                        local_children.push(child.clone());
+                    }
                 }
             }
 
@@ -875,9 +913,67 @@ fn build_texture_plan_from_node(
                 composite_dynamic,
                 opacity: layer.style.opacity,
                 transform: layer.style.transform,
+                transform_clip: layer.style.transform_clip,
                 clip: layer.style.clip.clone(),
                 children: child_plans,
             })
+        }
+    }
+}
+
+fn build_descending_wrapper_plans(
+    node: &RenderNode,
+    runtime_dynamic_nodes: &HashSet<NodeId>,
+    runtime_dynamic_subtrees: &HashMap<NodeId, bool>,
+) -> Vec<CompositorTexturePlan> {
+    match node {
+        RenderNode::Paint(_) => build_texture_plan_from_node(
+            node,
+            true,
+            runtime_dynamic_nodes,
+            runtime_dynamic_subtrees,
+        )
+        .into_iter()
+        .collect(),
+        RenderNode::Layer(layer) => {
+            let mut children = Vec::new();
+            for child in &layer.children {
+                children.extend(build_descending_wrapper_plans(
+                    child,
+                    runtime_dynamic_nodes,
+                    runtime_dynamic_subtrees,
+                ));
+            }
+
+            if children.is_empty() {
+                return build_texture_plan_from_node(
+                    node,
+                    true,
+                    runtime_dynamic_nodes,
+                    runtime_dynamic_subtrees,
+                )
+                .into_iter()
+                .collect();
+            }
+
+            let composite_dynamic = layer
+                .node_id
+                .map(|id| runtime_dynamic_nodes.contains(&id))
+                .unwrap_or(false);
+            vec![CompositorTexturePlan {
+                key: texture_plan_key_for_layer(layer),
+                bounds: layer.bounds,
+                scene: None,
+                scene_cache_key: None,
+                content_key: plan_content_key(None, &children),
+                local_dynamic: false,
+                composite_dynamic,
+                opacity: layer.style.opacity,
+                transform: layer.style.transform,
+                transform_clip: layer.style.transform_clip,
+                clip: layer.style.clip.clone(),
+                children,
+            }]
         }
     }
 }
@@ -1304,6 +1400,9 @@ fn generate_render_layer_recursive(
     ) {
         layer.style.transform = Some(transform);
     }
+    if scroll.is_some() {
+        layer.style.transform_clip = false;
+    }
 
     let local_hash = local_paint_hash(node);
     let local_paint = if let Some((cached_hash, cached_ops)) = paint_cache.get(&node_id) {
@@ -1341,7 +1440,7 @@ fn generate_render_layer_recursive(
             });
         }
     }
-    if needs_dynamic_transform {
+    if has_dynamic_transform {
         bindings.transform.push(TransformBinding {
             layer_path: layer_path.clone(),
             rect,
@@ -2296,5 +2395,145 @@ mod tests {
 
         assert!(pipeline.texture_compositor_root_transform().is_some());
         assert!(!pipeline.texture_compositor_plans().is_empty());
+    }
+
+    #[test]
+    fn scroll_only_layers_patch_retained_transforms_after_offset_changes() {
+        let mut ir = CoreIR::new();
+        let content = NodeId::derived(15, &[0]);
+        let scroll = NodeId::derived(15, &[1]);
+        let root = NodeId::derived(15, &[2]);
+
+        ir.add_node(
+            content,
+            Op::Paint(PaintOp::DrawRect {
+                fill: Some(Fill::Solid(Color {
+                    r: 120,
+                    g: 120,
+                    b: 220,
+                    a: 255,
+                })),
+                stroke: None,
+                corner_radius: 0.0,
+                shadow: None,
+            }),
+            vec![],
+        );
+        ir.add_node(
+            scroll,
+            Op::Layout(LayoutOp::Scroll {
+                direction: fission_ir::FlexDirection::Column,
+                show_scrollbar: true,
+                width: Some(320.0),
+                height: Some(240.0),
+                min_width: None,
+                max_width: None,
+                min_height: None,
+                max_height: None,
+                padding: [0.0, 0.0, 0.0, 0.0],
+                flex_grow: 0.0,
+                flex_shrink: 0.0,
+            }),
+            vec![content],
+        );
+        ir.add_node(
+            root,
+            Op::Layout(LayoutOp::Box {
+                width: Some(320.0),
+                height: Some(240.0),
+                min_width: None,
+                max_width: None,
+                min_height: None,
+                max_height: None,
+                padding: [0.0, 0.0, 0.0, 0.0],
+                flex_grow: 0.0,
+                flex_shrink: 0.0,
+                aspect_ratio: None,
+            }),
+            vec![scroll],
+        );
+        ir.set_root(root);
+
+        let mut pipeline = Pipeline::new();
+        let mut layout_engine = LayoutEngine::new();
+        let scroll0 = ScrollStateMap::default();
+        pipeline.replace_ir(ir, &Env::default());
+        pipeline
+            .ensure_layout(
+                LayoutRect::new(0.0, 0.0, 320.0, 240.0),
+                &mut layout_engine,
+                &scroll0,
+            )
+            .unwrap();
+        pipeline
+            .prepare_current(
+                LayoutSize {
+                    width: 320.0,
+                    height: 240.0,
+                },
+                LayoutSize {
+                    width: 320.0,
+                    height: 240.0,
+                },
+                false,
+                &scroll0,
+                &Default::default(),
+                &Default::default(),
+                &Default::default(),
+            )
+            .unwrap();
+
+        let mut scroll1 = ScrollStateMap::default();
+        scroll1.set_offset(scroll, 180.0);
+        pipeline
+            .prepare_current(
+                LayoutSize {
+                    width: 320.0,
+                    height: 240.0,
+                },
+                LayoutSize {
+                    width: 320.0,
+                    height: 240.0,
+                },
+                false,
+                &scroll1,
+                &Default::default(),
+                &Default::default(),
+                &Default::default(),
+            )
+            .unwrap();
+
+        fn find_scroll_layer(
+            node: &fission_render::RenderNode,
+        ) -> Option<&fission_render::RenderLayer> {
+            match node {
+                fission_render::RenderNode::Paint(_) => None,
+                fission_render::RenderNode::Layer(layer) => {
+                    if !layer.style.transform_clip && layer.style.clip.is_some() {
+                        return Some(layer);
+                    }
+                    for child in &layer.children {
+                        if let Some(found) = find_scroll_layer(child) {
+                            return Some(found);
+                        }
+                    }
+                    None
+                }
+            }
+        }
+
+        let scroll_layer = pipeline
+            .retained_scene()
+            .and_then(|scene| scene.roots.iter().find_map(find_scroll_layer))
+            .expect("expected a retained scroll layer");
+        let transform = scroll_layer
+            .style
+            .transform
+            .expect("scroll layer should carry a compositor transform");
+        assert!(
+            (transform[13] + 180.0).abs() <= 0.01,
+            "expected retained scroll transform to patch to -180, got {}",
+            transform[13]
+        );
     }
 }

@@ -41,24 +41,22 @@ impl<S: fission_core::AppState> Widget<S> for Transition {
             },
         );
 
-        let boundary = Composite::new(*self.child.clone())
-            .repaint_boundary(true)
-            .into_node();
+        let composite = Composite::new(*self.child.clone()).repaint_boundary(true);
 
         match self.property {
-            AnimationPropertyId::Opacity => Composite::new(boundary.clone())
+            AnimationPropertyId::Opacity => composite
                 .animated_opacity(self.id, self.value)
                 .into_node(),
-            AnimationPropertyId::TranslateX => Composite::new(boundary.clone())
+            AnimationPropertyId::TranslateX => composite
                 .animated_translate_x(self.id, self.value)
                 .into_node(),
-            AnimationPropertyId::TranslateY => Composite::new(boundary.clone())
+            AnimationPropertyId::TranslateY => composite
                 .animated_translate_y(self.id, self.value)
                 .into_node(),
-            AnimationPropertyId::Scale => Composite::new(boundary.clone())
+            AnimationPropertyId::Scale => composite
                 .animated_scale(self.id, self.value)
                 .into_node(),
-            AnimationPropertyId::Rotation => Composite::new(boundary)
+            AnimationPropertyId::Rotation => composite
                 .animated_rotation(self.id, self.value)
                 .into_node(),
             AnimationPropertyId::Custom(_) => *self.child.clone(),

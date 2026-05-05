@@ -187,6 +187,7 @@ pub struct LayerStyle {
     pub clip: Option<LayerClip>,
     pub opacity: f32,
     pub transform: Option<[LayoutUnit; 16]>,
+    pub transform_clip: bool,
     pub cache_key: Option<u64>,
     pub content_cache_key: Option<u64>,
 }
@@ -197,6 +198,7 @@ impl Default for LayerStyle {
             clip: None,
             opacity: 1.0,
             transform: None,
+            transform_clip: true,
             cache_key: None,
             content_cache_key: None,
         }

@@ -54,6 +54,7 @@ struct RetainedCompositorLayer {
     clip: Option<LayerClip>,
     opacity: f32,
     transform: Option<[f32; 16]>,
+    transform_clip: bool,
     scene_cache_key: Option<u64>,
     content_key: u64,
     local_dynamic: bool,
@@ -74,6 +75,7 @@ impl RetainedCompositorLayer {
             clip: plan.clip.clone(),
             opacity: plan.opacity,
             transform: plan.transform,
+            transform_clip: plan.transform_clip,
             scene_cache_key: plan.scene_cache_key,
             content_key: plan.content_key,
             local_dynamic: plan.local_dynamic,
@@ -229,10 +231,22 @@ impl TextureLayerCompositor {
         }
     }
 
-    pub fn prune(&mut self, live_keys: &HashSet<u64>) {
+    pub fn prune(&mut self, live_keys: &HashSet<u64>) -> (Option<fission_layout::LayoutRect>, bool) {
+        let mut removed_damage = None;
+        let mut removed_any = false;
+
         self.textures.retain(|key, _| live_keys.contains(key));
-        self.layers.retain(|key, _| live_keys.contains(key));
+        self.layers.retain(|key, layer| {
+            if live_keys.contains(key) {
+                true
+            } else {
+                removed_any = true;
+                removed_damage = union_layout_rects(removed_damage, layer.last_draw_rect);
+                false
+            }
+        });
         self.root_layers.retain(|key| live_keys.contains(key));
+        (removed_damage, removed_any)
     }
 
     pub fn render_layers(
@@ -247,11 +261,13 @@ impl TextureLayerCompositor {
         viewport_height: u32,
         root_transform: Option<[f32; 16]>,
         plans: &[CompositorTexturePlan],
+        force_full_redraw: bool,
+        clear_color: wgpu::Color,
         target_view: &wgpu::TextureView,
     ) -> Result<CompositorFrameStats> {
         self.frame_index = self.frame_index.saturating_add(1);
         let live_keys = self.sync_plans(plans);
-        self.prune(&live_keys);
+        let (pruned_damage, removed_layers) = self.prune(&live_keys);
 
         let mut stats = CompositorFrameStats::default();
         let root_ctx = TargetContext {
@@ -275,9 +291,11 @@ impl TextureLayerCompositor {
             )?;
             stats.damage_rect = union_layout_rects(stats.damage_rect, outcome.damage_rect);
         }
+        stats.damage_rect = union_layout_rects(stats.damage_rect, pruned_damage);
 
         let target_size_changed = self.last_target_size != Some((viewport_width, viewport_height));
-        let full_target_redraw = target_size_changed || stats.damage_rect.is_none();
+        let full_target_redraw =
+            force_full_redraw || target_size_changed || removed_layers || stats.damage_rect.is_none();
         let damage_scissor = if full_target_redraw {
             None
         } else {
@@ -304,12 +322,7 @@ impl TextureLayerCompositor {
                 target_view,
                 draw_batches,
                 if full_target_redraw {
-                    wgpu::LoadOp::Clear(wgpu::Color {
-                        r: 30.0 / 255.0,
-                        g: 30.0 / 255.0,
-                        b: 30.0 / 255.0,
-                        a: 1.0,
-                    })
+                    wgpu::LoadOp::Clear(clear_color)
                 } else {
                     wgpu::LoadOp::Load
                 },
@@ -349,12 +362,14 @@ impl TextureLayerCompositor {
                 let structure_changed = layer.children != next_children;
                 let style_changed = layer.clip != plan.clip
                     || (layer.opacity - plan.opacity).abs() > 0.001
-                    || layer.transform != plan.transform;
+                    || layer.transform != plan.transform
+                    || layer.transform_clip != plan.transform_clip;
                 layer.has_texture = plan.scene.is_some();
                 layer.bounds = plan.bounds;
                 layer.clip = plan.clip.clone();
                 layer.opacity = plan.opacity;
                 layer.transform = plan.transform;
+                layer.transform_clip = plan.transform_clip;
                 layer.scene_cache_key = plan.scene_cache_key;
                 layer.content_key = plan.content_key;
                 layer.local_dynamic = plan.local_dynamic;
@@ -393,7 +408,7 @@ impl TextureLayerCompositor {
         let scoped_scissor = intersect_scissor(
             target_ctx.inherited_scissor,
             plan.clip.as_ref(),
-            combined,
+            if state.transform_clip { combined } else { target_ctx.inherited_transform },
             target_ctx.origin,
             scale_factor,
             target_ctx.viewport_width,
@@ -402,7 +417,7 @@ impl TextureLayerCompositor {
         let current_draw_rect = logical_draw_rect_for_plan(
             plan,
             target_ctx.origin,
-            combined,
+            if state.transform_clip { combined } else { target_ctx.inherited_transform },
             scale_factor,
             target_ctx.viewport_width,
             target_ctx.viewport_height,
@@ -625,10 +640,15 @@ impl TextureLayerCompositor {
             };
             let localized = localize_world_transform(layer.transform, target_origin);
             let combined = combine_transforms(inherited_transform, localized);
+            let clip_transform = if layer.transform_clip {
+                combined
+            } else {
+                inherited_transform
+            };
             let clip = intersect_scissor(
                 inherited_scissor,
                 layer.clip.as_ref(),
-                combined,
+                clip_transform,
                 target_origin,
                 scale_factor,
                 viewport_width,
@@ -637,6 +657,13 @@ impl TextureLayerCompositor {
             let Some(clip) = intersect_scissor_optional(Some(clip), extra_scissor) else {
                 continue;
             };
+            if clip.2 == 0
+                || clip.3 == 0
+                || clip.0 >= viewport_width
+                || clip.1 >= viewport_height
+            {
+                continue;
+            }
             let opacity = inherited_opacity * layer.opacity;
 
             if !layer.has_texture {
@@ -957,11 +984,14 @@ fn clip_rect_to_physical(
     let max_y = (max_y as f64 * scale_factor)
         .round()
         .clamp(0.0, viewport_height as f64) as u32;
+    if x >= viewport_width || y >= viewport_height || max_x <= x || max_y <= y {
+        return (viewport_width, viewport_height, 0, 0);
+    }
     (
         x.min(viewport_width),
         y.min(viewport_height),
-        max_x.saturating_sub(x).max(1),
-        max_y.saturating_sub(y).max(1),
+        max_x.saturating_sub(x),
+        max_y.saturating_sub(y),
     )
 }
 
@@ -982,8 +1012,8 @@ fn intersect_scissor_rects(
     (
         left,
         top,
-        right.saturating_sub(left).max(1),
-        bottom.saturating_sub(top).max(1),
+        right.saturating_sub(left),
+        bottom.saturating_sub(top),
     )
 }
 
@@ -1086,13 +1116,16 @@ fn logical_rect_to_physical_scissor(
 ) -> (u32, u32, u32, u32) {
     let x = ((rect.origin.x as f64) * scale_factor).round().max(0.0) as u32;
     let y = ((rect.origin.y as f64) * scale_factor).round().max(0.0) as u32;
-    let w = ((rect.size.width as f64) * scale_factor).round().max(1.0) as u32;
-    let h = ((rect.size.height as f64) * scale_factor).round().max(1.0) as u32;
+    if x >= viewport_width || y >= viewport_height {
+        return (viewport_width, viewport_height, 0, 0);
+    }
+    let w = ((rect.size.width as f64) * scale_factor).round().max(0.0) as u32;
+    let h = ((rect.size.height as f64) * scale_factor).round().max(0.0) as u32;
     (
         x.min(viewport_width),
         y.min(viewport_height),
-        w.min(viewport_width.saturating_sub(x)).max(1),
-        h.min(viewport_height.saturating_sub(y)).max(1),
+        w.min(viewport_width.saturating_sub(x)),
+        h.min(viewport_height.saturating_sub(y)),
     )
 }
 
@@ -1277,6 +1310,9 @@ fn copy_texture_to_texture(
     region: Option<(u32, u32, u32, u32)>,
 ) {
     let (origin_x, origin_y, copy_width, copy_height) = region.unwrap_or((0, 0, width, height));
+    if copy_width == 0 || copy_height == 0 {
+        return;
+    }
     let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
         label: Some("fission-compositor copy encoder"),
     });
@@ -1440,6 +1476,7 @@ mod tests {
             composite_dynamic: false,
             opacity: 1.0,
             transform,
+            transform_clip: true,
             clip,
             children: Vec::new(),
         }

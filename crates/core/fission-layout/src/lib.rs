@@ -808,14 +808,28 @@ impl LayoutEngine {
         let mut flyout_abs_overrides: HashMap<NodeId, (f32, f32)> = HashMap::new();
         for node in input_nodes {
             if let LayoutOp::Flyout { anchor, content } = node.op {
-                if let (Some(anchor_geom), Some(_content_geom)) =
+                if let (Some(anchor_geom), Some(content_geom)) =
                     (snapshot.nodes.get(&anchor), snapshot.nodes.get(&content))
                 {
                     if let Some(anchor_abs) = visual_location(anchor) {
-                        let _anchor_w = anchor_geom.rect.width();
+                        let content_w = content_geom.rect.width();
+                        let content_h = content_geom.rect.height();
                         let anchor_h = anchor_geom.rect.height();
-                        let left_rel = anchor_abs.x;
-                        let top_rel = anchor_abs.y + anchor_h;
+                        let max_left = (snapshot.viewport_size.width - content_w).max(0.0);
+                        let left_rel = anchor_abs.x.clamp(0.0, max_left);
+
+                        let below_top = anchor_abs.y + anchor_h;
+                        let max_top = (snapshot.viewport_size.height - content_h).max(0.0);
+                        let top_rel = if below_top + content_h <= snapshot.viewport_size.height {
+                            below_top
+                        } else {
+                            let above_top = anchor_abs.y - content_h;
+                            if above_top >= 0.0 {
+                                above_top
+                            } else {
+                                below_top.clamp(0.0, max_top)
+                            }
+                        };
                         flyout_abs_overrides.insert(content, (left_rel, top_rel));
                     }
                 }

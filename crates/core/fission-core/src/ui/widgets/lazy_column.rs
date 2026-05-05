@@ -162,15 +162,15 @@ impl Lower for LazyColumn {
             (None, 600.0)
         };
 
-        let scroll_offset = cx.runtime_state.scroll.get_offset(scroll_id);
-
         let item_h = self.item_height.max(1.0);
         let total_count = self.children.len();
+        let total_height = total_count as f32 * item_h;
+        let max_offset = (total_height - viewport_height.max(0.0)).max(0.0);
+        let scroll_offset = cx.runtime_state.scroll.get_offset(scroll_id).clamp(0.0, max_offset);
 
-        let start_index = (scroll_offset / item_h as f32).floor() as usize;
         let visible_count = (viewport_height as f32 / item_h as f32).ceil() as usize + 1; // +1 buffer
+        let start_index = (scroll_offset / item_h as f32).floor() as usize;
         let end_index = (start_index + visible_count).min(total_count);
-        let start_index = start_index.min(total_count); // Clamp
 
         // Column
         let col_id = cx.next_node_id(); // Reserve ID for column wrapper
