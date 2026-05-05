@@ -1,7 +1,5 @@
 use anyhow::Result;
-use fission_render::{
-    DisplayList, DisplayOp, LayoutRect, RenderScene, Renderer,
-};
+use fission_render::{DisplayList, DisplayOp, LayoutRect, RenderScene, Renderer};
 
 // A mock renderer that captures what it was asked to render.
 #[derive(Default)]

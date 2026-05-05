@@ -4,7 +4,6 @@
 /// of each section, scrolls, clicks, and verifies behavior.
 ///
 /// Run: cargo test -p inbox --test live_e2e -- --ignored --nocapture
-
 use fission_test_driver::LiveTestClient;
 use std::net::TcpListener;
 use std::process::{Child, Command};
@@ -18,8 +17,8 @@ fn reserve_control_port() -> u16 {
 }
 
 fn launch_inbox(control_port: u16) -> Child {
-    let bin = std::env::var("CARGO_BIN_EXE_inbox")
-        .unwrap_or_else(|_| "target/debug/inbox".to_string());
+    let bin =
+        std::env::var("CARGO_BIN_EXE_inbox").unwrap_or_else(|_| "target/debug/inbox".to_string());
     Command::new(bin)
         .env("FISSION_TEST_CONTROL_PORT", control_port.to_string())
         .spawn()
@@ -45,14 +44,19 @@ fn inbox_initial_render() {
     let dir = screenshot_dir();
 
     // Screenshot initial state
-    client.screenshot(&format!("{}/01_initial.png", dir)).expect("screenshot");
+    client
+        .screenshot(&format!("{}/01_initial.png", dir))
+        .expect("screenshot");
 
     // Get all text
     let texts = client.get_text().expect("get_text");
     let all: Vec<&str> = texts.iter().map(|t| t.text.as_str()).collect();
     println!("Found {} text items", texts.len());
     for t in &texts[..texts.len().min(30)] {
-        println!("  [{:.0},{:.0} {:.0}x{:.0}] \"{}\"", t.x, t.y, t.width, t.height, t.text);
+        println!(
+            "  [{:.0},{:.0} {:.0}x{:.0}] \"{}\"",
+            t.x, t.y, t.width, t.height, t.text
+        );
     }
 
     // Verify key UI elements rendered
@@ -84,21 +88,27 @@ fn inbox_scroll_and_interact() {
     let dir = screenshot_dir();
 
     // Initial
-    client.screenshot(&format!("{}/02_before_scroll.png", dir)).expect("screenshot");
+    client
+        .screenshot(&format!("{}/02_before_scroll.png", dir))
+        .expect("screenshot");
 
     // Scroll the email list area (center of window)
     for _i in 0..3 {
         client.scroll(400.0, 400.0, 0.0, 100.0).expect("scroll");
         client.wait(300).expect("wait");
     }
-    client.screenshot(&format!("{}/03_after_scroll.png", dir)).expect("screenshot");
+    client
+        .screenshot(&format!("{}/03_after_scroll.png", dir))
+        .expect("screenshot");
 
     // Try clicking "Compose" button
     let result = client.tap_text("Compose");
     match result {
         Ok(()) => {
             client.wait(500).expect("wait");
-            client.screenshot(&format!("{}/04_after_compose.png", dir)).expect("screenshot");
+            client
+                .screenshot(&format!("{}/04_after_compose.png", dir))
+                .expect("screenshot");
             println!("Tapped Compose successfully");
         }
         Err(e) => {
@@ -111,7 +121,9 @@ fn inbox_scroll_and_interact() {
     match result {
         Ok(()) => {
             client.wait(500).expect("wait");
-            client.screenshot(&format!("{}/05_starred.png", dir)).expect("screenshot");
+            client
+                .screenshot(&format!("{}/05_starred.png", dir))
+                .expect("screenshot");
             println!("Tapped Starred successfully");
         }
         Err(e) => {
@@ -124,7 +136,9 @@ fn inbox_scroll_and_interact() {
     match result {
         Ok(()) => {
             client.wait(500).expect("wait");
-            client.screenshot(&format!("{}/06_settings.png", dir)).expect("screenshot");
+            client
+                .screenshot(&format!("{}/06_settings.png", dir))
+                .expect("screenshot");
             println!("Opened Settings");
         }
         Err(e) => {

@@ -6,7 +6,6 @@
 ///
 /// Run with: cargo test -p widget-gallery --test live_e2e -- --ignored
 /// (ignored by default because it requires a display and launches a window)
-
 use fission_test_driver::LiveTestClient;
 use std::process::{Child, Command};
 
@@ -37,8 +36,8 @@ fn gallery_live_screenshot_all_sections() {
     // Wait for first frame to render
     client.wait(1000).expect("wait");
 
-    let screenshot_dir = std::env::var("FISSION_SCREENSHOT_DIR")
-        .unwrap_or_else(|_| "test_screenshots/live".into());
+    let screenshot_dir =
+        std::env::var("FISSION_SCREENSHOT_DIR").unwrap_or_else(|_| "test_screenshots/live".into());
     std::fs::create_dir_all(&screenshot_dir).ok();
 
     // Take initial screenshot
@@ -53,9 +52,7 @@ fn gallery_live_screenshot_all_sections() {
 
     // Scroll down and take more screenshots
     for i in 0..5 {
-        client
-            .scroll(400.0, 300.0, 0.0, 150.0)
-            .expect("scroll");
+        client.scroll(400.0, 300.0, 0.0, 150.0).expect("scroll");
         client.wait(200).expect("wait");
         client
             .screenshot(&format!("{}/02_scroll_{}.png", screenshot_dir, i))

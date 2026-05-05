@@ -1,15 +1,17 @@
 pub mod text;
-pub use text::VelloTextMeasurer;
 pub use parley;
+pub use text::VelloTextMeasurer;
 
 use anyhow::Result;
 use fission_render::{
-    Color as RenderColor, DisplayList, DisplayOp, LayerClip, RenderLayer, RenderNode,
-    RenderScene, Renderer, TextStyle as RenderTextStyle,
+    Color as RenderColor, DisplayList, DisplayOp, LayerClip, RenderLayer, RenderNode, RenderScene,
+    Renderer, TextStyle as RenderTextStyle,
 };
-use vello::kurbo::{Affine, Rect, RoundedRect, BezPath};
+use vello::kurbo::{Affine, BezPath, Rect, RoundedRect};
 // Minimal imports from peniko
-use vello::peniko::{Color, Fill, Mix, Blob, ImageData, ImageFormat, ImageAlphaType, ImageBrush, ImageSampler, Brush};
+use vello::peniko::{
+    Blob, Brush, Color, Fill, ImageAlphaType, ImageBrush, ImageData, ImageFormat, ImageSampler, Mix,
+};
 
 fn map_color(c: &fission_render::Color) -> Color {
     Color::from_rgba8(c.r, c.g, c.b, c.a).into()
@@ -19,24 +21,40 @@ fn map_fill_to_brush(f: &fission_render::Fill) -> Brush {
     match f {
         fission_render::Fill::Solid(c) => Brush::Solid(map_color(c)),
         fission_render::Fill::LinearGradient { start, end, stops } => {
-            let vello_stops: Vec<_> = stops.iter().map(|(o, c)| vello::peniko::ColorStop {
-                offset: *o,
-                color: map_color(c).into(),
-            }).collect();
-            Brush::Gradient(vello::peniko::Gradient::new_linear(
-                vello::kurbo::Point::new(start.0 as f64, start.1 as f64),
-                vello::kurbo::Point::new(end.0 as f64, end.1 as f64),
-            ).with_stops(vello_stops.as_slice()))
-        },
-        fission_render::Fill::RadialGradient { center, radius, stops } => {
-            let vello_stops: Vec<_> = stops.iter().map(|(o, c)| vello::peniko::ColorStop {
-                offset: *o,
-                color: map_color(c).into(),
-            }).collect();
-            Brush::Gradient(vello::peniko::Gradient::new_radial(
-                vello::kurbo::Point::new(center.0 as f64, center.1 as f64),
-                *radius as f32,
-            ).with_stops(vello_stops.as_slice()))
+            let vello_stops: Vec<_> = stops
+                .iter()
+                .map(|(o, c)| vello::peniko::ColorStop {
+                    offset: *o,
+                    color: map_color(c).into(),
+                })
+                .collect();
+            Brush::Gradient(
+                vello::peniko::Gradient::new_linear(
+                    vello::kurbo::Point::new(start.0 as f64, start.1 as f64),
+                    vello::kurbo::Point::new(end.0 as f64, end.1 as f64),
+                )
+                .with_stops(vello_stops.as_slice()),
+            )
+        }
+        fission_render::Fill::RadialGradient {
+            center,
+            radius,
+            stops,
+        } => {
+            let vello_stops: Vec<_> = stops
+                .iter()
+                .map(|(o, c)| vello::peniko::ColorStop {
+                    offset: *o,
+                    color: map_color(c).into(),
+                })
+                .collect();
+            Brush::Gradient(
+                vello::peniko::Gradient::new_radial(
+                    vello::kurbo::Point::new(center.0 as f64, center.1 as f64),
+                    *radius as f32,
+                )
+                .with_stops(vello_stops.as_slice()),
+            )
         }
     }
 }
@@ -52,23 +70,25 @@ fn map_stroke(s: &fission_render::Stroke) -> (vello::kurbo::Stroke, Brush) {
         fission_render::LineJoin::Round => vello::kurbo::Join::Round,
         fission_render::LineJoin::Bevel => vello::kurbo::Join::Bevel,
     };
-    
-    let mut stroke = vello::kurbo::Stroke::new(s.width as f64).with_caps(cap).with_join(join);
+
+    let mut stroke = vello::kurbo::Stroke::new(s.width as f64)
+        .with_caps(cap)
+        .with_join(join);
     if let Some(dash) = &s.dash_array {
         let dashes: Vec<f64> = dash.iter().map(|v| *v as f64).collect();
         stroke = stroke.with_dashes(0.0, dashes);
     }
-    
+
     (stroke, map_fill_to_brush(&s.fill))
 }
-use vello::{Scene, Glyph};
-use std::sync::{Arc, Mutex};
-use std::collections::{HashMap, VecDeque};
-use std::collections::hash_map::DefaultHasher;
-use std::hash::{Hash, Hasher};
+use crate::text::ParleyBrush;
 use lazy_static::lazy_static;
 use parley::layout::PositionedLayoutItem;
-use crate::text::ParleyBrush;
+use std::collections::hash_map::DefaultHasher;
+use std::collections::{HashMap, VecDeque};
+use std::hash::{Hash, Hasher};
+use std::sync::{Arc, Mutex};
+use vello::{Glyph, Scene};
 
 lazy_static! {
     static ref IMAGE_CACHE: Mutex<HashMap<String, Arc<ImageData>>> = Mutex::new(HashMap::new());
@@ -112,7 +132,7 @@ fn parse_svg_entry(content: &str) -> SvgCacheEntry {
     };
 
     let mut shapes = Vec::new();
-    
+
     // Use regex-like manual parsing for robustness
     let path_regex = "d=\"";
     let _rect_regex = "<rect";
@@ -154,7 +174,10 @@ fn parse_svg_entry(content: &str) -> SvgCacheEntry {
             let w = parse_attr("width");
             let h = parse_attr("height");
             if w > 0.0 && h > 0.0 {
-                shapes.push(SvgShape::Rect(RoundedRect::from_rect(Rect::new(x, y, x + w, y + h), 0.0)));
+                shapes.push(SvgShape::Rect(RoundedRect::from_rect(
+                    Rect::new(x, y, x + w, y + h),
+                    0.0,
+                )));
             }
         } else if tag_name == "polygon" {
             if let Some(p_start) = tag.find("points=\"") {
@@ -236,15 +259,15 @@ impl RetainedSceneCache {
         self.order.clear();
     }
 
-    fn contains(&self, key: u64) -> bool {
+    pub fn contains(&self, key: u64) -> bool {
         self.entries.contains_key(&key)
     }
 
-    fn get(&self, key: u64) -> Option<&Scene> {
+    pub fn get(&self, key: u64) -> Option<&Scene> {
         self.entries.get(&key)
     }
 
-    fn insert(&mut self, key: u64, scene: Scene) {
+    pub fn insert(&mut self, key: u64, scene: Scene) {
         if self.entries.contains_key(&key) {
             self.entries.insert(key, scene);
             return;
@@ -258,6 +281,20 @@ impl RetainedSceneCache {
         }
         self.order.push_back(key);
         self.entries.insert(key, scene);
+    }
+
+    pub fn get_or_insert_with<F>(&mut self, key: u64, build: F) -> anyhow::Result<&Scene>
+    where
+        F: FnOnce(&mut RetainedSceneCache) -> anyhow::Result<Scene>,
+    {
+        if !self.entries.contains_key(&key) {
+            let scene = build(self)?;
+            self.insert(key, scene);
+        }
+        Ok(self
+            .entries
+            .get(&key)
+            .expect("scene cache entry missing after insertion"))
     }
 }
 
@@ -326,8 +363,16 @@ impl<'a> VelloRenderer<'a> {
     ) {
         // Fast path for simple text using cache
         if styles.is_empty() {
-            let layout = self.measurer.get_layout(text, base_size, if bounds.width() > 0.0 { Some(bounds.width() as f32) } else { None });
-            
+            let layout = self.measurer.get_layout(
+                text,
+                base_size,
+                if bounds.width() > 0.0 {
+                    Some(bounds.width() as f32)
+                } else {
+                    None
+                },
+            );
+
             // Draw Glyphs (Reused layout logic)
             for line in layout.lines() {
                 for item in line.items() {
@@ -335,10 +380,15 @@ impl<'a> VelloRenderer<'a> {
                         let run = glyph_run.run();
                         let font = run.font();
                         let font_size = run.font_size();
-                        
+
                         // Override color from base_color since cached layout is color-agnostic
-                        let color = Color::from_rgba8(base_color.r, base_color.g, base_color.b, base_color.a);
-                        
+                        let color = Color::from_rgba8(
+                            base_color.r,
+                            base_color.g,
+                            base_color.b,
+                            base_color.a,
+                        );
+
                         let mut x = glyph_run.offset();
                         let y = glyph_run.baseline();
 
@@ -352,10 +402,14 @@ impl<'a> VelloRenderer<'a> {
                                 y: gy,
                             }
                         });
-                        
-                        self.scene.draw_glyphs(font)
+
+                        self.scene
+                            .draw_glyphs(font)
                             .font_size(font_size)
-                            .transform(self.current_transform * Affine::translate((position.x as f64, position.y as f64)))
+                            .transform(
+                                self.current_transform
+                                    * Affine::translate((position.x as f64, position.y as f64)),
+                            )
                             .brush(color)
                             .draw(Fill::NonZero, glyphs);
 
@@ -390,7 +444,11 @@ impl<'a> VelloRenderer<'a> {
             base_size,
             base_color,
             styles,
-            if bounds.width() > 0.0 { Some(bounds.width() as f32) } else { None }
+            if bounds.width() > 0.0 {
+                Some(bounds.width() as f32)
+            } else {
+                None
+            },
         );
 
         // Draw Glyphs for rich text (uses brushes from layout)
@@ -402,7 +460,12 @@ impl<'a> VelloRenderer<'a> {
                     let font = run.font();
                     let font_size = run.font_size();
                     let brush_data = style.brush.clone();
-                    let color = Color::from_rgba8(brush_data.0[0], brush_data.0[1], brush_data.0[2], brush_data.0[3]);
+                    let color = Color::from_rgba8(
+                        brush_data.0[0],
+                        brush_data.0[1],
+                        brush_data.0[2],
+                        brush_data.0[3],
+                    );
 
                     // Draw background highlight rect if any style in range has background_color
                     let run_text_range = run.text_range();
@@ -413,7 +476,10 @@ impl<'a> VelloRenderer<'a> {
                             let overlap_end = range.end.min(run_text_range.end);
                             if overlap_start < overlap_end {
                                 let metrics = line.metrics();
-                                let line_height = metrics.line_height.max(metrics.ascent + metrics.descent).max(1.0);
+                                let line_height = metrics
+                                    .line_height
+                                    .max(metrics.ascent + metrics.descent)
+                                    .max(1.0);
                                 let top_y = metrics.baseline - metrics.ascent;
                                 let bg_color = Color::from_rgba8(bg.r, bg.g, bg.b, bg.a);
                                 let x0 = position.x as f64 + glyph_run.offset() as f64;
@@ -446,9 +512,13 @@ impl<'a> VelloRenderer<'a> {
                         }
                     });
 
-                    self.scene.draw_glyphs(font)
+                    self.scene
+                        .draw_glyphs(font)
                         .font_size(font_size)
-                        .transform(self.current_transform * Affine::translate((position.x as f64, position.y as f64)))
+                        .transform(
+                            self.current_transform
+                                * Affine::translate((position.x as f64, position.y as f64)),
+                        )
                         .brush(color)
                         .draw(Fill::NonZero, glyphs);
 
@@ -484,7 +554,7 @@ impl<'a> VelloRenderer<'a> {
             self.draw_caret(&layout, idx, position, text, base_size);
         }
     }
-    
+
     fn next_char_boundary(text: &str, idx: usize) -> usize {
         if idx >= text.len() {
             return text.len();
@@ -501,85 +571,105 @@ impl<'a> VelloRenderer<'a> {
         }
     }
 
-    fn draw_caret(&mut self, layout: &parley::layout::Layout<ParleyBrush>, idx: usize, position: fission_render::LayoutPoint, text: &str, base_size: f32) {
-            let mut caret_drawn = false;
-            let lines_count = layout.lines().count();
-            
-            for (i, line) in layout.lines().enumerate() {
-                let range = line.text_range();
-                let is_last_line = i == lines_count - 1;
-                
-                if (idx >= range.start && idx < range.end) || (is_last_line && idx == range.end) {
-                    let mut x_pos = 0.0;
-                    for item in line.items() {
-                        if let PositionedLayoutItem::GlyphRun(glyph_run) = item {
-                            let style_run_range = glyph_run.run().text_range();
-                            let line_range = line.text_range();
-                            let start = style_run_range.start.max(line_range.start);
-                            let end = style_run_range.end.min(line_range.end);
-                            let run_range = start..end;
+    fn draw_caret(
+        &mut self,
+        layout: &parley::layout::Layout<ParleyBrush>,
+        idx: usize,
+        position: fission_render::LayoutPoint,
+        text: &str,
+        base_size: f32,
+    ) {
+        let mut caret_drawn = false;
+        let lines_count = layout.lines().count();
 
-                            if idx >= run_range.start && idx <= run_range.end {
-                                let mut local_x = glyph_run.offset();
-                                if idx == run_range.start {
-                                    x_pos = local_x;
+        for (i, line) in layout.lines().enumerate() {
+            let range = line.text_range();
+            let is_last_line = i == lines_count - 1;
+
+            if (idx >= range.start && idx < range.end) || (is_last_line && idx == range.end) {
+                let mut x_pos = 0.0;
+                for item in line.items() {
+                    if let PositionedLayoutItem::GlyphRun(glyph_run) = item {
+                        let style_run_range = glyph_run.run().text_range();
+                        let line_range = line.text_range();
+                        let start = style_run_range.start.max(line_range.start);
+                        let end = style_run_range.end.min(line_range.end);
+                        let run_range = start..end;
+
+                        if idx >= run_range.start && idx <= run_range.end {
+                            let mut local_x = glyph_run.offset();
+                            if idx == run_range.start {
+                                x_pos = local_x;
+                                break;
+                            }
+                            let mut current_char_idx = run_range.start;
+                            for glyph in glyph_run.glyphs() {
+                                if current_char_idx >= idx {
                                     break;
                                 }
-                                let mut current_char_idx = run_range.start;
-                                for glyph in glyph_run.glyphs() {
-                                    if current_char_idx >= idx { break; }
-                                    local_x += glyph.advance;
-                                    current_char_idx =
-                                        Self::next_char_boundary(text, current_char_idx)
-                                            .min(run_range.end);
-                                }
-                                x_pos = local_x;
-                            } else if idx > run_range.end {
-                                x_pos = glyph_run.offset() + glyph_run.advance();
+                                local_x += glyph.advance;
+                                current_char_idx = Self::next_char_boundary(text, current_char_idx)
+                                    .min(run_range.end);
                             }
+                            x_pos = local_x;
+                        } else if idx > run_range.end {
+                            x_pos = glyph_run.offset() + glyph_run.advance();
                         }
                     }
-                    
-                    let metrics = line.metrics();
-                    let line_height = metrics.line_height.max(metrics.ascent + metrics.descent).max(1.0);
-                    let baseline_y = metrics.baseline;
+                }
 
-                    let top_y = baseline_y - metrics.ascent;
-                    
-                    let caret_rect = Rect::new(
-                        position.x as f64 + x_pos as f64,
-                        position.y as f64 + top_y as f64,
-                        position.x as f64 + x_pos as f64 + 2.0,
-                        position.y as f64 + top_y as f64 + line_height as f64
-                    );
-                    
-                    self.scene.fill(
-                        Fill::NonZero,
-                        self.current_transform,
-                        Color::BLACK,
-                        None,
-                        &caret_rect
-                    );
-                    caret_drawn = true;
-                    break;
-                }
-            }
-            if !caret_drawn && idx == 0 && text.is_empty() {
-                let mut top_y = position.y as f64;
-                let mut height = base_size as f64 * 1.2;
-                if let Some(line) = layout.lines().next() {
-                    let metrics = line.metrics();
-                    top_y = position.y as f64 + (metrics.baseline - metrics.ascent) as f64;
-                    height = metrics.line_height.max(metrics.ascent + metrics.descent).max(1.0) as f64;
-                }
-                 let caret_rect = Rect::new(
-                    position.x as f64,
-                    top_y,
-                    position.x as f64 + 2.0,
-                    top_y + height
+                let metrics = line.metrics();
+                let line_height = metrics
+                    .line_height
+                    .max(metrics.ascent + metrics.descent)
+                    .max(1.0);
+                let baseline_y = metrics.baseline;
+
+                let top_y = baseline_y - metrics.ascent;
+
+                let caret_rect = Rect::new(
+                    position.x as f64 + x_pos as f64,
+                    position.y as f64 + top_y as f64,
+                    position.x as f64 + x_pos as f64 + 2.0,
+                    position.y as f64 + top_y as f64 + line_height as f64,
                 );
-                self.scene.fill(Fill::NonZero, self.current_transform, Color::BLACK, None, &caret_rect);
+
+                self.scene.fill(
+                    Fill::NonZero,
+                    self.current_transform,
+                    Color::BLACK,
+                    None,
+                    &caret_rect,
+                );
+                caret_drawn = true;
+                break;
             }
+        }
+        if !caret_drawn && idx == 0 && text.is_empty() {
+            let mut top_y = position.y as f64;
+            let mut height = base_size as f64 * 1.2;
+            if let Some(line) = layout.lines().next() {
+                let metrics = line.metrics();
+                top_y = position.y as f64 + (metrics.baseline - metrics.ascent) as f64;
+                height = metrics
+                    .line_height
+                    .max(metrics.ascent + metrics.descent)
+                    .max(1.0) as f64;
+            }
+            let caret_rect = Rect::new(
+                position.x as f64,
+                top_y,
+                position.x as f64 + 2.0,
+                top_y + height,
+            );
+            self.scene.fill(
+                Fill::NonZero,
+                self.current_transform,
+                Color::BLACK,
+                None,
+                &caret_rect,
+            );
+        }
     }
 
     fn render_paint_list(&mut self, list: &DisplayList) -> Result<()> {
@@ -609,7 +699,9 @@ impl<'a> VelloRenderer<'a> {
                     let affine = Self::affine_from_mat4(matrix);
                     self.current_transform = self.current_transform * affine;
                 }
-                DisplayOp::CachedScene { cache_key, list, .. } => {
+                DisplayOp::CachedScene {
+                    cache_key, list, ..
+                } => {
                     if !self.scene_cache.contains(*cache_key) {
                         let mut cached_scene = Scene::new();
                         {
@@ -624,7 +716,8 @@ impl<'a> VelloRenderer<'a> {
                         self.scene_cache.insert(*cache_key, cached_scene);
                     }
                     if let Some(cached_scene) = self.scene_cache.get(*cache_key) {
-                        self.scene.append(cached_scene, Some(self.current_transform));
+                        self.scene
+                            .append(cached_scene, Some(self.current_transform));
                     }
                 }
                 DisplayOp::ClipRect(rect) => {
@@ -707,8 +800,13 @@ impl<'a> VelloRenderer<'a> {
 
                     if let Some(f) = fill {
                         let brush = map_fill_to_brush(f);
-                        self.scene
-                            .fill(Fill::NonZero, self.current_transform, &brush, None, &shape);
+                        self.scene.fill(
+                            Fill::NonZero,
+                            self.current_transform,
+                            &brush,
+                            None,
+                            &shape,
+                        );
                     }
                     if let Some(s) = stroke {
                         let (stroke_style, brush) = map_stroke(s);
@@ -803,7 +901,9 @@ impl<'a> VelloRenderer<'a> {
                         &styles,
                     );
                 }
-                DisplayOp::DrawImage { source, rect, fit, .. } => {
+                DisplayOp::DrawImage {
+                    source, rect, fit, ..
+                } => {
                     if let Some(image_data) = self.get_image(source) {
                         let rect_w = rect.size.width as f64;
                         let rect_h = rect.size.height as f64;
@@ -889,23 +989,27 @@ impl<'a> VelloRenderer<'a> {
                     ..
                 } => {
                     let entry = svg_cache_entry(content);
-                    let (vb_x, vb_y, vb_w, vb_h) = entry
-                        .view_box
-                        .unwrap_or((0.0, 0.0, bounds.size.width as f64, bounds.size.height as f64));
+                    let (vb_x, vb_y, vb_w, vb_h) = entry.view_box.unwrap_or((
+                        0.0,
+                        0.0,
+                        bounds.size.width as f64,
+                        bounds.size.height as f64,
+                    ));
                     let rect_w = bounds.size.width as f64;
                     let rect_h = bounds.size.height as f64;
-                    let (scale, dx, dy) = if vb_w > 0.0 && vb_h > 0.0 && rect_w > 0.0 && rect_h > 0.0 {
-                        let scale = (rect_w / vb_w).min(rect_h / vb_h);
-                        let scaled_w = vb_w * scale;
-                        let scaled_h = vb_h * scale;
-                        (
-                            scale,
-                            bounds.origin.x as f64 + (rect_w - scaled_w) / 2.0 - vb_x * scale,
-                            bounds.origin.y as f64 + (rect_h - scaled_h) / 2.0 - vb_y * scale,
-                        )
-                    } else {
-                        (1.0, bounds.origin.x as f64, bounds.origin.y as f64)
-                    };
+                    let (scale, dx, dy) =
+                        if vb_w > 0.0 && vb_h > 0.0 && rect_w > 0.0 && rect_h > 0.0 {
+                            let scale = (rect_w / vb_w).min(rect_h / vb_h);
+                            let scaled_w = vb_w * scale;
+                            let scaled_h = vb_h * scale;
+                            (
+                                scale,
+                                bounds.origin.x as f64 + (rect_w - scaled_w) / 2.0 - vb_x * scale,
+                                bounds.origin.y as f64 + (rect_h - scaled_h) / 2.0 - vb_y * scale,
+                            )
+                        } else {
+                            (1.0, bounds.origin.x as f64, bounds.origin.y as f64)
+                        };
                     let svg_transform =
                         self.current_transform * Affine::translate((dx, dy)) * Affine::scale(scale);
 
@@ -914,21 +1018,45 @@ impl<'a> VelloRenderer<'a> {
                             SvgShape::Path(path) => {
                                 if let Some(f) = fill {
                                     let brush = map_fill_to_brush(f);
-                                    self.scene.fill(Fill::NonZero, svg_transform, &brush, None, path);
+                                    self.scene.fill(
+                                        Fill::NonZero,
+                                        svg_transform,
+                                        &brush,
+                                        None,
+                                        path,
+                                    );
                                 }
                                 if let Some(s) = stroke {
                                     let (stroke_style, brush) = map_stroke(s);
-                                    self.scene.stroke(&stroke_style, svg_transform, &brush, None, path);
+                                    self.scene.stroke(
+                                        &stroke_style,
+                                        svg_transform,
+                                        &brush,
+                                        None,
+                                        path,
+                                    );
                                 }
                             }
                             SvgShape::Rect(rect) => {
                                 if let Some(f) = fill {
                                     let brush = map_fill_to_brush(f);
-                                    self.scene.fill(Fill::NonZero, svg_transform, &brush, None, rect);
+                                    self.scene.fill(
+                                        Fill::NonZero,
+                                        svg_transform,
+                                        &brush,
+                                        None,
+                                        rect,
+                                    );
                                 }
                                 if let Some(s) = stroke {
                                     let (stroke_style, brush) = map_stroke(s);
-                                    self.scene.stroke(&stroke_style, svg_transform, &brush, None, rect);
+                                    self.scene.stroke(
+                                        &stroke_style,
+                                        svg_transform,
+                                        &brush,
+                                        None,
+                                        rect,
+                                    );
                                 }
                             }
                         }
@@ -963,7 +1091,8 @@ impl<'a> VelloRenderer<'a> {
                 self.scene_cache.insert(cache_key, cached_scene);
             }
             if let Some(cached_scene) = self.scene_cache.get(cache_key) {
-                self.scene.append(cached_scene, Some(self.current_transform));
+                self.scene
+                    .append(cached_scene, Some(self.current_transform));
             }
             return Ok(());
         }
@@ -1035,7 +1164,8 @@ impl<'a> VelloRenderer<'a> {
                 self.scene_cache.insert(cache_key, cached_scene);
             }
             if let Some(cached_scene) = self.scene_cache.get(cache_key) {
-                self.scene.append(cached_scene, Some(self.current_transform));
+                self.scene
+                    .append(cached_scene, Some(self.current_transform));
             }
         } else {
             self.render_layer_contents(layer)?;

@@ -1,6 +1,6 @@
-use fission_core::ui::{Container, Text, Node, Row, Column};
-use fission_core::{AppState, BuildCtx, View, Widget};
 use fission_core::op::Color;
+use fission_core::ui::{Column, Container, Node, Row, Text};
+use fission_core::{AppState, BuildCtx, View, Widget};
 use fission_test::TestHarness;
 
 #[derive(Debug, Default, Clone)]
@@ -23,9 +23,13 @@ fn test_email_list_row_layout() {
                     .flex_grow(0.0) // Row itself
                     .children(vec![
                         // Avatar
-                        Container::new(fission_core::ui::widgets::spacer::Spacer::default().into_node())
-                            .width(40.0).height(40.0).bg(Color::BLUE).into_node(),
-                        
+                        Container::new(
+                            fission_core::ui::widgets::spacer::Spacer::default().into_node(),
+                        )
+                        .width(40.0)
+                        .height(40.0)
+                        .bg(Color::BLUE)
+                        .into_node(),
                         // Text Column
                         Container::new(
                             Column::default()
@@ -33,15 +37,14 @@ fn test_email_list_row_layout() {
                                     Text::new("Subject Line").into_node(),
                                     Text::new("Preview Text").into_node(),
                                 ])
-                                .into_node()
+                                .into_node(),
                         )
                         .flex_grow(1.0) // Grow to fill space
                         .into_node(),
-                        
                         // Date
                         Text::new("10:00 AM").into_node(),
                     ])
-                    .into_node()
+                    .into_node(),
             )
             .width(300.0)
             .into_node()
@@ -65,11 +68,20 @@ fn test_email_list_row_layout() {
     }
 
     // Assert "Subject Line" and "Preview Text" are NOT overlapping
-    let subject = text_rects.iter().find(|(t, _)| t == "Subject Line").unwrap();
-    let preview = text_rects.iter().find(|(t, _)| t == "Preview Text").unwrap();
+    let subject = text_rects
+        .iter()
+        .find(|(t, _)| t == "Subject Line")
+        .unwrap();
+    let preview = text_rects
+        .iter()
+        .find(|(t, _)| t == "Preview Text")
+        .unwrap();
 
     // Vertical stacking means Y must differ by at least height
     let y_diff = (subject.1.y() - preview.1.y()).abs();
-    
-    assert!(y_diff >= subject.1.height(), "Subject and Preview overlap vertically!");
+
+    assert!(
+        y_diff >= subject.1.height(),
+        "Subject and Preview overlap vertically!"
+    );
 }

@@ -5,7 +5,6 @@
 /// find/replace, undo/redo, menu bar, large file rejection, and more.
 ///
 /// Run: cargo test -p fission-editor --test live_e2e -- --ignored --nocapture
-
 use fission_test_driver::LiveTestClient;
 use std::io::Write;
 use std::net::TcpListener;
@@ -97,20 +96,38 @@ fn editor_full_workflow() {
     // 2. Expand folder in file tree
     // =========================================================================
     let opened_folder = tap_first_visible_text(&client, &["src", "tests", "proto"]);
-    client.screenshot(&format!("{}/02_expanded.png", d)).unwrap();
-    let child_visible = ["breadcrumb.rs", "context_menu.rs", "command_palette.rs", "messages.proto"]
-        .iter()
-        .any(|label| client.assert_text_visible(label).is_ok());
-    assert!(child_visible, "expected child entries after expanding {}", opened_folder);
+    client
+        .screenshot(&format!("{}/02_expanded.png", d))
+        .unwrap();
+    let child_visible = [
+        "breadcrumb.rs",
+        "context_menu.rs",
+        "command_palette.rs",
+        "messages.proto",
+    ]
+    .iter()
+    .any(|label| client.assert_text_visible(label).is_ok());
+    assert!(
+        child_visible,
+        "expected child entries after expanding {}",
+        opened_folder
+    );
     println!("2. Folder expansion OK ({})", opened_folder);
 
     // =========================================================================
     // 3. Open file -- verify tab appears and breadcrumb shows path
     // =========================================================================
-    let opened_file = tap_first_visible_text(&client, &["breadcrumb.rs", "context_menu.rs", "command_palette.rs"]);
+    let opened_file = tap_first_visible_text(
+        &client,
+        &["breadcrumb.rs", "context_menu.rs", "command_palette.rs"],
+    );
     client.pump().unwrap();
-    client.screenshot(&format!("{}/03_file_open.png", d)).unwrap();
-    client.assert_text_not_visible("Open a file from the explorer to begin").unwrap();
+    client
+        .screenshot(&format!("{}/03_file_open.png", d))
+        .unwrap();
+    client
+        .assert_text_not_visible("Open a file from the explorer to begin")
+        .unwrap();
     client.assert_text_visible(&opened_file).unwrap();
     println!("3. File open OK ({})", opened_file);
 
@@ -124,12 +141,14 @@ fn editor_full_workflow() {
 
     client.type_text("# test edit").unwrap();
     client.pump().unwrap();
-    client.screenshot(&format!("{}/04_dirty_tab.png", d)).unwrap();
+    client
+        .screenshot(&format!("{}/04_dirty_tab.png", d))
+        .unwrap();
     // Dirty indicator: typically a dot or asterisk next to the tab title
     let texts_after_edit = client.get_text().unwrap();
-    let dirty_marker = texts_after_edit.iter().any(|t| {
-        t.text.contains("●") || t.text.contains("*") || t.text.contains("•")
-    });
+    let dirty_marker = texts_after_edit
+        .iter()
+        .any(|t| t.text.contains("●") || t.text.contains("*") || t.text.contains("•"));
     println!("4. Edit + dirty indicator (found={})", dirty_marker);
 
     // =========================================================================
@@ -164,16 +183,20 @@ fn editor_full_workflow() {
     // =========================================================================
     client.press_key("F", 4).unwrap(); // Ctrl+F
     client.pump().unwrap();
-    client.screenshot(&format!("{}/08_find_open.png", d)).unwrap();
+    client
+        .screenshot(&format!("{}/08_find_open.png", d))
+        .unwrap();
     // Type a search term that should exist in Rust sources
     client.type_text("fn").unwrap();
     client.pump().unwrap();
-    client.screenshot(&format!("{}/08b_find_results.png", d)).unwrap();
+    client
+        .screenshot(&format!("{}/08b_find_results.png", d))
+        .unwrap();
     // Look for match count or highlighted text
     let texts_find = client.get_text().unwrap();
-    let has_match_info = texts_find.iter().any(|t| {
-        t.text.contains("match") || t.text.contains("of") || t.text.contains("1/")
-    });
+    let has_match_info = texts_find
+        .iter()
+        .any(|t| t.text.contains("match") || t.text.contains("of") || t.text.contains("1/"));
     println!("8. Find OK (match_info={})", has_match_info);
 
     // Close find bar
@@ -196,7 +219,9 @@ fn editor_full_workflow() {
     // =========================================================================
     client.press_key("B", 4).unwrap(); // Ctrl+B
     client.pump().unwrap();
-    client.screenshot(&format!("{}/10_sidebar_hidden.png", d)).unwrap();
+    client
+        .screenshot(&format!("{}/10_sidebar_hidden.png", d))
+        .unwrap();
     // EXPLORER text should be gone when sidebar is hidden
     let sidebar_hidden = client.assert_text_not_visible("EXPLORER");
     println!("10a. Sidebar hidden (result={:?})", sidebar_hidden);
@@ -204,7 +229,9 @@ fn editor_full_workflow() {
     // Toggle back
     client.press_key("B", 4).unwrap();
     client.pump().unwrap();
-    client.screenshot(&format!("{}/10b_sidebar_shown.png", d)).unwrap();
+    client
+        .screenshot(&format!("{}/10b_sidebar_shown.png", d))
+        .unwrap();
     client.assert_text_visible("EXPLORER").unwrap();
     println!("10b. Sidebar shown OK");
 
@@ -213,14 +240,18 @@ fn editor_full_workflow() {
     // =========================================================================
     client.press_key("`", 4).unwrap(); // Ctrl+`
     client.pump().unwrap();
-    client.screenshot(&format!("{}/11_terminal_hidden.png", d)).unwrap();
+    client
+        .screenshot(&format!("{}/11_terminal_hidden.png", d))
+        .unwrap();
     let terminal_check = client.assert_text_not_visible("Ready.");
     println!("11a. Terminal hidden (result={:?})", terminal_check);
 
     // Toggle back
     client.press_key("`", 4).unwrap();
     client.pump().unwrap();
-    client.screenshot(&format!("{}/11b_terminal_shown.png", d)).unwrap();
+    client
+        .screenshot(&format!("{}/11b_terminal_shown.png", d))
+        .unwrap();
     println!("11b. Terminal shown OK");
 
     // =========================================================================
@@ -249,7 +280,9 @@ fn editor_full_workflow() {
     // =========================================================================
     client.press_key("W", 4).unwrap(); // Ctrl+W
     client.pump().unwrap();
-    client.screenshot(&format!("{}/13_tab_closed.png", d)).unwrap();
+    client
+        .screenshot(&format!("{}/13_tab_closed.png", d))
+        .unwrap();
     println!("13. Close tab OK");
 
     // =========================================================================
@@ -259,7 +292,9 @@ fn editor_full_workflow() {
     // We cannot open an arbitrary file via the UI easily; this tests the model.
     // In E2E, we verify the status message if the editor exposes file open via
     // command palette. For now, screenshot the state.
-    client.screenshot(&format!("{}/14_large_file.png", d)).unwrap();
+    client
+        .screenshot(&format!("{}/14_large_file.png", d))
+        .unwrap();
     println!("14. Large file test (model-level; see unit tests)");
     cleanup_temp_file(&large_file);
 
@@ -274,7 +309,9 @@ fn editor_full_workflow() {
     if texts_menu.iter().any(|t| t.text == "File") {
         client.tap_text("File").unwrap();
         client.pump().unwrap();
-        client.screenshot(&format!("{}/15_menu_file.png", d)).unwrap();
+        client
+            .screenshot(&format!("{}/15_menu_file.png", d))
+            .unwrap();
         // The dropdown should show "Save", "Save All", etc.
         let dropdown_texts = client.get_text().unwrap();
         let has_save_item = dropdown_texts.iter().any(|t| t.text.contains("Save"));
@@ -288,7 +325,9 @@ fn editor_full_workflow() {
     } else {
         println!("15. Menu bar 'File' not found, skipping");
     }
-    client.screenshot(&format!("{}/15b_after_menu.png", d)).unwrap();
+    client
+        .screenshot(&format!("{}/15b_after_menu.png", d))
+        .unwrap();
 
     // =========================================================================
     // 16. PROBLEMS tab switch
@@ -297,7 +336,9 @@ fn editor_full_workflow() {
     if texts_bottom.iter().any(|t| t.text.contains("PROBLEMS")) {
         client.tap_text("PROBLEMS").unwrap();
         client.pump().unwrap();
-        client.screenshot(&format!("{}/16_problems.png", d)).unwrap();
+        client
+            .screenshot(&format!("{}/16_problems.png", d))
+            .unwrap();
         println!("16. PROBLEMS tab OK");
     } else {
         println!("16. PROBLEMS tab not visible, skipping");
@@ -314,10 +355,17 @@ fn editor_full_workflow() {
     // 17. Search panel (sidebar section)
     // =========================================================================
     let texts_icons = client.get_text().unwrap();
-    if let Some(icon) = texts_icons.iter().find(|t| t.text == "\u{1f50d}" && t.x < 50.0) {
-        client.tap(icon.x + icon.width / 2.0, icon.y + icon.height / 2.0).unwrap();
+    if let Some(icon) = texts_icons
+        .iter()
+        .find(|t| t.text == "\u{1f50d}" && t.x < 50.0)
+    {
+        client
+            .tap(icon.x + icon.width / 2.0, icon.y + icon.height / 2.0)
+            .unwrap();
         client.pump().unwrap();
-        client.screenshot(&format!("{}/17_search_panel.png", d)).unwrap();
+        client
+            .screenshot(&format!("{}/17_search_panel.png", d))
+            .unwrap();
         println!("17. Search panel OK");
     } else {
         println!("17. Search icon not found, skipping");
@@ -327,10 +375,17 @@ fn editor_full_workflow() {
     // 18. Git panel
     // =========================================================================
     let texts_icons2 = client.get_text().unwrap();
-    if let Some(icon) = texts_icons2.iter().find(|t| t.text == "\u{2387}" && t.x < 50.0) {
-        client.tap(icon.x + icon.width / 2.0, icon.y + icon.height / 2.0).unwrap();
+    if let Some(icon) = texts_icons2
+        .iter()
+        .find(|t| t.text == "\u{2387}" && t.x < 50.0)
+    {
+        client
+            .tap(icon.x + icon.width / 2.0, icon.y + icon.height / 2.0)
+            .unwrap();
         client.pump().unwrap();
-        client.screenshot(&format!("{}/18_git_panel.png", d)).unwrap();
+        client
+            .screenshot(&format!("{}/18_git_panel.png", d))
+            .unwrap();
         println!("18. Git panel OK");
     } else {
         println!("18. Git icon not found, skipping");
@@ -348,7 +403,12 @@ fn editor_full_workflow() {
     for b in &broken {
         println!("  BROKEN: {}x{} \"{}\"", b.width, b.height, b.text);
     }
-    assert_eq!(broken.len(), 0, "layout integrity: {} broken text items", broken.len());
+    assert_eq!(
+        broken.len(),
+        0,
+        "layout integrity: {} broken text items",
+        broken.len()
+    );
     println!("19. Layout integrity OK (0 broken items)");
 
     // =========================================================================
@@ -380,21 +440,26 @@ fn editor_multi_tab_switching() {
     tap_first_visible_text(&client, &["src", "tests", "proto"]);
     client.pump().unwrap();
 
-    let first_tab = tap_first_visible_text(&client, &["breadcrumb.rs", "context_menu.rs", "command_palette.rs"]);
+    let first_tab = tap_first_visible_text(
+        &client,
+        &["breadcrumb.rs", "context_menu.rs", "command_palette.rs"],
+    );
     client.pump().unwrap();
     client.assert_text_visible(&first_tab).unwrap();
 
     // Open another file by navigating the tree
     // Look for a different visible Rust file in the tree
     let texts = client.get_text().unwrap();
-    let second_file = texts.iter().find(|t| {
-        t.text.ends_with(".rs") && t.text != first_tab
-    });
+    let second_file = texts
+        .iter()
+        .find(|t| t.text.ends_with(".rs") && t.text != first_tab);
     if let Some(f) = second_file {
         let name = f.text.clone();
         client.tap_text(&name).unwrap();
         client.pump().unwrap();
-        client.screenshot(&format!("{}/multi_tab_two_open.png", d)).unwrap();
+        client
+            .screenshot(&format!("{}/multi_tab_two_open.png", d))
+            .unwrap();
 
         // Now switch back to first tab by clicking its title
         client.tap_text(&first_tab).unwrap();
@@ -405,7 +470,9 @@ fn editor_multi_tab_switching() {
         // Close active tab with Ctrl+W
         client.press_key("W", 4).unwrap();
         client.pump().unwrap();
-        client.screenshot(&format!("{}/multi_tab_after_close.png", d)).unwrap();
+        client
+            .screenshot(&format!("{}/multi_tab_after_close.png", d))
+            .unwrap();
     } else {
         println!("Multi-tab: could not find a second file to open");
     }
@@ -426,7 +493,10 @@ fn editor_find_replace_workflow() {
     let d = dir();
 
     tap_first_visible_text(&client, &["src", "tests", "proto"]);
-    tap_first_visible_text(&client, &["breadcrumb.rs", "context_menu.rs", "command_palette.rs"]);
+    tap_first_visible_text(
+        &client,
+        &["breadcrumb.rs", "context_menu.rs", "command_palette.rs"],
+    );
     client.pump().unwrap();
 
     // Open find (Ctrl+F)
@@ -436,7 +506,9 @@ fn editor_find_replace_workflow() {
     // Type search term
     client.type_text("workspace").unwrap();
     client.pump().unwrap();
-    client.screenshot(&format!("{}/find_replace_search.png", d)).unwrap();
+    client
+        .screenshot(&format!("{}/find_replace_search.png", d))
+        .unwrap();
 
     // Close find
     client.press_key("Escape", 0).unwrap();

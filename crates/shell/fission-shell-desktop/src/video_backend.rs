@@ -14,9 +14,9 @@ mod mac {
     use super::{VideoBackend, VideoEvent, VideoPlayer};
     use cocoa::base::{id, nil, YES};
     use cocoa::foundation::{NSString, NSURL};
-    
+
     use core_graphics::geometry::{CGPoint, CGRect, CGSize};
-    
+
     use fission_ir::WidgetNodeId;
     use fission_render::LayoutRect;
     use fission_shell::VideoSurfaceFrame;

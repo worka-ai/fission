@@ -6,11 +6,9 @@ use fission_core::{
 };
 use fission_ir::{CoreIR, NodeId};
 use fission_layout::{LayoutEngine, LayoutSize, LayoutSnapshot, TextMeasurer};
-use fission_render::{
-    BoxShadow, Color, DisplayList, DisplayOp, LayoutRect, RenderScene, Renderer,
-};
-use fission_render_vello::VelloTextMeasurer;
+use fission_render::{BoxShadow, Color, DisplayList, DisplayOp, LayoutRect, RenderScene, Renderer};
 use fission_render_vello::parley::FontContext;
+use fission_render_vello::VelloTextMeasurer;
 use fission_theme::fonts;
 use fontique::{Blob, Collection, CollectionOptions, FontInfoOverride, SourceCache};
 use std::collections::HashSet;
@@ -36,31 +34,42 @@ impl TextMeasurer for MockTextMeasurer {
         let char_width = 10.0;
         let line_height = 20.0;
         let full_width = text.len() as f32 * char_width;
-        
+
         if let Some(w) = avail {
             if full_width > w {
                 // Wrap
                 // Avoid division by zero
-                let safe_w = w.max(char_width); 
+                let safe_w = w.max(char_width);
                 let lines = (full_width / safe_w).ceil();
                 return (w, lines * line_height);
             }
         }
         (full_width, line_height)
     }
-    fn hit_test(&self, _text: &str, _font_size: f32, _available_width: Option<f32>, _x: f32, _y: f32) -> usize {
+    fn hit_test(
+        &self,
+        _text: &str,
+        _font_size: f32,
+        _available_width: Option<f32>,
+        _x: f32,
+        _y: f32,
+    ) -> usize {
         0
     }
-    fn measure_rich_text(&self, runs: &[fission_ir::op::TextRun], available_width: Option<f32>) -> (f32, f32) {
+    fn measure_rich_text(
+        &self,
+        runs: &[fission_ir::op::TextRun],
+        available_width: Option<f32>,
+    ) -> (f32, f32) {
         let full_w: f32 = runs.iter().map(|r| r.text.len() as f32 * 10.0).sum();
         let char_width = 10.0;
         let line_height = 20.0;
-        
+
         if let Some(w) = available_width {
             if full_w > w {
-                 let safe_w = w.max(char_width);
-                 let lines = (full_w / safe_w).ceil();
-                 return (w, lines * line_height);
+                let safe_w = w.max(char_width);
+                let lines = (full_w / safe_w).ceil();
+                return (w, lines * line_height);
             }
         }
         (full_w.max(10.0), line_height)
@@ -119,13 +128,15 @@ pub mod linter;
 pub use linter::*;
 
 pub mod driver;
-pub use driver::{TestDriver, TextMatch, SemanticMatch};
+pub use driver::{SemanticMatch, TestDriver, TextMatch};
 
 pub mod prelude {
-    pub use crate::{detect_ir_cycle, MockRenderer, TestHarness, TestDriver, TextMatch, SemanticMatch};
     pub use crate::linter::{LayoutLinter, LayoutViolation};
-    pub use fission_ir::{EmbedKind, LayoutOp, Op, PaintOp};
+    pub use crate::{
+        detect_ir_cycle, MockRenderer, SemanticMatch, TestDriver, TestHarness, TextMatch,
+    };
     pub use fission_ir::semantics::{ActionTrigger, Role};
+    pub use fission_ir::{EmbedKind, LayoutOp, Op, PaintOp};
     pub use fission_render::{DisplayList, DisplayOp};
 }
 
@@ -142,7 +153,7 @@ pub struct TestHarness<S: AppState> {
 }
 
 impl<S: AppState> TestHarness<S> {
-// ...
+    // ...
     pub fn lint(&self) -> Vec<LayoutViolation> {
         if let (Some(ir), Some(snapshot)) = (&self.last_ir, &self.last_snapshot) {
             LayoutLinter::new(ir, snapshot).check()
@@ -253,7 +264,12 @@ impl<S: AppState> TestHarness<S> {
                     .runtime
                     .get_app_state::<S>()
                     .expect("App state missing");
-                let view = View::new(state, &self.runtime.runtime_state, &self.env, self.last_snapshot.as_ref());
+                let view = View::new(
+                    state,
+                    &self.runtime.runtime_state,
+                    &self.env,
+                    self.last_snapshot.as_ref(),
+                );
                 let mut ctx = BuildCtx::new();
                 let tree = root.build(&mut ctx, &view);
 
@@ -261,27 +277,30 @@ impl<S: AppState> TestHarness<S> {
                 let animation_requests = ctx.take_animation_requests();
                 let video_nodes = ctx.take_video_registrations();
                 let portals_with_ids = ctx.take_portals();
-                
-                let portals = portals_with_ids.into_iter().map(|(id, node)| {
-                    if let Some(id) = id {
-                        // Use a derived ID for the wrapper to avoid conflict with the widget's own node
-                        let wrapper_id = NodeId::derived(id.as_u128(), &[0x0000_F001]);
-                        fission_core::ui::Container::new(node)
-                            .id(wrapper_id)
-                            .width(viewport.width)
-                            .height(viewport.height)
-                            .into_node()
-                    } else {
-                        node
-                    }
-                }).collect::<Vec<_>>();
+
+                let portals = portals_with_ids
+                    .into_iter()
+                    .map(|(id, node)| {
+                        if let Some(id) = id {
+                            // Use a derived ID for the wrapper to avoid conflict with the widget's own node
+                            let wrapper_id = NodeId::derived(id.as_u128(), &[0x0000_F001]);
+                            fission_core::ui::Container::new(node)
+                                .id(wrapper_id)
+                                .width(viewport.width)
+                                .height(viewport.height)
+                                .into_node()
+                        } else {
+                            node
+                        }
+                    })
+                    .collect::<Vec<_>>();
 
                 self.runtime.absorb_registry(ctx.registry);
                 for (target, request) in animation_requests {
                     self.runtime.enqueue_animation(target, request);
                 }
                 self.runtime.sync_video_nodes(&video_nodes);
-                
+
                 if portals.is_empty() {
                     tree
                 } else {
@@ -296,10 +315,13 @@ impl<S: AppState> TestHarness<S> {
                             fission_core::ui::Container::new(tree)
                                 .width(viewport.width)
                                 .height(viewport.height)
-                                .into_node()
+                                .into_node(),
                         ),
                         overlay: Box::new(fission_core::ui::Node::ZStack(
-                            fission_core::ui::ZStack { id: None, children: portals }
+                            fission_core::ui::ZStack {
+                                id: None,
+                                children: portals,
+                            },
                         )),
                     })
                 }
@@ -312,7 +334,12 @@ impl<S: AppState> TestHarness<S> {
             if trace {
                 eprintln!("[test-trace] lower start");
             }
-            let mut cx = LoweringContext::new(&self.env, &self.runtime.runtime_state, Some(&self.measurer), self.last_snapshot.as_ref());
+            let mut cx = LoweringContext::new(
+                &self.env,
+                &self.runtime.runtime_state,
+                Some(&self.measurer),
+                self.last_snapshot.as_ref(),
+            );
             let root_id = node_tree.lower(&mut cx);
             cx.ir.root = Some(root_id);
 
@@ -328,10 +355,14 @@ impl<S: AppState> TestHarness<S> {
             }
             let dirty: HashSet<_> = layout_input_nodes.iter().map(|n| n.id).collect();
             self.layout_engine.update(&layout_input_nodes, &dirty);
-            self.layout_engine.verify_post_update(&layout_input_nodes, root_id)?;
-            let snapshot =
-                self.layout_engine
-                    .compute_layout(&layout_input_nodes, root_id, viewport, &|id| self.runtime.runtime_state.scroll.get_offset(id))?;
+            self.layout_engine
+                .verify_post_update(&layout_input_nodes, root_id)?;
+            let snapshot = self.layout_engine.compute_layout(
+                &layout_input_nodes,
+                root_id,
+                viewport,
+                &|id| self.runtime.runtime_state.scroll.get_offset(id),
+            )?;
             self.last_snapshot = Some(snapshot);
             if trace {
                 eprintln!("[test-trace] layout done");
@@ -344,7 +375,8 @@ impl<S: AppState> TestHarness<S> {
         if trace {
             eprintln!("[test-trace] render start");
         }
-        let mut display_list = DisplayList::new(LayoutRect::new(0.0, 0.0, viewport.width, viewport.height));
+        let mut display_list =
+            DisplayList::new(LayoutRect::new(0.0, 0.0, viewport.width, viewport.height));
 
         if let (Some(ir), Some(snapshot)) = (&self.last_ir, &self.last_snapshot) {
             if let Some(root_id) = ir.root {
@@ -419,16 +451,53 @@ pub fn detect_ir_cycle(ir: &CoreIR) -> Option<Vec<NodeId>> {
 
 fn map_fill(f: &fission_ir::op::Fill) -> fission_render::Fill {
     match f {
-        fission_ir::op::Fill::Solid(c) => fission_render::Fill::Solid(fission_render::Color { r: c.r, g: c.g, b: c.b, a: c.a }),
-        fission_ir::op::Fill::LinearGradient { start, end, stops } => fission_render::Fill::LinearGradient {
-            start: *start,
-            end: *end,
-            stops: stops.iter().map(|(o, c)| (*o, fission_render::Color { r: c.r, g: c.g, b: c.b, a: c.a })).collect(),
-        },
-        fission_ir::op::Fill::RadialGradient { center, radius, stops } => fission_render::Fill::RadialGradient {
+        fission_ir::op::Fill::Solid(c) => fission_render::Fill::Solid(fission_render::Color {
+            r: c.r,
+            g: c.g,
+            b: c.b,
+            a: c.a,
+        }),
+        fission_ir::op::Fill::LinearGradient { start, end, stops } => {
+            fission_render::Fill::LinearGradient {
+                start: *start,
+                end: *end,
+                stops: stops
+                    .iter()
+                    .map(|(o, c)| {
+                        (
+                            *o,
+                            fission_render::Color {
+                                r: c.r,
+                                g: c.g,
+                                b: c.b,
+                                a: c.a,
+                            },
+                        )
+                    })
+                    .collect(),
+            }
+        }
+        fission_ir::op::Fill::RadialGradient {
+            center,
+            radius,
+            stops,
+        } => fission_render::Fill::RadialGradient {
             center: *center,
             radius: *radius,
-            stops: stops.iter().map(|(o, c)| (*o, fission_render::Color { r: c.r, g: c.g, b: c.b, a: c.a })).collect(),
+            stops: stops
+                .iter()
+                .map(|(o, c)| {
+                    (
+                        *o,
+                        fission_render::Color {
+                            r: c.r,
+                            g: c.g,
+                            b: c.b,
+                            a: c.a,
+                        },
+                    )
+                })
+                .collect(),
         },
     }
 }
@@ -666,7 +735,11 @@ fn generate_display_list_with_visited(
                         caret_index: *caret_index,
                     });
                 }
-                fission_ir::Op::Paint(fission_ir::PaintOp::DrawSvg { content, fill, stroke }) => {
+                fission_ir::Op::Paint(fission_ir::PaintOp::DrawSvg {
+                    content,
+                    fill,
+                    stroke,
+                }) => {
                     list.push(DisplayOp::DrawSvg {
                         content: content.clone(),
                         fill: fill.as_ref().map(map_fill),
@@ -761,19 +834,13 @@ fn composite_transform_matrix(
 
 fn translation_matrix(tx: f32, ty: f32) -> [f32; 16] {
     [
-        1.0, 0.0, 0.0, 0.0,
-        0.0, 1.0, 0.0, 0.0,
-        0.0, 0.0, 1.0, 0.0,
-        tx, ty, 0.0, 1.0,
+        1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, tx, ty, 0.0, 1.0,
     ]
 }
 
 fn scale_matrix(scale: f32) -> [f32; 16] {
     [
-        scale, 0.0, 0.0, 0.0,
-        0.0, scale, 0.0, 0.0,
-        0.0, 0.0, 1.0, 0.0,
-        0.0, 0.0, 0.0, 1.0,
+        scale, 0.0, 0.0, 0.0, 0.0, scale, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0,
     ]
 }
 
@@ -781,10 +848,7 @@ fn rotation_z_matrix(radians: f32) -> [f32; 16] {
     let sin = radians.sin();
     let cos = radians.cos();
     [
-        cos, sin, 0.0, 0.0,
-        -sin, cos, 0.0, 0.0,
-        0.0, 0.0, 1.0, 0.0,
-        0.0, 0.0, 0.0, 1.0,
+        cos, sin, 0.0, 0.0, -sin, cos, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0,
     ]
 }
 

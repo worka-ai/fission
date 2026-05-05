@@ -2479,9 +2479,7 @@ impl<S: AppState + Default, W: Widget<S> + 'static> DesktopApp<S, W> {
                                         let device_handle = &render_cx.devices[surface.dev_id];
 
                                         let texture_plans = pipeline.texture_compositor_plans();
-                                        let use_texture_compositor =
-                                            pending_resize.is_none() || apply_resize_layout;
-                                        if !use_texture_compositor || texture_plans.is_empty() {
+                                        if texture_plans.is_empty() {
                                             let render_params = vello::RenderParams {
                                                 base_color: vello::peniko::Color::from_rgb8(
                                                     30, 30, 30,
@@ -2524,6 +2522,7 @@ impl<S: AppState + Default, W: Widget<S> + 'static> DesktopApp<S, W> {
                                                     scale_factor,
                                                     surface_size.width,
                                                     surface_size.height,
+                                                    pipeline.texture_compositor_root_transform(),
                                                     texture_plans,
                                                     &surface.target_view,
                                                 )

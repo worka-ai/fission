@@ -83,8 +83,14 @@ pub enum DisplayOp {
     Save,
     Restore,
     ClipRect(LayoutRect),
-    ClipRoundedRect { rect: LayoutRect, radius: LayoutUnit },
-    OpacityLayer { alpha: f32, bounds: LayoutRect },
+    ClipRoundedRect {
+        rect: LayoutRect,
+        radius: LayoutUnit,
+    },
+    OpacityLayer {
+        alpha: f32,
+        bounds: LayoutRect,
+    },
     Translate(LayoutPoint),
     Transform([LayoutUnit; 16]),
     CachedScene {
@@ -170,7 +176,10 @@ impl DisplayList {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub enum LayerClip {
     Rect(LayoutRect),
-    RoundedRect { rect: LayoutRect, radius: LayoutUnit },
+    RoundedRect {
+        rect: LayoutRect,
+        radius: LayoutUnit,
+    },
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -262,10 +271,12 @@ fn flatten_render_node(node: &RenderNode, out: &mut Vec<DisplayOp>) {
             if let Some(clip) = &layer.style.clip {
                 match clip {
                     LayerClip::Rect(rect) => out.push(DisplayOp::ClipRect(*rect)),
-                    LayerClip::RoundedRect { rect, radius } => out.push(DisplayOp::ClipRoundedRect {
-                        rect: *rect,
-                        radius: *radius,
-                    }),
+                    LayerClip::RoundedRect { rect, radius } => {
+                        out.push(DisplayOp::ClipRoundedRect {
+                            rect: *rect,
+                            radius: *radius,
+                        })
+                    }
                 }
             }
             if (layer.style.opacity - 1.0).abs() > 0.001 {

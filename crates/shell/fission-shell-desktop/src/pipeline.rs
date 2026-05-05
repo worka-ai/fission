@@ -142,11 +142,15 @@ struct RetainedDynamicOps {
 pub struct CompositorTexturePlan {
     pub key: u64,
     pub bounds: LayoutRect,
-    pub scene: RenderScene,
-    pub dynamic: bool,
+    pub scene: Option<RenderScene>,
+    pub scene_cache_key: Option<u64>,
+    pub content_key: u64,
+    pub local_dynamic: bool,
+    pub composite_dynamic: bool,
     pub opacity: f32,
     pub transform: Option<[f32; 16]>,
     pub clip: Option<LayerClip>,
+    pub children: Vec<CompositorTexturePlan>,
 }
 
 pub struct Pipeline {
@@ -166,8 +170,10 @@ pub struct Pipeline {
     pending_layout_dirty: HashSet<NodeId>,
     pending_layout_full: bool,
     compositor_animation_keys: HashSet<(WidgetNodeId, AnimationPropertyId)>,
+    runtime_dynamic_nodes: HashSet<NodeId>,
     runtime_dynamic_subtrees: HashMap<NodeId, bool>,
     retained_texture_plans: Vec<CompositorTexturePlan>,
+    retained_texture_root_transform: Option<[f32; 16]>,
 }
 
 pub struct PipelineStats {
@@ -197,8 +203,10 @@ impl Pipeline {
             pending_layout_dirty: HashSet::new(),
             pending_layout_full: true,
             compositor_animation_keys: HashSet::new(),
+            runtime_dynamic_nodes: HashSet::new(),
             runtime_dynamic_subtrees: HashMap::new(),
             retained_texture_plans: Vec::new(),
+            retained_texture_root_transform: None,
         }
     }
 
@@ -416,6 +424,10 @@ impl Pipeline {
             .retained_scene
             .as_ref()
             .expect("retained render scene missing before render");
+        self.retained_texture_root_transform = scene.roots.first().and_then(|root| match root {
+            RenderNode::Layer(layer) => layer.style.transform,
+            RenderNode::Paint(_) => None,
+        });
         self.retained_texture_plans = self.build_texture_compositor_plans(scene);
 
         diag::emit(
@@ -495,6 +507,7 @@ impl Pipeline {
 
     fn refresh_retained_metadata(&mut self) {
         self.compositor_animation_keys.clear();
+        self.runtime_dynamic_nodes.clear();
         self.runtime_dynamic_subtrees.clear();
         self.boundary_cache.clear();
 
@@ -503,6 +516,8 @@ impl Pipeline {
         };
 
         for node in ir.nodes.values() {
+            let mut node_is_runtime_dynamic =
+                matches!(node.op, Op::Layout(LayoutOp::Scroll { .. }));
             if let Some(target) = node
                 .composite
                 .opacity
@@ -511,6 +526,7 @@ impl Pipeline {
             {
                 self.compositor_animation_keys
                     .insert((target, AnimationPropertyId::Opacity));
+                node_is_runtime_dynamic = true;
             }
             if let Some(target) = node
                 .composite
@@ -520,6 +536,7 @@ impl Pipeline {
             {
                 self.compositor_animation_keys
                     .insert((target, AnimationPropertyId::TranslateX));
+                node_is_runtime_dynamic = true;
             }
             if let Some(target) = node
                 .composite
@@ -529,6 +546,7 @@ impl Pipeline {
             {
                 self.compositor_animation_keys
                     .insert((target, AnimationPropertyId::TranslateY));
+                node_is_runtime_dynamic = true;
             }
             if let Some(target) = node
                 .composite
@@ -538,6 +556,7 @@ impl Pipeline {
             {
                 self.compositor_animation_keys
                     .insert((target, AnimationPropertyId::Scale));
+                node_is_runtime_dynamic = true;
             }
             if let Some(target) = node
                 .composite
@@ -547,6 +566,10 @@ impl Pipeline {
             {
                 self.compositor_animation_keys
                     .insert((target, AnimationPropertyId::Rotation));
+                node_is_runtime_dynamic = true;
+            }
+            if node_is_runtime_dynamic {
+                self.runtime_dynamic_nodes.insert(node.id);
             }
         }
 
@@ -626,6 +649,7 @@ impl Pipeline {
         self.retained_scene = None;
         self.retained_dynamic_ops = RetainedDynamicOps::default();
         self.retained_texture_plans.clear();
+        self.retained_texture_root_transform = None;
     }
 
     fn patch_retained_scene(
@@ -681,6 +705,10 @@ impl Pipeline {
         &self.retained_texture_plans
     }
 
+    pub fn texture_compositor_root_transform(&self) -> Option<[f32; 16]> {
+        self.retained_texture_root_transform
+    }
+
     fn build_texture_compositor_plans(&self, scene: &RenderScene) -> Vec<CompositorTexturePlan> {
         let Some(RenderNode::Layer(presentation_root)) = scene.roots.first() else {
             return Vec::new();
@@ -692,43 +720,18 @@ impl Pipeline {
             return Vec::new();
         }
         let split_layer = find_texture_compositor_split_layer(content_root);
-        if split_layer.children.len() <= 1 {
-            return Vec::new();
-        }
-
         let mut plans = Vec::new();
-        for (index, child) in split_layer.children.iter().enumerate() {
-            let bounds = render_node_bounds(child);
-            if bounds.size.width <= 0.0 || bounds.size.height <= 0.0 {
-                continue;
+        for child in &split_layer.children {
+            if let Some(plan) = build_texture_plan_from_node(
+                child,
+                true,
+                &self.runtime_dynamic_nodes,
+                &self.runtime_dynamic_subtrees,
+            ) {
+                plans.push(plan);
             }
-            let scene = localized_scene_for_compositor(child, bounds);
-            let dynamic = render_node_contents_are_dynamic(child, &self.runtime_dynamic_subtrees);
-            let key = compositor_plan_key(child, index, dynamic);
-            let (opacity, transform, clip) = match child {
-                RenderNode::Layer(layer) => (
-                    layer.style.opacity,
-                    layer.style.transform,
-                    layer.style.clip.clone(),
-                ),
-                RenderNode::Paint(_) => (1.0, None, None),
-            };
-            plans.push(CompositorTexturePlan {
-                key,
-                bounds,
-                scene,
-                dynamic,
-                opacity,
-                transform,
-                clip,
-            });
         }
-
-        if plans.len() <= 1 {
-            Vec::new()
-        } else {
-            plans
-        }
+        plans
     }
 }
 
@@ -790,31 +793,196 @@ fn find_texture_compositor_split_layer<'a>(mut layer: &'a RenderLayer) -> &'a Re
     }
 }
 
-fn localized_scene_for_compositor(node: &RenderNode, bounds: LayoutRect) -> RenderScene {
+fn build_texture_plan_from_node(
+    node: &RenderNode,
+    force: bool,
+    runtime_dynamic_nodes: &HashSet<NodeId>,
+    runtime_dynamic_subtrees: &HashMap<NodeId, bool>,
+) -> Option<CompositorTexturePlan> {
+    let candidate = find_nested_texture_plan_candidate(
+        node,
+        force,
+        runtime_dynamic_nodes,
+        runtime_dynamic_subtrees,
+    )?;
+    let bounds = render_node_bounds(candidate);
+    if bounds.size.width <= 0.0 || bounds.size.height <= 0.0 {
+        return None;
+    }
+
+    match candidate {
+        RenderNode::Paint(list) => {
+            let scene = localized_scene_for_compositor_children(
+                vec![RenderNode::Paint(list.clone())],
+                bounds,
+            );
+            let scene_cache_key = scene_cache_key(&scene);
+            let content_key = plan_content_key(Some(scene_cache_key), &[]);
+            Some(CompositorTexturePlan {
+                key: texture_plan_key_for_paint(list),
+                bounds,
+                scene: Some(scene),
+                scene_cache_key: Some(scene_cache_key),
+                content_key,
+                local_dynamic: false,
+                composite_dynamic: false,
+                opacity: 1.0,
+                transform: None,
+                clip: None,
+                children: Vec::new(),
+            })
+        }
+        RenderNode::Layer(layer) => {
+            let mut child_plans = Vec::new();
+            let mut local_children = Vec::new();
+            for child in &layer.children {
+                if let Some(child_plan) = build_texture_plan_from_node(
+                    child,
+                    false,
+                    runtime_dynamic_nodes,
+                    runtime_dynamic_subtrees,
+                ) {
+                    child_plans.push(child_plan);
+                } else {
+                    local_children.push(child.clone());
+                }
+            }
+
+            let local_dynamic = local_children
+                .iter()
+                .any(|child| render_node_or_subtree_is_dynamic(child, runtime_dynamic_subtrees));
+            let scene = if local_children.is_empty() {
+                None
+            } else {
+                Some(localized_scene_for_compositor_children(
+                    local_children,
+                    bounds,
+                ))
+            };
+            let scene_cache_key = scene.as_ref().map(scene_cache_key);
+            let content_key = plan_content_key(scene_cache_key, &child_plans);
+            let composite_dynamic = layer
+                .node_id
+                .map(|id| runtime_dynamic_nodes.contains(&id))
+                .unwrap_or(false);
+            Some(CompositorTexturePlan {
+                key: texture_plan_key_for_layer(layer),
+                bounds,
+                scene,
+                scene_cache_key,
+                content_key,
+                local_dynamic,
+                composite_dynamic,
+                opacity: layer.style.opacity,
+                transform: layer.style.transform,
+                clip: layer.style.clip.clone(),
+                children: child_plans,
+            })
+        }
+    }
+}
+
+fn find_nested_texture_plan_candidate<'a>(
+    node: &'a RenderNode,
+    force: bool,
+    runtime_dynamic_nodes: &HashSet<NodeId>,
+    runtime_dynamic_subtrees: &HashMap<NodeId, bool>,
+) -> Option<&'a RenderNode> {
+    match node {
+        RenderNode::Paint(_) => force.then_some(node),
+        RenderNode::Layer(layer) => {
+            if !force {
+                if let Some(child) = descend_through_plain_wrapper(layer) {
+                    return find_nested_texture_plan_candidate(
+                        child,
+                        false,
+                        runtime_dynamic_nodes,
+                        runtime_dynamic_subtrees,
+                    );
+                }
+            }
+
+            let subtree_dynamic = render_node_or_subtree_is_dynamic(node, runtime_dynamic_subtrees);
+            let own_dynamic = layer
+                .node_id
+                .map(|id| runtime_dynamic_nodes.contains(&id))
+                .unwrap_or(false);
+            if force || layer_should_extract_as_plan(layer, subtree_dynamic, own_dynamic) {
+                Some(node)
+            } else {
+                for child in &layer.children {
+                    if let Some(candidate) = find_nested_texture_plan_candidate(
+                        child,
+                        false,
+                        runtime_dynamic_nodes,
+                        runtime_dynamic_subtrees,
+                    ) {
+                        return Some(candidate);
+                    }
+                }
+                None
+            }
+        }
+    }
+}
+
+fn descend_through_plain_wrapper<'a>(layer: &'a RenderLayer) -> Option<&'a RenderNode> {
+    let only_child = match layer.children.as_slice() {
+        [child] => Some(child),
+        _ => None,
+    }?;
+    if layer.style.clip.is_none()
+        && (layer.style.opacity - 1.0).abs() <= 0.001
+        && layer.style.transform.is_none()
+    {
+        match only_child {
+            RenderNode::Layer(_) => Some(only_child),
+            RenderNode::Paint(_) => None,
+        }
+    } else {
+        None
+    }
+}
+
+fn layer_should_extract_as_plan(
+    layer: &RenderLayer,
+    subtree_dynamic: bool,
+    own_dynamic: bool,
+) -> bool {
+    const MIN_PLAN_AREA: f32 = 64.0 * 64.0;
+    if layer.children.is_empty() {
+        return false;
+    }
+    if own_dynamic {
+        return true;
+    }
+    if !subtree_dynamic {
+        return false;
+    }
+    let has_style = layer.style.clip.is_some()
+        || (layer.style.opacity - 1.0).abs() > 0.001
+        || layer.style.transform.is_some();
+    let has_local_paint = layer
+        .children
+        .iter()
+        .any(|child| matches!(child, RenderNode::Paint(_)));
+    let has_multiple_children = layer.children.len() > 1;
+    (has_style || has_local_paint || has_multiple_children)
+        && layer.bounds.size.width * layer.bounds.size.height >= MIN_PLAN_AREA
+}
+
+fn localized_scene_for_compositor_children(
+    children: Vec<RenderNode>,
+    bounds: LayoutRect,
+) -> RenderScene {
     let local_bounds = LayoutRect::new(0.0, 0.0, bounds.size.width, bounds.size.height);
     let mut root = RenderLayer::new(local_bounds);
     root.style.transform = Some(translation_matrix(-bounds.origin.x, -bounds.origin.y));
-    match node {
-        RenderNode::Paint(list) => root.children.push(RenderNode::Paint(list.clone())),
-        RenderNode::Layer(layer) => root.children.extend(layer.children.iter().cloned()),
-    }
+    root.children.extend(children);
 
     let mut scene = RenderScene::new(local_bounds);
     scene.roots.push(RenderNode::Layer(root));
     scene
-}
-
-fn render_node_contents_are_dynamic(
-    node: &RenderNode,
-    runtime_dynamic_subtrees: &HashMap<NodeId, bool>,
-) -> bool {
-    match node {
-        RenderNode::Paint(_) => false,
-        RenderNode::Layer(layer) => layer
-            .children
-            .iter()
-            .any(|child| render_node_or_subtree_is_dynamic(child, runtime_dynamic_subtrees)),
-    }
 }
 
 fn render_node_or_subtree_is_dynamic(
@@ -836,24 +1004,42 @@ fn render_node_or_subtree_is_dynamic(
     }
 }
 
-fn compositor_plan_key(node: &RenderNode, index: usize, dynamic: bool) -> u64 {
+fn texture_plan_key_for_layer(layer: &RenderLayer) -> u64 {
     let mut hasher = std::collections::hash_map::DefaultHasher::new();
-    index.hash(&mut hasher);
-    let bounds = render_node_bounds(node);
-    bounds.size.width.to_bits().hash(&mut hasher);
-    bounds.size.height.to_bits().hash(&mut hasher);
-    match node {
-        RenderNode::Layer(layer) => {
-            layer.node_id.hash(&mut hasher);
-            if dynamic {
-                1u8.hash(&mut hasher);
-            } else {
-                hash_serde_value(&layer.children, &mut hasher);
-            }
-        }
-        RenderNode::Paint(list) => {
-            hash_serde_value(list, &mut hasher);
-        }
+    layer.node_id.hash(&mut hasher);
+    layer.bounds.size.width.to_bits().hash(&mut hasher);
+    layer.bounds.size.height.to_bits().hash(&mut hasher);
+    hash_serde_value(&layer.style.clip, &mut hasher);
+    hasher.finish()
+}
+
+fn texture_plan_key_for_paint(list: &DisplayList) -> u64 {
+    let mut hasher = std::collections::hash_map::DefaultHasher::new();
+    list.bounds.size.width.to_bits().hash(&mut hasher);
+    list.bounds.size.height.to_bits().hash(&mut hasher);
+    hash_serde_value(list, &mut hasher);
+    hasher.finish()
+}
+
+fn scene_cache_key(scene: &RenderScene) -> u64 {
+    let mut hasher = std::collections::hash_map::DefaultHasher::new();
+    hash_serde_value(scene, &mut hasher);
+    hasher.finish()
+}
+
+fn plan_content_key(scene_cache_key: Option<u64>, children: &[CompositorTexturePlan]) -> u64 {
+    let mut hasher = std::collections::hash_map::DefaultHasher::new();
+    scene_cache_key.hash(&mut hasher);
+    for child in children {
+        child.key.hash(&mut hasher);
+        child.content_key.hash(&mut hasher);
+        child.bounds.origin.x.to_bits().hash(&mut hasher);
+        child.bounds.origin.y.to_bits().hash(&mut hasher);
+        child.bounds.size.width.to_bits().hash(&mut hasher);
+        child.bounds.size.height.to_bits().hash(&mut hasher);
+        child.opacity.to_bits().hash(&mut hasher);
+        hash_serde_value(&child.transform, &mut hasher);
+        hash_serde_value(&child.clip, &mut hasher);
     }
     hasher.finish()
 }
@@ -1874,5 +2060,241 @@ mod tests {
 
         assert!(animated_layer.style.cache_key.is_none());
         assert!(animated_layer.style.content_cache_key.is_some());
+    }
+
+    #[test]
+    fn nested_dynamic_descendant_becomes_child_texture_plan() {
+        let mut ir = CoreIR::new();
+        let left_paint = NodeId::derived(13, &[0]);
+        let animated_paint = NodeId::derived(13, &[1]);
+        let animated_wrapper = NodeId::derived(13, &[2]);
+        let outer_static = NodeId::derived(13, &[3]);
+        let outer_group = NodeId::derived(13, &[4]);
+        let root = NodeId::derived(13, &[5]);
+
+        ir.add_node(
+            left_paint,
+            Op::Paint(PaintOp::DrawRect {
+                fill: Some(Fill::Solid(Color {
+                    r: 10,
+                    g: 10,
+                    b: 10,
+                    a: 255,
+                })),
+                stroke: None,
+                corner_radius: 0.0,
+                shadow: None,
+            }),
+            vec![],
+        );
+        ir.add_node(
+            animated_paint,
+            Op::Paint(PaintOp::DrawRect {
+                fill: Some(Fill::Solid(Color {
+                    r: 200,
+                    g: 40,
+                    b: 40,
+                    a: 255,
+                })),
+                stroke: None,
+                corner_radius: 0.0,
+                shadow: None,
+            }),
+            vec![],
+        );
+        ir.add_node_with_composite(
+            animated_wrapper,
+            Op::Layout(LayoutOp::Box {
+                width: Some(96.0),
+                height: Some(96.0),
+                min_width: None,
+                max_width: None,
+                min_height: None,
+                max_height: None,
+                padding: [0.0, 0.0, 0.0, 0.0],
+                flex_grow: 0.0,
+                flex_shrink: 0.0,
+                aspect_ratio: None,
+            }),
+            CompositeStyle {
+                opacity: Some(
+                    CompositeScalar::new(0.4).animated(WidgetNodeId::explicit("nested-fade")),
+                ),
+                ..Default::default()
+            },
+            vec![animated_paint],
+        );
+        ir.add_node(
+            outer_static,
+            Op::Paint(PaintOp::DrawRect {
+                fill: Some(Fill::Solid(Color {
+                    r: 20,
+                    g: 100,
+                    b: 180,
+                    a: 255,
+                })),
+                stroke: None,
+                corner_radius: 8.0,
+                shadow: None,
+            }),
+            vec![],
+        );
+        ir.add_node(
+            outer_group,
+            Op::Layout(LayoutOp::Box {
+                width: Some(160.0),
+                height: Some(120.0),
+                min_width: None,
+                max_width: None,
+                min_height: None,
+                max_height: None,
+                padding: [0.0, 0.0, 0.0, 0.0],
+                flex_grow: 0.0,
+                flex_shrink: 0.0,
+                aspect_ratio: None,
+            }),
+            vec![outer_static, animated_wrapper],
+        );
+        ir.add_node(
+            root,
+            Op::Layout(LayoutOp::Box {
+                width: Some(320.0),
+                height: Some(240.0),
+                min_width: None,
+                max_width: None,
+                min_height: None,
+                max_height: None,
+                padding: [0.0, 0.0, 0.0, 0.0],
+                flex_grow: 0.0,
+                flex_shrink: 0.0,
+                aspect_ratio: None,
+            }),
+            vec![left_paint, outer_group],
+        );
+        ir.set_root(root);
+
+        let mut pipeline = Pipeline::new();
+        let mut layout_engine = LayoutEngine::new();
+        let scroll = ScrollStateMap::default();
+        pipeline.replace_ir(ir, &Env::default());
+        pipeline
+            .ensure_layout(
+                LayoutRect::new(0.0, 0.0, 320.0, 240.0),
+                &mut layout_engine,
+                &scroll,
+            )
+            .unwrap();
+        pipeline
+            .prepare_current(
+                LayoutSize {
+                    width: 320.0,
+                    height: 240.0,
+                },
+                LayoutSize {
+                    width: 320.0,
+                    height: 240.0,
+                },
+                false,
+                &scroll,
+                &Default::default(),
+                &Default::default(),
+                &Default::default(),
+            )
+            .unwrap();
+
+        let plans = pipeline.texture_compositor_plans();
+        assert!(!plans.is_empty());
+        assert!(
+            plans.iter().any(|plan| !plan.children.is_empty()),
+            "expected at least one retained texture plan to extract nested dynamic descendants"
+        );
+    }
+
+    #[test]
+    fn resize_preview_keeps_texture_compositor_root_transform() {
+        let mut ir = CoreIR::new();
+        let left = NodeId::derived(14, &[0]);
+        let right = NodeId::derived(14, &[1]);
+        let root = NodeId::derived(14, &[2]);
+
+        ir.add_node(
+            left,
+            Op::Paint(PaintOp::DrawRect {
+                fill: Some(Fill::Solid(Color {
+                    r: 80,
+                    g: 80,
+                    b: 80,
+                    a: 255,
+                })),
+                stroke: None,
+                corner_radius: 0.0,
+                shadow: None,
+            }),
+            vec![],
+        );
+        ir.add_node(
+            right,
+            Op::Paint(PaintOp::DrawRect {
+                fill: Some(Fill::Solid(Color {
+                    r: 180,
+                    g: 180,
+                    b: 180,
+                    a: 255,
+                })),
+                stroke: None,
+                corner_radius: 0.0,
+                shadow: None,
+            }),
+            vec![],
+        );
+        ir.add_node(
+            root,
+            Op::Layout(LayoutOp::Box {
+                width: Some(300.0),
+                height: Some(200.0),
+                min_width: None,
+                max_width: None,
+                min_height: None,
+                max_height: None,
+                padding: [0.0, 0.0, 0.0, 0.0],
+                flex_grow: 0.0,
+                flex_shrink: 0.0,
+                aspect_ratio: None,
+            }),
+            vec![left, right],
+        );
+        ir.set_root(root);
+
+        let mut pipeline = Pipeline::new();
+        let mut layout_engine = LayoutEngine::new();
+        let scroll = ScrollStateMap::default();
+        pipeline.replace_ir(ir, &Env::default());
+        pipeline
+            .ensure_layout(
+                LayoutRect::new(0.0, 0.0, 300.0, 200.0),
+                &mut layout_engine,
+                &scroll,
+            )
+            .unwrap();
+        pipeline
+            .prepare_current(
+                LayoutSize {
+                    width: 540.0,
+                    height: 360.0,
+                },
+                LayoutSize {
+                    width: 300.0,
+                    height: 200.0,
+                },
+                true,
+                &scroll,
+                &Default::default(),
+                &Default::default(),
+                &Default::default(),
+            )
+            .unwrap();
+
+        assert!(pipeline.texture_compositor_root_transform().is_some());
+        assert!(!pipeline.texture_compositor_plans().is_empty());
     }
 }

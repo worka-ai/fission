@@ -33,7 +33,9 @@ fn animation_gallery_live_transitions_and_resize() {
     let control_port = reserve_control_port();
     let mut child = launch_gallery(control_port);
     let client = LiveTestClient::connect(control_port);
-    client.wait_for_ready(15_000).expect("gallery did not start");
+    client
+        .wait_for_ready(15_000)
+        .expect("gallery did not start");
     client.wait(1000).expect("initial wait");
 
     let dir = screenshot_dir();
@@ -60,9 +62,7 @@ fn animation_gallery_live_transitions_and_resize() {
         .screenshot(&format!("{}/03_custom_paused.png", dir))
         .expect("custom paused screenshot");
 
-    client
-        .simulate_resize(1280, 900)
-        .expect("simulate resize");
+    client.simulate_resize(1280, 900).expect("simulate resize");
     client.pump().expect("pump after resize");
     client.wait(300).expect("wait after resize");
     client

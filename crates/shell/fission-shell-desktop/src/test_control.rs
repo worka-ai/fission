@@ -83,7 +83,11 @@ fn handle_connection(
     }
 
     if method != "POST" || path != "/cmd" {
-        send_http_response(&mut stream, 404, r#"{"status":"Error","message":"not found"}"#);
+        send_http_response(
+            &mut stream,
+            404,
+            r#"{"status":"Error","message":"not found"}"#,
+        );
         return;
     }
 
@@ -179,8 +183,14 @@ fn dispatch_command(
 
         // ── PressKey ────────────────────────────────────────────────────
         TestCommand::PressKey { key, modifiers } => {
-            let _ = proxy.send_event(TestEvent::KeyDown { key_code: key.clone(), modifiers });
-            let _ = proxy.send_event(TestEvent::KeyUp { key_code: key, modifiers });
+            let _ = proxy.send_event(TestEvent::KeyDown {
+                key_code: key.clone(),
+                modifiers,
+            });
+            let _ = proxy.send_event(TestEvent::KeyUp {
+                key_code: key,
+                modifiers,
+            });
             TestResponse::Ok {}
         }
 
