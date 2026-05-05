@@ -50,6 +50,8 @@ struct GalleryApp;
 
 impl Widget<GalleryState> for GalleryApp {
     fn build(&self, ctx: &mut BuildCtx<GalleryState>, view: &View<GalleryState>) -> Node {
+        let viewport_width = view.viewport_size().width.max(0.0);
+        let sidebar_width = (viewport_width * 0.22).clamp(180.0, 260.0);
         let select_chart_id = ctx
             .bind(
                 SelectChart(0, 0),
@@ -184,7 +186,7 @@ impl Widget<GalleryState> for GalleryApp {
             }
             .into_node(),
         )
-        .width(200.0)
+        .width(sidebar_width)
         .padding_all(12.0)
         .bg(Color {
             r: 30,

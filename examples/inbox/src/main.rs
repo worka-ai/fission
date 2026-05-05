@@ -26,6 +26,17 @@ struct InboxApp;
 impl Widget<InboxState> for InboxApp {
     fn build(&self, ctx: &mut BuildCtx<InboxState>, view: &View<InboxState>) -> Node {
         let tokens = &view.env.theme.tokens;
+        let viewport = view.viewport_size();
+        let viewport_width = viewport.width.max(0.0);
+        let show_right_sidebar = viewport_width >= 1100.0;
+        let split_ratio = if viewport_width >= 1440.0 {
+            0.22
+        } else if viewport_width >= 1100.0 {
+            0.20
+        } else {
+            0.26
+        };
+        let right_sidebar_width = (viewport_width * 0.24).clamp(232.0, 320.0);
         // Register Modals
         if view.state.show_settings {
             let node = SettingsModal.build(ctx, view);
@@ -45,6 +56,7 @@ impl Widget<InboxState> for InboxApp {
         }
 
         if view.state.show_mobile_menu {
+            let mobile_drawer_width = (view.viewport_size().width * 0.72).clamp(220.0, 320.0);
             let drawer_node = Drawer {
                 id: WidgetNodeId::explicit("mobile_drawer"),
                 side: DrawerSide::Left,
@@ -54,7 +66,7 @@ impl Widget<InboxState> for InboxApp {
                     (|s, a, _| s.show_mobile_menu = a.0) as Handler<InboxState, SetMobileMenuOpen>,
                 )),
                 content: Box::new(Sidebar.build(ctx, view)),
-                width: Some(250.0),
+                width: Some(mobile_drawer_width),
             }
             .build(ctx, view);
 
@@ -96,15 +108,15 @@ impl Widget<InboxState> for InboxApp {
                 SplitView {
                     id: WidgetNodeId::explicit("main_split"),
                     direction: SplitDirection::Horizontal,
-                    split_ratio: 0.18,
+                    split_ratio,
                     on_resize: None,
                     first: Box::new(Sidebar.build(ctx, view)),
                     second: Box::new(
                         Row {
                             gap: None,
                             align_items: fission_ir::op::AlignItems::Stretch,
-                            children: vec![
-                                Container::new(
+                            children: {
+                                let mut children = vec![Container::new(
                                     Router {
                                         current_path: view.state.current_path.clone(),
                                         routes: vec![
@@ -151,12 +163,17 @@ impl Widget<InboxState> for InboxApp {
                                     .build(ctx, view),
                                 )
                                 .flex_grow(1.0)
-                                .into_node(),
-                                Container::new(RightSidebar.build(ctx, view))
-                                    .width(300.0)
-                                    .flex_shrink(0.0)
-                                    .into_node(),
-                            ],
+                                .into_node()];
+                                if show_right_sidebar {
+                                    children.push(
+                                        Container::new(RightSidebar.build(ctx, view))
+                                            .width(right_sidebar_width)
+                                            .flex_shrink(0.0)
+                                            .into_node(),
+                                    );
+                                }
+                                children
+                            },
                             ..Default::default()
                         }
                         .into_node(),

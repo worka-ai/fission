@@ -92,7 +92,7 @@ impl Widget<InboxState> for RightSidebar {
                     }),
                 },
             ],
-            width: Some(252.0),
+            width: None,
             max_height: Some(200.0),
         }
         .build(ctx, view);
@@ -393,7 +393,6 @@ impl Widget<InboxState> for RightSidebar {
             .into_node(),
         )
         .padding_all(8.0)
-        .width(240.0)
         .bg(tokens.colors.surface)
         .into_node()
     }

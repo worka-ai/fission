@@ -119,14 +119,14 @@ fn animation_gallery_initial_cards_are_painted() {
     let path = format!("{}/05_initial_cards.png", dir);
     client.screenshot(&path).expect("initial screenshot");
 
-    let opacity_pixels = count_non_background_pixels(&path, 60, 190, 220, 250);
+    let opacity_pixels = count_non_background_pixels(&path, 40, 250, 180, 360);
     assert!(
         opacity_pixels > 500,
         "opacity card should have visible painted content at time zero; non-background pixels={}",
         opacity_pixels
     );
 
-    let translate_pixels = count_non_background_pixels(&path, 312, 190, 472, 250);
+    let translate_pixels = count_non_background_pixels(&path, 400, 250, 700, 360);
     assert!(
         translate_pixels > 500,
         "translate card should have visible painted content at time zero; non-background pixels={}",
@@ -158,7 +158,7 @@ fn animation_gallery_paused_custom_pulse_keeps_a_visible_frame() {
 
     let path = format!("{}/06_custom_paused_visible.png", dir);
     client.screenshot(&path).expect("paused screenshot");
-    let pulse_pixels = count_non_background_pixels(&path, 570, 355, 720, 420);
+    let pulse_pixels = count_non_background_pixels(&path, 40, 250, 520, 360);
     assert!(
         pulse_pixels > 500,
         "paused custom pulse should retain visible content instead of blanking the card; non-background pixels={}",

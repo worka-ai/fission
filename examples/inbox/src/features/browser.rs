@@ -8,6 +8,9 @@ pub struct BrowserModal;
 impl Widget<InboxState> for BrowserModal {
     fn build(&self, ctx: &mut BuildCtx<InboxState>, view: &View<InboxState>) -> Node {
         let tokens = &view.env.theme.tokens;
+        let viewport_width = view.viewport_size().width.max(0.0);
+        let modal_width = (viewport_width - 48.0).clamp(360.0, 820.0);
+        let webview_width = (modal_width - 96.0).clamp(260.0, 680.0);
         Modal {
             id: WidgetNodeId::explicit("browser_modal"),
             title: "Browser & Links Demo".into(),
@@ -17,7 +20,7 @@ impl Widget<InboxState> for BrowserModal {
                 (|s: &mut InboxState, a, _| s.show_browser_demo = a.0)
                     as Handler<InboxState, ToggleBrowserDemo>,
             )),
-            width: Some(700.0),
+            width: Some(modal_width),
             content: Box::new(
                 VStack {
                     spacing: Some(24.0),
@@ -41,7 +44,7 @@ impl Widget<InboxState> for BrowserModal {
                                     }
                                     .build(ctx, view),
                                 )
-                                .width(600.0)
+                                .width(webview_width)
                                 .height(300.0)
                                 .border(tokens.colors.border, 1.0)
                                 .into_node(),

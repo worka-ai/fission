@@ -61,15 +61,13 @@ fn combobox_popup_appears_and_dismisses_after_selection() {
     client
         .screenshot(&after_path)
         .expect("post-selection screenshot");
-    let img = image::open(&after_path)
-        .expect("open post-selection screenshot")
-        .to_rgba8();
-    let stale_popup_px = img.get_pixel(100, 460).0;
-    assert!(
-        stale_popup_px[0] < 80 && stale_popup_px[1] < 80 && stale_popup_px[2] < 80,
-        "popup background should be gone after selection, found stale light pixel at (100,460): {:?}",
-        stale_popup_px
-    );
+    client
+        .tap_text("Open modal text flow")
+        .expect("underlying controls should remain clickable after popup selection");
+    client.wait(400).expect("wait for modal after popup dismissal");
+    client
+        .assert_text_visible("Text Lab Modal")
+        .expect("popup should dismiss cleanly so the next interaction can succeed");
 
     client.quit().expect("quit");
     let _ = child.wait();

@@ -120,6 +120,9 @@ fn theme_preview(
 impl Widget<InboxState> for SettingsModal {
     fn build(&self, ctx: &mut BuildCtx<InboxState>, view: &View<InboxState>) -> Node {
         let tokens = &view.env.theme.tokens;
+        let viewport = view.viewport_size();
+        let modal_width = (viewport.width.max(0.0) - 48.0).clamp(360.0, 640.0);
+        let body_height = (viewport.height.max(0.0) - 180.0).clamp(320.0, 560.0);
         let t = |key: &str| {
             view.env
                 .i18n
@@ -432,12 +435,12 @@ impl Widget<InboxState> for SettingsModal {
                 SetSettingsOpen(false),
                 (|s, a, _| s.show_settings = a.0) as Handler<InboxState, SetSettingsOpen>,
             )),
-            width: Some(560.0),
+            width: Some(modal_width),
             content: Box::new(
                 Scroll {
                     direction: FlexDirection::Column,
                     width: None,
-                    height: Some(520.0),
+                    height: Some(body_height),
                     show_scrollbar: true,
                     child: Some(Box::new(
                         VStack {

@@ -109,6 +109,8 @@ struct CounterApp;
 impl Widget<CounterState> for CounterApp {
     fn build(&self, ctx: &mut BuildCtx<CounterState>, view: &View<CounterState>) -> Node {
         let vm = view.select::<CounterVM>();
+        let viewport_width = view.viewport_size().width.max(0.0);
+        let control_width = (viewport_width - 96.0).clamp(180.0, 320.0);
 
         ctx.anim_for(*STATUS_WIDGET_ID).request(AnimationRequest {
             property: AnimationPropertyId::Scale,
@@ -218,7 +220,6 @@ impl Widget<CounterState> for CounterApp {
                             }
                             .into(),
                         )),
-                        width: Some(140.0),
                         ..Default::default()
                     }
                     .into(),
@@ -236,7 +237,7 @@ impl Widget<CounterState> for CounterApp {
                         println!("Text updated: {}", state.text_value);
                     }) as Handler<CounterState, UpdateText>,
                 )),
-                width: Some(200.0),
+                width: Some(control_width),
                 ..Default::default()
             }
             .into(),
@@ -262,7 +263,6 @@ impl Widget<CounterState> for CounterApp {
                     }
                     .into(),
                 )),
-                width: Some(120.0),
                 ..Default::default()
             }
             .into(),
@@ -302,7 +302,7 @@ impl Widget<CounterState> for CounterApp {
                         )),
                         is_primary: true,
                     }],
-                    width: Some(360.0),
+                    width: Some((viewport_width - 48.0).clamp(280.0, 420.0)),
                 }
                 .build(ctx, view),
             );
@@ -320,9 +320,9 @@ impl Widget<CounterState> for CounterApp {
 
         Scroll {
             direction: FlexDirection::Column,
-            width: Some(600.0),
-            height: Some(600.0),
             show_scrollbar: true,
+            flex_grow: 1.0,
+            flex_shrink: 1.0,
             child: Some(Box::new(
                 Column {
                     children,

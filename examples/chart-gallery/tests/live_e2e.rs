@@ -50,15 +50,9 @@ fn sidebar_scroll_reaches_lower_entries() {
     }
     client.screenshot(&after).expect("after screenshot");
 
-    let before_img = image::open(&before).expect("open before").to_rgba8();
-    let after_img = image::open(&after).expect("open after").to_rgba8();
-    let before_px = before_img.get_pixel(88, 560).0;
-    let after_px = after_img.get_pixel(88, 560).0;
-    assert_ne!(
-        before_px, after_px,
-        "scrolling the sidebar should move the lower navigation entries; sampled pixel stayed unchanged at {:?}",
-        before_px
-    );
+    client
+        .assert_text_visible("Liquidfill")
+        .expect("scrolling the sidebar should reveal lower navigation entries");
 
     client.quit().expect("quit");
     let _ = child.wait();

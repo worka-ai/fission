@@ -7,8 +7,8 @@ use chrono::Local;
 use fission_core::ui::Node;
 use fission_core::{ActionEnvelope, BuildCtx, Handler, NodeId, View, Widget, WidgetNodeId};
 use fission_widgets::{
-    Combobox, DatePicker, Dropzone, FileUpload, FocusScope, FormControl, HStack, Modal,
-    ModalAction, TextInput, TimePicker, VStack,
+    Combobox, DatePicker, Dropzone, FileUpload, FocusScope, FormControl, Modal,
+    ModalAction, TextInput, TimePicker, VStack, Wrap,
 };
 use serde_json;
 use std::collections::HashSet;
@@ -18,6 +18,9 @@ pub struct ComposeModal;
 
 impl Widget<InboxState> for ComposeModal {
     fn build(&self, ctx: &mut BuildCtx<InboxState>, view: &View<InboxState>) -> Node {
+        let viewport_width = view.viewport_size().width.max(0.0);
+        let modal_width = (viewport_width - 48.0).clamp(320.0, 760.0);
+
         // Register Handlers
         let to_id = ctx
             .bind(
@@ -224,13 +227,15 @@ impl Widget<InboxState> for ComposeModal {
                 }
                 .build(ctx, view),
                 // Schedule
-                HStack {
+                Wrap {
+                    direction: fission_ir::op::FlexDirection::Row,
                     spacing: Some(12.0),
                     children: vec![
                         DatePicker {
                             id: WidgetNodeId::explicit("schedule_date"),
                             value: view.state.schedule_date,
                             is_open: view.state.is_date_picker_open,
+                            width: None,
                             on_change: Some(Arc::new(move |d| ActionEnvelope {
                                 id: date_id,
                                 payload: serde_json::to_vec(&SetScheduleDate(d)).unwrap(),
@@ -295,7 +300,7 @@ impl Widget<InboxState> for ComposeModal {
                 (|s: &mut InboxState, a: SetComposeOpen, _| s.show_compose = a.0)
                     as Handler<InboxState, SetComposeOpen>,
             )),
-            width: Some(700.0),
+            width: Some(modal_width),
             content: Box::new(
                 FocusScope {
                     id: None,

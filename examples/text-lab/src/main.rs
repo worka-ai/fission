@@ -168,6 +168,10 @@ struct TextLabApp;
 
 impl Widget<TextLabState> for TextLabApp {
     fn build(&self, ctx: &mut BuildCtx<TextLabState>, view: &View<TextLabState>) -> Node {
+        let viewport_width = view.viewport_size().width.max(0.0);
+        let content_width = (viewport_width - 56.0).clamp(280.0, 640.0);
+        let modal_field_width = (content_width - 40.0).clamp(260.0, 600.0);
+
         let set_single_line_id = ctx
             .bind(
                 SetSingleLine(String::new()),
@@ -303,7 +307,7 @@ impl Widget<TextLabState> for TextLabApp {
                                 id: set_single_line_id,
                                 payload: Vec::new(),
                             }),
-                            width: Some(520.0),
+                            width: Some(content_width),
                             ..Default::default()
                         }
                         .into_node(),
@@ -326,7 +330,7 @@ impl Widget<TextLabState> for TextLabApp {
                                 payload: Vec::new(),
                             }),
                             multiline: true,
-                            width: Some(520.0),
+                            width: Some(content_width),
                             height: Some(120.0),
                             ..Default::default()
                         }
@@ -346,7 +350,7 @@ impl Widget<TextLabState> for TextLabApp {
                             value: view.state.inline_combobox.clone(),
                             items: inline_items,
                             is_open: !view.state.inline_combobox.trim().is_empty() && !inline_has_exact,
-                            width: Some(520.0),
+                            width: Some(content_width),
                             max_popup_height: Some(180.0),
                             on_change: Some(ActionEnvelope {
                                 id: set_inline_combobox_id,
@@ -435,7 +439,7 @@ impl Widget<TextLabState> for TextLabApp {
                                     items: modal_items,
                                     is_open: !view.state.modal_to.trim().is_empty()
                                         && !modal_has_exact,
-                                    width: Some(560.0),
+                                    width: Some(modal_field_width),
                                     max_popup_height: Some(180.0),
                                     on_change: Some(ActionEnvelope {
                                         id: set_modal_to_id,
@@ -466,7 +470,7 @@ impl Widget<TextLabState> for TextLabApp {
                                         id: set_modal_subject_id,
                                         payload: Vec::new(),
                                     }),
-                                    width: Some(560.0),
+                                    width: Some(modal_field_width),
                                     ..Default::default()
                                 }
                                 .into_node(),
@@ -491,7 +495,7 @@ impl Widget<TextLabState> for TextLabApp {
                                         payload: Vec::new(),
                                     }),
                                     multiline: true,
-                                    width: Some(560.0),
+                                    width: Some(modal_field_width),
                                     height: Some(180.0),
                                     ..Default::default()
                                 }
@@ -513,7 +517,7 @@ impl Widget<TextLabState> for TextLabApp {
             title: "Text Lab Modal".to_string(),
             is_open: view.state.show_modal,
             on_dismiss: Some(close_modal.clone()),
-            width: Some(640.0),
+            width: Some((viewport_width - 48.0).clamp(320.0, 720.0)),
             actions: vec![
                 ModalAction {
                     label: "Cancel".to_string(),

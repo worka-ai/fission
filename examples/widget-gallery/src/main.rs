@@ -190,6 +190,9 @@ impl Widget<GalleryState> for GalleryApp {
     fn build(&self, ctx: &mut BuildCtx<GalleryState>, view: &View<GalleryState>) -> Node {
         let s = view.state;
         let tokens = &view.env.theme.tokens;
+        let viewport_width = view.viewport_size().width.max(0.0);
+        let control_width = (viewport_width - 96.0).clamp(220.0, 420.0);
+        let drawer_width = (viewport_width * 0.42).clamp(220.0, 340.0);
 
         // -- Display Widgets --
         let display_section = section(
@@ -289,7 +292,7 @@ impl Widget<GalleryState> for GalleryApp {
                         (|s: &mut GalleryState, a: UpdateText, _| s.text_value = a.0)
                             as Handler<GalleryState, UpdateText>,
                     )),
-                    width: Some(300.0),
+                    width: Some(control_width),
                     ..Default::default()
                 }
                 .into_node(),
@@ -340,7 +343,7 @@ impl Widget<GalleryState> for GalleryApp {
                             }
                             .into_node(),
                         )
-                        .width(200.0)
+                        .width(control_width.min(280.0))
                         .into_node(),
                         Text::new(format!("{:.0}", s.slider_val)).into_node(),
                     ],
@@ -796,7 +799,7 @@ impl Widget<GalleryState> for GalleryApp {
                             as Handler<GalleryState, ToggleSelect>,
                     )),
                     placeholder: "Choose...".into(),
-                    width: Some(200.0),
+                    width: Some(control_width.min(260.0)),
                 }
                 .build(ctx, view),
             ],
@@ -861,7 +864,7 @@ impl Widget<GalleryState> for GalleryApp {
                     }
                     .into_node(),
                 ),
-                width: Some(280.0),
+                width: Some(drawer_width),
             }
             .build(ctx, view);
         }
@@ -884,7 +887,6 @@ impl Widget<GalleryState> for GalleryApp {
                 fission_widgets::Positioned {
                     right: Some(20.0),
                     bottom: Some(20.0),
-                    width: Some(320.0),
                     child: Some(Box::new(toast)),
                     ..Default::default()
                 }

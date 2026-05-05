@@ -9,6 +9,7 @@ pub struct ContactsModal;
 
 impl Widget<InboxState> for ContactsModal {
     fn build(&self, ctx: &mut BuildCtx<InboxState>, view: &View<InboxState>) -> Node {
+        let viewport_width = view.viewport_size().width.max(0.0);
         let toggle_id = ctx
             .bind(
                 ToggleContactSelection("".into()),
@@ -44,7 +45,7 @@ impl Widget<InboxState> for ContactsModal {
                 SetContactsOpen(false),
                 (|s, a, _| s.show_contacts = a.0) as Handler<InboxState, SetContactsOpen>,
             )),
-            width: Some(500.0),
+            width: Some((viewport_width - 48.0).clamp(320.0, 560.0)),
             content: Box::new(
                 DataTable {
                     id: WidgetNodeId::explicit("contacts_table"),

@@ -54,6 +54,18 @@ impl Widget<AnimationGalleryState> for AnimationGalleryApp {
         let tokens = &view.env.theme.tokens.colors;
         let scene_active = view.state.scene_active;
         let custom_active = view.state.custom_active;
+        let viewport_width = view.viewport_size().width.max(0.0);
+        let content_width = (viewport_width - 48.0).max(260.0);
+        let columns = if content_width >= 1120.0 {
+            3.0
+        } else if content_width >= 760.0 {
+            2.0
+        } else {
+            1.0
+        };
+        let card_width =
+            ((content_width - (columns - 1.0) * 18.0) / columns).clamp(220.0, 360.0);
+        let wide_card_width = content_width.clamp(card_width, 980.0);
 
         if custom_active {
             ctx.anim_for(*CUSTOM_ID).request(AnimationRequest {
@@ -89,8 +101,9 @@ impl Widget<AnimationGalleryState> for AnimationGalleryApp {
         }
         .into_node();
 
-        let controls = Row {
-            gap: Some(12.0),
+        let controls = Wrap {
+            direction: FlexDirection::Row,
+            spacing: Some(12.0),
             children: vec![
                 Button {
                     child: Some(Box::new(Text::new("Toggle scene").into_node())),
@@ -116,9 +129,8 @@ impl Widget<AnimationGalleryState> for AnimationGalleryApp {
                 }
                 .into_node(),
             ],
-            ..Default::default()
         }
-        .into_node();
+        .build(ctx, view);
 
         let demos = Column {
             gap: Some(18.0),
@@ -129,6 +141,7 @@ impl Widget<AnimationGalleryState> for AnimationGalleryApp {
                     children: vec![
                         demo_card(
                             "Opacity",
+                            card_width,
                             Transition {
                                 id: *OPACITY_ID,
                                 property: AnimationPropertyId::Opacity,
@@ -141,6 +154,7 @@ impl Widget<AnimationGalleryState> for AnimationGalleryApp {
                         ),
                         demo_card(
                             "Translate X",
+                            card_width,
                             Transition {
                                 id: *TRANSLATE_ID,
                                 property: AnimationPropertyId::TranslateX,
@@ -153,6 +167,7 @@ impl Widget<AnimationGalleryState> for AnimationGalleryApp {
                         ),
                         demo_card(
                             "Scale",
+                            card_width,
                             Transition {
                                 id: *SCALE_ID,
                                 property: AnimationPropertyId::Scale,
@@ -165,6 +180,7 @@ impl Widget<AnimationGalleryState> for AnimationGalleryApp {
                         ),
                         demo_card(
                             "Rotation",
+                            card_width,
                             Transition {
                                 id: *ROTATION_ID,
                                 property: AnimationPropertyId::Rotation,
@@ -177,6 +193,7 @@ impl Widget<AnimationGalleryState> for AnimationGalleryApp {
                         ),
                         demo_card(
                             "Clip + translate",
+                            card_width,
                             Composite::new(
                                 Transition {
                                     id: *CLIP_ID,
@@ -199,6 +216,7 @@ impl Widget<AnimationGalleryState> for AnimationGalleryApp {
                         ),
                         demo_card(
                             "Custom pulse",
+                            card_width,
                             custom_pulse_card(custom_active, tokens.primary),
                         ),
                     ],
@@ -208,7 +226,7 @@ impl Widget<AnimationGalleryState> for AnimationGalleryApp {
                     "Scroll translation",
                     Scroll {
                         direction: FlexDirection::Row,
-                        width: Some(720.0),
+                        width: Some((wide_card_width - 42.0).max(240.0)),
                         height: Some(88.0),
                         show_scrollbar: false,
                         child: Some(Box::new(scroll_strip(
@@ -218,7 +236,7 @@ impl Widget<AnimationGalleryState> for AnimationGalleryApp {
                         ..Default::default()
                     }
                     .into_node(),
-                    762.0,
+                    wide_card_width,
                 ),
             ],
             ..Default::default()
@@ -226,21 +244,34 @@ impl Widget<AnimationGalleryState> for AnimationGalleryApp {
         .into_node();
 
         Container::new(
-            Column {
-                gap: Some(20.0),
-                children: vec![title, controls, demos],
+            Scroll {
+                direction: FlexDirection::Column,
+                show_scrollbar: true,
+                flex_grow: 1.0,
+                flex_shrink: 1.0,
+                child: Some(Box::new(
+                    Container::new(
+                        Column {
+                            gap: Some(20.0),
+                            children: vec![title, controls, demos],
+                            ..Default::default()
+                        }
+                        .into_node(),
+                    )
+                    .padding_all(24.0)
+                    .into_node(),
+                )),
                 ..Default::default()
             }
             .into_node(),
         )
-        .padding_all(24.0)
         .bg(tokens.background)
         .into_node()
     }
 }
 
-fn demo_card(title: &str, body: Node) -> Node {
-    sized_demo_card(title, body, 236.0)
+fn demo_card(title: &str, width: f32, body: Node) -> Node {
+    sized_demo_card(title, body, width)
 }
 
 fn wide_demo_card(title: &str, body: Node, width: f32) -> Node {

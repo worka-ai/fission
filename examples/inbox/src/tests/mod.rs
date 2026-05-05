@@ -1070,8 +1070,8 @@ layout_test!(
 layout_test!(
     split_view_flex_grow_present,
     state_default(),
-    |op| matches!(op, LayoutOp::Box { flex_grow, .. } if approx_eq(*flex_grow, 0.18) || approx_eq(*flex_grow, 0.82)),
-    "expected split view flex grow values"
+    |op| matches!(op, LayoutOp::Box { flex_grow, .. } if approx_eq(*flex_grow, 0.20) || approx_eq(*flex_grow, 0.22) || approx_eq(*flex_grow, 0.26) || approx_eq(*flex_grow, 0.74) || approx_eq(*flex_grow, 0.78) || approx_eq(*flex_grow, 0.80)),
+    "expected responsive split view flex grow values"
 );
 
 layout_test!(
