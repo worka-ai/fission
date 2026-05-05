@@ -1,18 +1,21 @@
 use anyhow::Result;
 use fission_core::diff::diff_ir;
 use fission_core::env::{AnimationStateMap, Env, VideoStateMap, WebStateMap};
-use fission_core::registry::AnimationPropertyId;
 use fission_core::lowering::build_layout_tree;
+use fission_core::registry::AnimationPropertyId;
 use fission_core::{LayoutPoint, ScrollStateMap};
 use fission_diagnostics::prelude as diag;
 use fission_diagnostics::{SnapshotBlob, SnapshotKind, SnapshotProvider};
-use fission_ir::{CompositeScalar, CoreIR, EmbedKind, FlexDirection, LayoutOp, NodeId, Op, WidgetNodeId};
-use fission_layout::{LayoutEngine, LayoutInputNode, LayoutRect, LayoutSnapshot, LayoutSize};
+use fission_ir::{
+    CompositeScalar, CoreIR, EmbedKind, FlexDirection, LayoutOp, NodeId, Op, WidgetNodeId,
+};
+use fission_layout::{LayoutEngine, LayoutInputNode, LayoutRect, LayoutSize, LayoutSnapshot};
 use fission_render::{
-    BoxShadow, Color as RenderColor, DisplayList, DisplayOp, Fill, LayerClip,
-    RenderLayer, RenderNode, RenderScene, Renderer, Stroke,
+    BoxShadow, Color as RenderColor, DisplayList, DisplayOp, Fill, LayerClip, RenderLayer,
+    RenderNode, RenderScene, Renderer, Stroke,
 };
 use fission_shell::VideoSurfaceFrame;
+use serde::Serialize;
 use std::collections::{HashMap, HashSet};
 use std::hash::{Hash, Hasher};
 use std::time::Instant;
@@ -135,6 +138,17 @@ struct RetainedDynamicOps {
     transform: Vec<TransformBinding>,
 }
 
+#[derive(Debug, Clone)]
+pub struct CompositorTexturePlan {
+    pub key: u64,
+    pub bounds: LayoutRect,
+    pub scene: RenderScene,
+    pub dynamic: bool,
+    pub opacity: f32,
+    pub transform: Option<[f32; 16]>,
+    pub clip: Option<LayerClip>,
+}
+
 pub struct Pipeline {
     pub prev_ir: Option<CoreIR>,
     pub last_snapshot: Option<LayoutSnapshot>,
@@ -153,6 +167,7 @@ pub struct Pipeline {
     pending_layout_full: bool,
     compositor_animation_keys: HashSet<(WidgetNodeId, AnimationPropertyId)>,
     runtime_dynamic_subtrees: HashMap<NodeId, bool>,
+    retained_texture_plans: Vec<CompositorTexturePlan>,
 }
 
 pub struct PipelineStats {
@@ -183,6 +198,7 @@ impl Pipeline {
             pending_layout_full: true,
             compositor_animation_keys: HashSet::new(),
             runtime_dynamic_subtrees: HashMap::new(),
+            retained_texture_plans: Vec::new(),
         }
     }
 
@@ -202,7 +218,8 @@ impl Pipeline {
             let diff = diff_ir(prev_ir, &next_ir);
             if !diff.dirty_layout.is_empty() {
                 invalidation.mark_layout();
-                self.pending_layout_dirty.extend(diff.dirty_layout.iter().copied());
+                self.pending_layout_dirty
+                    .extend(diff.dirty_layout.iter().copied());
             }
             if !diff.dirty_paint.is_empty() {
                 invalidation.mark_paint();
@@ -254,7 +271,8 @@ impl Pipeline {
         scroll_map: &ScrollStateMap,
     ) -> Result<usize> {
         let viewport_changed = self.last_viewport.map(|v| v != viewport).unwrap_or(true);
-        let needs_full = self.pending_layout_full || self.last_snapshot.is_none() || viewport_changed;
+        let needs_full =
+            self.pending_layout_full || self.last_snapshot.is_none() || viewport_changed;
 
         if !needs_full && self.pending_layout_dirty.is_empty() {
             self.last_viewport = Some(viewport);
@@ -276,9 +294,12 @@ impl Pipeline {
             .as_ref()
             .and_then(|ir| ir.root)
             .expect("no root in IR");
-        let snapshot = layout_engine.compute_layout(&self.layout_input_nodes, root_id, viewport.size, &|id| {
-            scroll_map.get_offset(id)
-        })?;
+        let snapshot = layout_engine.compute_layout(
+            &self.layout_input_nodes,
+            root_id,
+            viewport.size,
+            &|id| scroll_map.get_offset(id),
+        )?;
         self.last_snapshot = Some(snapshot);
         self.last_viewport = Some(viewport);
         self.pending_layout_dirty.clear();
@@ -300,12 +321,11 @@ impl Pipeline {
         Ok(dirty_nodes.len())
     }
 
-    pub fn render_current(
+    pub fn prepare_current(
         &mut self,
         render_viewport_size: LayoutSize,
         layout_viewport_size: LayoutSize,
         resize_preview: bool,
-        renderer: &mut dyn Renderer,
         scroll_map: &ScrollStateMap,
         animation_map: &AnimationStateMap,
         video_map: &VideoStateMap,
@@ -373,7 +393,9 @@ impl Pipeline {
                 if let Some(content_root) = content_root {
                     let mut presentation_root = RenderLayer::new(render_viewport);
                     presentation_root.style.clip = Some(LayerClip::Rect(render_viewport));
-                    presentation_root.children.push(RenderNode::Layer(content_root));
+                    presentation_root
+                        .children
+                        .push(RenderNode::Layer(content_root));
 
                     let mut scene = RenderScene::new(render_viewport);
                     scene.roots.push(RenderNode::Layer(presentation_root));
@@ -394,6 +416,7 @@ impl Pipeline {
             .retained_scene
             .as_ref()
             .expect("retained render scene missing before render");
+        self.retained_texture_plans = self.build_texture_compositor_plans(scene);
 
         diag::emit(
             diag::DiagCategory::Layout,
@@ -411,6 +434,33 @@ impl Pipeline {
             .map(|(id, offset)| (*id, offset.to_bits()))
             .collect();
 
+        Ok(stats)
+    }
+
+    pub fn render_current(
+        &mut self,
+        render_viewport_size: LayoutSize,
+        layout_viewport_size: LayoutSize,
+        resize_preview: bool,
+        renderer: &mut dyn Renderer,
+        scroll_map: &ScrollStateMap,
+        animation_map: &AnimationStateMap,
+        video_map: &VideoStateMap,
+        web_map: &WebStateMap,
+    ) -> Result<PipelineStats> {
+        let stats = self.prepare_current(
+            render_viewport_size,
+            layout_viewport_size,
+            resize_preview,
+            scroll_map,
+            animation_map,
+            video_map,
+            web_map,
+        )?;
+        let scene = self
+            .retained_scene
+            .as_ref()
+            .expect("retained render scene missing before render");
         renderer.render_scene(scene)?;
         Ok(stats)
     }
@@ -575,6 +625,7 @@ impl Pipeline {
         self.boundary_cache.clear();
         self.retained_scene = None;
         self.retained_dynamic_ops = RetainedDynamicOps::default();
+        self.retained_texture_plans.clear();
     }
 
     fn patch_retained_scene(
@@ -621,9 +672,70 @@ impl Pipeline {
             }
         }
     }
+
+    pub fn retained_scene(&self) -> Option<&RenderScene> {
+        self.retained_scene.as_ref()
+    }
+
+    pub fn texture_compositor_plans(&self) -> &[CompositorTexturePlan] {
+        &self.retained_texture_plans
+    }
+
+    fn build_texture_compositor_plans(&self, scene: &RenderScene) -> Vec<CompositorTexturePlan> {
+        let Some(RenderNode::Layer(presentation_root)) = scene.roots.first() else {
+            return Vec::new();
+        };
+        let Some(RenderNode::Layer(content_root)) = presentation_root.children.first() else {
+            return Vec::new();
+        };
+        if presentation_root.children.len() != 1 {
+            return Vec::new();
+        }
+        let split_layer = find_texture_compositor_split_layer(content_root);
+        if split_layer.children.len() <= 1 {
+            return Vec::new();
+        }
+
+        let mut plans = Vec::new();
+        for (index, child) in split_layer.children.iter().enumerate() {
+            let bounds = render_node_bounds(child);
+            if bounds.size.width <= 0.0 || bounds.size.height <= 0.0 {
+                continue;
+            }
+            let scene = localized_scene_for_compositor(child, bounds);
+            let dynamic = render_node_contents_are_dynamic(child, &self.runtime_dynamic_subtrees);
+            let key = compositor_plan_key(child, index, dynamic);
+            let (opacity, transform, clip) = match child {
+                RenderNode::Layer(layer) => (
+                    layer.style.opacity,
+                    layer.style.transform,
+                    layer.style.clip.clone(),
+                ),
+                RenderNode::Paint(_) => (1.0, None, None),
+            };
+            plans.push(CompositorTexturePlan {
+                key,
+                bounds,
+                scene,
+                dynamic,
+                opacity,
+                transform,
+                clip,
+            });
+        }
+
+        if plans.len() <= 1 {
+            Vec::new()
+        } else {
+            plans
+        }
+    }
 }
 
-fn layer_mut_at_path<'a>(scene: &'a mut RenderScene, path: &[usize]) -> Option<&'a mut RenderLayer> {
+fn layer_mut_at_path<'a>(
+    scene: &'a mut RenderScene,
+    path: &[usize],
+) -> Option<&'a mut RenderLayer> {
     let (root_index, tail) = path.split_first()?;
     let node = scene.roots.get_mut(*root_index)?;
     layer_mut_in_node(node, tail)
@@ -651,6 +763,104 @@ fn count_render_node_paint_ops(node: &RenderNode) -> usize {
     match node {
         RenderNode::Paint(list) => list.ops.len(),
         RenderNode::Layer(layer) => layer.children.iter().map(count_render_node_paint_ops).sum(),
+    }
+}
+
+fn render_node_bounds(node: &RenderNode) -> LayoutRect {
+    match node {
+        RenderNode::Paint(list) => list.bounds,
+        RenderNode::Layer(layer) => layer.bounds,
+    }
+}
+
+fn find_texture_compositor_split_layer<'a>(mut layer: &'a RenderLayer) -> &'a RenderLayer {
+    loop {
+        let only_child = match layer.children.as_slice() {
+            [RenderNode::Layer(child)] => Some(child),
+            _ => None,
+        };
+        let is_plain_wrapper = layer.style.clip.is_none()
+            && (layer.style.opacity - 1.0).abs() <= 0.001
+            && layer.style.transform.is_none();
+        if let (true, Some(child)) = (is_plain_wrapper, only_child) {
+            layer = child;
+        } else {
+            return layer;
+        }
+    }
+}
+
+fn localized_scene_for_compositor(node: &RenderNode, bounds: LayoutRect) -> RenderScene {
+    let local_bounds = LayoutRect::new(0.0, 0.0, bounds.size.width, bounds.size.height);
+    let mut root = RenderLayer::new(local_bounds);
+    root.style.transform = Some(translation_matrix(-bounds.origin.x, -bounds.origin.y));
+    match node {
+        RenderNode::Paint(list) => root.children.push(RenderNode::Paint(list.clone())),
+        RenderNode::Layer(layer) => root.children.extend(layer.children.iter().cloned()),
+    }
+
+    let mut scene = RenderScene::new(local_bounds);
+    scene.roots.push(RenderNode::Layer(root));
+    scene
+}
+
+fn render_node_contents_are_dynamic(
+    node: &RenderNode,
+    runtime_dynamic_subtrees: &HashMap<NodeId, bool>,
+) -> bool {
+    match node {
+        RenderNode::Paint(_) => false,
+        RenderNode::Layer(layer) => layer
+            .children
+            .iter()
+            .any(|child| render_node_or_subtree_is_dynamic(child, runtime_dynamic_subtrees)),
+    }
+}
+
+fn render_node_or_subtree_is_dynamic(
+    node: &RenderNode,
+    runtime_dynamic_subtrees: &HashMap<NodeId, bool>,
+) -> bool {
+    match node {
+        RenderNode::Paint(_) => false,
+        RenderNode::Layer(layer) => {
+            layer
+                .node_id
+                .and_then(|id| runtime_dynamic_subtrees.get(&id).copied())
+                .unwrap_or(false)
+                || layer
+                    .children
+                    .iter()
+                    .any(|child| render_node_or_subtree_is_dynamic(child, runtime_dynamic_subtrees))
+        }
+    }
+}
+
+fn compositor_plan_key(node: &RenderNode, index: usize, dynamic: bool) -> u64 {
+    let mut hasher = std::collections::hash_map::DefaultHasher::new();
+    index.hash(&mut hasher);
+    let bounds = render_node_bounds(node);
+    bounds.size.width.to_bits().hash(&mut hasher);
+    bounds.size.height.to_bits().hash(&mut hasher);
+    match node {
+        RenderNode::Layer(layer) => {
+            layer.node_id.hash(&mut hasher);
+            if dynamic {
+                1u8.hash(&mut hasher);
+            } else {
+                hash_serde_value(&layer.children, &mut hasher);
+            }
+        }
+        RenderNode::Paint(list) => {
+            hash_serde_value(list, &mut hasher);
+        }
+    }
+    hasher.finish()
+}
+
+fn hash_serde_value<T: Serialize, H: Hasher>(value: &T, hasher: &mut H) {
+    if let Ok(bytes) = bincode::serialize(value) {
+        bytes.hash(hasher);
     }
 }
 
@@ -725,13 +935,7 @@ fn compose_dynamic_layer_transform(
     if has_composite_transform {
         matrix = append_transform(
             matrix,
-            composite_transform_matrix(
-                binding.rect,
-                translate_x,
-                translate_y,
-                scale,
-                rotation,
-            ),
+            composite_transform_matrix(binding.rect, translate_x, translate_y, scale, rotation),
         );
     }
 
@@ -1215,7 +1419,11 @@ fn build_local_paint_list(
                 node_id: Some(node_id),
             });
         }
-        Op::Paint(fission_ir::PaintOp::DrawSvg { content, fill, stroke }) => {
+        Op::Paint(fission_ir::PaintOp::DrawSvg {
+            content,
+            fill,
+            stroke,
+        }) => {
             list.push(DisplayOp::DrawSvg {
                 content: content.clone(),
                 fill: fill.as_ref().map(map_fill),
@@ -1280,28 +1488,19 @@ fn composite_transform_matrix(
 
 fn translation_matrix(tx: f32, ty: f32) -> [f32; 16] {
     [
-        1.0, 0.0, 0.0, 0.0,
-        0.0, 1.0, 0.0, 0.0,
-        0.0, 0.0, 1.0, 0.0,
-        tx, ty, 0.0, 1.0,
+        1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, tx, ty, 0.0, 1.0,
     ]
 }
 
 fn scale_matrix(scale: f32) -> [f32; 16] {
     [
-        scale, 0.0, 0.0, 0.0,
-        0.0, scale, 0.0, 0.0,
-        0.0, 0.0, 1.0, 0.0,
-        0.0, 0.0, 0.0, 1.0,
+        scale, 0.0, 0.0, 0.0, 0.0, scale, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0,
     ]
 }
 
 fn scale_matrix_non_uniform(scale_x: f32, scale_y: f32) -> [f32; 16] {
     [
-        scale_x, 0.0, 0.0, 0.0,
-        0.0, scale_y, 0.0, 0.0,
-        0.0, 0.0, 1.0, 0.0,
-        0.0, 0.0, 0.0, 1.0,
+        scale_x, 0.0, 0.0, 0.0, 0.0, scale_y, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0,
     ]
 }
 
@@ -1309,10 +1508,7 @@ fn rotation_z_matrix(radians: f32) -> [f32; 16] {
     let sin = radians.sin();
     let cos = radians.cos();
     [
-        cos, sin, 0.0, 0.0,
-        -sin, cos, 0.0, 0.0,
-        0.0, 0.0, 1.0, 0.0,
-        0.0, 0.0, 0.0, 1.0,
+        cos, sin, 0.0, 0.0, -sin, cos, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0,
     ]
 }
 
@@ -1332,10 +1528,7 @@ fn multiply_matrix(a: [f32; 16], b: [f32; 16]) -> [f32; 16] {
 
 fn is_identity_matrix(matrix: &[f32; 16]) -> bool {
     const IDENTITY: [f32; 16] = [
-        1.0, 0.0, 0.0, 0.0,
-        0.0, 1.0, 0.0, 0.0,
-        0.0, 0.0, 1.0, 0.0,
-        0.0, 0.0, 0.0, 1.0,
+        1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0,
     ];
     matrix
         .iter()
@@ -1380,25 +1573,39 @@ fn map_fill(f: &fission_ir::op::Fill) -> Fill {
             end: *end,
             stops: stops
                 .iter()
-                .map(|(o, c)| (*o, RenderColor {
-                    r: c.r,
-                    g: c.g,
-                    b: c.b,
-                    a: c.a,
-                }))
+                .map(|(o, c)| {
+                    (
+                        *o,
+                        RenderColor {
+                            r: c.r,
+                            g: c.g,
+                            b: c.b,
+                            a: c.a,
+                        },
+                    )
+                })
                 .collect(),
         },
-        fission_ir::op::Fill::RadialGradient { center, radius, stops } => Fill::RadialGradient {
+        fission_ir::op::Fill::RadialGradient {
+            center,
+            radius,
+            stops,
+        } => Fill::RadialGradient {
             center: *center,
             radius: *radius,
             stops: stops
                 .iter()
-                .map(|(o, c)| (*o, RenderColor {
-                    r: c.r,
-                    g: c.g,
-                    b: c.b,
-                    a: c.a,
-                }))
+                .map(|(o, c)| {
+                    (
+                        *o,
+                        RenderColor {
+                            r: c.r,
+                            g: c.g,
+                            b: c.b,
+                            a: c.a,
+                        },
+                    )
+                })
                 .collect(),
         },
     }
@@ -1434,9 +1641,11 @@ mod tests {
     use super::{scroll_offsets_changed, InvalidationSet, Pipeline};
     use fission_core::env::Env;
     use fission_core::registry::AnimationPropertyId;
-    use fission_ir::op::{Color, Fill};
-    use fission_ir::{CompositeScalar, CompositeStyle, CoreIR, LayoutOp, NodeId, Op, PaintOp, WidgetNodeId};
     use fission_core::ScrollStateMap;
+    use fission_ir::op::{Color, Fill};
+    use fission_ir::{
+        CompositeScalar, CompositeStyle, CoreIR, LayoutOp, NodeId, Op, PaintOp, WidgetNodeId,
+    };
     use fission_layout::{LayoutEngine, LayoutRect, LayoutSize};
     use fission_render::{RenderScene, Renderer};
     use std::collections::HashMap;
@@ -1650,7 +1859,10 @@ mod tests {
             )
             .unwrap();
 
-        let scene = pipeline.retained_scene.as_ref().expect("retained scene missing");
+        let scene = pipeline
+            .retained_scene
+            .as_ref()
+            .expect("retained scene missing");
         let presentation_root = match scene.roots.first() {
             Some(fission_render::RenderNode::Layer(layer)) => layer,
             _ => panic!("missing presentation layer"),

@@ -22,7 +22,7 @@ use fission_core::{ActionInput, Effect, EffectPayload, SystemEffect};
 use fission_diagnostics::prelude as diag;
 use fission_ir::{CoreIR, NodeId, Op, WidgetNodeId};
 use fission_layout::{LayoutEngine, LayoutSize};
-use fission_render::{LayoutPoint, LayoutRect};
+use fission_render::{LayoutPoint, LayoutRect, Renderer as _};
 use fission_render_vello::parley::FontContext;
 use fission_render_vello::{RetainedSceneCache, VelloRenderer, VelloTextMeasurer};
 use fission_shell::{VideoBackend, VideoEvent, VideoPlayer};
@@ -37,6 +37,8 @@ use vello::util::{RenderContext, RenderSurface};
 use vello::wgpu;
 use vello::{AaSupport, Renderer as VelloSceneRenderer, RendererOptions, Scene};
 
+mod compositor;
+use compositor::TextureLayerCompositor;
 mod pipeline;
 pub use pipeline::{InvalidationSet, Pipeline};
 mod video_backend;
@@ -77,8 +79,7 @@ pub type AppEffectHandler = Box<
             Option<ActionEnvelope>,
             mpsc::Sender<EffectResult>,
             EventLoopProxy<TestEvent>,
-        )
-        + Send
+        ) + Send
         + Sync,
 >;
 
@@ -137,7 +138,11 @@ impl FrameTraceState {
             return;
         }
         let reason = reason.into();
-        if !self.redraw_reasons.iter().any(|existing| existing == &reason) {
+        if !self
+            .redraw_reasons
+            .iter()
+            .any(|existing| existing == &reason)
+        {
             self.redraw_reasons.push(reason);
         }
     }
@@ -264,7 +269,12 @@ impl LiveResizeController {
             .unwrap_or(false)
     }
 
-    fn should_apply_layout(&mut self, now: Instant, has_layout_snapshot: bool, force: bool) -> bool {
+    fn should_apply_layout(
+        &mut self,
+        now: Instant,
+        has_layout_snapshot: bool,
+        force: bool,
+    ) -> bool {
         if !has_layout_snapshot || force {
             return true;
         }
@@ -448,9 +458,8 @@ fn process_pending_effects(
                                 for (k, v) in &headers {
                                     command.arg("-H").arg(format!("{}: {}", k, v));
                                 }
-                                let output = command
-                                    .output()
-                                    .map_err(|e| format!("curl spawn: {}", e))?;
+                                let output =
+                                    command.output().map_err(|e| format!("curl spawn: {}", e))?;
                                 if output.status.success() {
                                     Ok(output.stdout)
                                 } else {
@@ -588,10 +597,7 @@ fn process_pending_effects(
 /// their continuations on the main thread.
 ///
 /// Returns `true` if any continuation was dispatched (caller should redraw).
-fn drain_effect_results(
-    runtime: &mut Runtime,
-    effect_rx: &mpsc::Receiver<EffectResult>,
-) -> bool {
+fn drain_effect_results(runtime: &mut Runtime, effect_rx: &mpsc::Receiver<EffectResult>) -> bool {
     let mut dispatched = false;
 
     while let Ok((req_id, result, on_ok, on_err)) = effect_rx.try_recv() {
@@ -748,14 +754,8 @@ fn flush_text_traces(
         let handled_at = trace.handled_at.unwrap_or(now);
         let effects_at = trace.effects_at.unwrap_or(handled_at);
         let total_ms = now.duration_since(trace.started_at).as_secs_f64() * 1000.0;
-        let handle_ms = handled_at
-            .duration_since(trace.started_at)
-            .as_secs_f64()
-            * 1000.0;
-        let effects_ms = effects_at
-            .duration_since(handled_at)
-            .as_secs_f64()
-            * 1000.0;
+        let handle_ms = handled_at.duration_since(trace.started_at).as_secs_f64() * 1000.0;
+        let effects_ms = effects_at.duration_since(handled_at).as_secs_f64() * 1000.0;
         let queue_ms = now.duration_since(effects_at).as_secs_f64() * 1000.0;
 
         let target_u128 = trace.target.map(|id| id.as_u128());
@@ -924,7 +924,11 @@ fn handle_mouse_button(
             min_frame,
             redraw_pending,
             frame_trace,
-            if is_pressed { "pointer_down" } else { "pointer_up" },
+            if is_pressed {
+                "pointer_down"
+            } else {
+                "pointer_up"
+            },
         );
     }
 }
@@ -949,9 +953,18 @@ fn handle_scroll(
     invalidations: &mut InvalidationSet,
 ) {
     if let (Some(ir), Some(layout)) = (&pipeline.prev_ir, &pipeline.last_snapshot) {
-        let point = LayoutPoint { x: point_x, y: point_y };
-        let scroll_delta = LayoutPoint { x: delta_x, y: delta_y };
-        let event = InputEvent::Pointer(PointerEvent::Scroll { point, delta: scroll_delta });
+        let point = LayoutPoint {
+            x: point_x,
+            y: point_y,
+        };
+        let scroll_delta = LayoutPoint {
+            x: delta_x,
+            y: delta_y,
+        };
+        let event = InputEvent::Pointer(PointerEvent::Scroll {
+            point,
+            delta: scroll_delta,
+        });
         if let Err(e) = runtime.handle_input(event, ir, layout) {
             eprintln!("Scroll error: {:?}", e);
         }
@@ -1035,7 +1048,12 @@ fn handle_key_down<S: AppState>(
         let handler = handler.clone();
         if let Some(state) = runtime.get_app_state_mut::<S>() {
             if handler(state, &code, modifiers) {
-                if process_pending_effects(runtime, effect_result_tx, event_proxy, app_effect_handler) {
+                if process_pending_effects(
+                    runtime,
+                    effect_result_tx,
+                    event_proxy,
+                    app_effect_handler,
+                ) {
                     invalidations.mark_build();
                     request_redraw_logged(
                         window,
@@ -1111,23 +1129,37 @@ fn handle_key_down<S: AppState>(
 
 /// Build the response for a GetText query.
 fn build_get_text_response(pipeline: &Pipeline) -> fission_test_driver::TestResponse {
-    use fission_test_driver::{TextItem, TestResponse};
+    use fission_test_driver::{TestResponse, TextItem};
     let mut items = Vec::new();
     if let (Some(ir), Some(snap)) = (pipeline.prev_ir.as_ref(), pipeline.last_snapshot.as_ref()) {
         for (id, node) in &ir.nodes {
             let text_content = match &node.op {
-                fission_ir::Op::Paint(fission_ir::PaintOp::DrawText { text, .. }) => Some(text.clone()),
+                fission_ir::Op::Paint(fission_ir::PaintOp::DrawText { text, .. }) => {
+                    Some(text.clone())
+                }
                 fission_ir::Op::Paint(fission_ir::PaintOp::DrawRichText { runs, .. }) => {
                     Some(runs.iter().map(|r| r.text.clone()).collect::<String>())
                 }
                 _ => None,
             };
             if let Some(text) = text_content {
-                if text.is_empty() { continue; }
+                if text.is_empty() {
+                    continue;
+                }
                 let check_id = node.parent.unwrap_or(*id);
-                let rect = snap.get_node_rect(check_id).or_else(|| snap.get_node_rect(*id));
-                let (x, y, w, h) = rect.map(|r| (r.x(), r.y(), r.width(), r.height())).unwrap_or((0.0, 0.0, 0.0, 0.0));
-                items.push(TextItem { text, x, y, width: w, height: h });
+                let rect = snap
+                    .get_node_rect(check_id)
+                    .or_else(|| snap.get_node_rect(*id));
+                let (x, y, w, h) = rect
+                    .map(|r| (r.x(), r.y(), r.width(), r.height()))
+                    .unwrap_or((0.0, 0.0, 0.0, 0.0));
+                items.push(TextItem {
+                    text,
+                    x,
+                    y,
+                    width: w,
+                    height: h,
+                });
             }
         }
     }
@@ -1141,15 +1173,22 @@ fn build_get_tree_response(pipeline: &Pipeline) -> fission_test_driver::TestResp
     if let Some(ir) = &pipeline.prev_ir {
         for (id, node) in &ir.nodes {
             if let fission_ir::Op::Semantics(sem) = &node.op {
-                let rect = pipeline.last_snapshot.as_ref()
+                let rect = pipeline
+                    .last_snapshot
+                    .as_ref()
                     .and_then(|s| s.get_node_rect(*id));
-                let (x, y, w, h) = rect.map(|r| (r.x(), r.y(), r.width(), r.height())).unwrap_or((0.0, 0.0, 0.0, 0.0));
+                let (x, y, w, h) = rect
+                    .map(|r| (r.x(), r.y(), r.width(), r.height()))
+                    .unwrap_or((0.0, 0.0, 0.0, 0.0));
                 nodes.push(SemanticNode {
                     role: format!("{:?}", sem.role),
                     label: sem.label.clone(),
                     value: sem.value.clone(),
                     focusable: sem.focusable,
-                    x, y, width: w, height: h,
+                    x,
+                    y,
+                    width: w,
+                    height: h,
                 });
             }
         }
@@ -1168,18 +1207,30 @@ fn handle_tap_text(
         let mut found = None;
         for (id, node) in &ir.nodes {
             let txt = match &node.op {
-                fission_ir::Op::Paint(fission_ir::PaintOp::DrawText { text: t, .. }) => Some(t.as_str()),
+                fission_ir::Op::Paint(fission_ir::PaintOp::DrawText { text: t, .. }) => {
+                    Some(t.as_str())
+                }
                 fission_ir::Op::Paint(fission_ir::PaintOp::DrawRichText { runs, .. }) => {
                     let combined: String = runs.iter().map(|r| r.text.clone()).collect();
-                    if combined.contains(text) { Some("") } else { None }
+                    if combined.contains(text) {
+                        Some("")
+                    } else {
+                        None
+                    }
                 }
                 _ => None,
             };
             if let Some(t) = txt {
                 if t.contains(text) || t.is_empty() {
                     let check_id = node.parent.unwrap_or(*id);
-                    if let Some(rect) = snap.get_node_rect(check_id).or_else(|| snap.get_node_rect(*id)) {
-                        found = Some((rect.x() + rect.width() / 2.0, rect.y() + rect.height() / 2.0));
+                    if let Some(rect) = snap
+                        .get_node_rect(check_id)
+                        .or_else(|| snap.get_node_rect(*id))
+                    {
+                        found = Some((
+                            rect.x() + rect.width() / 2.0,
+                            rect.y() + rect.height() / 2.0,
+                        ));
                         break;
                     }
                 }
@@ -1187,14 +1238,32 @@ fn handle_tap_text(
         }
         if let Some((cx, cy)) = found {
             let point = LayoutPoint::new(cx, cy);
-            let _ = runtime.handle_input(InputEvent::Pointer(PointerEvent::Down { point, button: PointerButton::Primary }), ir, snap);
-            let _ = runtime.handle_input(InputEvent::Pointer(PointerEvent::Up { point, button: PointerButton::Primary }), ir, snap);
+            let _ = runtime.handle_input(
+                InputEvent::Pointer(PointerEvent::Down {
+                    point,
+                    button: PointerButton::Primary,
+                }),
+                ir,
+                snap,
+            );
+            let _ = runtime.handle_input(
+                InputEvent::Pointer(PointerEvent::Up {
+                    point,
+                    button: PointerButton::Primary,
+                }),
+                ir,
+                snap,
+            );
             TestResponse::Ok {}
         } else {
-            TestResponse::Error { message: format!("text '{}' not found", text) }
+            TestResponse::Error {
+                message: format!("text '{}' not found", text),
+            }
         }
     } else {
-        TestResponse::Error { message: "no frame rendered yet".into() }
+        TestResponse::Error {
+            message: "no frame rendered yet".into(),
+        }
     }
 }
 
@@ -1332,8 +1401,7 @@ impl<S: AppState + Default, W: Widget<S> + 'static> DesktopApp<S, W> {
                 Option<ActionEnvelope>,
                 mpsc::Sender<EffectResult>,
                 EventLoopProxy<TestEvent>,
-            )
-            + Send
+            ) + Send
             + Sync
             + 'static,
     {
@@ -1418,6 +1486,8 @@ impl<S: AppState + Default, W: Widget<S> + 'static> DesktopApp<S, W> {
 
         let mut scene = Scene::new();
         let mut retained_scene_cache = RetainedSceneCache::default();
+        let mut texture_compositor =
+            TextureLayerCompositor::new(&device_handle.device, wgpu::TextureFormat::Rgba8Unorm);
 
         window.request_redraw();
 
@@ -1450,8 +1520,7 @@ impl<S: AppState + Default, W: Widget<S> + 'static> DesktopApp<S, W> {
             .filter(|v| *v > 0)
             .map(|v| v.min(max_fps))
             .unwrap_or(15);
-        let repeat_animation_frame =
-            Duration::from_secs_f32(1.0 / repeat_animation_fps as f32);
+        let repeat_animation_frame = Duration::from_secs_f32(1.0 / repeat_animation_fps as f32);
         let resize_fps = std::env::var("FISSION_RESIZE_FPS")
             .ok()
             .and_then(|v| v.parse::<u32>().ok())
@@ -1496,14 +1565,15 @@ impl<S: AppState + Default, W: Widget<S> + 'static> DesktopApp<S, W> {
         // Test control (enabled via FISSION_TEST_CONTROL_PORT env var).
         // The TCP server injects TestEvents via the EventLoopProxy and receives
         // query responses through a dedicated mpsc channel.
-        let test_response_tx: Option<test_control::ResponseSender> = std::env::var("FISSION_TEST_CONTROL_PORT")
-            .ok()
-            .and_then(|v| v.parse::<u16>().ok())
-            .map(|port| {
-                let (resp_tx, resp_rx) = test_control::create_response_channel();
-                test_control::spawn_server(port, event_proxy.clone(), resp_rx);
-                resp_tx
-            });
+        let test_response_tx: Option<test_control::ResponseSender> =
+            std::env::var("FISSION_TEST_CONTROL_PORT")
+                .ok()
+                .and_then(|v| v.parse::<u16>().ok())
+                .map(|port| {
+                    let (resp_tx, resp_rx) = test_control::create_response_channel();
+                    test_control::spawn_server(port, event_proxy.clone(), resp_rx);
+                    resp_tx
+                });
         // Pending screenshot/pump: path + whether it needs a screenshot (vs pump).
         let mut pending_screenshot_path: Option<String> = None;
         // Simulated viewport size override for test resize events.
@@ -2389,23 +2459,13 @@ impl<S: AppState + Default, W: Widget<S> + 'static> DesktopApp<S, W> {
                                     }
                                 }
 
-                                scene.reset();
-                                let mut renderer_wrapper =
-                                    VelloRenderer::new(
-                                        &mut scene,
-                                        measurer.clone(),
-                                        &mut retained_scene_cache,
-                                        scale_factor,
-                                    );
-
-                                match pipeline.render_current(
+                                match pipeline.prepare_current(
                                     LayoutSize {
                                         width: pending_layout_viewport.0,
                                         height: pending_layout_viewport.1,
                                     },
                                     viewport,
                                     pending_resize.is_some() && !apply_resize_layout,
-                                    &mut renderer_wrapper,
                                     &runtime.runtime_state.scroll,
                                     &runtime.runtime_state.animation,
                                     &runtime.runtime_state.video,
@@ -2418,22 +2478,57 @@ impl<S: AppState + Default, W: Widget<S> + 'static> DesktopApp<S, W> {
                                             .expect("failed to get texture");
                                         let device_handle = &render_cx.devices[surface.dev_id];
 
-                                        let render_params = vello::RenderParams {
-                                            base_color: vello::peniko::Color::from_rgb8(30, 30, 30),
-                                            width: surface_size.width,
-                                            height: surface_size.height,
-                                            antialiasing_method: vello::AaConfig::Area,
-                                        };
+                                        let texture_plans = pipeline.texture_compositor_plans();
+                                        let use_texture_compositor =
+                                            pending_resize.is_none() || apply_resize_layout;
+                                        if !use_texture_compositor || texture_plans.is_empty() {
+                                            let render_params = vello::RenderParams {
+                                                base_color: vello::peniko::Color::from_rgb8(
+                                                    30, 30, 30,
+                                                ),
+                                                width: surface_size.width,
+                                                height: surface_size.height,
+                                                antialiasing_method: vello::AaConfig::Area,
+                                            };
 
-                                        vello_renderer
-                                            .render_to_texture(
-                                                &device_handle.device,
-                                                &device_handle.queue,
-                                                &scene,
-                                                &surface.target_view,
-                                                &render_params,
-                                            )
-                                            .expect("failed to render");
+                                            scene.reset();
+                                            let retained_scene = pipeline
+                                                .retained_scene()
+                                                .expect("retained render scene missing before render");
+                                            let mut renderer_wrapper = VelloRenderer::new(
+                                                &mut scene,
+                                                measurer.clone(),
+                                                &mut retained_scene_cache,
+                                                scale_factor,
+                                            );
+                                            renderer_wrapper
+                                                .render_scene(retained_scene)
+                                                .expect("failed to encode retained scene");
+                                            vello_renderer
+                                                .render_to_texture(
+                                                    &device_handle.device,
+                                                    &device_handle.queue,
+                                                    &scene,
+                                                    &surface.target_view,
+                                                    &render_params,
+                                                )
+                                                .expect("failed to render");
+                                        } else {
+                                            texture_compositor
+                                                .render_layers(
+                                                    &device_handle.device,
+                                                    &device_handle.queue,
+                                                    &mut vello_renderer,
+                                                    &mut retained_scene_cache,
+                                                    measurer.clone(),
+                                                    scale_factor,
+                                                    surface_size.width,
+                                                    surface_size.height,
+                                                    texture_plans,
+                                                    &surface.target_view,
+                                                )
+                                                .expect("failed to composite texture layers");
+                                        }
 
                                         for (_, _rect, payload) in &pipeline.scene_3d_surfaces {
                                             if let Ok(primitives) =
@@ -2777,9 +2872,11 @@ fn gpu_screenshot(
     queue.submit(Some(encoder.finish()));
 
     let (tx, rx) = std::sync::mpsc::channel();
-    staging.slice(..).map_async(wgpu::MapMode::Read, move |result| {
-        let _ = tx.send(result);
-    });
+    staging
+        .slice(..)
+        .map_async(wgpu::MapMode::Read, move |result| {
+            let _ = tx.send(result);
+        });
     let _ = device.poll(wgpu::PollType::Wait);
 
     match rx.recv() {
@@ -2817,10 +2914,7 @@ fn gpu_screenshot(
     }
 }
 
-fn recreate_target_texture(
-    surface: &mut RenderSurface,
-    render_cx: &RenderContext,
-) {
+fn recreate_target_texture(surface: &mut RenderSurface, render_cx: &RenderContext) {
     let device = &render_cx.devices[surface.dev_id].device;
     let size = wgpu::Extent3d {
         width: surface.config.width.max(1),
@@ -2892,16 +2986,8 @@ mod tests {
         resize.note_resize(now);
 
         assert!(resize.is_live(now + Duration::from_millis(30)));
-        assert!(!resize.should_apply_layout(
-            now + Duration::from_millis(30),
-            true,
-            false
-        ));
-        assert!(resize.should_apply_layout(
-            now + Duration::from_millis(95),
-            true,
-            false
-        ));
+        assert!(!resize.should_apply_layout(now + Duration::from_millis(30), true, false));
+        assert!(resize.should_apply_layout(now + Duration::from_millis(95), true, false));
     }
 
     #[test]
@@ -2911,10 +2997,6 @@ mod tests {
         let now = std::time::Instant::now();
         resize.note_resize(now);
 
-        assert!(resize.should_apply_layout(
-            now + Duration::from_millis(10),
-            true,
-            true
-        ));
+        assert!(resize.should_apply_layout(now + Duration::from_millis(10), true, true));
     }
 }
