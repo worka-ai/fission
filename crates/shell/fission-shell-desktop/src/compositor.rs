@@ -8,12 +8,10 @@ use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 use vello::wgpu;
 use vello::{RenderParams, Renderer as VelloSceneRenderer, Scene};
-use wgpu::util::DeviceExt;
-
 use crate::pipeline::CompositorTexturePlan;
 
 #[repr(C)]
-#[derive(Clone, Copy, Pod, Zeroable)]
+#[derive(Clone, Copy, PartialEq, Pod, Zeroable)]
 struct LayerUniform {
     rect: [f32; 4],
     clip: [f32; 4],
@@ -26,10 +24,13 @@ struct LayerUniform {
 struct CachedLayerTexture {
     texture: wgpu::Texture,
     view: wgpu::TextureView,
+    uniform_buffer: wgpu::Buffer,
+    bind_group: wgpu::BindGroup,
     width: u32,
     height: u32,
     content_key: u64,
     base: Option<CachedBaseTexture>,
+    last_uniform: Option<LayerUniform>,
     last_used_frame: u64,
 }
 
@@ -42,8 +43,7 @@ struct CachedBaseTexture {
 }
 
 struct DrawBatch {
-    _uniform_buffer: wgpu::Buffer,
-    bind_group: wgpu::BindGroup,
+    layer_key: u64,
     clip: (u32, u32, u32, u32),
 }
 
@@ -304,7 +304,9 @@ impl TextureLayerCompositor {
             })
         };
         if full_target_redraw || damage_scissor.is_some() {
+            let root_layers = self.root_layers.clone();
             let draw_batches = self.build_layer_draw_batches(
+                queue,
                 device,
                 scale_factor,
                 viewport_width,
@@ -313,7 +315,7 @@ impl TextureLayerCompositor {
                 root_transform,
                 1.0,
                 None,
-                &self.root_layers,
+                &root_layers,
                 damage_scissor,
             );
             self.draw_batches_to_view(
@@ -498,10 +500,22 @@ impl TextureLayerCompositor {
         {
             let cached = self.textures.entry(plan.key).or_insert_with(|| {
                 created = true;
-                create_cached_texture(device, texture_width, texture_height)
+                create_cached_texture(
+                    device,
+                    &self.bind_group_layout,
+                    &self.sampler,
+                    texture_width,
+                    texture_height,
+                )
             });
             if cached.width != texture_width || cached.height != texture_height {
-                *cached = create_cached_texture(device, texture_width, texture_height);
+                *cached = create_cached_texture(
+                    device,
+                    &self.bind_group_layout,
+                    &self.sampler,
+                    texture_width,
+                    texture_height,
+                );
                 created = true;
             }
             cached.last_used_frame = self.frame_index;
@@ -559,11 +573,6 @@ impl TextureLayerCompositor {
             }
 
             if !plan.children.is_empty() {
-                let target_view = &self
-                    .textures
-                    .get(&plan.key)
-                    .expect("missing cached compositor layer")
-                    .view;
                 let local_clip = if can_partial_recompose {
                     child_damage_local.map(|rect| {
                         logical_rect_to_physical_scissor(
@@ -577,6 +586,7 @@ impl TextureLayerCompositor {
                     None
                 };
                 let draw_batches = self.build_layer_draw_batches(
+                    queue,
                     device,
                     scale_factor,
                     texture_width,
@@ -588,6 +598,11 @@ impl TextureLayerCompositor {
                     &state.children,
                     None,
                 );
+                let target_view = &self
+                    .textures
+                    .get(&plan.key)
+                    .expect("missing cached compositor layer")
+                    .view;
                 self.draw_batches_to_view(
                     device,
                     queue,
@@ -621,7 +636,8 @@ impl TextureLayerCompositor {
     }
 
     fn build_layer_draw_batches(
-        &self,
+        &mut self,
+        queue: &wgpu::Queue,
         device: &wgpu::Device,
         scale_factor: f64,
         viewport_width: u32,
@@ -635,9 +651,20 @@ impl TextureLayerCompositor {
     ) -> Vec<DrawBatch> {
         let mut batches = Vec::with_capacity(layer_keys.len());
         for key in layer_keys {
-            let Some(layer) = self.layers.get(key) else {
+            let Some(layer) = self.layers.get(key).cloned() else {
                 continue;
             };
+            if let (Some(extra), Some(last_draw_rect)) = (extra_scissor, layer.last_draw_rect) {
+                let draw_scissor = logical_rect_to_physical_scissor(
+                    last_draw_rect,
+                    scale_factor,
+                    viewport_width,
+                    viewport_height,
+                );
+                if intersect_scissor_optional(Some(draw_scissor), Some(extra)).is_none() {
+                    continue;
+                }
+            }
             let localized = localize_world_transform(layer.transform, target_origin);
             let combined = combine_transforms(inherited_transform, localized);
             let clip_transform = if layer.transform_clip {
@@ -668,6 +695,7 @@ impl TextureLayerCompositor {
 
             if !layer.has_texture {
                 batches.extend(self.build_layer_draw_batches(
+                    queue,
                     device,
                     scale_factor,
                     viewport_width,
@@ -682,18 +710,17 @@ impl TextureLayerCompositor {
                 continue;
             }
 
-            let Some(cached) = self.textures.get(key) else {
+            let (clip_local, clip_shape) =
+                local_clip_mask(layer.clip.as_ref(), layer.bounds, scale_factor);
+            let Some(cached) = self.textures.get_mut(key) else {
                 continue;
             };
-
             let rect = [
                 ((layer.bounds.origin.x - target_origin.x) as f64 * scale_factor) as f32,
                 ((layer.bounds.origin.y - target_origin.y) as f64 * scale_factor) as f32,
                 cached.width as f32,
                 cached.height as f32,
             ];
-            let (clip_local, clip_shape) =
-                local_clip_mask(layer.clip.as_ref(), layer.bounds, scale_factor);
             let uniform = LayerUniform {
                 rect,
                 clip: [clip.0 as f32, clip.1 as f32, clip.2 as f32, clip.3 as f32],
@@ -707,32 +734,12 @@ impl TextureLayerCompositor {
                 ],
                 transform: matrix_to_rows(scale_transform(combined, scale_factor)),
             };
-            let uniform_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-                label: Some("fission-compositor uniform"),
-                contents: bytemuck::bytes_of(&uniform),
-                usage: wgpu::BufferUsages::UNIFORM,
-            });
-            let bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
-                label: Some("fission-compositor bind group"),
-                layout: &self.bind_group_layout,
-                entries: &[
-                    wgpu::BindGroupEntry {
-                        binding: 0,
-                        resource: wgpu::BindingResource::TextureView(&cached.view),
-                    },
-                    wgpu::BindGroupEntry {
-                        binding: 1,
-                        resource: wgpu::BindingResource::Sampler(&self.sampler),
-                    },
-                    wgpu::BindGroupEntry {
-                        binding: 2,
-                        resource: uniform_buffer.as_entire_binding(),
-                    },
-                ],
-            });
+            if cached.last_uniform != Some(uniform) {
+                queue.write_buffer(&cached.uniform_buffer, 0, bytemuck::bytes_of(&uniform));
+                cached.last_uniform = Some(uniform);
+            }
             batches.push(DrawBatch {
-                _uniform_buffer: uniform_buffer,
-                bind_group,
+                layer_key: *key,
                 clip,
             });
         }
@@ -768,15 +775,18 @@ impl TextureLayerCompositor {
             });
             pass.set_pipeline(&self.pipeline);
             for batch in &draw_batches {
-                pass.set_scissor_rect(
-                    batch.clip.0,
-                    batch.clip.1,
-                    batch.clip.2.max(1),
-                    batch.clip.3.max(1),
-                );
-                pass.set_bind_group(0, &batch.bind_group, &[]);
-                pass.draw(0..4, 0..1);
-            }
+            pass.set_scissor_rect(
+                batch.clip.0,
+                batch.clip.1,
+                batch.clip.2.max(1),
+                batch.clip.3.max(1),
+            );
+            let Some(cached) = self.textures.get(&batch.layer_key) else {
+                continue;
+            };
+            pass.set_bind_group(0, &cached.bind_group, &[]);
+            pass.draw(0..4, 0..1);
+        }
         }
         queue.submit(Some(encoder.finish()));
     }
@@ -1191,7 +1201,13 @@ fn multiply_matrix(a: [f32; 16], b: [f32; 16]) -> [f32; 16] {
     out
 }
 
-fn create_cached_texture(device: &wgpu::Device, width: u32, height: u32) -> CachedLayerTexture {
+fn create_cached_texture(
+    device: &wgpu::Device,
+    bind_group_layout: &wgpu::BindGroupLayout,
+    sampler: &wgpu::Sampler,
+    width: u32,
+    height: u32,
+) -> CachedLayerTexture {
     let texture = device.create_texture(&wgpu::TextureDescriptor {
         label: Some("fission-compositor layer texture"),
         size: wgpu::Extent3d {
@@ -1211,13 +1227,40 @@ fn create_cached_texture(device: &wgpu::Device, width: u32, height: u32) -> Cach
         view_formats: &[],
     });
     let view = texture.create_view(&wgpu::TextureViewDescriptor::default());
+    let uniform_buffer = device.create_buffer(&wgpu::BufferDescriptor {
+        label: Some("fission-compositor uniform"),
+        size: std::mem::size_of::<LayerUniform>() as u64,
+        usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+        mapped_at_creation: false,
+    });
+    let bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
+        label: Some("fission-compositor bind group"),
+        layout: bind_group_layout,
+        entries: &[
+            wgpu::BindGroupEntry {
+                binding: 0,
+                resource: wgpu::BindingResource::TextureView(&view),
+            },
+            wgpu::BindGroupEntry {
+                binding: 1,
+                resource: wgpu::BindingResource::Sampler(sampler),
+            },
+            wgpu::BindGroupEntry {
+                binding: 2,
+                resource: uniform_buffer.as_entire_binding(),
+            },
+        ],
+    });
     CachedLayerTexture {
         texture,
         view,
+        uniform_buffer,
+        bind_group,
         width,
         height,
         content_key: 0,
         base: None,
+        last_uniform: None,
         last_used_frame: 0,
     }
 }

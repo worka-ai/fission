@@ -1651,6 +1651,7 @@ fn build_local_paint_list(
             size,
             color,
             underline,
+            wrap,
             caret_index,
         }) => {
             list.push(DisplayOp::DrawText {
@@ -1666,10 +1667,15 @@ fn build_local_paint_list(
                 bounds: rect,
                 node_id: Some(node_id),
                 underline: *underline,
+                wrap: *wrap,
                 caret_index: *caret_index,
             });
         }
-        Op::Paint(fission_ir::PaintOp::DrawRichText { runs, caret_index }) => {
+        Op::Paint(fission_ir::PaintOp::DrawRichText {
+            runs,
+            wrap,
+            caret_index,
+        }) => {
             let render_runs = runs
                 .iter()
                 .map(|r| fission_render::TextRun {
@@ -1698,6 +1704,7 @@ fn build_local_paint_list(
                 position: rect.origin,
                 bounds: rect,
                 node_id: Some(node_id),
+                wrap: *wrap,
                 caret_index: *caret_index,
             });
         }

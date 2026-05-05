@@ -173,6 +173,7 @@ impl Lower for Radio {
                     size: tokens.typography.body_medium_size,
                     color: text_color,
                     underline: false,
+                    wrap: false,
                     caret_index: None,
                 }),
             )

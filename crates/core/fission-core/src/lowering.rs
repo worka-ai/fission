@@ -379,6 +379,7 @@ pub fn build_layout_tree(ir: &CoreIR, env: &Env) -> Vec<LayoutInputNode> {
                 size,
                 color,
                 underline,
+                wrap: _,
                 caret_index: _,
             }) => {
                 let (
@@ -427,6 +428,7 @@ pub fn build_layout_tree(ir: &CoreIR, env: &Env) -> Vec<LayoutInputNode> {
             }
             Op::Paint(PaintOp::DrawRichText {
                 runs,
+                wrap: _,
                 caret_index: _,
             }) => {
                 let (

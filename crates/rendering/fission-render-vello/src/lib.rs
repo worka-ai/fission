@@ -356,6 +356,7 @@ impl<'a> VelloRenderer<'a> {
         base_size: f32,
         base_color: RenderColor,
         underline: bool,
+        wrap: bool,
         position: fission_render::LayoutPoint,
         bounds: fission_render::LayoutRect,
         caret_index: Option<usize>,
@@ -366,7 +367,7 @@ impl<'a> VelloRenderer<'a> {
             let layout = self.measurer.get_layout(
                 text,
                 base_size,
-                if bounds.width() > 0.0 {
+                if wrap && bounds.width() > 0.0 {
                     Some(bounds.width() as f32)
                 } else {
                     None
@@ -444,7 +445,7 @@ impl<'a> VelloRenderer<'a> {
             base_size,
             base_color,
             styles,
-            if bounds.width() > 0.0 {
+            if wrap && bounds.width() > 0.0 {
                 Some(bounds.width() as f32)
             } else {
                 None
@@ -824,6 +825,7 @@ impl<'a> VelloRenderer<'a> {
                     size,
                     color,
                     underline,
+                    wrap,
                     position,
                     bounds,
                     caret_index,
@@ -834,6 +836,7 @@ impl<'a> VelloRenderer<'a> {
                         *size,
                         *color,
                         *underline,
+                        *wrap,
                         *position,
                         *bounds,
                         *caret_index,
@@ -844,6 +847,7 @@ impl<'a> VelloRenderer<'a> {
                     runs,
                     position,
                     bounds,
+                    wrap,
                     caret_index,
                     ..
                 } => {
@@ -858,6 +862,7 @@ impl<'a> VelloRenderer<'a> {
                                 first.style.font_size,
                                 first.style.color,
                                 first.style.underline,
+                                *wrap,
                                 *position,
                                 *bounds,
                                 *caret_index,
@@ -895,6 +900,7 @@ impl<'a> VelloRenderer<'a> {
                         base_size,
                         base_color,
                         false,
+                        *wrap,
                         *position,
                         *bounds,
                         *caret_index,

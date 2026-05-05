@@ -32,6 +32,25 @@ fn screenshot_dir() -> String {
     dir
 }
 
+fn differing_pixels(path_a: &str, path_b: &str, x0: u32, y0: u32, x1: u32, y1: u32) -> usize {
+    let a = image::open(path_a).expect("open first screenshot").to_rgba8();
+    let b = image::open(path_b).expect("open second screenshot").to_rgba8();
+    let width = a.width().min(b.width());
+    let height = a.height().min(b.height());
+    let x1 = x1.min(width);
+    let y1 = y1.min(height);
+
+    let mut diff = 0usize;
+    for y in y0.min(height)..y1 {
+        for x in x0.min(width)..x1 {
+            if a.get_pixel(x, y) != b.get_pixel(x, y) {
+                diff += 1;
+            }
+        }
+    }
+    diff
+}
+
 #[test]
 #[ignore]
 fn inbox_initial_render() {
@@ -178,6 +197,65 @@ fn compose_recipient_typing_shows_suggestions() {
 
     client.assert_text_visible("alice@example.com").expect(
         "typing in the compose recipient field should show the inline suggestion popup",
+    );
+
+    client.quit().expect("quit");
+    let _ = child.wait();
+}
+
+#[test]
+#[ignore]
+fn wide_resize_rebuilds_responsive_sidebar() {
+    let control_port = reserve_control_port();
+    let mut child = launch_inbox(control_port);
+    let client = LiveTestClient::connect(control_port);
+    client.wait_for_ready(20_000).expect("inbox did not start");
+    client.wait(1_500).expect("wait");
+
+    let dir = screenshot_dir();
+    client
+        .simulate_resize(1400, 900)
+        .expect("resize inbox to wide viewport");
+    client.pump().expect("pump after resize");
+    client.wait(700).expect("wait for responsive rebuild");
+    client
+        .screenshot(&format!("{}/09_wide_sidebar.png", dir))
+        .expect("wide sidebar screenshot");
+    client
+        .assert_text_visible("Synced")
+        .expect("responsive right sidebar should appear after wide resize");
+
+    client.quit().expect("quit");
+    let _ = child.wait();
+}
+
+#[test]
+#[ignore]
+fn wide_sidebar_sync_indicator_animates_visibly() {
+    let control_port = reserve_control_port();
+    let mut child = launch_inbox(control_port);
+    let client = LiveTestClient::connect(control_port);
+    client.wait_for_ready(20_000).expect("inbox did not start");
+    client.wait(1_500).expect("wait");
+
+    let dir = screenshot_dir();
+    client
+        .simulate_resize(1400, 900)
+        .expect("resize inbox to wide viewport");
+    client.pump().expect("pump after resize");
+    client.wait(700).expect("wait for responsive rebuild");
+
+    let first = format!("{}/11_sync_anim_a.png", dir);
+    let second = format!("{}/12_sync_anim_b.png", dir);
+    client.screenshot(&first).expect("first sync screenshot");
+    client.wait(900).expect("wait for animation frame");
+    client.pump().expect("pump later animation frame");
+    client.screenshot(&second).expect("second sync screenshot");
+
+    let diff = differing_pixels(&first, &second, 1080, 0, 1390, 90);
+    assert!(
+        diff > 40,
+        "wide sidebar sync indicator should animate visibly; differing pixels in sync card crop={diff}"
     );
 
     client.quit().expect("quit");

@@ -685,6 +685,7 @@ fn generate_display_list_with_visited(
                     size,
                     color,
                     underline,
+                    wrap,
                     caret_index,
                 }) => {
                     list.push(DisplayOp::DrawText {
@@ -700,10 +701,15 @@ fn generate_display_list_with_visited(
                         bounds: geom.rect,
                         node_id: Some(node_id),
                         underline: *underline,
+                        wrap: *wrap,
                         caret_index: *caret_index,
                     });
                 }
-                fission_ir::Op::Paint(fission_ir::PaintOp::DrawRichText { runs, caret_index }) => {
+                fission_ir::Op::Paint(fission_ir::PaintOp::DrawRichText {
+                    runs,
+                    wrap,
+                    caret_index,
+                }) => {
                     list.push(DisplayOp::DrawRichText {
                         runs: runs
                             .iter()
@@ -732,6 +738,7 @@ fn generate_display_list_with_visited(
                         position: LayoutPoint::new(geom.rect.x(), geom.rect.y()),
                         bounds: geom.rect,
                         node_id: Some(node_id),
+                        wrap: *wrap,
                         caret_index: *caret_index,
                     });
                 }

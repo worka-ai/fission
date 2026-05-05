@@ -115,6 +115,7 @@ pub enum DisplayOp {
         bounds: LayoutRect,
         node_id: Option<NodeId>,
         underline: bool,
+        wrap: bool,
         caret_index: Option<usize>,
     },
     DrawRichText {
@@ -122,6 +123,7 @@ pub enum DisplayOp {
         position: LayoutPoint,
         bounds: LayoutRect,
         node_id: Option<NodeId>,
+        wrap: bool,
         caret_index: Option<usize>,
     },
     DrawImage {

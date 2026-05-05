@@ -306,6 +306,7 @@ impl LowerDyn for EditorRenderNode {
                     size: self.font_size,
                     color: GUTTER_COLOR,
                     underline: false,
+                    wrap: false,
                     caret_index: None,
                 }),
             )
@@ -371,25 +372,27 @@ impl LowerDyn for EditorRenderNode {
                 cx.next_node_id(),
                 Op::Paint(PaintOp::DrawRichText {
                     runs,
+                    wrap: self.wraps_softly(),
                     caret_index: None,
                 }),
             )
             .build(cx);
 
+            let code_box_width = self.code_box_width_for_visual_line(visual_line, char_width);
             let code_box_id = {
                 let id = cx.next_node_id();
                 let mut b = NodeBuilder::new(
                     id,
                     Op::Layout(LayoutOp::Box {
-                        width: None,
+                        width: code_box_width,
                         height: Some(self.line_height),
                         min_width: None,
                         max_width: None,
                         min_height: None,
                         max_height: None,
                         padding: [0.0; 4],
-                        flex_grow: 1.0,
-                        flex_shrink: 1.0,
+                        flex_grow: if self.wraps_softly() { 1.0 } else { 0.0 },
+                        flex_shrink: if self.wraps_softly() { 1.0 } else { 0.0 },
                         aspect_ratio: None,
                     }),
                 );
@@ -669,6 +672,18 @@ impl EditorRenderNode {
 
     fn wraps_softly(&self) -> bool {
         self.wrap_mode == WrapMode::SoftWrap && self.wrap_columns > 0
+    }
+
+    fn code_box_width_for_visual_line(
+        &self,
+        visual_line: &VisualLine,
+        char_width: f32,
+    ) -> Option<f32> {
+        if self.wraps_softly() {
+            None
+        } else {
+            Some((visual_line.text.chars().count().max(1) as f32 * char_width) + 4.0)
+        }
     }
 
     fn visible_visual_line_range(&self, total_visual_lines: usize) -> (usize, usize) {
@@ -1336,5 +1351,15 @@ mod tests {
         node.scroll_y = 10_000.0;
         let (first, last) = node.visible_visual_line_range(node.visual_lines().len());
         assert_eq!((first, last), (2, 3));
+    }
+
+    #[test]
+    fn no_wrap_lines_use_intrinsic_row_width() {
+        let node = render_node(&"abcdefghijkl".repeat(8), WrapMode::NoWrap, 0);
+        let visual_line = &node.visual_lines()[0];
+        let width = node
+            .code_box_width_for_visual_line(visual_line, node.font_size * 0.6)
+            .expect("no-wrap lines should report an intrinsic width");
+        assert!(width > node.viewport_width, "long no-wrap lines should extend past the viewport for clipping-based rendering");
     }
 }

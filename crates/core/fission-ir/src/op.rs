@@ -622,6 +622,10 @@ pub struct TextRun {
     pub style: TextStyle,
 }
 
+const fn text_wrap_default() -> bool {
+    true
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub enum PaintOp {
     DrawRect {
@@ -635,10 +639,14 @@ pub enum PaintOp {
         size: LayoutUnit,
         color: Color,
         underline: bool,
+        #[serde(default = "text_wrap_default")]
+        wrap: bool,
         caret_index: Option<usize>,
     },
     DrawRichText {
         runs: Vec<TextRun>,
+        #[serde(default = "text_wrap_default")]
+        wrap: bool,
         caret_index: Option<usize>,
     },
     DrawImage {
@@ -677,6 +685,7 @@ impl std::hash::Hash for PaintOp {
                 size,
                 color,
                 underline,
+                wrap,
                 caret_index,
             } => {
                 1.hash(state);
@@ -684,11 +693,17 @@ impl std::hash::Hash for PaintOp {
                 size.to_bits().hash(state);
                 color.hash(state);
                 underline.hash(state);
+                wrap.hash(state);
                 caret_index.hash(state);
             }
-            Self::DrawRichText { runs, caret_index } => {
+            Self::DrawRichText {
+                runs,
+                wrap,
+                caret_index,
+            } => {
                 2.hash(state);
                 runs.hash(state);
+                wrap.hash(state);
                 caret_index.hash(state);
             }
             Self::DrawImage { source, fit } => {

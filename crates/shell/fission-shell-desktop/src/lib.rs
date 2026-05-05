@@ -258,7 +258,7 @@ impl LiveResizeController {
         Self {
             active_until: None,
             settle_delay,
-            layout_interval: Duration::from_millis(48),
+            layout_interval: Duration::from_millis(32),
             last_layout_at: None,
         }
     }
@@ -1558,14 +1558,14 @@ impl<S: AppState + Default, W: Widget<S> + 'static> DesktopApp<S, W> {
             .and_then(|v| v.parse::<u32>().ok())
             .filter(|v| *v > 0)
             .map(|v| v.min(max_fps))
-            .unwrap_or(15);
+            .unwrap_or(10);
         let repeat_animation_frame = Duration::from_secs_f32(1.0 / repeat_animation_fps as f32);
         let resize_fps = std::env::var("FISSION_RESIZE_FPS")
             .ok()
             .and_then(|v| v.parse::<u32>().ok())
             .filter(|v| *v > 0)
             .map(|v| v.min(max_fps))
-            .unwrap_or(12);
+            .unwrap_or(30);
         let resize_frame = Duration::from_secs_f32(1.0 / resize_fps as f32);
         let resize_settle_delay = Duration::from_millis(
             std::env::var("FISSION_RESIZE_SETTLE_MS")
@@ -2382,6 +2382,20 @@ impl<S: AppState + Default, W: Widget<S> + 'static> DesktopApp<S, W> {
                                 };
                                 let resize_settled =
                                     pending_resize.is_some() && !live_resize.is_live(now);
+                                let target_viewport = LayoutSize {
+                                    width: pending_layout_viewport.0,
+                                    height: pending_layout_viewport.1,
+                                };
+                                let viewport_changed = pipeline
+                                    .last_viewport
+                                    .map(|viewport| viewport.size != target_viewport)
+                                    .unwrap_or(true);
+                                if pending_resize.is_some()
+                                    && apply_resize_layout
+                                    && viewport_changed
+                                {
+                                    invalidations.mark_build();
+                                }
                                 if resize_settled && apply_resize_layout {
                                     invalidations.mark_build();
                                 }
@@ -2389,15 +2403,9 @@ impl<S: AppState + Default, W: Widget<S> + 'static> DesktopApp<S, W> {
                                 let retained_viewport = pipeline
                                     .last_viewport
                                     .map(|viewport| viewport.size)
-                                    .unwrap_or(LayoutSize {
-                                        width: pending_layout_viewport.0,
-                                        height: pending_layout_viewport.1,
-                                    });
+                                    .unwrap_or(target_viewport);
                                 let viewport = if apply_resize_layout {
-                                    LayoutSize {
-                                        width: pending_layout_viewport.0,
-                                        height: pending_layout_viewport.1,
-                                    }
+                                    target_viewport
                                 } else {
                                     retained_viewport
                                 };

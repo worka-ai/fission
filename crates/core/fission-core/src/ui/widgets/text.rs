@@ -190,6 +190,7 @@ impl Lower for Text {
                     .color
                     .unwrap_or(cx.env.theme.tokens.colors.text_primary),
                 underline: self.underline,
+                wrap: true,
                 caret_index: None,
             }),
         )

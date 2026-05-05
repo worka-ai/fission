@@ -368,6 +368,7 @@ impl Lower for TextInput {
             cx.next_node_id(),
             Op::Paint(PaintOp::DrawRichText {
                 runs,
+                wrap: self.multiline,
                 caret_index: caret_idx,
             }),
         )

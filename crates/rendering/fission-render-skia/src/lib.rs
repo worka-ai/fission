@@ -267,11 +267,16 @@ impl<'r> SkiaRenderer<'r> {
                     color,
                     bounds,
                     underline,
+                    wrap,
                     ..
                 } => {
                     let sk_color = SkColor::from_argb(color.a, color.r, color.g, color.b);
                     // Use bounds width if available, otherwise unbounded
-                    let max_width = if bounds.width() > 0.0 { Some(bounds.width()) } else { None };
+                    let max_width = if *wrap && bounds.width() > 0.0 {
+                        Some(bounds.width())
+                    } else {
+                        None
+                    };
                     
                     let mut collection = FontCollection::new();
                     let mut provider = TypefaceFontProvider::new();
@@ -298,6 +303,7 @@ impl<'r> SkiaRenderer<'r> {
                     runs,
                     position,
                     bounds,
+                    wrap,
                     ..
                 } => {
                     let mut collection = FontCollection::new();
@@ -318,7 +324,11 @@ impl<'r> SkiaRenderer<'r> {
                     }
                     
                     let mut paragraph = paragraph_builder.build();
-                    let max_width = if bounds.width() > 0.0 { Some(bounds.width()) } else { None };
+                    let max_width = if *wrap && bounds.width() > 0.0 {
+                        Some(bounds.width())
+                    } else {
+                        None
+                    };
                     let width = max_width.unwrap_or(10000.0); 
                     paragraph.layout(width);
 

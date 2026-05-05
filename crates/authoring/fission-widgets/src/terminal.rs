@@ -486,6 +486,7 @@ impl LowerDyn for TerminalRenderNode {
                 cx.next_node_id(),
                 Op::Paint(PaintOp::DrawRichText {
                     runs: self.row_runs(line),
+                    wrap: false,
                     caret_index: None,
                 }),
             )

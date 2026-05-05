@@ -210,6 +210,7 @@ impl fission_core::ui::traits::LowerDyn for ChartLowerer {
                         a: 255,
                     },
                     underline: false,
+                    wrap: false,
                     caret_index: None,
                 });
                 let mut label_pos = fission_core::lowering::NodeBuilder::new(
@@ -245,6 +246,7 @@ impl fission_core::ui::traits::LowerDyn for ChartLowerer {
                         a: 255,
                     },
                     underline: false,
+                    wrap: false,
                     caret_index: None,
                 });
                 let mut label_pos = fission_core::lowering::NodeBuilder::new(
@@ -1199,6 +1201,7 @@ impl fission_core::ui::traits::LowerDyn for ChartLowerer {
                                 a: 255,
                             },
                             underline: false,
+                            wrap: false,
                             caret_index: None,
                         });
                         // To properly center the label we'd need bounding box of the path, but we'll omit for parity milestone
@@ -1573,6 +1576,7 @@ impl fission_core::ui::traits::LowerDyn for ChartLowerer {
                                 a: 255,
                             },
                             underline: false,
+                            wrap: false,
                             caret_index: None,
                         });
                         let mut pos_b = fission_core::lowering::NodeBuilder::new(

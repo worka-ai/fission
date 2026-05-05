@@ -1917,6 +1917,7 @@ dependencies = [
  "fission-test-driver",
  "fission-theme",
  "fission-widgets",
+ "image 0.25.9",
  "lazy_static",
  "serde",
  "serde_json",
