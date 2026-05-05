@@ -659,3 +659,51 @@ fn embedded_terminal_executes_and_renders_commands() {
     client.quit().expect("quit");
     let _ = child.wait();
 }
+
+#[test]
+#[ignore]
+fn bottom_panel_tabs_switch_visible_content() {
+    let control_port = reserve_control_port();
+    let mut child = launch_editor(control_port);
+    let client = LiveTestClient::connect(control_port);
+    client.wait_for_ready(20_000).expect("editor start");
+    client.wait(2_000).expect("wait");
+
+    let terminal_tab = client
+        .get_text()
+        .expect("get text")
+        .into_iter()
+        .filter(|item| item.text == "TERMINAL")
+        .max_by(|a, b| a.y.partial_cmp(&b.y).unwrap_or(std::cmp::Ordering::Equal))
+        .expect("bottom panel terminal tab");
+
+    let focus_x = terminal_tab.x + 180.0;
+    let focus_y = terminal_tab.y + 60.0;
+    client.tap(focus_x, focus_y).expect("focus terminal");
+    client
+        .type_text("printf 'TAB_SWITCH_OK\\n'")
+        .expect("type terminal command");
+    client.press_key("Enter", 0).expect("run command");
+    client.wait(500).expect("wait for terminal output");
+    client.pump().expect("pump after terminal output");
+    client
+        .assert_text_visible("TAB_SWITCH_OK")
+        .expect("terminal output should be visible");
+
+    client.tap_text("PROBLEMS").expect("switch to problems");
+    client.wait(300).expect("wait after problems");
+    client.pump().expect("pump after problems");
+    client
+        .assert_text_visible("No problems detected")
+        .expect("problems panel should be visible");
+
+    client.tap_text("TERMINAL").expect("switch back to terminal");
+    client.wait(300).expect("wait after terminal");
+    client.pump().expect("pump after terminal");
+    client
+        .assert_text_visible("TAB_SWITCH_OK")
+        .expect("terminal panel should be visible again");
+
+    client.quit().expect("quit");
+    let _ = child.wait();
+}

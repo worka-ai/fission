@@ -270,19 +270,13 @@ impl Widget<EditorState> for MenuBar {
         );
         let set_menu_id = set_menu.id;
 
-        // Action for dismissing menu (click outside)
-        let dismiss_menu = ActionEnvelope {
-            id: set_menu_id,
-            payload: serde_json::to_vec(&SetActiveMenu(None)).unwrap(),
-        };
-
         // ── Shared action handlers for flyout commands ──
 
-        let noop = ctx.bind(
-            Noop,
+        let dismiss_menu = ctx.bind(
+            DismissMenu,
             (|s: &mut EditorState, _, _| {
                 s.active_menu = None;
-            }) as Handler<EditorState, Noop>,
+            }) as Handler<EditorState, DismissMenu>,
         );
 
         let save_file = ctx.bind(
@@ -347,27 +341,35 @@ impl Widget<EditorState> for MenuBar {
         );
 
         let about_action = ctx.bind(
-            Noop,
-            (|s: &mut EditorState, _, _| {
-                s.status_message = Some("Fission Editor v0.1.0".into());
+            ShowMenuStatus("Fission Editor v0.1.0".into()),
+            (|s: &mut EditorState, a: ShowMenuStatus, _| {
+                s.status_message = Some(a.0);
                 s.active_menu = None;
-            }) as Handler<EditorState, Noop>,
+            }) as Handler<EditorState, ShowMenuStatus>,
         );
 
         let new_file_action = ctx.bind(
-            Noop,
-            (|s: &mut EditorState, _, _| {
-                s.status_message = Some("New File (use file tree context menu)".into());
+            ShowMenuStatus("New File (use file tree context menu)".into()),
+            (|s: &mut EditorState, a: ShowMenuStatus, _| {
+                s.status_message = Some(a.0);
                 s.active_menu = None;
-            }) as Handler<EditorState, Noop>,
+            }) as Handler<EditorState, ShowMenuStatus>,
         );
 
         let new_folder_action = ctx.bind(
-            Noop,
-            (|s: &mut EditorState, _, _| {
-                s.status_message = Some("New Folder (use file tree context menu)".into());
+            ShowMenuStatus("New Folder (use file tree context menu)".into()),
+            (|s: &mut EditorState, a: ShowMenuStatus, _| {
+                s.status_message = Some(a.0);
                 s.active_menu = None;
-            }) as Handler<EditorState, Noop>,
+            }) as Handler<EditorState, ShowMenuStatus>,
+        );
+
+        let go_to_def_action = ctx.bind(
+            GoToDefinition,
+            (|s: &mut EditorState, _, _| {
+                s.status_message = Some("Go to Definition: LSP not connected".into());
+                s.active_menu = None;
+            }) as Handler<EditorState, GoToDefinition>,
         );
 
         let go_to_line_action = ctx.bind(
@@ -473,7 +475,7 @@ impl Widget<EditorState> for MenuBar {
                 ],
                 "Go" => vec![
                     Self::flyout_item("Go to Line", go_to_line_action.clone()),
-                    Self::flyout_item("Go to Definition", noop.clone()),
+                    Self::flyout_item("Go to Definition", go_to_def_action.clone()),
                 ],
                 "Help" => vec![Self::flyout_item("About", about_action.clone())],
                 _ => vec![],
@@ -880,14 +882,6 @@ impl Widget<EditorState> for ContextMenu {
             }) as Handler<EditorState, DismissContextMenu>,
         );
 
-        let _noop = ctx.bind(
-            Noop,
-            (|s: &mut EditorState, _, _| {
-                s.context_menu_visible = false;
-                s.status_message = Some("Action (placeholder)".into());
-            }) as Handler<EditorState, Noop>,
-        );
-
         let toggle_find = ctx.bind(
             ToggleFindReplace,
             (|s: &mut EditorState, _, _| {
@@ -897,23 +891,23 @@ impl Widget<EditorState> for ContextMenu {
         );
 
         let new_file_ctx = ctx.bind(
-            Noop,
-            (|s: &mut EditorState, _, _| {
+            ShowContextStatus("New File (placeholder)".into()),
+            (|s: &mut EditorState, a: ShowContextStatus, _| {
                 s.context_menu_visible = false;
-                s.status_message = Some("New File (placeholder)".into());
-            }) as Handler<EditorState, Noop>,
+                s.status_message = Some(a.0);
+            }) as Handler<EditorState, ShowContextStatus>,
         );
 
         let new_folder_ctx = ctx.bind(
-            Noop,
-            (|s: &mut EditorState, _, _| {
+            ShowContextStatus("New Folder (placeholder)".into()),
+            (|s: &mut EditorState, a: ShowContextStatus, _| {
                 s.context_menu_visible = false;
-                s.status_message = Some("New Folder (placeholder)".into());
-            }) as Handler<EditorState, Noop>,
+                s.status_message = Some(a.0);
+            }) as Handler<EditorState, ShowContextStatus>,
         );
 
         let rename_action = ctx.bind(
-            Noop,
+            RenameContextTarget,
             (|s: &mut EditorState, _, _| {
                 s.context_menu_visible = false;
                 if let Some(target) = s.context_menu_target.clone() {
@@ -921,11 +915,11 @@ impl Widget<EditorState> for ContextMenu {
                 } else {
                     s.status_message = Some("Nothing selected to rename".into());
                 }
-            }) as Handler<EditorState, Noop>,
+            }) as Handler<EditorState, RenameContextTarget>,
         );
 
         let delete_action = ctx.bind(
-            Noop,
+            DeleteContextTarget,
             (|s: &mut EditorState, _, _| {
                 s.context_menu_visible = false;
                 if let Some(target) = s.context_menu_target.clone() {
@@ -945,7 +939,7 @@ impl Widget<EditorState> for ContextMenu {
                         }
                     }
                 }
-            }) as Handler<EditorState, Noop>,
+            }) as Handler<EditorState, DeleteContextTarget>,
         );
 
         let go_to_def = ctx.bind(

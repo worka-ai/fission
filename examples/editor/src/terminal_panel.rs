@@ -43,17 +43,19 @@ impl Widget<EditorState> for TerminalPanel {
         let is_terminal = view.state.bottom_panel_tab == BottomPanelTab::Terminal;
         let is_problems = view.state.bottom_panel_tab == BottomPanelTab::Problems;
         let set_terminal = ctx.bind(
-            crate::model::Noop,
-            (|s: &mut EditorState, _, _| {
-                s.bottom_panel_tab = BottomPanelTab::Terminal;
-                s.ensure_terminal_session();
-            })
-                as Handler<EditorState, crate::model::Noop>,
+            crate::model::SetBottomPanelTab(BottomPanelTab::Terminal),
+            (|s: &mut EditorState, a: crate::model::SetBottomPanelTab, _| {
+                s.bottom_panel_tab = a.0;
+                if a.0 == BottomPanelTab::Terminal {
+                    s.ensure_terminal_session();
+                }
+            }) as Handler<EditorState, crate::model::SetBottomPanelTab>,
         );
         let set_problems = ctx.bind(
-            crate::model::Noop,
-            (|s: &mut EditorState, _, _| s.bottom_panel_tab = BottomPanelTab::Problems)
-                as Handler<EditorState, crate::model::Noop>,
+            crate::model::SetBottomPanelTab(BottomPanelTab::Problems),
+            (|s: &mut EditorState, a: crate::model::SetBottomPanelTab, _| {
+                s.bottom_panel_tab = a.0;
+            }) as Handler<EditorState, crate::model::SetBottomPanelTab>,
         );
 
         let tab = |label: &str,

@@ -1208,10 +1208,25 @@ pub struct SetSidebarSection(pub SidebarSection);
 pub struct SaveFile;
 
 #[derive(Action, Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
-pub struct Noop;
+pub struct SaveAllFiles;
 
 #[derive(Action, Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
-pub struct SaveAllFiles;
+pub struct DismissMenu;
+
+#[derive(Action, Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
+pub struct ShowMenuStatus(pub String);
+
+#[derive(Action, Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
+pub struct SetBottomPanelTab(pub BottomPanelTab);
+
+#[derive(Action, Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
+pub struct ShowContextStatus(pub String);
+
+#[derive(Action, Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
+pub struct RenameContextTarget;
+
+#[derive(Action, Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
+pub struct DeleteContextTarget;
 
 #[derive(Action, Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
 #[serde(transparent)]
