@@ -24,9 +24,9 @@ fn port_available() -> bool {
 }
 
 fn dir() -> String {
-    let d = ".artifacts/screenshots/examples/editor/editor_widget";
-    std::fs::create_dir_all(d).ok();
-    d.to_string()
+    let d = format!("{}/../../.artifacts/screenshots/examples/editor/editor_widget", env!("CARGO_MANIFEST_DIR"));
+    std::fs::create_dir_all(&d).ok();
+    d
 }
 
 #[allow(dead_code)]

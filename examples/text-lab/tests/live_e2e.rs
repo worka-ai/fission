@@ -32,7 +32,7 @@ fn combobox_popup_appears_and_dismisses_after_selection() {
     client.wait(1_500).expect("initial wait");
 
     let screenshot_dir = std::env::var("FISSION_SCREENSHOT_DIR")
-        .unwrap_or_else(|_| ".artifacts/screenshots/examples/text-lab/text_lab_live".into());
+        .unwrap_or_else(|_| format!("{}/../../.artifacts/screenshots/examples/text-lab/text_lab_live", env!("CARGO_MANIFEST_DIR")));
     std::fs::create_dir_all(&screenshot_dir).ok();
 
     client
@@ -85,7 +85,7 @@ fn modal_remains_visible_while_typing_and_apply_stays_reachable() {
     client.wait(1_500).expect("initial wait");
 
     let screenshot_dir = std::env::var("FISSION_SCREENSHOT_DIR")
-        .unwrap_or_else(|_| ".artifacts/screenshots/examples/text-lab/text_lab_live".into());
+        .unwrap_or_else(|_| format!("{}/../../.artifacts/screenshots/examples/text-lab/text_lab_live", env!("CARGO_MANIFEST_DIR")));
     std::fs::create_dir_all(&screenshot_dir).ok();
 
     client

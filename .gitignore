@@ -18,7 +18,7 @@ crates/authoring/fission-icons/material-design-icons/
 
 # Test screenshots
 test_screenshots/
-/.artifacts/screenshots/
+/.artifacts/
 LAYOUT_ANALYSIS.md
 TEST_AUDIT.md
 TEST_STRATEGY.md

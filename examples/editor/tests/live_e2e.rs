@@ -37,9 +37,9 @@ fn launch_editor(control_port: u16) -> Child {
 }
 
 fn dir() -> String {
-    let d = ".artifacts/screenshots/examples/editor/editor_e2e";
-    std::fs::create_dir_all(d).ok();
-    d.to_string()
+    let d = format!("{}/../../.artifacts/screenshots/examples/editor/editor_e2e", env!("CARGO_MANIFEST_DIR"));
+    std::fs::create_dir_all(&d).ok();
+    d
 }
 
 fn tap_first_visible_text(client: &LiveTestClient, options: &[&str]) -> String {

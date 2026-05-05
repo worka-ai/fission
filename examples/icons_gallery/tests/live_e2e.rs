@@ -32,7 +32,7 @@ fn scrolling_changes_the_visible_window() {
     client.wait(1_500).expect("initial wait");
 
     let screenshot_dir = std::env::var("FISSION_SCREENSHOT_DIR")
-        .unwrap_or_else(|_| ".artifacts/screenshots/examples/icons_gallery/icons_gallery_live".into());
+        .unwrap_or_else(|_| format!("{}/../../.artifacts/screenshots/examples/icons_gallery/icons_gallery_live", env!("CARGO_MANIFEST_DIR")));
     std::fs::create_dir_all(&screenshot_dir).ok();
     let before_path = format!("{}/01_before_scroll.png", screenshot_dir);
     let after_path = format!("{}/02_after_scroll.png", screenshot_dir);
@@ -96,7 +96,7 @@ fn large_scroll_does_not_blank_the_visible_list() {
     client.wait(1_500).expect("initial wait");
 
     let screenshot_dir = std::env::var("FISSION_SCREENSHOT_DIR")
-        .unwrap_or_else(|_| ".artifacts/screenshots/examples/icons_gallery/icons_gallery_live".into());
+        .unwrap_or_else(|_| format!("{}/../../.artifacts/screenshots/examples/icons_gallery/icons_gallery_live", env!("CARGO_MANIFEST_DIR")));
     std::fs::create_dir_all(&screenshot_dir).ok();
     let after_path = format!("{}/03_after_large_scroll.png", screenshot_dir);
 

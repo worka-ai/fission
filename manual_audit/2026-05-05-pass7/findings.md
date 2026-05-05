@@ -19,7 +19,7 @@
     - `cargo_lock_opens_with_visible_content_near_the_top`
 - Editor no-wrap rendering is now clipped to the viewport width instead of painting through the minimap/sidebar.
   - `examples/editor/src/editor_render_node.rs`
-  - Manually verified in `.artifacts/screenshots/editor_e2e/26_cargo_lock_open.png`
+  - Manually verified in `.artifacts/screenshots/examples/editor/editor_e2e/26_cargo_lock_open.png`
 
 ## Inbox
 - `.artifacts/screenshots/manual_audit/2026-05-05-pass7/inbox/01_initial.png`
