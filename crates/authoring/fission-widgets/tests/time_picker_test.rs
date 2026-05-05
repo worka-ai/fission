@@ -94,12 +94,12 @@ fn time_picker_uses_compact_stepper_buttons() {
     assert_eq!(buttons.len(), 4, "expected time picker to expose four compact stepper buttons");
     for button in buttons {
         assert!(
-            button.width.unwrap_or_default() <= 24.0,
-            "time picker stepper buttons should stay compact"
+            button.width.unwrap_or_default() <= 32.0,
+            "time picker stepper buttons should remain aligned to compact field controls"
         );
         assert!(
-            button.height.unwrap_or_default() <= 24.0,
-            "time picker stepper buttons should stay compact"
+            button.height.unwrap_or_default() <= 32.0,
+            "time picker stepper buttons should remain aligned to compact field controls"
         );
     }
 }

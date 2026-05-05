@@ -49,7 +49,13 @@ impl<S: fission_core::AppState> Widget<S> for Drawer {
         }
 
         let tokens = &view.env.theme.tokens;
-        let width = self.width.unwrap_or(300.0);
+        let viewport = view.viewport_size();
+        let max_panel_width = if viewport.width.is_finite() && viewport.width > 0.0 {
+            (viewport.width - 24.0).max(180.0)
+        } else {
+            self.width.unwrap_or(300.0)
+        };
+        let width = self.width.unwrap_or(300.0).min(max_panel_width);
 
         // Backdrop
         let backdrop = GestureDetector {

@@ -27,10 +27,16 @@ fn test_number_input_structure() {
 
     let node = input.build(&mut ctx, &view);
 
-    // Should be a Row (HStack) with 3 children
-    if let Node::Row(row) = node {
-        assert_eq!(row.children.len(), 3); // Dec, Input, Inc
-    } else {
-        panic!("NumberInput should return a Row node");
+    match node {
+        Node::Container(container) => {
+            let Some(child) = container.child else {
+                panic!("NumberInput container should wrap content");
+            };
+            let Node::Row(row) = *child else {
+                panic!("NumberInput should wrap a Row inside the field container");
+            };
+            assert_eq!(row.children.len(), 3); // Dec, Input, Inc
+        }
+        _ => panic!("NumberInput should return a field container"),
     }
 }

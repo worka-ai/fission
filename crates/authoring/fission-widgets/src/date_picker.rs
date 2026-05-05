@@ -9,6 +9,7 @@ pub struct DatePicker {
     pub id: WidgetNodeId,
     pub value: Option<NaiveDate>,
     pub is_open: bool,
+    pub width: Option<f32>,
     pub on_change: Option<Arc<dyn Fn(NaiveDate) -> ActionEnvelope + Send + Sync>>,
     pub on_toggle: Option<ActionEnvelope>,
     pub on_close: Option<ActionEnvelope>,
@@ -30,6 +31,13 @@ impl<S: fission_core::AppState> Widget<S> for DatePicker {
             .value
             .map(|d| d.format("%Y-%m-%d").to_string())
             .unwrap_or_default();
+        let viewport = view.viewport_size();
+        let preferred_width = self.width.unwrap_or(164.0);
+        let clamped_width = if viewport.width.is_finite() && viewport.width > 0.0 {
+            preferred_width.min((viewport.width - 48.0).max(120.0))
+        } else {
+            preferred_width
+        };
 
         let _trigger = TextInput {
             value: text.clone(),
@@ -47,7 +55,7 @@ impl<S: fission_core::AppState> Widget<S> for DatePicker {
 
         // Wrap trigger in GestureDetector to handle click if TextInput consumes it?
         // Actually, let's use a Button for the trigger to ensure click works.
-        use fission_core::ui::{Button, ButtonVariant, Text};
+        use fission_core::ui::{Button, ButtonContentAlign, ButtonVariant, Text};
         let trigger_btn = Button {
             variant: ButtonVariant::Outline,
             child: Some(Box::new(
@@ -59,7 +67,10 @@ impl<S: fission_core::AppState> Widget<S> for DatePicker {
                 .into_node(),
             )),
             on_press: self.on_toggle.clone(),
-            width: Some(150.0),
+            width: Some(clamped_width),
+            height: Some(36.0),
+            padding: Some([12.0, 12.0, 8.0, 8.0]),
+            content_align: ButtonContentAlign::Start,
             ..Default::default()
         }
         .into_node();

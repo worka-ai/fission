@@ -70,6 +70,14 @@ impl<S: fission_core::AppState> Widget<S> for Modal {
 
         let theme = &view.env.theme.components.modal;
         let tokens = &view.env.theme.tokens;
+        let viewport = view.viewport_size();
+        let horizontal_margin = 24.0;
+        let max_dialog_width = if viewport.width.is_finite() && viewport.width > 0.0 {
+            (viewport.width - horizontal_margin * 2.0).max(280.0)
+        } else {
+            theme.max_width
+        };
+        let dialog_width = self.width.unwrap_or(theme.max_width).min(max_dialog_width);
 
         // Dimmed backdrop
         let backdrop =
@@ -174,7 +182,7 @@ impl<S: fission_core::AppState> Widget<S> for Modal {
         }
 
         let modal_card = modal_card_builder
-            .width(self.width.unwrap_or(theme.max_width))
+            .width(dialog_width)
             .padding_all(24.0)
             .into_node();
 
