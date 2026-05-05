@@ -110,6 +110,7 @@ fn main() -> anyhow::Result<()> {
             state.cwd = cwd.clone();
             state.session = TerminalSession::spawn(TerminalLaunchConfig {
                 cwd: Some(cwd.clone()),
+                program: std::env::var("SHELL").ok(),
                 ..Default::default()
             })
             .ok();

@@ -5,7 +5,7 @@ use fission_core::ui::{
 };
 use fission_core::{ActionEnvelope, BuildCtx, Handler, PortalLayer, View, Widget, WidgetNodeId};
 use fission_shell_desktop::DesktopApp;
-use fission_widgets::{Spacer, TerminalLaunchConfig, TerminalSession, VStack};
+use fission_widgets::{Spacer, VStack};
 use std::path::PathBuf;
 
 mod command_palette;
@@ -254,6 +254,9 @@ impl MenuBar {
 
 impl Widget<EditorState> for MenuBar {
     fn build(&self, ctx: &mut BuildCtx<EditorState>, view: &View<EditorState>) -> Node {
+        let viewport = view.viewport_size();
+        let flyout_width = (viewport.width - 80.0).clamp(180.0, 240.0);
+
         // Handler: set active_menu (toggle logic)
         let set_menu = ctx.bind(
             SetActiveMenu(None),
@@ -329,6 +332,7 @@ impl Widget<EditorState> for MenuBar {
                 s.terminal_visible = !s.terminal_visible;
                 if s.terminal_visible {
                     s.bottom_panel_tab = crate::model::BottomPanelTab::Terminal;
+                    s.ensure_terminal_session();
                 }
                 s.active_menu = None;
             }) as Handler<EditorState, ToggleTerminal>,
@@ -484,6 +488,8 @@ impl Widget<EditorState> for MenuBar {
                 "Help" => 180.0,
                 _ => 0.0,
             };
+            let flyout_left =
+                (left_px + 48.0).min((viewport.width - flyout_width - 16.0).max(8.0));
 
             let flyout = Container::new(
                 Column {
@@ -495,7 +501,7 @@ impl Widget<EditorState> for MenuBar {
                 }
                 .into_node(),
             )
-            .width(200.0)
+            .width(flyout_width)
             .bg(FLYOUT_BG)
             .border(FLYOUT_BORDER, 1.0)
             .border_radius(4.0)
@@ -533,7 +539,7 @@ impl Widget<EditorState> for MenuBar {
                     .into_node(),
                     // The flyout itself, positioned under the menu bar
                     Positioned {
-                        left: Some(left_px + 48.0), // offset by activity bar width
+                        left: Some(flyout_left), // offset by activity bar width
                         top: Some(28.0),
                         child: Some(Box::new(flyout)),
                         ..Default::default()
@@ -1012,6 +1018,10 @@ impl Widget<EditorState> for ContextMenu {
         };
 
         let (cx, cy) = view.state.context_menu_position;
+        let viewport = view.viewport_size();
+        let card_width = (viewport.width - 80.0).clamp(160.0, 220.0);
+        let clamped_left = cx.min((viewport.width - card_width - 16.0).max(8.0));
+        let clamped_top = cy.min((viewport.height - 220.0).max(8.0));
 
         let card = Container::new(
             VStack {
@@ -1020,7 +1030,7 @@ impl Widget<EditorState> for ContextMenu {
             }
             .into_node(),
         )
-        .width(180.0)
+        .width(card_width)
         .bg(FLYOUT_BG)
         .border(FLYOUT_BORDER, 1.0)
         .border_radius(4.0)
@@ -1055,8 +1065,8 @@ impl Widget<EditorState> for ContextMenu {
                 }
                 .into_node(),
                 Positioned {
-                    left: Some(cx),
-                    top: Some(cy),
+                    left: Some(clamped_left),
+                    top: Some(clamped_top),
                     child: Some(Box::new(card)),
                     ..Default::default()
                 }
@@ -1096,6 +1106,12 @@ struct EditorApp;
 
 impl Widget<EditorState> for EditorApp {
     fn build(&self, ctx: &mut BuildCtx<EditorState>, view: &View<EditorState>) -> Node {
+        let viewport = view.viewport_size();
+        let sidebar_width = view
+            .state
+            .sidebar_width
+            .min((viewport.width - 160.0).clamp(180.0, 360.0));
+
         // ── Menu bar (topmost) ──
         let menu_bar = MenuBar.build(ctx, view);
 
@@ -1147,7 +1163,7 @@ impl Widget<EditorState> for EditorApp {
                 }
                 .into_node(),
             )
-            .width(view.state.sidebar_width)
+            .width(sidebar_width)
             .bg(SURFACE_BG)
             .flex_shrink(0.0)
             .into_node()
@@ -1261,11 +1277,6 @@ fn main() -> anyhow::Result<()> {
             state.root_path = root_for_init.clone();
             state.tree_cache_dirty = true;
             state.refresh_git_status(); // Initial git status scan
-            state.terminal_session = TerminalSession::spawn(TerminalLaunchConfig {
-                cwd: Some(root_for_init.clone()),
-                ..Default::default()
-            })
-            .ok();
         })
         .with_sync_env(move |_state: &EditorState, env: &mut fission_core::Env| {
             env.theme = fission_theme::Theme::dark();
@@ -1313,8 +1324,18 @@ fn main() -> anyhow::Result<()> {
                     }
                 }
 
-                if let Some(session) = state.terminal_session.as_ref() {
-                    changed |= session.take_dirty();
+                if state.terminal_visible
+                    && state.bottom_panel_tab == BottomPanelTab::Terminal
+                {
+                    state.ensure_terminal_session();
+                }
+
+                if state.terminal_visible
+                    && state.bottom_panel_tab == BottomPanelTab::Terminal
+                {
+                    if let Some(session) = state.terminal_session.as_ref() {
+                        changed |= session.take_dirty();
+                    }
                 }
 
                 // Skip LSP entirely in test mode
@@ -1438,6 +1459,10 @@ fn main() -> anyhow::Result<()> {
                     }
                     fission_core::KeyCode::Char('`') => {
                         state.terminal_visible = !state.terminal_visible;
+                        if state.terminal_visible {
+                            state.bottom_panel_tab = BottomPanelTab::Terminal;
+                            state.ensure_terminal_session();
+                        }
                         true
                     }
                     // Ctrl+F: toggle find/replace

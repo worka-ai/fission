@@ -149,6 +149,9 @@ impl Widget<EditorState> for CompletionPopup {
             b: 94,
             a: 255,
         };
+        let viewport = view.viewport_size();
+        let popup_width = (viewport.width - 80.0).clamp(220.0, 360.0);
+        let popup_height = (viewport.height * 0.28).clamp(120.0, 220.0);
 
         let selected_idx = view.state.selected_completion;
 
@@ -225,7 +228,8 @@ impl Widget<EditorState> for CompletionPopup {
         // for cursor screen location; the editor surface can set this more precisely.
         let (popup_x, popup_y) = view.state.hover_position;
         // Offset slightly below the cursor line
-        let popup_y = popup_y + 18.0;
+        let popup_y = (popup_y + 18.0).min((viewport.height - popup_height - 16.0).max(8.0));
+        let popup_x = popup_x.min((viewport.width - popup_width - 16.0).max(8.0));
 
         let list = Container::new(
             Scroll {
@@ -247,8 +251,8 @@ impl Widget<EditorState> for CompletionPopup {
         .bg(bg)
         .border(border_color, 1.0)
         .border_radius(4.0)
-        .max_height(200.0)
-        .width(320.0)
+        .max_height(popup_height)
+        .width(popup_width)
         .into_node();
 
         let positioned_popup = Positioned {

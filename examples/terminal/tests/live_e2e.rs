@@ -113,7 +113,7 @@ fn terminal_alt_screen_switches_the_visible_surface() {
     focus_terminal(&client);
 
     client
-        .type_text("printf $'\\e[?1049hALT SCREEN ACTIVE\\r\\n'; sleep 1; printf $'\\e[?1049l'")
+        .type_text("printf '\\033[?1049hALT SCREEN ACTIVE\\r\\n'; sleep 1; printf '\\033[?1049l'")
         .expect("type alt-screen command");
     client
         .press_key("Enter", 0)

@@ -1,6 +1,6 @@
 use fission_core::AppState;
 use fission_macros::Action;
-use fission_widgets::TerminalSession;
+use fission_widgets::{TerminalLaunchConfig, TerminalSession};
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
 use std::io::{Read, Seek, SeekFrom, Write};
@@ -1375,6 +1375,18 @@ pub struct GitStatusEntry {
 // --- Helpers ---
 
 impl EditorState {
+    pub fn ensure_terminal_session(&mut self) {
+        if self.terminal_session.is_some() {
+            return;
+        }
+        self.terminal_session = TerminalSession::spawn(TerminalLaunchConfig {
+            cwd: Some(self.root_path.clone()),
+            program: std::env::var("SHELL").ok(),
+            ..Default::default()
+        })
+        .ok();
+    }
+
     pub fn open_file(&mut self, path: String) {
         // Check if already open
         if let Some(idx) = self.open_tabs.iter().position(|t| t.path == path) {

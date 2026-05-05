@@ -44,7 +44,10 @@ impl Widget<EditorState> for TerminalPanel {
         let is_problems = view.state.bottom_panel_tab == BottomPanelTab::Problems;
         let set_terminal = ctx.bind(
             crate::model::Noop,
-            (|s: &mut EditorState, _, _| s.bottom_panel_tab = BottomPanelTab::Terminal)
+            (|s: &mut EditorState, _, _| {
+                s.bottom_panel_tab = BottomPanelTab::Terminal;
+                s.ensure_terminal_session();
+            })
                 as Handler<EditorState, crate::model::Noop>,
         );
         let set_problems = ctx.bind(
@@ -139,15 +142,20 @@ impl Widget<EditorState> for TerminalPanel {
         .flex_shrink(0.0)
         .into_node();
 
+        let sidebar_width = view
+            .state
+            .sidebar_width
+            .min((view.viewport_size().width - 160.0).clamp(180.0, 360.0));
         let panel_width = (view.viewport_size().width
             - 48.0
             - if view.state.sidebar_visible {
-                view.state.sidebar_width + 1.0
+                sidebar_width + 1.0
             } else {
                 0.0
             })
-        .max(320.0);
-        let terminal_height = (view.state.terminal_height - 28.0).max(72.0);
+        .max(280.0);
+        let terminal_height = (view.state.terminal_height.min((view.viewport_size().height * 0.45).max(120.0)) - 28.0)
+            .max(72.0);
 
         let content = if is_terminal {
             if let Some(session) = view.state.terminal_session.clone() {
@@ -188,7 +196,7 @@ impl Widget<EditorState> for TerminalPanel {
             }
             .into_node(),
         )
-        .height(view.state.terminal_height)
+        .height(view.state.terminal_height.min((view.viewport_size().height * 0.45).max(120.0)))
         .bg(BG)
         .flex_shrink(0.0)
         .into_node()

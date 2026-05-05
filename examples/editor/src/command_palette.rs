@@ -230,6 +230,9 @@ impl Widget<EditorState> for CommandPalette {
             blur_radius: 12.0,
             offset: (0.0, 4.0),
         };
+        let viewport = view.viewport_size();
+        let palette_width = (viewport.width - 80.0).clamp(280.0, 560.0);
+        let results_height = (viewport.height - 140.0).clamp(160.0, 320.0);
 
         // VS Code-style dropdown from top center
         let dropdown = Container::new(
@@ -258,7 +261,7 @@ impl Widget<EditorState> for CommandPalette {
                                 }
                                 .into_node(),
                             )),
-                            height: Some(300.0), // Max height for results
+                            height: Some(results_height),
                             show_scrollbar: true,
                             ..Default::default()
                         }
@@ -270,7 +273,7 @@ impl Widget<EditorState> for CommandPalette {
             }
             .into_node(),
         )
-        .width(480.0)
+        .width(palette_width)
         .bg(card_bg)
         .border(border, 1.0)
         .border_radius(4.0)
