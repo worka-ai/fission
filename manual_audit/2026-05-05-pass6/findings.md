@@ -12,11 +12,11 @@
 - Standalone terminal example renders command output, paste/copy selection, and alternate screen transitions correctly.
 
 ## Screenshots
-- Embedded editor terminal output: `test_screenshots/editor_e2e/24_terminal_output.png`
-- Embedded editor terminal alt-screen: `test_screenshots/editor_e2e/25_terminal_alt_screen.png`
-- Standalone terminal commands/copy: `examples/terminal/test_screenshots/terminal_live/01_terminal_commands_copy.png`
-- Standalone terminal alt-screen active: `examples/terminal/test_screenshots/terminal_live/02_alt_screen_active.png`
-- Standalone terminal alt-screen restored: `examples/terminal/test_screenshots/terminal_live/03_alt_screen_restored.png`
+- Embedded editor terminal output: `.artifacts/screenshots/editor_e2e/24_terminal_output.png`
+- Embedded editor terminal alt-screen: `.artifacts/screenshots/editor_e2e/25_terminal_alt_screen.png`
+- Standalone terminal commands/copy: `examples/terminal/.artifacts/screenshots/terminal_live/01_terminal_commands_copy.png`
+- Standalone terminal alt-screen active: `examples/terminal/.artifacts/screenshots/terminal_live/02_alt_screen_active.png`
+- Standalone terminal alt-screen restored: `examples/terminal/.artifacts/screenshots/terminal_live/03_alt_screen_restored.png`
 
 ## Remaining issues
 - The editor bottom panel still does not reliably land on the terminal view from a cold start if the test only taps the `TERMINAL` tab. Hiding and re-showing the terminal panel via `Ctrl+\`` consistently restores the terminal content. This still needs a dedicated regression and root-cause fix in the tab/content switching path.

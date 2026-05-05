@@ -37,7 +37,7 @@ fn launch_editor(control_port: u16) -> Child {
 }
 
 fn dir() -> String {
-    let d = "test_screenshots/editor_e2e";
+    let d = ".artifacts/screenshots/examples/editor/editor_e2e";
     std::fs::create_dir_all(d).ok();
     d.to_string()
 }

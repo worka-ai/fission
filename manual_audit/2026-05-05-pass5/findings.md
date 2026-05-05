@@ -20,44 +20,44 @@ Screenshots are under `manual_audit/2026-05-05-pass5/`.
 - `inbox`
   - Compose schedule controls now render as a compact HH:MM control instead of a fragmented, uneven row.
   - The hour and minute displays are zero-padded (`09`, `00`) and the stepper buttons are reduced to match the visual scale of the modal.
-  - Screenshot: `manual_audit/2026-05-05-pass5/inbox/01_compose_time_padded.png`
+  - Screenshot: `.artifacts/screenshots/manual_audit/2026-05-05-pass5/inbox/01_compose_time_padded.png`
 
 - `animation-gallery`
   - Wide resize now uses the available horizontal space instead of leaving a large dead area to the right of a narrow left-aligned column.
   - The demo cards flow across the wider surface.
-  - Screenshot: `manual_audit/2026-05-05-pass5/animation-gallery/01_wide_space_usage.png`
+  - Screenshot: `.artifacts/screenshots/manual_audit/2026-05-05-pass5/animation-gallery/01_wide_space_usage.png`
 
 - `editor`
   - Document-style files now default to soft wrap.
   - The README view now survives a narrower window with a more readable multi-line presentation instead of the previous dense single-line spill/clipping behavior.
   - Find-bar interaction still works after the wrap-path changes.
   - Screenshots:
-    - `manual_audit/2026-05-05-pass5/editor/01_readme_open.png`
-    - `manual_audit/2026-05-05-pass5/editor/02_readme_narrow.png`
-    - `manual_audit/2026-05-05-pass5/editor/03_find_bar.png`
+    - `.artifacts/screenshots/manual_audit/2026-05-05-pass5/editor/01_readme_open.png`
+    - `.artifacts/screenshots/manual_audit/2026-05-05-pass5/editor/02_readme_narrow.png`
+    - `.artifacts/screenshots/manual_audit/2026-05-05-pass5/editor/03_find_bar.png`
 
 ## Spot-checks rerun
 - `counter`
   - Modal backdrop/dimming still renders correctly.
-  - Screenshot: `manual_audit/2026-05-05-pass5/counter/01_modal_visible.png`
+  - Screenshot: `.artifacts/screenshots/manual_audit/2026-05-05-pass5/counter/01_modal_visible.png`
 
 - `text-lab`
   - The modal/apply path still clears the stale recipient suggestion overlay.
-  - Screenshot: `manual_audit/2026-05-05-pass5/text-lab/01_after_apply.png`
+  - Screenshot: `.artifacts/screenshots/manual_audit/2026-05-05-pass5/text-lab/01_after_apply.png`
 
 - `widget-gallery`
   - The light page background remains intact and scroll still changes the visible gallery window.
   - Screenshots:
-    - `manual_audit/2026-05-05-pass5/widget-gallery/01_after_scroll.png`
-    - `manual_audit/2026-05-05-pass5/widget-gallery/02_light_background.png`
+    - `.artifacts/screenshots/manual_audit/2026-05-05-pass5/widget-gallery/01_after_scroll.png`
+    - `.artifacts/screenshots/manual_audit/2026-05-05-pass5/widget-gallery/02_light_background.png`
 
 - `icons-gallery`
   - Large scroll no longer blanks the visible list.
-  - Screenshot: `manual_audit/2026-05-05-pass5/icons-gallery/01_after_large_scroll.png`
+  - Screenshot: `.artifacts/screenshots/manual_audit/2026-05-05-pass5/icons-gallery/01_after_large_scroll.png`
 
 - `chart-gallery`
   - Sidebar scroll still reaches lower entries.
-  - Screenshot: `manual_audit/2026-05-05-pass5/chart-gallery/01_sidebar_after_scroll.png`
+  - Screenshot: `.artifacts/screenshots/manual_audit/2026-05-05-pass5/chart-gallery/01_sidebar_after_scroll.png`
 
 ## Current assessment
 - The three remaining pass-4 issues are now addressed by tests and confirmed by the pass-5 screenshots.

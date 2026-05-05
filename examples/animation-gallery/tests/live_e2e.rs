@@ -23,7 +23,7 @@ fn launch_gallery(control_port: u16) -> Child {
 
 fn screenshot_dir() -> String {
     let dir = std::env::var("FISSION_SCREENSHOT_DIR")
-        .unwrap_or_else(|_| "test_screenshots/animation_live".into());
+        .unwrap_or_else(|_| ".artifacts/screenshots/examples/animation-gallery/animation_live".into());
     std::fs::create_dir_all(&dir).ok();
     dir
 }

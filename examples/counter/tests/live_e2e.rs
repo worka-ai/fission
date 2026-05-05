@@ -29,7 +29,7 @@ fn show_modal_visibly_dims_the_background() {
     client.wait(1_500).expect("initial wait");
 
     let screenshot_dir = std::env::var("FISSION_SCREENSHOT_DIR")
-        .unwrap_or_else(|_| "test_screenshots/counter_live".into());
+        .unwrap_or_else(|_| ".artifacts/screenshots/examples/counter/counter_live".into());
     std::fs::create_dir_all(&screenshot_dir).ok();
 
     client.tap_text("Show Modal").expect("show modal");

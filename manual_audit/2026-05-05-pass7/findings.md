@@ -19,13 +19,13 @@
     - `cargo_lock_opens_with_visible_content_near_the_top`
 - Editor no-wrap rendering is now clipped to the viewport width instead of painting through the minimap/sidebar.
   - `examples/editor/src/editor_render_node.rs`
-  - Manually verified in `test_screenshots/editor_e2e/26_cargo_lock_open.png`
+  - Manually verified in `.artifacts/screenshots/editor_e2e/26_cargo_lock_open.png`
 
 ## Inbox
-- `manual_audit/2026-05-05-pass7/inbox/01_initial.png`
+- `.artifacts/screenshots/manual_audit/2026-05-05-pass7/inbox/01_initial.png`
   - The app is usable, but the 800x600 layout is still crowded and visibly clipped.
   - The right sidebar still loses lower content too quickly at small heights.
-- `manual_audit/2026-05-05-pass7/inbox/02_compose.png`
+- `.artifacts/screenshots/manual_audit/2026-05-05-pass7/inbox/02_compose.png`
   - Compose scheduling controls still look poor.
   - Date/time/number controls are visually inconsistent and too cramped.
 - CPU finding:
@@ -34,22 +34,22 @@
   - This removes an obvious always-redrawing source from the baseline example.
 
 ## Editor
-- `manual_audit/2026-05-05-pass7/editor/02_cargo_lock_open.png`
+- `.artifacts/screenshots/manual_audit/2026-05-05-pass7/editor/02_cargo_lock_open.png`
   - Pre-fix state: `Cargo.lock` opened into a visually broken editor surface because the custom render path lowered every visual line.
-- `manual_audit/2026-05-05-pass7/editor/04_cargo_lock_after_fix.png`
+- `.artifacts/screenshots/manual_audit/2026-05-05-pass7/editor/04_cargo_lock_after_fix.png`
   - Post-fix state: content renders near the top immediately and the large-file path is materially more stable.
 - Remaining issue:
   - The backend is still not a full sparse viewport engine for truly huge files.
   - This pass fixed the worst visible/layout behavior for `Cargo.lock`, not the final large-file architecture.
 
 ## Widget Gallery
-- `manual_audit/2026-05-05-pass7/widget-gallery/01_initial.png`
-- `manual_audit/2026-05-05-pass7/widget-gallery/02_after_scroll.png`
+- `.artifacts/screenshots/manual_audit/2026-05-05-pass7/widget-gallery/01_initial.png`
+- `.artifacts/screenshots/manual_audit/2026-05-05-pass7/widget-gallery/02_after_scroll.png`
   - Scroll behavior is functional.
   - Layout is still cramped at smaller heights, but the severe blank/black regression from earlier passes is gone.
 
 ## Animation Gallery
-- `manual_audit/2026-05-05-pass7/animation-gallery/03_wide_resize.png`
+- `.artifacts/screenshots/manual_audit/2026-05-05-pass7/animation-gallery/03_wide_resize.png`
   - Wide end-state layout is acceptable.
 - `manual_audit/2026-05-05-pass7/animation-gallery/resize.sample.txt`
   - Live resize cost is still dominated by compositor and Vello offscreen rendering rather than layout.

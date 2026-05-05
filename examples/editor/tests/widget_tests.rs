@@ -24,7 +24,7 @@ fn port_available() -> bool {
 }
 
 fn dir() -> String {
-    let d = "test_screenshots/editor_widget";
+    let d = ".artifacts/screenshots/examples/editor/editor_widget";
     std::fs::create_dir_all(d).ok();
     d.to_string()
 }
