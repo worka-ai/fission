@@ -242,9 +242,7 @@ impl EasingFunction {
                 // Simplified cubic bezier approximation (y-axis only)
                 let t2 = t * t;
                 let t3 = t2 * t;
-                3.0 * (1.0 - t) * (1.0 - t) * t * y1
-                    + 3.0 * (1.0 - t) * t2 * y2
-                    + t3
+                3.0 * (1.0 - t) * (1.0 - t) * t * y1 + 3.0 * (1.0 - t) * t2 * y2 + t3
             }
         }
     }

@@ -1,4 +1,7 @@
-use crate::{action::AppState, registry::{AnimationPropertyId, EasingFunction}};
+use crate::{
+    action::AppState,
+    registry::{AnimationPropertyId, EasingFunction},
+};
 use fission_i18n::{I18nRegistry, Locale};
 use fission_ir::{NodeId, WidgetNodeId};
 use fission_layout::{LayoutPoint, LayoutSize};

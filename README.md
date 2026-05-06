@@ -12,6 +12,7 @@ Cross-platform, GPU-accelerated UI framework for Rust. Fission uses a Flutter-in
 ## Table of contents
 
 - [Quick start](#quick-start)
+- [Project scaffolding](#project-scaffolding)
 - [Architecture](#architecture)
 - [Deterministic state management](#deterministic-state-management)
 - [Effects system](#effects-system)
@@ -93,6 +94,39 @@ fn main() -> anyhow::Result<()> {
     DesktopApp::new(MyApp).run()
 }
 ```
+
+## Project scaffolding
+
+Fission now ships a first-party scaffolding CLI for the basic project lifecycle:
+
+```sh
+# Standalone binary
+fission init my-app
+
+# Cargo subcommand alias
+cargo fission add-target web ios android --project-dir my-app
+```
+
+The CLI currently does three things:
+
+- creates a runnable desktop app skeleton
+- scaffolds platform folders for `windows`, `macos`, `linux`, `web`, `ios`, and `android`
+- records target state in `fission.toml`
+
+Current status:
+
+- desktop targets are runnable today through `DesktopApp`
+- web, iOS, and Android targets are scaffolded, but their shells are still in progress in this branch
+
+If you are developing against a local Fission checkout, use:
+
+```sh
+fission init my-app --local-path /path/to/fission
+```
+
+That generates path dependencies so the new app tracks your local workspace instead of crates.io.
+
+More detail lives in `docs/cli-and-targets.md`.
 
 ## Architecture
 
@@ -518,6 +552,7 @@ fission/
 │   │   ├── fission-shell-mobile/  # Mobile shell (in progress)
 │   │   └── fission-shell-web/     # Web shell (in progress)
 │   └── tools/
+│       ├── fission-cli/           # `fission` / `cargo fission` scaffolding CLI
 │       ├── fission-diagnostics/   # Structured diagnostic logging
 │       ├── fission-test/          # Test utilities
 │       └── fission-test-driver/   # LiveTestClient and test protocol
@@ -599,6 +634,7 @@ cargo run --example text-lab
 | [`fission-shell-desktop`](crates/shell/fission-shell-desktop) | Desktop shell -- winit + Vello + wgpu integration |
 | [`fission-shell-mobile`](crates/shell/fission-shell-mobile) | Mobile shell (iOS / Android) -- in progress |
 | [`fission-shell-web`](crates/shell/fission-shell-web) | Web shell (WASM + WebGPU) -- in progress |
+| [`fission-cli`](crates/tools/fission-cli) | Project scaffolding CLI and `cargo fission` entrypoint |
 | [`fission-diagnostics`](crates/tools/fission-diagnostics) | Structured diagnostic logging and performance tracing |
 | [`fission-test`](crates/tools/fission-test) | Test utilities and helpers |
 | [`fission-test-driver`](crates/tools/fission-test-driver) | LiveTestClient and JSON test protocol |
