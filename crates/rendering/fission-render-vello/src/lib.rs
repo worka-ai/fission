@@ -160,6 +160,9 @@ fn parse_svg_entry(content: &str) -> SvgCacheEntry {
                 }
             }
         } else if tag_name == "rect" {
+            if tag.contains("fill=\"none\"") || tag.contains("fill='none'") {
+                continue;
+            }
             let parse_attr = |name: &str| -> f64 {
                 if let Some(pos) = tag.find(&format!("{}=\"", name)) {
                     let after = &tag[pos + name.len() + 2..];
@@ -208,6 +211,22 @@ fn parse_svg_entry(content: &str) -> SvgCacheEntry {
     SvgCacheEntry {
         view_box: parse_view_box(content),
         shapes,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{parse_svg_entry, SvgShape};
+
+    #[test]
+    fn svg_parser_skips_fill_none_rect_placeholders() {
+        let svg = r#"<svg viewBox="0 0 24 24">
+            <rect fill="none" width="24" height="24"/>
+            <path d="M0 0h10v10H0z"/>
+        </svg>"#;
+        let entry = parse_svg_entry(svg);
+        assert_eq!(entry.shapes.len(), 1);
+        assert!(matches!(entry.shapes[0], SvgShape::Path(_)));
     }
 }
 
