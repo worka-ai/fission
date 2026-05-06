@@ -16,6 +16,7 @@ use winit::{
 
 use fission_core::env::VideoStatus;
 use fission_core::lowering::LoweringContext;
+use fission_core::ui::custom_render::downcast_render_object;
 use fission_core::{
     ActionId, AppState, BuildCtx, Env, ImeHandler, InputEvent, KeyCode,
     KeyEvent as FissionKeyEvent, PointerButton, PointerEvent, Runtime, View, Widget,
@@ -676,6 +677,29 @@ fn focused_text_input_id(runtime: &Runtime, ir: Option<&CoreIR>) -> Option<NodeI
         current = node.parent;
     }
     None
+}
+
+fn focused_custom_text_input(runtime: &Runtime, ir: Option<&CoreIR>) -> bool {
+    let focused = match runtime.runtime_state.interaction.focused {
+        Some(id) => id,
+        None => return false,
+    };
+    let ir = match ir {
+        Some(ir) => ir,
+        None => return false,
+    };
+    let mut current = Some(focused);
+    while let Some(id) = current {
+        if let Some(any_ro) = ir.custom_render_objects.get(&id) {
+            if let Some(render_obj) = downcast_render_object(any_ro) {
+                if render_obj.accepts_text_input() {
+                    return true;
+                }
+            }
+        }
+        current = ir.nodes.get(&id).and_then(|node| node.parent);
+    }
+    false
 }
 
 fn reset_text_input_caret(
@@ -1765,59 +1789,98 @@ impl<S: AppState + Default, W: Widget<S> + 'static> DesktopApp<S, W> {
                                 );
                             }
                             TestEvent::TextInput { text } => {
-                                // Route test typing through the IME commit path so focused
-                                // text inputs and custom editors receive a single coherent
-                                // text insertion, matching real platform text entry.
+                                // Route test typing through IME when the focus target accepts
+                                // real text input; otherwise fall back to key events so
+                                // app-level rename handlers and similar shortcuts still work.
                                 if let (Some(ir), Some(layout)) =
                                     (&pipeline.prev_ir, &pipeline.last_snapshot)
                                 {
                                     let target =
                                         focused_text_input_id(&runtime, pipeline.prev_ir.as_ref());
-                                    let trace_seq = start_text_trace(
-                                        text_trace_enabled && target.is_some(),
-                                        &mut pending_text_traces,
-                                        &mut next_text_trace_seq,
-                                        format!("test_text_input:{}", text.chars().count()),
-                                        target,
-                                        presented_frames,
-                                    );
-                                    runtime
-                                        .handle_input(
-                                            InputEvent::Ime(
-                                                fission_core::event::ImeEvent::Commit {
-                                                    text: text.clone(),
-                                                },
-                                            ),
-                                            ir,
-                                            layout,
+                                    if target.is_some()
+                                        || focused_custom_text_input(
+                                            &runtime,
+                                            pipeline.prev_ir.as_ref(),
                                         )
-                                        .ok();
-                                    invalidations.mark_build();
-                                    mark_text_trace_handled(
-                                        &mut pending_text_traces,
-                                        trace_seq,
-                                    );
-                                    if process_pending_effects(
-                                        &mut runtime,
-                                        &effect_result_tx,
-                                        &event_proxy,
-                                        app_effect_handler.as_ref(),
-                                    ) {
-                                        mark_text_trace_effects(
+                                    {
+                                        let trace_seq = start_text_trace(
+                                            text_trace_enabled && target.is_some(),
+                                            &mut pending_text_traces,
+                                            &mut next_text_trace_seq,
+                                            format!("test_text_input:{}", text.chars().count()),
+                                            target,
+                                            presented_frames,
+                                        );
+                                        runtime
+                                            .handle_input(
+                                                InputEvent::Ime(
+                                                    fission_core::event::ImeEvent::Commit {
+                                                        text: text.clone(),
+                                                    },
+                                                ),
+                                                ir,
+                                                layout,
+                                            )
+                                            .ok();
+                                        invalidations.mark_build();
+                                        mark_text_trace_handled(
                                             &mut pending_text_traces,
                                             trace_seq,
                                         );
-                                        invalidations.mark_build();
+                                        if process_pending_effects(
+                                            &mut runtime,
+                                            &effect_result_tx,
+                                            &event_proxy,
+                                            app_effect_handler.as_ref(),
+                                        ) {
+                                            mark_text_trace_effects(
+                                                &mut pending_text_traces,
+                                                trace_seq,
+                                            );
+                                            invalidations.mark_build();
+                                        }
+                                        request_redraw_logged(
+                                            &window,
+                                            elwt,
+                                            &mut last_redraw_at,
+                                            min_frame,
+                                            &mut redraw_pending,
+                                            &mut frame_trace,
+                                            "test_text_input",
+                                        );
+                                    } else {
+                                        for ch in text.chars() {
+                                            let key = if ch == ' ' {
+                                                KeyCode::Space
+                                            } else if ch == '\n' {
+                                                KeyCode::Enter
+                                            } else {
+                                                KeyCode::Char(ch)
+                                            };
+                                            handle_key_down::<S>(
+                                                key,
+                                                0,
+                                                &mut runtime,
+                                                &pipeline,
+                                                &effect_result_tx,
+                                                &event_proxy,
+                                                app_effect_handler.as_ref(),
+                                                &window,
+                                                elwt,
+                                                &mut last_redraw_at,
+                                                min_frame,
+                                                &mut redraw_pending,
+                                                text_trace_enabled,
+                                                &mut pending_text_traces,
+                                                &mut next_text_trace_seq,
+                                                presented_frames,
+                                                &mut last_blink_toggle,
+                                                self.key_handler.as_ref(),
+                                                &mut frame_trace,
+                                                &mut invalidations,
+                                            );
+                                        }
                                     }
-                                    request_redraw_logged(
-                                        &window,
-                                        elwt,
-                                        &mut last_redraw_at,
-                                        min_frame,
-                                        &mut redraw_pending,
-                                        &mut frame_trace,
-                                        "test_text_input",
-                                    );
                                 }
                             }
                             TestEvent::Scroll { x, y, dx, dy } => {
