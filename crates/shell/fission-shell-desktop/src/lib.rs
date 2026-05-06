@@ -5,6 +5,8 @@ use std::collections::{HashMap, VecDeque};
 use std::sync::mpsc;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
+#[cfg(target_os = "macos")]
+use winit::platform::macos::{ActivationPolicy, EventLoopBuilderExtMacOS};
 use winit::{
     dpi::PhysicalPosition,
     event::{Event, Ime, MouseButton, MouseScrollDelta, WindowEvent},
@@ -1500,14 +1502,25 @@ impl<S: AppState + Default, W: Widget<S> + 'static> DesktopApp<S, W> {
 
         // Build event loop with TestEvent as the user event type.
         // This allows the test control server to inject events via EventLoopProxy.
-        let event_loop = EventLoopBuilder::<TestEvent>::with_user_event()
+        let background_test_mode = std::env::var_os("FISSION_BACKGROUND_TEST").is_some();
+        let mut event_loop_builder = EventLoopBuilder::<TestEvent>::with_user_event();
+        #[cfg(target_os = "macos")]
+        if background_test_mode {
+            event_loop_builder.with_activation_policy(ActivationPolicy::Accessory);
+            event_loop_builder.with_activate_ignoring_other_apps(false);
+            event_loop_builder.with_default_menu(false);
+        }
+        let event_loop = event_loop_builder
             .build()
             .map_err(|e| anyhow::anyhow!("Event loop error: {}", e))?;
         let event_proxy = event_loop.create_proxy();
 
+        let mut window_builder = WindowBuilder::new().with_title(&self.title);
+        if background_test_mode {
+            window_builder = window_builder.with_active(false).with_visible(false);
+        }
         let window = Arc::new(
-            WindowBuilder::new()
-                .with_title(&self.title)
+            window_builder
                 .build(&event_loop)
                 .map_err(|e| anyhow::anyhow!("Window build error: {}", e))?,
         );
@@ -1752,23 +1765,58 @@ impl<S: AppState + Default, W: Widget<S> + 'static> DesktopApp<S, W> {
                                 );
                             }
                             TestEvent::TextInput { text } => {
-                                // Type each character via handle_key_down so custom
-                                // render objects receive the events (same path as real
-                                // keyboard input).
-                                for ch in text.chars() {
-                                    let key = if ch == ' ' { KeyCode::Space } else if ch == '\n' { KeyCode::Enter } else { KeyCode::Char(ch) };
-                                    handle_key_down::<S>(
-                                        key, 0,
-                                        &mut runtime, &pipeline,
-                                        &effect_result_tx, &event_proxy, app_effect_handler.as_ref(),
-                                        &window, elwt,
-                                        &mut last_redraw_at, min_frame, &mut redraw_pending,
-                                        text_trace_enabled, &mut pending_text_traces,
-                                        &mut next_text_trace_seq, presented_frames,
-                                        &mut last_blink_toggle,
-                                        self.key_handler.as_ref(),
+                                // Route test typing through the IME commit path so focused
+                                // text inputs and custom editors receive a single coherent
+                                // text insertion, matching real platform text entry.
+                                if let (Some(ir), Some(layout)) =
+                                    (&pipeline.prev_ir, &pipeline.last_snapshot)
+                                {
+                                    let target =
+                                        focused_text_input_id(&runtime, pipeline.prev_ir.as_ref());
+                                    let trace_seq = start_text_trace(
+                                        text_trace_enabled && target.is_some(),
+                                        &mut pending_text_traces,
+                                        &mut next_text_trace_seq,
+                                        format!("test_text_input:{}", text.chars().count()),
+                                        target,
+                                        presented_frames,
+                                    );
+                                    runtime
+                                        .handle_input(
+                                            InputEvent::Ime(
+                                                fission_core::event::ImeEvent::Commit {
+                                                    text: text.clone(),
+                                                },
+                                            ),
+                                            ir,
+                                            layout,
+                                        )
+                                        .ok();
+                                    invalidations.mark_build();
+                                    mark_text_trace_handled(
+                                        &mut pending_text_traces,
+                                        trace_seq,
+                                    );
+                                    if process_pending_effects(
+                                        &mut runtime,
+                                        &effect_result_tx,
+                                        &event_proxy,
+                                        app_effect_handler.as_ref(),
+                                    ) {
+                                        mark_text_trace_effects(
+                                            &mut pending_text_traces,
+                                            trace_seq,
+                                        );
+                                        invalidations.mark_build();
+                                    }
+                                    request_redraw_logged(
+                                        &window,
+                                        elwt,
+                                        &mut last_redraw_at,
+                                        min_frame,
+                                        &mut redraw_pending,
                                         &mut frame_trace,
-                                        &mut invalidations,
+                                        "test_text_input",
                                     );
                                 }
                             }

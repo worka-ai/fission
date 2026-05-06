@@ -3,7 +3,7 @@ use fission_core::ui::{
 };
 use fission_core::{
     op::Color as IrColor, AnimationPropertyId, AnimationRequest, AnimationStartValue, AppState,
-    BuildCtx, FlexDirection, Handler, View, Widget, WidgetNodeId,
+    BuildCtx, EasingFunction, FlexDirection, Handler, View, Widget, WidgetNodeId,
 };
 use fission_macros::Action;
 use fission_shell_desktop::DesktopApp;
@@ -75,6 +75,7 @@ impl Widget<AnimationGalleryState> for AnimationGalleryApp {
                 delay_ms: 0,
                 repeat: true,
                 frame_interval_ms: None,
+                easing: EasingFunction::EaseInOut,
             });
             ctx.anim_for(*CUSTOM_ID).request(AnimationRequest {
                 property: AnimationPropertyId::Opacity,
@@ -84,6 +85,7 @@ impl Widget<AnimationGalleryState> for AnimationGalleryApp {
                 delay_ms: 0,
                 repeat: true,
                 frame_interval_ms: None,
+                easing: EasingFunction::EaseInOut,
             });
         }
 
@@ -229,7 +231,7 @@ impl Widget<AnimationGalleryState> for AnimationGalleryApp {
                         direction: FlexDirection::Row,
                         width: Some((wide_card_width - 42.0).max(240.0)),
                         height: Some(88.0),
-                        show_scrollbar: false,
+                        show_scrollbar: true,
                         child: Some(Box::new(scroll_strip(
                             tokens.primary,
                             color(84, 110, 122, 255),

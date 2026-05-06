@@ -16,6 +16,7 @@ fn launch_terminal(control_port: u16) -> Child {
         std::env::var("CARGO_BIN_EXE_terminal").unwrap_or_else(|_| "target/debug/terminal".into());
     Command::new(bin)
         .env("FISSION_TEST_CONTROL_PORT", control_port.to_string())
+        .env("FISSION_BACKGROUND_TEST", "1")
         .spawn()
         .expect("failed to launch terminal example")
 }
@@ -69,9 +70,7 @@ fn terminal_executes_commands_pastes_and_copies_selection() {
 
     let mut clipboard = Clipboard::new().expect("clipboard available");
     clipboard
-        .set_text(
-            "printf '\\120\\101\\123\\124\\105\\137\\117\\113\\n'",
-        )
+        .set_text("printf '\\120\\101\\123\\124\\105\\137\\117\\113\\n'")
         .expect("seed clipboard");
     client.press_key("V", 4).expect("paste clipboard command");
     client.press_key("Enter", 0).expect("run pasted command");

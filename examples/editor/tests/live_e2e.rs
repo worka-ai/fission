@@ -8,7 +8,7 @@
 use fission_test_driver::LiveTestClient;
 use std::io::Write;
 use std::net::TcpListener;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::process::{Child, Command};
 
 fn reserve_control_port() -> u16 {
@@ -32,6 +32,20 @@ fn launch_editor(control_port: u16) -> Child {
         .arg(&workspace_root)
         .current_dir(&workspace_root)
         .env("FISSION_TEST_CONTROL_PORT", control_port.to_string())
+        .env("FISSION_BACKGROUND_TEST", "1")
+        .spawn()
+        .expect("failed to launch editor")
+}
+
+fn launch_editor_for_workspace(control_port: u16, workspace_root: &Path) -> Child {
+    let bin = std::env::var("CARGO_BIN_EXE_fission-editor")
+        .or_else(|_| std::env::var("CARGO_BIN_EXE_fission_editor"))
+        .unwrap_or_else(|_| "target/debug/fission-editor".to_string());
+    Command::new(bin)
+        .arg(workspace_root)
+        .current_dir(workspace_root)
+        .env("FISSION_TEST_CONTROL_PORT", control_port.to_string())
+        .env("FISSION_BACKGROUND_TEST", "1")
         .spawn()
         .expect("failed to launch editor")
 }
@@ -84,6 +98,31 @@ fn create_large_temp_file(name: &str) -> String {
 /// Helper: remove a temp file, ignoring errors.
 fn cleanup_temp_file(path: &str) {
     std::fs::remove_file(path).ok();
+}
+
+fn create_temp_workspace(name: &str) -> PathBuf {
+    let unique = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .expect("unix time")
+        .as_nanos();
+    let root = std::env::temp_dir().join(format!("fission-editor-{name}-{unique}"));
+    let src = root.join("src");
+    std::fs::create_dir_all(&src).expect("create temp workspace src");
+    std::fs::write(
+        src.join("main.rs"),
+        "fn main() {\n    println!(\"hello\");\n}\n",
+    )
+    .expect("write temp main");
+    std::fs::write(
+        root.join("Cargo.toml"),
+        "[package]\nname = \"temp-project\"\nversion = \"0.1.0\"\nedition = \"2021\"\n",
+    )
+    .expect("write temp cargo");
+    root
+}
+
+fn cleanup_temp_workspace(path: &Path) {
+    std::fs::remove_dir_all(path).ok();
 }
 
 fn sampled_nonblack_pixels(path: &str) -> usize {
@@ -830,4 +869,96 @@ fn bottom_panel_tabs_switch_visible_content() {
 
     client.quit().expect("quit");
     let _ = child.wait();
+}
+
+#[test]
+#[ignore]
+fn context_menu_new_folder_can_be_renamed() {
+    let workspace = create_temp_workspace("folder-rename");
+    let control_port = reserve_control_port();
+    let mut child = launch_editor_for_workspace(control_port, &workspace);
+    let client = LiveTestClient::connect(control_port);
+    client.wait_for_ready(20_000).expect("editor start");
+    client.wait(2_000).expect("wait");
+
+    client.tap_text("src").expect("expand src");
+    client.wait(300).expect("wait after expanding src");
+    client.pump().expect("pump after expanding src");
+    client
+        .assert_text_visible("main.rs")
+        .expect("main.rs should be visible");
+
+    let src_entry = client
+        .get_text()
+        .expect("get text")
+        .into_iter()
+        .find(|item| item.text == "src")
+        .expect("src entry");
+    client
+        .right_click(src_entry.x + 8.0, src_entry.y + 8.0)
+        .expect("open file tree context menu");
+    client.wait(250).expect("wait for context menu");
+    client.pump().expect("pump after context menu");
+    client.tap_text("New Folder").expect("choose new folder");
+    client.wait(300).expect("wait after new folder");
+    client.pump().expect("pump after new folder");
+    client.type_text("my_module").expect("type folder name");
+    client.pump().expect("pump after typing folder name");
+    client.press_key("Enter", 0).expect("confirm folder rename");
+    client.wait(300).expect("wait after folder rename");
+    client.pump().expect("pump after folder rename");
+    client
+        .assert_text_visible("my_module")
+        .expect("renamed folder should be visible");
+
+    client.quit().expect("quit");
+    let _ = child.wait();
+    cleanup_temp_workspace(&workspace);
+}
+
+#[test]
+#[ignore]
+fn context_menu_new_file_opens_editable_buffer() {
+    let workspace = create_temp_workspace("new-file");
+    let control_port = reserve_control_port();
+    let mut child = launch_editor_for_workspace(control_port, &workspace);
+    let client = LiveTestClient::connect(control_port);
+    client.wait_for_ready(20_000).expect("editor start");
+    client.wait(2_000).expect("wait");
+
+    client.tap_text("src").expect("expand src");
+    client.wait(300).expect("wait after expanding src");
+    client.pump().expect("pump after expanding src");
+
+    let src_entry = client
+        .get_text()
+        .expect("get text")
+        .into_iter()
+        .find(|item| item.text == "src")
+        .expect("src entry");
+    client
+        .right_click(src_entry.x + 8.0, src_entry.y + 8.0)
+        .expect("open file tree context menu");
+    client.wait(250).expect("wait for context menu");
+    client.pump().expect("pump after context menu");
+    client.tap_text("New File").expect("choose new file");
+    client.wait(400).expect("wait after new file");
+    client.pump().expect("pump after new file");
+    client
+        .assert_text_visible("untitled.rs")
+        .expect("new file tab should be visible");
+
+    client.tap(520.0, 220.0).expect("focus new file editor");
+    client.wait(150).expect("wait after focus");
+    client
+        .type_text("Hello from new file!")
+        .expect("type new file text");
+    client.pump().expect("pump after typing");
+    client
+        .assert_text_visible("Hello from new file!")
+        .expect("typed content should be visible in new file");
+
+    client.quit().expect("quit");
+    let _ = child.wait();
+    cleanup_temp_workspace(&workspace);
 }

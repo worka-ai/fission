@@ -174,7 +174,7 @@ impl Widget<EditorState> for TabBar {
         Container::new(
             fission_core::ui::Scroll {
                 direction: fission_ir::op::FlexDirection::Row,
-                show_scrollbar: false,
+                show_scrollbar: true,
                 flex_grow: 1.0,
                 flex_shrink: 0.0,
                 child: Some(Box::new(

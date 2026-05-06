@@ -1613,6 +1613,10 @@ fn generate_render_layer_recursive(
         }
     }
 
+    if let Some(scrollbar_rail) = build_scrollbar_rail_paint(node_id, node, rect, snapshot) {
+        layer.children.push(RenderNode::Paint(scrollbar_rail));
+    }
+
     if can_use_boundary_cache {
         boundary_cache.insert(
             node_id,
@@ -1867,6 +1871,82 @@ fn build_local_paint_list(
     } else {
         Some(list)
     }
+}
+
+fn build_scrollbar_rail_paint(
+    node_id: NodeId,
+    node: &fission_ir::CoreNode,
+    rect: LayoutRect,
+    snapshot: &LayoutSnapshot,
+) -> Option<DisplayList> {
+    let Op::Layout(LayoutOp::Scroll {
+        direction,
+        show_scrollbar,
+        ..
+    }) = &node.op
+    else {
+        return None;
+    };
+    if !show_scrollbar {
+        return None;
+    }
+
+    let content_id = *node.children.first()?;
+    let content_rect = snapshot.nodes.get(&content_id)?.rect;
+    let rail_fill = Some(Fill::Solid(RenderColor {
+        r: 160,
+        g: 168,
+        b: 180,
+        a: 110,
+    }));
+    let inset = 2.0;
+    let thickness = 6.0;
+    let mut list = DisplayList::new(rect);
+
+    match direction {
+        FlexDirection::Column => {
+            if content_rect.size.height <= rect.size.height + 0.5 {
+                return None;
+            }
+            let rail_rect = LayoutRect::new(
+                rect.origin.x + rect.size.width - thickness - inset,
+                rect.origin.y + inset,
+                thickness,
+                (rect.size.height - inset * 2.0).max(0.0),
+            );
+            list.push(DisplayOp::DrawRect {
+                rect: rail_rect,
+                fill: rail_fill,
+                stroke: None,
+                corner_radius: thickness / 2.0,
+                shadow: None,
+                bounds: rail_rect,
+                node_id: Some(node_id),
+            });
+        }
+        FlexDirection::Row => {
+            if content_rect.size.width <= rect.size.width + 0.5 {
+                return None;
+            }
+            let rail_rect = LayoutRect::new(
+                rect.origin.x + inset,
+                rect.origin.y + rect.size.height - thickness - inset,
+                (rect.size.width - inset * 2.0).max(0.0),
+                thickness,
+            );
+            list.push(DisplayOp::DrawRect {
+                rect: rail_rect,
+                fill: rail_fill,
+                stroke: None,
+                corner_radius: thickness / 2.0,
+                shadow: None,
+                bounds: rail_rect,
+                node_id: Some(node_id),
+            });
+        }
+    }
+
+    Some(list)
 }
 
 fn resolve_composite_scalar(
@@ -2671,6 +2751,144 @@ mod tests {
             (transform[13] + 180.0).abs() <= 0.01,
             "expected retained scroll transform to patch to -180, got {}",
             transform[13]
+        );
+    }
+
+    #[test]
+    fn overflowing_scroll_nodes_emit_visible_scroll_rails() {
+        let mut ir = CoreIR::new();
+        let fill = NodeId::derived(16, &[0]);
+        let content = NodeId::derived(16, &[1]);
+        let scroll = NodeId::derived(16, &[2]);
+        let root = NodeId::derived(16, &[3]);
+
+        ir.add_node(
+            fill,
+            Op::Paint(PaintOp::DrawRect {
+                fill: Some(Fill::Solid(Color {
+                    r: 80,
+                    g: 120,
+                    b: 220,
+                    a: 255,
+                })),
+                stroke: None,
+                corner_radius: 0.0,
+                shadow: None,
+            }),
+            vec![],
+        );
+        ir.add_node(
+            content,
+            Op::Layout(LayoutOp::Box {
+                width: Some(320.0),
+                height: Some(640.0),
+                min_width: None,
+                max_width: None,
+                min_height: None,
+                max_height: None,
+                padding: [0.0, 0.0, 0.0, 0.0],
+                flex_grow: 0.0,
+                flex_shrink: 0.0,
+                aspect_ratio: None,
+            }),
+            vec![fill],
+        );
+        ir.add_node(
+            scroll,
+            Op::Layout(LayoutOp::Scroll {
+                direction: fission_ir::FlexDirection::Column,
+                show_scrollbar: true,
+                width: Some(320.0),
+                height: Some(240.0),
+                min_width: None,
+                max_width: None,
+                min_height: None,
+                max_height: None,
+                padding: [0.0, 0.0, 0.0, 0.0],
+                flex_grow: 0.0,
+                flex_shrink: 0.0,
+            }),
+            vec![content],
+        );
+        ir.add_node(
+            root,
+            Op::Layout(LayoutOp::Box {
+                width: Some(320.0),
+                height: Some(240.0),
+                min_width: None,
+                max_width: None,
+                min_height: None,
+                max_height: None,
+                padding: [0.0, 0.0, 0.0, 0.0],
+                flex_grow: 0.0,
+                flex_shrink: 0.0,
+                aspect_ratio: None,
+            }),
+            vec![scroll],
+        );
+        ir.set_root(root);
+
+        let mut pipeline = Pipeline::new();
+        let mut layout_engine = LayoutEngine::new();
+        let scroll_map = ScrollStateMap::default();
+        pipeline.replace_ir(ir, &Env::default());
+        pipeline
+            .ensure_layout(
+                LayoutRect::new(0.0, 0.0, 320.0, 240.0),
+                &mut layout_engine,
+                &scroll_map,
+            )
+            .unwrap();
+        pipeline
+            .prepare_current(
+                LayoutSize {
+                    width: 320.0,
+                    height: 240.0,
+                },
+                LayoutSize {
+                    width: 320.0,
+                    height: 240.0,
+                },
+                false,
+                &scroll_map,
+                &Default::default(),
+                &Default::default(),
+                &Default::default(),
+            )
+            .unwrap();
+
+        fn count_scroll_rails(node: &fission_render::RenderNode, scroll: NodeId) -> usize {
+            match node {
+                fission_render::RenderNode::Paint(list) => list
+                    .ops
+                    .iter()
+                    .filter(|op| match op {
+                        fission_render::DisplayOp::DrawRect { rect, node_id, .. } => {
+                            *node_id == Some(scroll)
+                                && (rect.width() - 6.0).abs() <= 0.01
+                                && rect.height() >= 200.0
+                        }
+                        _ => false,
+                    })
+                    .count(),
+                fission_render::RenderNode::Layer(layer) => layer
+                    .children
+                    .iter()
+                    .map(|child| count_scroll_rails(child, scroll))
+                    .sum(),
+            }
+        }
+
+        let rail_count: usize = pipeline
+            .retained_scene()
+            .expect("retained scene")
+            .roots
+            .iter()
+            .map(|node| count_scroll_rails(node, scroll))
+            .sum();
+        assert!(
+            rail_count > 0,
+            "expected an overflow rail for the scroll node"
         );
     }
 }

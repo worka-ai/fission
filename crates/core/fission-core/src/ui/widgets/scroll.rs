@@ -57,7 +57,7 @@ impl Default for Scroll {
             direction: FlexDirection::Column,
             width: None,
             height: None,
-            show_scrollbar: false,
+            show_scrollbar: true,
             flex_grow: 0.0,
             flex_shrink: 0.0,
         }
