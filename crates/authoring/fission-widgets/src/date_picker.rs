@@ -88,13 +88,13 @@ impl<S: fission_core::AppState> Widget<S> for DatePicker {
                     on_navigate: None, // TODO: Wiring navigation state requires DatePicker to own month state?
                     cell_size: None,
                     padding: None,
-                                       // Yes, DatePicker needs `view_month` state separate from `value`.
-                                       // For MVP, we navigate relative to `value` or `today`.
-                                       // Calendar needs `on_navigate` to update `view_month`.
-                                       // DatePicker doesn't store `view_month` in this struct.
-                                       // It relies on AppState.
-                                       // User must provide `view_month` in AppState?
-                                       // Yes, standard Fission pattern.
+                    // Yes, DatePicker needs `view_month` state separate from `value`.
+                    // For MVP, we navigate relative to `value` or `today`.
+                    // Calendar needs `on_navigate` to update `view_month`.
+                    // DatePicker doesn't store `view_month` in this struct.
+                    // It relies on AppState.
+                    // User must provide `view_month` in AppState?
+                    // Yes, standard Fission pattern.
                 }
                 .build(_ctx, view),
             )

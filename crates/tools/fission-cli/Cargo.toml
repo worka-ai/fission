@@ -1,0 +1,21 @@
+[package]
+name = "fission-cli"
+version = "0.1.1"
+edition = "2021"
+license = "MIT"
+repository = "https://github.com/worka-ai/fission"
+description = "Project scaffolding CLI for Fission"
+
+[[bin]]
+name = "fission"
+path = "src/main.rs"
+
+[[bin]]
+name = "cargo-fission"
+path = "src/bin/cargo-fission.rs"
+
+[dependencies]
+anyhow = "1.0"
+clap = { version = "4.5", features = ["derive"] }
+serde = { version = "1.0", features = ["derive"] }
+toml = "0.8"

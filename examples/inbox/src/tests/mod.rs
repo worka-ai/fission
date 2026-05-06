@@ -1377,7 +1377,10 @@ fn spinner_animation_present_in_default_inbox() -> Result<()> {
             found += 1;
         }
     }
-    assert!(found > 0, "default inbox should schedule spinner animations");
+    assert!(
+        found > 0,
+        "default inbox should schedule spinner animations"
+    );
     Ok(())
 }
 

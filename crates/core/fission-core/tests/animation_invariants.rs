@@ -27,7 +27,7 @@ fn test_animation_tick() {
             repeat: false,
             frame_interval_ms: None,
             easing: EasingFunction::Linear,
-        }
+        },
     );
 
     // Tick 500ms
