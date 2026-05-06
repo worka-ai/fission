@@ -1984,10 +1984,14 @@ impl<S: AppState + Default, W: Widget<S> + 'static> DesktopApp<S, W> {
                             .active
                             .values()
                             .any(|anim| !anim.repeat);
-                        let repeat_animation_interval = repeating_animation_redraw_interval(
-                            &runtime.runtime_state.animation,
-                            repeat_animation_frame,
-                        );
+                        let repeat_animation_interval = if pending_resize.is_some() {
+                            None
+                        } else {
+                            repeating_animation_redraw_interval(
+                                &runtime.runtime_state.animation,
+                                repeat_animation_frame,
+                            )
+                        };
                         let has_playing_video = players.iter().any(|(widget_id, _)| {
                             runtime
                                 .runtime_state
@@ -3099,6 +3103,15 @@ mod tests {
         assert_eq!(
             animation_redraw_interval(false, Some(repeat_frame), false, min_frame),
             Some(repeat_frame)
+        );
+    }
+
+    #[test]
+    fn no_repeat_interval_means_no_idle_animation_redraw() {
+        let min_frame = Duration::from_millis(16);
+        assert_eq!(
+            animation_redraw_interval(false, None, false, min_frame),
+            None
         );
     }
 
