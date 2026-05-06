@@ -21,8 +21,12 @@ fn launch_terminal(control_port: u16) -> Child {
 }
 
 fn screenshot_dir() -> String {
-    let dir = std::env::var("FISSION_SCREENSHOT_DIR")
-        .unwrap_or_else(|_| format!("{}/../../.artifacts/screenshots/examples/terminal/terminal_live", env!("CARGO_MANIFEST_DIR")));
+    let dir = std::env::var("FISSION_SCREENSHOT_DIR").unwrap_or_else(|_| {
+        format!(
+            "{}/../../.artifacts/screenshots/examples/terminal/terminal_live",
+            env!("CARGO_MANIFEST_DIR")
+        )
+    });
     std::fs::create_dir_all(&dir).ok();
     dir
 }

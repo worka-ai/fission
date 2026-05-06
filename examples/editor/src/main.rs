@@ -490,8 +490,7 @@ impl Widget<EditorState> for MenuBar {
                 "Help" => 180.0,
                 _ => 0.0,
             };
-            let flyout_left =
-                (left_px + 48.0).min((viewport.width - flyout_width - 16.0).max(8.0));
+            let flyout_left = (left_px + 48.0).min((viewport.width - flyout_width - 16.0).max(8.0));
 
             let flyout = Container::new(
                 Column {
@@ -1318,15 +1317,11 @@ fn main() -> anyhow::Result<()> {
                     }
                 }
 
-                if state.terminal_visible
-                    && state.bottom_panel_tab == BottomPanelTab::Terminal
-                {
+                if state.terminal_visible && state.bottom_panel_tab == BottomPanelTab::Terminal {
                     state.ensure_terminal_session();
                 }
 
-                if state.terminal_visible
-                    && state.bottom_panel_tab == BottomPanelTab::Terminal
-                {
+                if state.terminal_visible && state.bottom_panel_tab == BottomPanelTab::Terminal {
                     if let Some(session) = state.terminal_session.as_ref() {
                         changed |= session.take_dirty();
                     }

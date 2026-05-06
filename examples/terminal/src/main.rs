@@ -2,17 +2,54 @@ use fission_core::op::Color;
 use fission_core::ui::{Container, Node, Text};
 use fission_core::{AppState, BuildCtx, View, Widget};
 use fission_shell_desktop::DesktopApp;
-use fission_widgets::{HStack, Spacer, TerminalLaunchConfig, TerminalSession, TerminalView, VStack};
+use fission_widgets::{
+    HStack, Spacer, TerminalLaunchConfig, TerminalSession, TerminalView, VStack,
+};
 use std::path::PathBuf;
 use std::sync::Arc;
 
-const WINDOW_BG: Color = Color { r: 24, g: 24, b: 24, a: 255 };
-const CHROME_BG: Color = Color { r: 40, g: 40, b: 40, a: 255 };
-const TEXT: Color = Color { r: 214, g: 214, b: 214, a: 255 };
-const MUTED: Color = Color { r: 143, g: 143, b: 143, a: 255 };
-const RED: Color = Color { r: 255, g: 95, b: 86, a: 255 };
-const YELLOW: Color = Color { r: 255, g: 189, b: 46, a: 255 };
-const GREEN: Color = Color { r: 39, g: 201, b: 63, a: 255 };
+const WINDOW_BG: Color = Color {
+    r: 24,
+    g: 24,
+    b: 24,
+    a: 255,
+};
+const CHROME_BG: Color = Color {
+    r: 40,
+    g: 40,
+    b: 40,
+    a: 255,
+};
+const TEXT: Color = Color {
+    r: 214,
+    g: 214,
+    b: 214,
+    a: 255,
+};
+const MUTED: Color = Color {
+    r: 143,
+    g: 143,
+    b: 143,
+    a: 255,
+};
+const RED: Color = Color {
+    r: 255,
+    g: 95,
+    b: 86,
+    a: 255,
+};
+const YELLOW: Color = Color {
+    r: 255,
+    g: 189,
+    b: 46,
+    a: 255,
+};
+const GREEN: Color = Color {
+    r: 39,
+    g: 201,
+    b: 63,
+    a: 255,
+};
 
 #[derive(Clone, Debug, Default)]
 struct TerminalExampleState {
@@ -25,7 +62,11 @@ impl AppState for TerminalExampleState {}
 struct TerminalExampleApp;
 
 impl Widget<TerminalExampleState> for TerminalExampleApp {
-    fn build(&self, _ctx: &mut BuildCtx<TerminalExampleState>, view: &View<TerminalExampleState>) -> Node {
+    fn build(
+        &self,
+        _ctx: &mut BuildCtx<TerminalExampleState>,
+        view: &View<TerminalExampleState>,
+    ) -> Node {
         let title = view
             .state
             .session
@@ -41,7 +82,11 @@ impl Widget<TerminalExampleState> for TerminalExampleApp {
                     dot(RED),
                     dot(YELLOW),
                     dot(GREEN),
-                    Spacer { width: Some(12.0), ..Default::default() }.into_node(),
+                    Spacer {
+                        width: Some(12.0),
+                        ..Default::default()
+                    }
+                    .into_node(),
                     VStack {
                         spacing: Some(2.0),
                         children: vec![
@@ -53,7 +98,11 @@ impl Widget<TerminalExampleState> for TerminalExampleApp {
                         ],
                     }
                     .into_node(),
-                    Spacer { flex_grow: 1.0, ..Default::default() }.into_node(),
+                    Spacer {
+                        flex_grow: 1.0,
+                        ..Default::default()
+                    }
+                    .into_node(),
                     Text::new("Fission Terminal")
                         .size(11.0)
                         .color(MUTED)
@@ -75,10 +124,15 @@ impl Widget<TerminalExampleState> for TerminalExampleApp {
                 .padding(10.0, 10.0)
                 .build(_ctx, view)
         } else {
-            Container::new(Text::new("Failed to start shell").size(13.0).color(TEXT).into_node())
-                .padding_all(16.0)
-                .bg(WINDOW_BG)
-                .into_node()
+            Container::new(
+                Text::new("Failed to start shell")
+                    .size(13.0)
+                    .color(TEXT)
+                    .into_node(),
+            )
+            .padding_all(16.0)
+            .bg(WINDOW_BG)
+            .into_node()
         };
 
         Container::new(
@@ -94,12 +148,19 @@ impl Widget<TerminalExampleState> for TerminalExampleApp {
 }
 
 fn dot(color: Color) -> Node {
-    Container::new(Spacer { width: Some(12.0), height: Some(12.0), ..Default::default() }.into_node())
-        .width(12.0)
-        .height(12.0)
-        .bg(color)
-        .border_radius(999.0)
-        .into_node()
+    Container::new(
+        Spacer {
+            width: Some(12.0),
+            height: Some(12.0),
+            ..Default::default()
+        }
+        .into_node(),
+    )
+    .width(12.0)
+    .height(12.0)
+    .bg(color)
+    .border_radius(999.0)
+    .into_node()
 }
 
 fn main() -> anyhow::Result<()> {
@@ -115,11 +176,17 @@ fn main() -> anyhow::Result<()> {
             })
             .ok();
         })
-        .with_sync_env(|_state: &TerminalExampleState, env: &mut fission_core::Env| {
-            env.theme = fission_theme::Theme::dark();
-        })
+        .with_sync_env(
+            |_state: &TerminalExampleState, env: &mut fission_core::Env| {
+                env.theme = fission_theme::Theme::dark();
+            },
+        )
         .with_frame_hook(|state: &mut TerminalExampleState| {
-            state.session.as_ref().map(|session| session.take_dirty()).unwrap_or(false)
+            state
+                .session
+                .as_ref()
+                .map(|session| session.take_dirty())
+                .unwrap_or(false)
         })
         .run()
 }

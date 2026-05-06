@@ -1,3 +1,4 @@
+use crate::pipeline::CompositorTexturePlan;
 use anyhow::Result;
 use bytemuck::{Pod, Zeroable};
 use fission_layout::LayoutPoint;
@@ -8,7 +9,6 @@ use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 use vello::wgpu;
 use vello::{RenderParams, Renderer as VelloSceneRenderer, Scene};
-use crate::pipeline::CompositorTexturePlan;
 
 #[repr(C)]
 #[derive(Clone, Copy, PartialEq, Pod, Zeroable)]
@@ -231,7 +231,10 @@ impl TextureLayerCompositor {
         }
     }
 
-    pub fn prune(&mut self, live_keys: &HashSet<u64>) -> (Option<fission_layout::LayoutRect>, bool) {
+    pub fn prune(
+        &mut self,
+        live_keys: &HashSet<u64>,
+    ) -> (Option<fission_layout::LayoutRect>, bool) {
         let mut removed_damage = None;
         let mut removed_any = false;
 
@@ -294,13 +297,20 @@ impl TextureLayerCompositor {
         stats.damage_rect = union_layout_rects(stats.damage_rect, pruned_damage);
 
         let target_size_changed = self.last_target_size != Some((viewport_width, viewport_height));
-        let full_target_redraw =
-            force_full_redraw || target_size_changed || removed_layers || stats.damage_rect.is_none();
+        let full_target_redraw = force_full_redraw
+            || target_size_changed
+            || removed_layers
+            || stats.damage_rect.is_none();
         let damage_scissor = if full_target_redraw {
             None
         } else {
             stats.damage_rect.map(|rect| {
-                logical_rect_to_physical_scissor(rect, scale_factor, viewport_width, viewport_height)
+                logical_rect_to_physical_scissor(
+                    rect,
+                    scale_factor,
+                    viewport_width,
+                    viewport_height,
+                )
             })
         };
         if full_target_redraw || damage_scissor.is_some() {
@@ -377,13 +387,16 @@ impl TextureLayerCompositor {
                 layer.local_dynamic = plan.local_dynamic;
                 layer.composite_dynamic = plan.composite_dynamic;
                 layer.children = next_children;
-                layer.local_dirty |= texture_changed || size_changed || scene_changed || plan.local_dynamic;
+                layer.local_dirty |=
+                    texture_changed || size_changed || scene_changed || plan.local_dynamic;
                 layer.structure_dirty |= structure_changed;
                 layer.composite_dirty |= style_changed || structure_changed;
             }
             None => {
-                self.layers
-                    .insert(plan.key, RetainedCompositorLayer::new(plan, self.frame_index));
+                self.layers.insert(
+                    plan.key,
+                    RetainedCompositorLayer::new(plan, self.frame_index),
+                );
             }
         }
     }
@@ -410,7 +423,11 @@ impl TextureLayerCompositor {
         let scoped_scissor = intersect_scissor(
             target_ctx.inherited_scissor,
             plan.clip.as_ref(),
-            if state.transform_clip { combined } else { target_ctx.inherited_transform },
+            if state.transform_clip {
+                combined
+            } else {
+                target_ctx.inherited_transform
+            },
             target_ctx.origin,
             scale_factor,
             target_ctx.viewport_width,
@@ -419,7 +436,11 @@ impl TextureLayerCompositor {
         let current_draw_rect = logical_draw_rect_for_plan(
             plan,
             target_ctx.origin,
-            if state.transform_clip { combined } else { target_ctx.inherited_transform },
+            if state.transform_clip {
+                combined
+            } else {
+                target_ctx.inherited_transform
+            },
             scale_factor,
             target_ctx.viewport_width,
             target_ctx.viewport_height,
@@ -451,11 +472,12 @@ impl TextureLayerCompositor {
                 child_damage = union_layout_rects(child_damage, outcome.damage_rect);
             }
 
-            let wrapper_damage = if state.composite_dirty || state.structure_dirty || state.composite_dynamic {
-                union_layout_rects(state.last_draw_rect, current_draw_rect)
-            } else {
-                child_damage
-            };
+            let wrapper_damage =
+                if state.composite_dirty || state.structure_dirty || state.composite_dynamic {
+                    union_layout_rects(state.last_draw_rect, current_draw_rect)
+                } else {
+                    child_damage
+                };
             if let Some(layer) = self.layers.get_mut(&plan.key) {
                 layer.last_draw_rect = current_draw_rect;
                 layer.local_dirty = false;
@@ -533,7 +555,9 @@ impl TextureLayerCompositor {
 
             if full_recompose {
                 render_or_seed_layer_base(
-                    self.textures.get_mut(&plan.key).expect("missing cached compositor layer"),
+                    self.textures
+                        .get_mut(&plan.key)
+                        .expect("missing cached compositor layer"),
                     device,
                     queue,
                     vello_renderer,
@@ -555,7 +579,9 @@ impl TextureLayerCompositor {
                     texture_height,
                 );
                 render_or_seed_layer_base(
-                    self.textures.get_mut(&plan.key).expect("missing cached compositor layer"),
+                    self.textures
+                        .get_mut(&plan.key)
+                        .expect("missing cached compositor layer"),
                     device,
                     queue,
                     vello_renderer,
@@ -684,11 +710,7 @@ impl TextureLayerCompositor {
             let Some(clip) = intersect_scissor_optional(Some(clip), extra_scissor) else {
                 continue;
             };
-            if clip.2 == 0
-                || clip.3 == 0
-                || clip.0 >= viewport_width
-                || clip.1 >= viewport_height
-            {
+            if clip.2 == 0 || clip.3 == 0 || clip.0 >= viewport_width || clip.1 >= viewport_height {
                 continue;
             }
             let opacity = inherited_opacity * layer.opacity;
@@ -726,12 +748,7 @@ impl TextureLayerCompositor {
                 clip: [clip.0 as f32, clip.1 as f32, clip.2 as f32, clip.3 as f32],
                 clip_local,
                 clip_shape,
-                viewport_and_opacity: [
-                    viewport_width as f32,
-                    viewport_height as f32,
-                    opacity,
-                    0.0,
-                ],
+                viewport_and_opacity: [viewport_width as f32, viewport_height as f32, opacity, 0.0],
                 transform: matrix_to_rows(scale_transform(combined, scale_factor)),
             };
             if cached.last_uniform != Some(uniform) {
@@ -775,18 +792,18 @@ impl TextureLayerCompositor {
             });
             pass.set_pipeline(&self.pipeline);
             for batch in &draw_batches {
-            pass.set_scissor_rect(
-                batch.clip.0,
-                batch.clip.1,
-                batch.clip.2.max(1),
-                batch.clip.3.max(1),
-            );
-            let Some(cached) = self.textures.get(&batch.layer_key) else {
-                continue;
-            };
-            pass.set_bind_group(0, &cached.bind_group, &[]);
-            pass.draw(0..4, 0..1);
-        }
+                pass.set_scissor_rect(
+                    batch.clip.0,
+                    batch.clip.1,
+                    batch.clip.2.max(1),
+                    batch.clip.3.max(1),
+                );
+                let Some(cached) = self.textures.get(&batch.layer_key) else {
+                    continue;
+                };
+                pass.set_bind_group(0, &cached.bind_group, &[]);
+                pass.draw(0..4, 0..1);
+            }
         }
         queue.submit(Some(encoder.finish()));
     }
@@ -1011,14 +1028,8 @@ fn intersect_scissor_rects(
 ) -> (u32, u32, u32, u32) {
     let left = lhs.0.max(rhs.0);
     let top = lhs.1.max(rhs.1);
-    let right = lhs
-        .0
-        .saturating_add(lhs.2)
-        .min(rhs.0.saturating_add(rhs.2));
-    let bottom = lhs
-        .1
-        .saturating_add(lhs.3)
-        .min(rhs.1.saturating_add(rhs.3));
+    let right = lhs.0.saturating_add(lhs.2).min(rhs.0.saturating_add(rhs.2));
+    let bottom = lhs.1.saturating_add(lhs.3).min(rhs.1.saturating_add(rhs.3));
     (
         left,
         top,
@@ -1035,14 +1046,8 @@ fn intersect_scissor_optional(
         (Some(lhs), Some(rhs)) => {
             let left = lhs.0.max(rhs.0);
             let top = lhs.1.max(rhs.1);
-            let right = lhs
-                .0
-                .saturating_add(lhs.2)
-                .min(rhs.0.saturating_add(rhs.2));
-            let bottom = lhs
-                .1
-                .saturating_add(lhs.3)
-                .min(rhs.1.saturating_add(rhs.3));
+            let right = lhs.0.saturating_add(lhs.2).min(rhs.0.saturating_add(rhs.2));
+            let bottom = lhs.1.saturating_add(lhs.3).min(rhs.1.saturating_add(rhs.3));
             let width = right.saturating_sub(left);
             let height = bottom.saturating_sub(top);
             if width == 0 || height == 0 {
@@ -1508,7 +1513,10 @@ mod tests {
     use super::*;
     use fission_layout::LayoutRect;
 
-    fn plan_with_clip(clip: Option<LayerClip>, transform: Option<[f32; 16]>) -> CompositorTexturePlan {
+    fn plan_with_clip(
+        clip: Option<LayerClip>,
+        transform: Option<[f32; 16]>,
+    ) -> CompositorTexturePlan {
         CompositorTexturePlan {
             key: 1,
             bounds: LayoutRect::new(10.0, 20.0, 120.0, 80.0),
@@ -1547,8 +1555,9 @@ mod tests {
             Some(LayerClip::Rect(LayoutRect::new(10.0, 20.0, 40.0, 20.0))),
             Some(translation_matrix(12.0, 6.0)),
         );
-        let rect = logical_draw_rect_for_plan(&plan, LayoutPoint::ZERO, plan.transform, 1.0, 400, 300)
-            .expect("draw rect");
+        let rect =
+            logical_draw_rect_for_plan(&plan, LayoutPoint::ZERO, plan.transform, 1.0, 400, 300)
+                .expect("draw rect");
         assert_eq!(rect.origin.x, 22.0);
         assert_eq!(rect.origin.y, 26.0);
         assert_eq!(rect.size.width, 40.0);

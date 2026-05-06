@@ -919,9 +919,7 @@ impl Widget<GalleryState> for GalleryApp {
         Scroll {
             direction: FlexDirection::Column,
             child: Some(Box::new(
-                Container::new(all_sections)
-                    .padding_all(24.0)
-                    .into_node(),
+                Container::new(all_sections).padding_all(24.0).into_node(),
             )),
             show_scrollbar: true,
             flex_grow: 1.0,

@@ -25,11 +25,17 @@ fn show_modal_visibly_dims_the_background() {
     let control_port = reserve_control_port();
     let mut child = launch_counter(control_port);
     let client = LiveTestClient::connect(control_port);
-    client.wait_for_ready(15_000).expect("counter did not start");
+    client
+        .wait_for_ready(15_000)
+        .expect("counter did not start");
     client.wait(1_500).expect("initial wait");
 
-    let screenshot_dir = std::env::var("FISSION_SCREENSHOT_DIR")
-        .unwrap_or_else(|_| format!("{}/../../.artifacts/screenshots/examples/counter/counter_live", env!("CARGO_MANIFEST_DIR")));
+    let screenshot_dir = std::env::var("FISSION_SCREENSHOT_DIR").unwrap_or_else(|_| {
+        format!(
+            "{}/../../.artifacts/screenshots/examples/counter/counter_live",
+            env!("CARGO_MANIFEST_DIR")
+        )
+    });
     std::fs::create_dir_all(&screenshot_dir).ok();
 
     client.tap_text("Show Modal").expect("show modal");

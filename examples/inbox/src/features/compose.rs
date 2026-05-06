@@ -7,8 +7,8 @@ use chrono::Local;
 use fission_core::ui::Node;
 use fission_core::{ActionEnvelope, BuildCtx, Handler, NodeId, View, Widget, WidgetNodeId};
 use fission_widgets::{
-    Combobox, DatePicker, Dropzone, FileUpload, FocusScope, FormControl, Modal,
-    ModalAction, TextInput, TimePicker, VStack, Wrap,
+    Combobox, DatePicker, Dropzone, FileUpload, FocusScope, FormControl, Modal, ModalAction,
+    TextInput, TimePicker, VStack, Wrap,
 };
 use serde_json;
 use std::collections::HashSet;

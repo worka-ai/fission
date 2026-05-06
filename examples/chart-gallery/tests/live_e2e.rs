@@ -21,8 +21,12 @@ fn launch_chart_gallery(control_port: u16) -> Child {
 }
 
 fn screenshot_dir() -> String {
-    let dir = std::env::var("FISSION_SCREENSHOT_DIR")
-        .unwrap_or_else(|_| format!("{}/../../.artifacts/screenshots/examples/chart-gallery/chart_gallery_live", env!("CARGO_MANIFEST_DIR")));
+    let dir = std::env::var("FISSION_SCREENSHOT_DIR").unwrap_or_else(|_| {
+        format!(
+            "{}/../../.artifacts/screenshots/examples/chart-gallery/chart_gallery_live",
+            env!("CARGO_MANIFEST_DIR")
+        )
+    });
     std::fs::create_dir_all(&dir).ok();
     dir
 }
@@ -44,7 +48,9 @@ fn sidebar_scroll_reaches_lower_entries() {
     client.screenshot(&before).expect("before screenshot");
 
     for _ in 0..4 {
-        client.scroll(120.0, 420.0, 0.0, 180.0).expect("sidebar scroll");
+        client
+            .scroll(120.0, 420.0, 0.0, 180.0)
+            .expect("sidebar scroll");
         client.pump().expect("pump after scroll");
         client.wait(200).expect("wait after scroll");
     }

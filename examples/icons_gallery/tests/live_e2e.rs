@@ -31,8 +31,12 @@ fn scrolling_changes_the_visible_window() {
         .expect("icons gallery did not start");
     client.wait(1_500).expect("initial wait");
 
-    let screenshot_dir = std::env::var("FISSION_SCREENSHOT_DIR")
-        .unwrap_or_else(|_| format!("{}/../../.artifacts/screenshots/examples/icons_gallery/icons_gallery_live", env!("CARGO_MANIFEST_DIR")));
+    let screenshot_dir = std::env::var("FISSION_SCREENSHOT_DIR").unwrap_or_else(|_| {
+        format!(
+            "{}/../../.artifacts/screenshots/examples/icons_gallery/icons_gallery_live",
+            env!("CARGO_MANIFEST_DIR")
+        )
+    });
     std::fs::create_dir_all(&screenshot_dir).ok();
     let before_path = format!("{}/01_before_scroll.png", screenshot_dir);
     let after_path = format!("{}/02_after_scroll.png", screenshot_dir);
@@ -53,7 +57,10 @@ fn scrolling_changes_the_visible_window() {
 
     let before = std::fs::read(&before_path).expect("read before screenshot");
     let after = std::fs::read(&after_path).expect("read after screenshot");
-    assert_ne!(before, after, "scrolling should change the rendered screenshot");
+    assert_ne!(
+        before, after,
+        "scrolling should change the rendered screenshot"
+    );
 
     client.quit().expect("quit");
     let _ = child.wait();
@@ -95,8 +102,12 @@ fn large_scroll_does_not_blank_the_visible_list() {
         .expect("icons gallery did not start");
     client.wait(1_500).expect("initial wait");
 
-    let screenshot_dir = std::env::var("FISSION_SCREENSHOT_DIR")
-        .unwrap_or_else(|_| format!("{}/../../.artifacts/screenshots/examples/icons_gallery/icons_gallery_live", env!("CARGO_MANIFEST_DIR")));
+    let screenshot_dir = std::env::var("FISSION_SCREENSHOT_DIR").unwrap_or_else(|_| {
+        format!(
+            "{}/../../.artifacts/screenshots/examples/icons_gallery/icons_gallery_live",
+            env!("CARGO_MANIFEST_DIR")
+        )
+    });
     std::fs::create_dir_all(&screenshot_dir).ok();
     let after_path = format!("{}/03_after_large_scroll.png", screenshot_dir);
 

@@ -284,7 +284,10 @@ impl Widget<CounterState> for CounterApp {
                         Column {
                             children: vec![
                                 Text::new("The modal overlay should dim the full surface.").into(),
-                                Text::new("This example is used as a portal/compositor regression.").into(),
+                                Text::new(
+                                    "This example is used as a portal/compositor regression.",
+                                )
+                                .into(),
                             ],
                             gap: Some(8.0),
                             ..Default::default()

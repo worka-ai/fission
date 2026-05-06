@@ -1516,9 +1516,11 @@ impl EditorState {
                 "Opened large file ({:.1} MB)",
                 file_size as f64 / 1_000_000.0
             )),
-            DocumentMode::Huge => self.file_contents.get(&path).and_then(|buf| {
-                match &buf.backing {
-                    DocumentBacking::FileWindow { window, .. } => Some(format!(
+            DocumentMode::Huge => {
+                self.file_contents
+                    .get(&path)
+                    .and_then(|buf| match &buf.backing {
+                        DocumentBacking::FileWindow { window, .. } => Some(format!(
                         "Opened huge file in windowed mode ({:.1} MB, lines {}..{}, bytes {}..{})",
                         file_size as f64 / 1_000_000.0,
                         window.start_line,
@@ -1526,9 +1528,9 @@ impl EditorState {
                         window.start_byte,
                         window.end_byte
                     )),
-                    DocumentBacking::InMemory => None,
-                }
-            }),
+                        DocumentBacking::InMemory => None,
+                    })
+            }
         };
     }
 

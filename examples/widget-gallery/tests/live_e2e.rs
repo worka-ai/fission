@@ -44,8 +44,12 @@ fn gallery_live_screenshot_all_sections() {
     // Wait for first frame to render
     client.wait(1000).expect("wait");
 
-    let screenshot_dir =
-        std::env::var("FISSION_SCREENSHOT_DIR").unwrap_or_else(|_| format!("{}/../../.artifacts/screenshots/examples/widget-gallery/live", env!("CARGO_MANIFEST_DIR")));
+    let screenshot_dir = std::env::var("FISSION_SCREENSHOT_DIR").unwrap_or_else(|_| {
+        format!(
+            "{}/../../.artifacts/screenshots/examples/widget-gallery/live",
+            env!("CARGO_MANIFEST_DIR")
+        )
+    });
     std::fs::create_dir_all(&screenshot_dir).ok();
 
     // Take initial screenshot
@@ -92,8 +96,12 @@ fn scrolling_changes_the_visible_gallery_window() {
         .expect("gallery did not start in time");
     client.wait(1_000).expect("wait");
 
-    let screenshot_dir =
-        std::env::var("FISSION_SCREENSHOT_DIR").unwrap_or_else(|_| format!("{}/../../.artifacts/screenshots/examples/widget-gallery/live", env!("CARGO_MANIFEST_DIR")));
+    let screenshot_dir = std::env::var("FISSION_SCREENSHOT_DIR").unwrap_or_else(|_| {
+        format!(
+            "{}/../../.artifacts/screenshots/examples/widget-gallery/live",
+            env!("CARGO_MANIFEST_DIR")
+        )
+    });
     std::fs::create_dir_all(&screenshot_dir).ok();
     let before = format!("{}/03_before_scroll_assert.png", screenshot_dir);
     let after = format!("{}/04_after_scroll_assert.png", screenshot_dir);
@@ -140,8 +148,12 @@ fn initial_surface_uses_a_light_page_background() {
         .expect("gallery did not start in time");
     client.wait(1_000).expect("wait");
 
-    let screenshot_dir =
-        std::env::var("FISSION_SCREENSHOT_DIR").unwrap_or_else(|_| format!("{}/../../.artifacts/screenshots/examples/widget-gallery/live", env!("CARGO_MANIFEST_DIR")));
+    let screenshot_dir = std::env::var("FISSION_SCREENSHOT_DIR").unwrap_or_else(|_| {
+        format!(
+            "{}/../../.artifacts/screenshots/examples/widget-gallery/live",
+            env!("CARGO_MANIFEST_DIR")
+        )
+    });
     std::fs::create_dir_all(&screenshot_dir).ok();
     let path = format!("{}/05_light_background.png", screenshot_dir);
     client.screenshot(&path).expect("screenshot");

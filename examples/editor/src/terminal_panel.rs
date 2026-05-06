@@ -2,8 +2,8 @@ use crate::model::{BottomPanelTab, EditorState};
 use fission_core::op::Color;
 use fission_core::ui::{Button, ButtonVariant, Container, Node, Text};
 use fission_core::{BuildCtx, Handler, View, Widget};
-use fission_widgets::{HStack, Spacer, TerminalView, VStack};
 use fission_ir::NodeId;
+use fission_widgets::{HStack, Spacer, TerminalView, VStack};
 
 pub struct TerminalPanel;
 
@@ -58,49 +58,46 @@ impl Widget<EditorState> for TerminalPanel {
             }) as Handler<EditorState, crate::model::SetBottomPanelTab>,
         );
 
-        let tab = |label: &str,
-                   active: bool,
-                   action: fission_core::ActionEnvelope,
-                   id: &str|
-         -> Node {
-            Button {
-                id: Some(NodeId::explicit(id)),
-                variant: ButtonVariant::Ghost,
-                child: Some(Box::new(
-                    VStack {
-                        spacing: Some(0.0),
-                        children: vec![
-                            Container::new(
-                                Text::new(label)
-                                    .size(11.0)
-                                    .color(if active { TEXT } else { MUTED })
-                                    .into_node(),
-                            )
-                            .padding_all(6.0)
-                            .into_node(),
-                            Container::new(Spacer::default().into_node())
-                                .height(2.0)
-                                .bg(if active {
-                                    TEXT
-                                } else {
-                                    Color {
-                                        r: 0,
-                                        g: 0,
-                                        b: 0,
-                                        a: 0,
-                                    }
-                                })
+        let tab =
+            |label: &str, active: bool, action: fission_core::ActionEnvelope, id: &str| -> Node {
+                Button {
+                    id: Some(NodeId::explicit(id)),
+                    variant: ButtonVariant::Ghost,
+                    child: Some(Box::new(
+                        VStack {
+                            spacing: Some(0.0),
+                            children: vec![
+                                Container::new(
+                                    Text::new(label)
+                                        .size(11.0)
+                                        .color(if active { TEXT } else { MUTED })
+                                        .into_node(),
+                                )
+                                .padding_all(6.0)
                                 .into_node(),
-                        ],
-                    }
-                    .into_node(),
-                )),
-                on_press: Some(action),
-                padding: Some([0.0; 4]),
-                ..Default::default()
-            }
-            .into_node()
-        };
+                                Container::new(Spacer::default().into_node())
+                                    .height(2.0)
+                                    .bg(if active {
+                                        TEXT
+                                    } else {
+                                        Color {
+                                            r: 0,
+                                            g: 0,
+                                            b: 0,
+                                            a: 0,
+                                        }
+                                    })
+                                    .into_node(),
+                            ],
+                        }
+                        .into_node(),
+                    )),
+                    on_press: Some(action),
+                    padding: Some([0.0; 4]),
+                    ..Default::default()
+                }
+                .into_node()
+            };
 
         let title = view
             .state
@@ -156,7 +153,11 @@ impl Widget<EditorState> for TerminalPanel {
                 0.0
             })
         .max(280.0);
-        let terminal_height = (view.state.terminal_height.min((view.viewport_size().height * 0.45).max(120.0)) - 28.0)
+        let terminal_height = (view
+            .state
+            .terminal_height
+            .min((view.viewport_size().height * 0.45).max(120.0))
+            - 28.0)
             .max(72.0);
 
         let content = if is_terminal {
@@ -198,7 +199,11 @@ impl Widget<EditorState> for TerminalPanel {
             }
             .into_node(),
         )
-        .height(view.state.terminal_height.min((view.viewport_size().height * 0.45).max(120.0)))
+        .height(
+            view.state
+                .terminal_height
+                .min((view.viewport_size().height * 0.45).max(120.0)),
+        )
         .bg(BG)
         .flex_shrink(0.0)
         .into_node()

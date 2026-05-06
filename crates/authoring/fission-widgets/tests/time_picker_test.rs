@@ -87,11 +87,19 @@ fn time_picker_uses_compact_stepper_buttons() {
     let Node::Row(row) = node else {
         panic!("TimePicker should lower to a row");
     };
-    assert_eq!(row.children.len(), 3, "expected time picker to have HH : MM children");
+    assert_eq!(
+        row.children.len(),
+        3,
+        "expected time picker to have HH : MM children"
+    );
     let mut buttons = Vec::new();
     let row_node = Node::Row(row.clone());
     collect_buttons(&row_node, &mut buttons);
-    assert_eq!(buttons.len(), 4, "expected time picker to expose four compact stepper buttons");
+    assert_eq!(
+        buttons.len(),
+        4,
+        "expected time picker to expose four compact stepper buttons"
+    );
     for button in buttons {
         assert!(
             button.width.unwrap_or_default() <= 32.0,

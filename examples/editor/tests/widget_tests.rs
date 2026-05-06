@@ -24,7 +24,10 @@ fn port_available() -> bool {
 }
 
 fn dir() -> String {
-    let d = format!("{}/../../.artifacts/screenshots/examples/editor/editor_widget", env!("CARGO_MANIFEST_DIR"));
+    let d = format!(
+        "{}/../../.artifacts/screenshots/examples/editor/editor_widget",
+        env!("CARGO_MANIFEST_DIR")
+    );
     std::fs::create_dir_all(&d).ok();
     d
 }

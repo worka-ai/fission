@@ -31,8 +31,12 @@ fn combobox_popup_appears_and_dismisses_after_selection() {
         .expect("text-lab did not start");
     client.wait(1_500).expect("initial wait");
 
-    let screenshot_dir = std::env::var("FISSION_SCREENSHOT_DIR")
-        .unwrap_or_else(|_| format!("{}/../../.artifacts/screenshots/examples/text-lab/text_lab_live", env!("CARGO_MANIFEST_DIR")));
+    let screenshot_dir = std::env::var("FISSION_SCREENSHOT_DIR").unwrap_or_else(|_| {
+        format!(
+            "{}/../../.artifacts/screenshots/examples/text-lab/text_lab_live",
+            env!("CARGO_MANIFEST_DIR")
+        )
+    });
     std::fs::create_dir_all(&screenshot_dir).ok();
 
     client
@@ -46,9 +50,7 @@ fn combobox_popup_appears_and_dismisses_after_selection() {
     client.pump().expect("pump query");
     client.wait(300).expect("wait for popup");
     let open_path = format!("{}/02_popup_open.png", screenshot_dir);
-    client
-        .screenshot(&open_path)
-        .expect("popup screenshot");
+    client.screenshot(&open_path).expect("popup screenshot");
     client
         .assert_text_visible("alice@example.com")
         .expect("combobox suggestions should appear after typing");
@@ -64,7 +66,9 @@ fn combobox_popup_appears_and_dismisses_after_selection() {
     client
         .tap_text("Open modal text flow")
         .expect("underlying controls should remain clickable after popup selection");
-    client.wait(400).expect("wait for modal after popup dismissal");
+    client
+        .wait(400)
+        .expect("wait for modal after popup dismissal");
     client
         .assert_text_visible("Text Lab Modal")
         .expect("popup should dismiss cleanly so the next interaction can succeed");
@@ -84,13 +88,15 @@ fn modal_remains_visible_while_typing_and_apply_stays_reachable() {
         .expect("text-lab did not start");
     client.wait(1_500).expect("initial wait");
 
-    let screenshot_dir = std::env::var("FISSION_SCREENSHOT_DIR")
-        .unwrap_or_else(|_| format!("{}/../../.artifacts/screenshots/examples/text-lab/text_lab_live", env!("CARGO_MANIFEST_DIR")));
+    let screenshot_dir = std::env::var("FISSION_SCREENSHOT_DIR").unwrap_or_else(|_| {
+        format!(
+            "{}/../../.artifacts/screenshots/examples/text-lab/text_lab_live",
+            env!("CARGO_MANIFEST_DIR")
+        )
+    });
     std::fs::create_dir_all(&screenshot_dir).ok();
 
-    client
-        .tap_text("Open modal text flow")
-        .expect("open modal");
+    client.tap_text("Open modal text flow").expect("open modal");
     client.wait(400).expect("wait for modal");
     client
         .screenshot(&format!("{}/04_modal_open.png", screenshot_dir))
@@ -125,9 +131,7 @@ fn modal_apply_clears_recipient_suggestion_overlay() {
         .expect("text-lab did not start");
     client.wait(1_500).expect("initial wait");
 
-    client
-        .tap_text("Open modal text flow")
-        .expect("open modal");
+    client.tap_text("Open modal text flow").expect("open modal");
     client.wait(400).expect("wait for modal");
     client.tap(180.0, 155.0).expect("focus modal To field");
     client.type_text("alice").expect("type in modal");
@@ -136,9 +140,9 @@ fn modal_apply_clears_recipient_suggestion_overlay() {
     client.tap_text("Apply").expect("apply modal");
     client.wait(400).expect("wait after apply");
 
-    client.assert_text_not_visible("alice@example.com").expect(
-        "recipient suggestion overlay text should be torn down when the modal closes",
-    );
+    client
+        .assert_text_not_visible("alice@example.com")
+        .expect("recipient suggestion overlay text should be torn down when the modal closes");
 
     client.quit().expect("quit");
     let _ = child.wait();

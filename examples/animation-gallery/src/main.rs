@@ -63,8 +63,7 @@ impl Widget<AnimationGalleryState> for AnimationGalleryApp {
         } else {
             1.0
         };
-        let card_width =
-            ((content_width - (columns - 1.0) * 18.0) / columns).clamp(220.0, 360.0);
+        let card_width = ((content_width - (columns - 1.0) * 18.0) / columns).clamp(220.0, 360.0);
         let wide_card_width = content_width.clamp(card_width, 980.0);
 
         if custom_active {
@@ -326,7 +325,11 @@ fn sample_block(label: &str, color: IrColor) -> Node {
 }
 
 fn custom_pulse_card(active: bool, base: IrColor) -> Node {
-    let label = if active { "Pulse running" } else { "Pulse paused" };
+    let label = if active {
+        "Pulse running"
+    } else {
+        "Pulse paused"
+    };
     let block = Container::new(
         Text::new(label)
             .size(16.0)
