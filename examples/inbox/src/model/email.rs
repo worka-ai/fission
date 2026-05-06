@@ -210,6 +210,39 @@ pub fn seed_mailbox() -> SeededMailbox {
         &["Updates"],
         &["Here is your weekly product roundup. Highlights include new themes and analytics."],
     );
+    add_thread(
+        "Security review notes",
+        "Security",
+        &[Folder::Inbox],
+        false,
+        false,
+        &["Security"],
+        &[
+            "Attached are the review notes from this week's dependency audit. Two medium findings need follow-up.",
+        ],
+    );
+    add_thread(
+        "Customer interview highlights",
+        "Research",
+        &[Folder::Inbox],
+        true,
+        false,
+        &["Research"],
+        &[
+            "Three customers asked for faster search, better bulk triage, and clearer notification controls.",
+        ],
+    );
+    add_thread(
+        "Hiring loop feedback",
+        "People Ops",
+        &[Folder::Inbox],
+        false,
+        false,
+        &["Hiring"],
+        &[
+            "The panel submitted final feedback for the design systems candidate. Hiring committee is tomorrow morning.",
+        ],
+    );
 
     SeededMailbox {
         emails,

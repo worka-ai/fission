@@ -3,12 +3,12 @@ use crate::model::{
 };
 use chrono::{Datelike, Local};
 use fission_core::ui::{
-    Button, ButtonVariant, Column, Container, Node, Row, Switch, Text, TextContent,
+    Button, ButtonVariant, Container, Node, Row, Switch, Text, TextContent,
 };
 use fission_core::{BuildCtx, Handler, View, Widget, WidgetNodeId};
 use fission_icons::material;
 use fission_widgets::{
-    Calendar, Card, HStack, Icon, Menu, MenuItem, Skeleton, Spinner, Stat, Stepper, VStack,
+    Calendar, Card, HStack, Icon, Menu, MenuItem, Skeleton, Spinner, Stepper, VStack,
 };
 use serde_json;
 
@@ -98,6 +98,10 @@ impl Widget<InboxState> for RightSidebar {
         }
         .build(ctx, view);
 
+        let sidebar_spacing = if compact_sidebar { 12.0 } else { 16.0 };
+        let calendar_cell_size = if compact_sidebar { 30.0 } else { 32.0 };
+        let calendar_padding = if compact_sidebar { 10.0 } else { 12.0 };
+
         Container::new(
             fission_core::ui::Scroll {
                 direction: fission_ir::op::FlexDirection::Column,
@@ -105,7 +109,8 @@ impl Widget<InboxState> for RightSidebar {
                 flex_grow: 1.0,
                 flex_shrink: 1.0,
                 child: Some(Box::new(
-                    Column {
+                    VStack {
+                        spacing: Some(sidebar_spacing),
                         children: vec![
                             Card {
                                 child: Box::new(
@@ -169,8 +174,8 @@ impl Widget<InboxState> for RightSidebar {
                                     }
                                 })),
                                 on_navigate: None,
-                                cell_size: Some(32.0),
-                                padding: Some(12.0),
+                                cell_size: Some(calendar_cell_size),
+                                padding: Some(calendar_padding),
                             }
                             .build(ctx, view),
                             Card {
@@ -331,7 +336,7 @@ impl Widget<InboxState> for RightSidebar {
                                             .into_node(),
                                             if compact_sidebar {
                                                 HStack {
-                                                    spacing: Some(16.0),
+                                                    spacing: Some(24.0),
                                                     children: vec![
                                                         VStack {
                                                             spacing: Some(2.0),
@@ -368,27 +373,49 @@ impl Widget<InboxState> for RightSidebar {
                                                 .into_node()
                                             } else {
                                                 HStack {
-                                                    spacing: Some(8.0),
+                                                    spacing: Some(20.0),
                                                     children: vec![
-                                                        Container::new(
-                                                            Stat {
-                                                                label: t("quick.unread"),
-                                                                value: unread_total.to_string(),
-                                                                help_text: Some(t("quick.in_inbox")),
-                                                            }
-                                                            .build(ctx, view),
-                                                        )
-                                                        .flex_grow(1.0)
+                                                        VStack {
+                                                            spacing: Some(2.0),
+                                                            children: vec![
+                                                                Text::new(unread_total.to_string())
+                                                                    .size(18.0)
+                                                                    .into_node(),
+                                                                Text::new(t("quick.unread"))
+                                                                    .size(12.0)
+                                                                    .color(
+                                                                        tokens.colors.text_secondary,
+                                                                    )
+                                                                    .into_node(),
+                                                                Text::new(t("quick.in_inbox"))
+                                                                    .size(12.0)
+                                                                    .color(
+                                                                        tokens.colors.text_secondary,
+                                                                    )
+                                                                    .into_node(),
+                                                            ],
+                                                        }
                                                         .into_node(),
-                                                        Container::new(
-                                                            Stat {
-                                                                label: t("quick.starred"),
-                                                                value: starred_total.to_string(),
-                                                                help_text: Some(t("quick.all_folders")),
-                                                            }
-                                                            .build(ctx, view),
-                                                        )
-                                                        .flex_grow(1.0)
+                                                        VStack {
+                                                            spacing: Some(2.0),
+                                                            children: vec![
+                                                                Text::new(starred_total.to_string())
+                                                                    .size(18.0)
+                                                                    .into_node(),
+                                                                Text::new(t("quick.starred"))
+                                                                    .size(12.0)
+                                                                    .color(
+                                                                        tokens.colors.text_secondary,
+                                                                    )
+                                                                    .into_node(),
+                                                                Text::new(t("quick.all_folders"))
+                                                                    .size(12.0)
+                                                                    .color(
+                                                                        tokens.colors.text_secondary,
+                                                                    )
+                                                                    .into_node(),
+                                                            ],
+                                                        }
                                                         .into_node(),
                                                     ],
                                                 }

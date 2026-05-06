@@ -398,8 +398,7 @@ impl Widget<InboxState> for EmailList {
             _ => emails.sort_by_key(|e| std::cmp::Reverse(e.last_message().sent_at)),
         }
 
-        let list_height_budget = (view.viewport_size().height - 220.0).max(280.0);
-        let page_size = ((list_height_budget / 120.0).floor() as usize).clamp(3, 8);
+        let page_size = if compact_rows { 4 } else { 5 };
         let total_pages = ((emails.len() + page_size - 1) / page_size).max(1);
         let current_page = view.state.page.max(1).min(total_pages);
         let start_idx = (current_page - 1) * page_size;
