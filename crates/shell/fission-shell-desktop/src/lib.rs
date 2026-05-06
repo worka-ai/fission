@@ -274,7 +274,7 @@ impl LiveResizeController {
         Self {
             active_until: None,
             settle_delay,
-            layout_interval: Duration::from_millis(32),
+            layout_interval: Duration::from_millis(24),
             last_layout_at: None,
         }
     }
@@ -3178,6 +3178,7 @@ mod tests {
             transform_clip: false,
             clip: None,
             children: Vec::new(),
+            source_layer_path: None,
         }];
         assert!(!texture_plans_fit_device_limits(&plans, 1.0, 8192));
     }
@@ -3199,6 +3200,7 @@ mod tests {
             transform_clip: false,
             clip: None,
             children: Vec::new(),
+            source_layer_path: None,
         };
         let plans = vec![CompositorTexturePlan {
             key: 1,
@@ -3213,6 +3215,7 @@ mod tests {
             transform_clip: false,
             clip: None,
             children: vec![child],
+            source_layer_path: None,
         }];
         assert!(!texture_plans_fit_device_limits(&plans, 1.0, 8192));
     }

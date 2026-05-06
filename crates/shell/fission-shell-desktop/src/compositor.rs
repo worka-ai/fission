@@ -1522,6 +1522,7 @@ mod tests {
             transform_clip: true,
             clip,
             children: Vec::new(),
+            source_layer_path: None,
         }
     }
 

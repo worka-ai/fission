@@ -153,6 +153,7 @@ pub struct CompositorTexturePlan {
     pub transform_clip: bool,
     pub clip: Option<LayerClip>,
     pub children: Vec<CompositorTexturePlan>,
+    pub source_layer_path: Option<Vec<usize>>,
 }
 
 pub struct Pipeline {
@@ -430,7 +431,11 @@ impl Pipeline {
             RenderNode::Layer(layer) => layer.style.transform,
             RenderNode::Paint(_) => None,
         });
-        self.retained_texture_plans = self.build_texture_compositor_plans(scene);
+        if self.retained_texture_plans.is_empty() {
+            self.retained_texture_plans = self.build_texture_compositor_plans(scene);
+        } else {
+            patch_texture_compositor_plans(&mut self.retained_texture_plans, scene);
+        }
 
         diag::emit(
             diag::DiagCategory::Layout,
@@ -720,20 +725,19 @@ impl Pipeline {
     }
 
     fn build_texture_compositor_plans(&self, scene: &RenderScene) -> Vec<CompositorTexturePlan> {
-        let Some(RenderNode::Layer(presentation_root)) = scene.roots.first() else {
+        let Some(split_layer_path) = find_texture_compositor_split_layer_path(scene) else {
             return Vec::new();
         };
-        let Some(RenderNode::Layer(content_root)) = presentation_root.children.first() else {
+        let Some(split_layer) = layer_ref_at_path(scene, &split_layer_path) else {
             return Vec::new();
         };
-        if presentation_root.children.len() != 1 {
-            return Vec::new();
-        }
-        let split_layer = find_texture_compositor_split_layer(content_root);
         let mut plans = Vec::new();
-        for child in &split_layer.children {
+        for (child_index, child) in split_layer.children.iter().enumerate() {
+            let mut child_path = split_layer_path.clone();
+            child_path.push(child_index);
             if let Some(plan) = build_texture_plan_from_node(
                 child,
+                &child_path,
                 true,
                 &self.runtime_dynamic_nodes,
                 &self.runtime_dynamic_subtrees,
@@ -795,6 +799,26 @@ fn layer_mut_in_node<'a>(node: &'a mut RenderNode, path: &[usize]) -> Option<&'a
     }
 }
 
+fn layer_ref_at_path<'a>(scene: &'a RenderScene, path: &[usize]) -> Option<&'a RenderLayer> {
+    let (root_index, tail) = path.split_first()?;
+    let node = scene.roots.get(*root_index)?;
+    layer_ref_in_node(node, tail)
+}
+
+fn layer_ref_in_node<'a>(node: &'a RenderNode, path: &[usize]) -> Option<&'a RenderLayer> {
+    match node {
+        RenderNode::Layer(layer) => {
+            if path.is_empty() {
+                return Some(layer);
+            }
+            let (child_index, tail) = path.split_first()?;
+            let child = layer.children.get(*child_index)?;
+            layer_ref_in_node(child, tail)
+        }
+        RenderNode::Paint(_) => None,
+    }
+}
+
 fn count_render_paint_ops(scene: &RenderScene) -> usize {
     scene.roots.iter().map(count_render_node_paint_ops).sum()
 }
@@ -813,7 +837,18 @@ fn render_node_bounds(node: &RenderNode) -> LayoutRect {
     }
 }
 
-fn find_texture_compositor_split_layer<'a>(mut layer: &'a RenderLayer) -> &'a RenderLayer {
+fn find_texture_compositor_split_layer_path(scene: &RenderScene) -> Option<Vec<usize>> {
+    let Some(RenderNode::Layer(presentation_root)) = scene.roots.first() else {
+        return None;
+    };
+    if presentation_root.children.len() != 1 {
+        return None;
+    }
+    let Some(RenderNode::Layer(layer)) = presentation_root.children.first() else {
+        return None;
+    };
+    let mut layer = layer;
+    let mut path = vec![0, 0];
     loop {
         let only_child = match layer.children.as_slice() {
             [RenderNode::Layer(child)] => Some(child),
@@ -824,30 +859,39 @@ fn find_texture_compositor_split_layer<'a>(mut layer: &'a RenderLayer) -> &'a Re
             && layer.style.transform.is_none();
         if let (true, Some(child)) = (is_plain_wrapper, only_child) {
             layer = child;
+            path.push(0);
         } else {
-            return layer;
+            return Some(path);
         }
     }
 }
 
+#[derive(Debug)]
+struct TexturePlanCandidate<'a> {
+    node: &'a RenderNode,
+    path: Vec<usize>,
+}
+
 fn build_texture_plan_from_node(
     node: &RenderNode,
+    node_path: &[usize],
     force: bool,
     runtime_dynamic_nodes: &HashSet<NodeId>,
     runtime_dynamic_subtrees: &HashMap<NodeId, bool>,
 ) -> Option<CompositorTexturePlan> {
     let candidate = find_nested_texture_plan_candidate(
         node,
+        node_path,
         force,
         runtime_dynamic_nodes,
         runtime_dynamic_subtrees,
     )?;
-    let bounds = render_node_bounds(candidate);
+    let bounds = render_node_bounds(candidate.node);
     if bounds.size.width <= 0.0 || bounds.size.height <= 0.0 {
         return None;
     }
 
-    match candidate {
+    match candidate.node {
         RenderNode::Paint(list) => {
             let scene = localized_scene_for_compositor_children(
                 vec![RenderNode::Paint(list.clone())],
@@ -868,22 +912,27 @@ fn build_texture_plan_from_node(
                 transform_clip: true,
                 clip: None,
                 children: Vec::new(),
+                source_layer_path: None,
             })
         }
         RenderNode::Layer(layer) => {
             let wrapper_only_scroll_plan = !layer.style.transform_clip;
             let mut child_plans = Vec::new();
             let mut local_children = Vec::new();
-            for child in &layer.children {
+            for (child_index, child) in layer.children.iter().enumerate() {
+                let mut child_path = candidate.path.clone();
+                child_path.push(child_index);
                 if wrapper_only_scroll_plan {
                     child_plans.extend(build_descending_wrapper_plans(
                         child,
+                        &child_path,
                         runtime_dynamic_nodes,
                         runtime_dynamic_subtrees,
                     ));
                 } else {
                     if let Some(child_plan) = build_texture_plan_from_node(
                         child,
+                        &child_path,
                         false,
                         runtime_dynamic_nodes,
                         runtime_dynamic_subtrees,
@@ -906,7 +955,15 @@ fn build_texture_plan_from_node(
                     bounds,
                 ))
             };
-            let scene_cache_key = scene.as_ref().map(scene_cache_key);
+            let scene_cache_key = if scene.is_none() {
+                None
+            } else {
+                layer
+                    .style
+                    .content_cache_key
+                    .or(layer.style.cache_key)
+                    .or_else(|| scene.as_ref().map(scene_cache_key))
+            };
             let content_key = plan_content_key(scene_cache_key, &child_plans);
             let composite_dynamic = layer
                 .node_id
@@ -925,6 +982,7 @@ fn build_texture_plan_from_node(
                 transform_clip: layer.style.transform_clip,
                 clip: layer.style.clip.clone(),
                 children: child_plans,
+                source_layer_path: Some(candidate.path),
             })
         }
     }
@@ -932,12 +990,14 @@ fn build_texture_plan_from_node(
 
 fn build_descending_wrapper_plans(
     node: &RenderNode,
+    node_path: &[usize],
     runtime_dynamic_nodes: &HashSet<NodeId>,
     runtime_dynamic_subtrees: &HashMap<NodeId, bool>,
 ) -> Vec<CompositorTexturePlan> {
     match node {
         RenderNode::Paint(_) => build_texture_plan_from_node(
             node,
+            node_path,
             true,
             runtime_dynamic_nodes,
             runtime_dynamic_subtrees,
@@ -946,9 +1006,12 @@ fn build_descending_wrapper_plans(
         .collect(),
         RenderNode::Layer(layer) => {
             let mut children = Vec::new();
-            for child in &layer.children {
+            for (child_index, child) in layer.children.iter().enumerate() {
+                let mut child_path = node_path.to_vec();
+                child_path.push(child_index);
                 children.extend(build_descending_wrapper_plans(
                     child,
+                    &child_path,
                     runtime_dynamic_nodes,
                     runtime_dynamic_subtrees,
                 ));
@@ -957,6 +1020,7 @@ fn build_descending_wrapper_plans(
             if children.is_empty() {
                 return build_texture_plan_from_node(
                     node,
+                    node_path,
                     true,
                     runtime_dynamic_nodes,
                     runtime_dynamic_subtrees,
@@ -982,6 +1046,7 @@ fn build_descending_wrapper_plans(
                 transform_clip: layer.style.transform_clip,
                 clip: layer.style.clip.clone(),
                 children,
+                source_layer_path: Some(node_path.to_vec()),
             }]
         }
     }
@@ -989,17 +1054,24 @@ fn build_descending_wrapper_plans(
 
 fn find_nested_texture_plan_candidate<'a>(
     node: &'a RenderNode,
+    node_path: &[usize],
     force: bool,
     runtime_dynamic_nodes: &HashSet<NodeId>,
     runtime_dynamic_subtrees: &HashMap<NodeId, bool>,
-) -> Option<&'a RenderNode> {
+) -> Option<TexturePlanCandidate<'a>> {
     match node {
-        RenderNode::Paint(_) => force.then_some(node),
+        RenderNode::Paint(_) => force.then_some(TexturePlanCandidate {
+            node,
+            path: node_path.to_vec(),
+        }),
         RenderNode::Layer(layer) => {
             if !force {
                 if let Some(child) = descend_through_plain_wrapper(layer) {
+                    let mut child_path = node_path.to_vec();
+                    child_path.push(0);
                     return find_nested_texture_plan_candidate(
                         child,
+                        &child_path,
                         false,
                         runtime_dynamic_nodes,
                         runtime_dynamic_subtrees,
@@ -1013,11 +1085,17 @@ fn find_nested_texture_plan_candidate<'a>(
                 .map(|id| runtime_dynamic_nodes.contains(&id))
                 .unwrap_or(false);
             if force || layer_should_extract_as_plan(layer, subtree_dynamic, own_dynamic) {
-                Some(node)
+                Some(TexturePlanCandidate {
+                    node,
+                    path: node_path.to_vec(),
+                })
             } else {
-                for child in &layer.children {
+                for (child_index, child) in layer.children.iter().enumerate() {
+                    let mut child_path = node_path.to_vec();
+                    child_path.push(child_index);
                     if let Some(candidate) = find_nested_texture_plan_candidate(
                         child,
+                        &child_path,
                         false,
                         runtime_dynamic_nodes,
                         runtime_dynamic_subtrees,
@@ -1147,6 +1225,30 @@ fn plan_content_key(scene_cache_key: Option<u64>, children: &[CompositorTextureP
         hash_serde_value(&child.clip, &mut hasher);
     }
     hasher.finish()
+}
+
+fn patch_texture_compositor_plans(plans: &mut [CompositorTexturePlan], scene: &RenderScene) {
+    for plan in plans {
+        patch_texture_compositor_plan(plan, scene);
+    }
+}
+
+fn patch_texture_compositor_plan(plan: &mut CompositorTexturePlan, scene: &RenderScene) {
+    for child in &mut plan.children {
+        patch_texture_compositor_plan(child, scene);
+    }
+
+    if let Some(path) = plan.source_layer_path.as_deref() {
+        if let Some(layer) = layer_ref_at_path(scene, path) {
+            plan.bounds = layer.bounds;
+            plan.opacity = layer.style.opacity;
+            plan.transform = layer.style.transform;
+            plan.transform_clip = layer.style.transform_clip;
+            plan.clip = layer.style.clip.clone();
+        }
+    }
+
+    plan.content_key = plan_content_key(plan.scene_cache_key, &plan.children);
 }
 
 fn hash_serde_value<T: Serialize, H: Hasher>(value: &T, hasher: &mut H) {
@@ -2542,5 +2644,6 @@ mod tests {
             "expected retained scroll transform to patch to -180, got {}",
             transform[13]
         );
+
     }
 }
