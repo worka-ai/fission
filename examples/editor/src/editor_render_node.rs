@@ -3,7 +3,7 @@
 //! `EditorRenderNode` replaces the previous `TextInput`-based editor with a
 //! single `LowerDyn` implementation that:
 //!
-//!   1. Only renders **visible** lines (virtual scrolling),
+//!   1. Renders either the full buffer or a virtualized visible window,
 //!   2. Performs its own hit-testing geometry,
 //!   3. Manages cursor bar placement directly via `DrawRect`.
 //!   4. Renders selection highlights behind text.
@@ -100,6 +100,7 @@ pub struct EditorRenderNode {
 }
 
 const VISIBLE_LINE_OVERSCAN: usize = 4;
+const FULL_RENDER_VISUAL_LINE_LIMIT: usize = 20_000;
 
 impl fmt::Debug for EditorRenderNode {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
@@ -132,7 +133,11 @@ impl EditorRenderNode {
     ///
     /// Returns `None` if there is no active buffer (the caller should fall back
     /// to the welcome screen).
-    pub fn from_state(state: &EditorState, viewport_width: f32) -> Option<Self> {
+    pub fn from_state(
+        state: &EditorState,
+        viewport_width: f32,
+        viewport_height: f32,
+    ) -> Option<Self> {
         let (tab, buffer) = state.active_buffer()?;
         let content = buffer.display_content();
         let language = buffer.language;
@@ -211,7 +216,7 @@ impl EditorRenderNode {
             wrap_columns,
             scroll_y: state.scroll_offset_y,
             file_path,
-            viewport_height: 800.0,
+            viewport_height: viewport_height.max(line_height),
             viewport_width,
         })
     }
@@ -226,7 +231,12 @@ impl LowerDyn for EditorRenderNode {
         let visual_lines = self.visual_lines();
         let total_visual_lines = visual_lines.len().max(1);
         let total_lines = self.logical_line_count();
-        let (first_line, last_line) = self.visible_visual_line_range(total_visual_lines);
+        let (first_line, last_line) =
+            if self.windowed_file || total_visual_lines <= FULL_RENDER_VISUAL_LINE_LIMIT {
+                (0, total_visual_lines)
+            } else {
+                self.visible_visual_line_range(total_visual_lines)
+            };
         let content_height = total_visual_lines as f32 * self.line_height;
         let sel_start = self.cursor_offset.min(self.anchor_offset);
         let sel_end = self.cursor_offset.max(self.anchor_offset);
@@ -541,7 +551,10 @@ impl LowerDyn for EditorRenderNode {
             let mut b = NodeBuilder::new(
                 id,
                 Op::Layout(LayoutOp::Box {
-                    width: Some(self.viewport_width.max(self.gutter_width + char_width * 4.0)),
+                    width: Some(
+                        self.viewport_width
+                            .max(self.gutter_width + char_width * 4.0),
+                    ),
                     height: Some(content_height),
                     min_width: None,
                     max_width: None,
@@ -572,6 +585,19 @@ impl LowerDyn for EditorRenderNode {
         use std::hash::{Hash, Hasher};
         let mut h = std::collections::hash_map::DefaultHasher::new();
         self.file_path.hash(&mut h);
+        self.content.hash(&mut h);
+        std::mem::discriminant(&self.language).hash(&mut h);
+        std::mem::discriminant(&self.wrap_mode).hash(&mut h);
+        self.editable.hash(&mut h);
+        self.windowed_file.hash(&mut h);
+        self.has_more_before.hash(&mut h);
+        self.has_more_after.hash(&mut h);
+        self.cursor_offset.hash(&mut h);
+        self.anchor_offset.hash(&mut h);
+        self.preedit_range.hash(&mut h);
+        self.scroll_y.to_bits().hash(&mut h);
+        self.viewport_height.to_bits().hash(&mut h);
+        self.viewport_width.to_bits().hash(&mut h);
         "EditorRenderNode".hash(&mut h);
         h.finish()
     }
@@ -691,13 +717,17 @@ impl EditorRenderNode {
         let raw_first = (self.scroll_y.max(0.0) / self.line_height.max(1.0)).floor() as usize;
         let first_line = raw_first.min(total_visual_lines.saturating_sub(1));
         let visible_rows = (self.viewport_height / self.line_height.max(1.0)).ceil() as usize;
-        let last_line = (first_line + visible_rows.max(1) + VISIBLE_LINE_OVERSCAN)
-            .min(total_visual_lines);
+        let last_line =
+            (first_line + visible_rows.max(1) + VISIBLE_LINE_OVERSCAN).min(total_visual_lines);
         (first_line, last_line.max(first_line + 1))
     }
 
     fn visual_lines(&self) -> Vec<VisualLine> {
         self.visual_lines_for_content(&self.content)
+    }
+
+    pub fn content_height(&self) -> f32 {
+        self.visual_lines().len().max(1) as f32 * self.line_height
     }
 
     fn visual_lines_for_content(&self, content: &str) -> Vec<VisualLine> {
@@ -1341,7 +1371,10 @@ mod tests {
         node.scroll_y = 400.0;
         let (first, last) = node.visible_visual_line_range(node.visual_lines().len());
         assert_eq!(first, 20);
-        assert!(last <= 29, "expected a bounded visible window, got {first}..{last}");
+        assert!(
+            last <= 29,
+            "expected a bounded visible window, got {first}..{last}"
+        );
     }
 
     #[test]
@@ -1360,6 +1393,9 @@ mod tests {
         let width = node
             .code_box_width_for_visual_line(visual_line, node.font_size * 0.6)
             .expect("no-wrap lines should report an intrinsic width");
-        assert!(width > node.viewport_width, "long no-wrap lines should extend past the viewport for clipping-based rendering");
+        assert!(
+            width > node.viewport_width,
+            "long no-wrap lines should extend past the viewport for clipping-based rendering"
+        );
     }
 }

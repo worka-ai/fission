@@ -174,6 +174,7 @@ pub struct Pipeline {
     pending_layout_full: bool,
     compositor_animation_keys: HashSet<(WidgetNodeId, AnimationPropertyId)>,
     runtime_dynamic_nodes: HashSet<NodeId>,
+    scroll_nodes: HashSet<NodeId>,
     runtime_dynamic_subtrees: HashMap<NodeId, bool>,
     retained_texture_plans: Vec<CompositorTexturePlan>,
     retained_texture_root_transform: Option<[f32; 16]>,
@@ -207,6 +208,7 @@ impl Pipeline {
             pending_layout_full: true,
             compositor_animation_keys: HashSet::new(),
             runtime_dynamic_nodes: HashSet::new(),
+            scroll_nodes: HashSet::new(),
             runtime_dynamic_subtrees: HashMap::new(),
             retained_texture_plans: Vec::new(),
             retained_texture_root_transform: None,
@@ -515,6 +517,7 @@ impl Pipeline {
     fn refresh_retained_metadata(&mut self) {
         self.compositor_animation_keys.clear();
         self.runtime_dynamic_nodes.clear();
+        self.scroll_nodes.clear();
         self.runtime_dynamic_subtrees.clear();
         self.boundary_cache.clear();
 
@@ -525,6 +528,9 @@ impl Pipeline {
         for node in ir.nodes.values() {
             let mut node_is_runtime_dynamic =
                 matches!(node.op, Op::Layout(LayoutOp::Scroll { .. }));
+            if matches!(node.op, Op::Layout(LayoutOp::Scroll { .. })) {
+                self.scroll_nodes.insert(node.id);
+            }
             if ir
                 .custom_render_objects
                 .get(&node.id)
@@ -740,6 +746,7 @@ impl Pipeline {
                 &child_path,
                 true,
                 &self.runtime_dynamic_nodes,
+                &self.scroll_nodes,
                 &self.runtime_dynamic_subtrees,
             ) {
                 plans.push(plan);
@@ -877,6 +884,7 @@ fn build_texture_plan_from_node(
     node_path: &[usize],
     force: bool,
     runtime_dynamic_nodes: &HashSet<NodeId>,
+    scroll_nodes: &HashSet<NodeId>,
     runtime_dynamic_subtrees: &HashMap<NodeId, bool>,
 ) -> Option<CompositorTexturePlan> {
     let candidate = find_nested_texture_plan_candidate(
@@ -884,6 +892,7 @@ fn build_texture_plan_from_node(
         node_path,
         force,
         runtime_dynamic_nodes,
+        scroll_nodes,
         runtime_dynamic_subtrees,
     )?;
     let bounds = render_node_bounds(candidate.node);
@@ -927,6 +936,7 @@ fn build_texture_plan_from_node(
                         child,
                         &child_path,
                         runtime_dynamic_nodes,
+                        scroll_nodes,
                         runtime_dynamic_subtrees,
                     ));
                 } else {
@@ -935,6 +945,7 @@ fn build_texture_plan_from_node(
                         &child_path,
                         false,
                         runtime_dynamic_nodes,
+                        scroll_nodes,
                         runtime_dynamic_subtrees,
                     ) {
                         child_plans.push(child_plan);
@@ -992,6 +1003,7 @@ fn build_descending_wrapper_plans(
     node: &RenderNode,
     node_path: &[usize],
     runtime_dynamic_nodes: &HashSet<NodeId>,
+    scroll_nodes: &HashSet<NodeId>,
     runtime_dynamic_subtrees: &HashMap<NodeId, bool>,
 ) -> Vec<CompositorTexturePlan> {
     match node {
@@ -1000,6 +1012,7 @@ fn build_descending_wrapper_plans(
             node_path,
             true,
             runtime_dynamic_nodes,
+            scroll_nodes,
             runtime_dynamic_subtrees,
         )
         .into_iter()
@@ -1013,6 +1026,7 @@ fn build_descending_wrapper_plans(
                     child,
                     &child_path,
                     runtime_dynamic_nodes,
+                    scroll_nodes,
                     runtime_dynamic_subtrees,
                 ));
             }
@@ -1023,6 +1037,7 @@ fn build_descending_wrapper_plans(
                     node_path,
                     true,
                     runtime_dynamic_nodes,
+                    scroll_nodes,
                     runtime_dynamic_subtrees,
                 )
                 .into_iter()
@@ -1057,6 +1072,7 @@ fn find_nested_texture_plan_candidate<'a>(
     node_path: &[usize],
     force: bool,
     runtime_dynamic_nodes: &HashSet<NodeId>,
+    scroll_nodes: &HashSet<NodeId>,
     runtime_dynamic_subtrees: &HashMap<NodeId, bool>,
 ) -> Option<TexturePlanCandidate<'a>> {
     match node {
@@ -1074,6 +1090,7 @@ fn find_nested_texture_plan_candidate<'a>(
                         &child_path,
                         false,
                         runtime_dynamic_nodes,
+                        scroll_nodes,
                         runtime_dynamic_subtrees,
                     );
                 }
@@ -1084,7 +1101,13 @@ fn find_nested_texture_plan_candidate<'a>(
                 .node_id
                 .map(|id| runtime_dynamic_nodes.contains(&id))
                 .unwrap_or(false);
-            if force || layer_should_extract_as_plan(layer, subtree_dynamic, own_dynamic) {
+            let is_scroll_node = layer
+                .node_id
+                .map(|id| scroll_nodes.contains(&id))
+                .unwrap_or(false);
+            if force
+                || layer_should_extract_as_plan(layer, subtree_dynamic, own_dynamic, is_scroll_node)
+            {
                 Some(TexturePlanCandidate {
                     node,
                     path: node_path.to_vec(),
@@ -1098,6 +1121,7 @@ fn find_nested_texture_plan_candidate<'a>(
                         &child_path,
                         false,
                         runtime_dynamic_nodes,
+                        scroll_nodes,
                         runtime_dynamic_subtrees,
                     ) {
                         return Some(candidate);
@@ -1131,9 +1155,13 @@ fn layer_should_extract_as_plan(
     layer: &RenderLayer,
     subtree_dynamic: bool,
     own_dynamic: bool,
+    is_scroll_node: bool,
 ) -> bool {
     const MIN_PLAN_AREA: f32 = 64.0 * 64.0;
     if layer.children.is_empty() {
+        return false;
+    }
+    if is_scroll_node {
         return false;
     }
     if own_dynamic {
@@ -2644,6 +2672,5 @@ mod tests {
             "expected retained scroll transform to patch to -180, got {}",
             transform[13]
         );
-
     }
 }

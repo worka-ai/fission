@@ -37,7 +37,10 @@ fn launch_editor(control_port: u16) -> Child {
 }
 
 fn dir() -> String {
-    let d = format!("{}/../../.artifacts/screenshots/examples/editor/editor_e2e", env!("CARGO_MANIFEST_DIR"));
+    let d = format!(
+        "{}/../../.artifacts/screenshots/examples/editor/editor_e2e",
+        env!("CARGO_MANIFEST_DIR")
+    );
     std::fs::create_dir_all(&d).ok();
     d
 }
@@ -102,7 +105,8 @@ fn editor_full_workflow() {
     // =========================================================================
     // 2. Open a visible file from the initial tree
     // =========================================================================
-    let opened_file = tap_first_visible_text(&client, &["README.md", "Cargo.toml", "CONTRIBUTING.md"]);
+    let opened_file =
+        tap_first_visible_text(&client, &["README.md", "Cargo.toml", "CONTRIBUTING.md"]);
     client
         .screenshot(&format!("{}/02_expanded.png", d))
         .unwrap();
@@ -497,6 +501,22 @@ fn cargo_lock_opens_with_visible_content_near_the_top() {
         visible_line.y
     );
 
+    for _ in 0..5 {
+        client
+            .scroll(520.0, 320.0, 0.0, 520.0)
+            .expect("scroll Cargo.lock");
+        client.wait(250).expect("wait after Cargo.lock scroll");
+    }
+    client.wait(400).expect("settle after scrolling Cargo.lock");
+    client.pump().expect("pump after scrolling Cargo.lock");
+    client
+        .screenshot(&format!("{}/27_cargo_lock_scrolled.png", d))
+        .expect("Cargo.lock scrolled screenshot");
+
+    client
+        .assert_text_visible("aligned-vec")
+        .expect("expected content well past the initial viewport to become visible");
+
     client.quit().expect("quit");
     let _ = child.wait();
 }
@@ -512,18 +532,19 @@ fn editor_multi_tab_switching() {
     client.wait(2000).unwrap();
     let d = dir();
 
-    let first_tab = tap_first_visible_text(&client, &["README.md", "Cargo.toml", "CONTRIBUTING.md"]);
+    let first_tab =
+        tap_first_visible_text(&client, &["README.md", "Cargo.toml", "CONTRIBUTING.md"]);
     client.pump().unwrap();
     client.assert_text_visible(&first_tab).unwrap();
 
     // Open another visible file from the tree
     let texts = client.get_text().unwrap();
-    let second_file = texts
-        .iter()
-        .find(|t| {
-            matches!(t.text.as_str(), "README.md" | "Cargo.toml" | "CONTRIBUTING.md")
-                && t.text != first_tab
-        });
+    let second_file = texts.iter().find(|t| {
+        matches!(
+            t.text.as_str(),
+            "README.md" | "Cargo.toml" | "CONTRIBUTING.md"
+        ) && t.text != first_tab
+    });
     if let Some(f) = second_file {
         let name = f.text.clone();
         client.tap_text(&name).unwrap();
@@ -697,7 +718,9 @@ fn bottom_panel_tabs_switch_visible_content() {
         .assert_text_visible("No problems detected")
         .expect("problems panel should be visible");
 
-    client.tap_text("TERMINAL").expect("switch back to terminal");
+    client
+        .tap_text("TERMINAL")
+        .expect("switch back to terminal");
     client.wait(300).expect("wait after terminal");
     client.pump().expect("pump after terminal");
     client

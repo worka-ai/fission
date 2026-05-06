@@ -1199,7 +1199,8 @@ fn build_get_text_response(pipeline: &Pipeline) -> fission_test_driver::TestResp
 }
 
 fn find_visible_text_center(pipeline: &Pipeline, text: &str) -> Option<(f32, f32)> {
-    let fission_test_driver::TestResponse::Text { items } = build_get_text_response(pipeline) else {
+    let fission_test_driver::TestResponse::Text { items } = build_get_text_response(pipeline)
+    else {
         return None;
     };
     items
@@ -1277,7 +1278,11 @@ fn handle_tap_text(
     }
 }
 
-fn wrap_portal_for_viewport(id: Option<WidgetNodeId>, node: fission_core::Node, env: &Env) -> fission_core::Node {
+fn wrap_portal_for_viewport(
+    id: Option<WidgetNodeId>,
+    node: fission_core::Node,
+    env: &Env,
+) -> fission_core::Node {
     let builder = fission_core::ui::Container::new(node)
         .width(env.viewport_size.width)
         .height(env.viewport_size.height);
@@ -1312,7 +1317,9 @@ fn texture_plans_fit_device_limits(
     scale_factor: f64,
     max_texture_dimension_2d: u32,
 ) -> bool {
-    plans.iter().all(|plan| texture_plan_fits_device_limits(plan, scale_factor, max_texture_dimension_2d))
+    plans
+        .iter()
+        .all(|plan| texture_plan_fits_device_limits(plan, scale_factor, max_texture_dimension_2d))
 }
 
 pub type KeyHandler<S> = Arc<dyn Fn(&mut S, &fission_core::KeyCode, u8) -> bool + Send + Sync>;
@@ -2548,7 +2555,16 @@ impl<S: AppState + Default, W: Widget<S> + 'static> DesktopApp<S, W> {
                                             scale_factor,
                                             device_handle.device.limits().max_texture_dimension_2d,
                                         );
-                                        if texture_plans.is_empty() || !texture_plans_fit_limits {
+                                        let has_active_scroll_offsets = runtime
+                                            .runtime_state
+                                            .scroll
+                                            .offsets
+                                            .values()
+                                            .any(|offset| offset.abs() > 0.5);
+                                        if texture_plans.is_empty()
+                                            || !texture_plans_fit_limits
+                                            || has_active_scroll_offsets
+                                        {
                                             let render_params = vello::RenderParams {
                                                 base_color: vello::peniko::Color::from_rgba8(
                                                     env.theme.tokens.colors.background.r,
@@ -3070,7 +3086,10 @@ mod tests {
     fn repeat_animation_interval_uses_low_priority_hint() {
         let mut animation = AnimationStateMap::default();
         animation.active.insert(
-            (WidgetNodeId::explicit("spinner"), AnimationPropertyId::opacity()),
+            (
+                WidgetNodeId::explicit("spinner"),
+                AnimationPropertyId::opacity(),
+            ),
             ActiveAnimation {
                 target: WidgetNodeId::explicit("spinner"),
                 property: AnimationPropertyId::opacity(),
@@ -3095,7 +3114,10 @@ mod tests {
             active: HashMap::new(),
         };
         animation.active.insert(
-            (WidgetNodeId::explicit("slow"), AnimationPropertyId::opacity()),
+            (
+                WidgetNodeId::explicit("slow"),
+                AnimationPropertyId::opacity(),
+            ),
             ActiveAnimation {
                 target: WidgetNodeId::explicit("slow"),
                 property: AnimationPropertyId::opacity(),
@@ -3108,7 +3130,10 @@ mod tests {
             },
         );
         animation.active.insert(
-            (WidgetNodeId::explicit("fast"), AnimationPropertyId::opacity()),
+            (
+                WidgetNodeId::explicit("fast"),
+                AnimationPropertyId::opacity(),
+            ),
             ActiveAnimation {
                 target: WidgetNodeId::explicit("fast"),
                 property: AnimationPropertyId::opacity(),

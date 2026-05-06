@@ -17,10 +17,40 @@ pub struct EditorSurface;
 impl Widget<EditorState> for EditorSurface {
     fn build(&self, ctx: &mut BuildCtx<EditorState>, view: &View<EditorState>) -> Node {
         // If there is no active buffer, show the welcome screen.
+        const MENU_BAR_HEIGHT: f32 = 28.0;
+        const STATUS_BAR_HEIGHT: f32 = 26.0;
+        const TAB_BAR_HEIGHT: f32 = 35.0;
+        const BREADCRUMB_HEIGHT: f32 = 22.0;
+        const FIND_REPLACE_HEIGHT: f32 = 60.0;
+        const BOTTOM_PANEL_DIVIDER_HEIGHT: f32 = 1.0;
+
         let sidebar_width = view
             .state
             .sidebar_width
             .min((view.viewport_size().width - 160.0).clamp(180.0, 360.0));
+        let terminal_height = if view.state.terminal_visible {
+            view.state
+                .terminal_height
+                .min((view.viewport_size().height * 0.45).max(120.0))
+        } else {
+            0.0
+        };
+        let editor_viewport_height = (view.viewport_size().height
+            - MENU_BAR_HEIGHT
+            - STATUS_BAR_HEIGHT
+            - TAB_BAR_HEIGHT
+            - BREADCRUMB_HEIGHT
+            - if view.state.show_find_replace {
+                FIND_REPLACE_HEIGHT
+            } else {
+                0.0
+            }
+            - if view.state.terminal_visible {
+                terminal_height + BOTTOM_PANEL_DIVIDER_HEIGHT
+            } else {
+                0.0
+            })
+        .max(120.0);
         let editor_viewport_width = (view.viewport_size().width
             - 48.0
             - if view.state.sidebar_visible {
@@ -31,16 +61,17 @@ impl Widget<EditorState> for EditorSurface {
             - 61.0
             - 24.0)
             .max(180.0);
-        let render_node = match EditorRenderNode::from_state(view.state, editor_viewport_width) {
+        let render_node = match EditorRenderNode::from_state(
+            view.state,
+            editor_viewport_width,
+            editor_viewport_height,
+        ) {
             Some(rn) => rn,
             None => return self.build_welcome_screen(ctx, view),
         };
 
         let path = render_node.file_path.clone();
-        let content_height = {
-            let line_count = render_node.content.lines().count().max(1);
-            line_count as f32 * render_node.line_height
-        };
+        let content_height = render_node.content_height();
 
         // ---- Register reducers for actions dispatched by the render object ---
         ctx.bind(
@@ -119,8 +150,10 @@ impl Widget<EditorState> for EditorSurface {
 
         // Wrap the custom node in a Container that fills available space.
         let editor_area = Container::new(editor_custom)
-            .flex_grow(1.0)
+            .height(content_height)
             .min_height(content_height)
+            .flex_grow(0.0)
+            .flex_shrink(0.0)
             .into_node();
 
         // ---- Outer scroll ---------------------------------------------------
