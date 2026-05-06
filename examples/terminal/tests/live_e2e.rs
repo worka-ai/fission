@@ -36,6 +36,19 @@ fn focus_terminal(client: &LiveTestClient) {
     client.wait(250).expect("wait after focus");
 }
 
+fn wait_for_text(client: &LiveTestClient, needle: &str) {
+    for _ in 0..20 {
+        if client.assert_text_visible(needle).is_ok() {
+            return;
+        }
+        client.wait(200).expect("wait for text");
+        client.pump().expect("pump while waiting for text");
+    }
+    client
+        .assert_text_visible(needle)
+        .expect("expected text to become visible");
+}
+
 #[test]
 #[ignore]
 fn terminal_executes_commands_pastes_and_copies_selection() {
@@ -49,38 +62,32 @@ fn terminal_executes_commands_pastes_and_copies_selection() {
     focus_terminal(&client);
 
     client
-        .type_text("printf 'FISSION_TERMINAL_OK\\n'")
+        .type_text("printf '\\124\\105\\122\\115\\137\\117\\113\\n'")
         .expect("type printf");
     client.press_key("Enter", 0).expect("run printf");
-    client.wait(500).expect("wait for output");
-    client
-        .assert_text_visible("FISSION_TERMINAL_OK")
-        .expect("terminal output should be visible");
+    wait_for_text(&client, "TERM_OK");
 
     let mut clipboard = Clipboard::new().expect("clipboard available");
     clipboard
-        .set_text("printf 'FISSION_PASTE_OK\\n'")
+        .set_text(
+            "printf '\\120\\101\\123\\124\\105\\137\\117\\113\\n'",
+        )
         .expect("seed clipboard");
     client.press_key("V", 4).expect("paste clipboard command");
-    client.wait(500).expect("wait after paste");
-    client
-        .assert_text_visible("FISSION_PASTE_OK")
-        .expect("pasted command output should be visible");
+    client.press_key("Enter", 0).expect("run pasted command");
+    wait_for_text(&client, "PASTE_OK");
 
     client
-        .type_text("printf 'COPY_ME_FROM_TERMINAL\\n'")
+        .type_text("printf '\\103\\117\\120\\131\\137\\115\\105\\n'")
         .expect("type copy target command");
     client.press_key("Enter", 0).expect("run copy target");
-    client.wait(500).expect("wait for copy target");
-    client
-        .assert_text_visible("COPY_ME_FROM_TERMINAL")
-        .expect("copy target should be visible");
+    wait_for_text(&client, "COPY_ME");
 
     let target = client
         .get_text()
         .expect("read visible text")
         .into_iter()
-        .find(|item| item.text.contains("COPY_ME_FROM_TERMINAL"))
+        .find(|item| item.text.contains("COPY_ME"))
         .expect("copy target text item");
     let y = target.y + target.height * 0.5;
     client
@@ -91,7 +98,7 @@ fn terminal_executes_commands_pastes_and_copies_selection() {
 
     let copied = clipboard.get_text().expect("read clipboard text");
     assert!(
-        copied.contains("COPY_ME_FROM_TERMINAL"),
+        copied.contains("COPY_ME"),
         "terminal selection copy should place the selected text on the clipboard, got: {copied:?}"
     );
 

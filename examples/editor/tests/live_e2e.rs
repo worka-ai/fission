@@ -727,16 +727,21 @@ fn embedded_terminal_executes_and_renders_commands() {
     client.wait(250).expect("wait after terminal focus");
 
     client
-        .type_text("printf 'EDITOR_TERM_OK\\n'")
+        .type_text("printf '\\105\\104\\137\\124\\105\\122\\115\\137\\117\\113\\n'")
         .expect("type terminal command");
     client.press_key("Enter", 0).expect("run terminal command");
-    client.wait(500).expect("wait for terminal output");
-    client.pump().expect("pump terminal output");
+    for _ in 0..12 {
+        client.wait(200).expect("wait for terminal output");
+        client.pump().expect("pump terminal output");
+        if client.assert_text_visible("ED_TERM_OK").is_ok() {
+            break;
+        }
+    }
     client
         .screenshot(&format!("{}/24_terminal_output.png", d))
         .expect("embedded terminal output screenshot");
     client
-        .assert_text_visible("EDITOR_TERM_OK")
+        .assert_text_visible("ED_TERM_OK")
         .expect("embedded terminal output should be visible");
 
     client
@@ -784,13 +789,18 @@ fn bottom_panel_tabs_switch_visible_content() {
     let focus_y = terminal_tab.y + 60.0;
     client.tap(focus_x, focus_y).expect("focus terminal");
     client
-        .type_text("printf 'TAB_SWITCH_OK\\n'")
+        .type_text("printf '\\124\\101\\102\\137\\117\\113\\n'")
         .expect("type terminal command");
     client.press_key("Enter", 0).expect("run command");
-    client.wait(500).expect("wait for terminal output");
-    client.pump().expect("pump after terminal output");
+    for _ in 0..12 {
+        client.wait(200).expect("wait for terminal output");
+        client.pump().expect("pump after terminal output");
+        if client.assert_text_visible("TAB_OK").is_ok() {
+            break;
+        }
+    }
     client
-        .assert_text_visible("TAB_SWITCH_OK")
+        .assert_text_visible("TAB_OK")
         .expect("terminal output should be visible");
 
     client.tap_text("PROBLEMS").expect("switch to problems");
@@ -806,7 +816,7 @@ fn bottom_panel_tabs_switch_visible_content() {
     client.wait(300).expect("wait after terminal");
     client.pump().expect("pump after terminal");
     client
-        .assert_text_visible("TAB_SWITCH_OK")
+        .assert_text_visible("TAB_OK")
         .expect("terminal panel should be visible again");
 
     client.quit().expect("quit");
