@@ -1296,6 +1296,7 @@ version = "0.1.1"
 dependencies = [
  "anyhow",
  "arboard",
+ "base64",
  "bincode",
  "bytemuck",
  "cocoa",
@@ -1371,6 +1372,7 @@ name = "fission-test-driver"
 version = "0.1.1"
 dependencies = [
  "anyhow",
+ "base64",
  "serde",
  "serde_json",
  "ureq",

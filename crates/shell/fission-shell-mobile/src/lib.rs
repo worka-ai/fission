@@ -29,6 +29,11 @@ impl<S: AppState + Default, W: Widget<S> + 'static> MobileApp<S, W> {
         self
     }
 
+    pub fn with_test_control_port(mut self, port: u16) -> Self {
+        self.inner = self.inner.with_test_control_port(port);
+        self
+    }
+
     pub fn with_state_init<F>(mut self, init: F) -> Self
     where
         F: FnOnce(&mut S),

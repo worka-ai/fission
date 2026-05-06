@@ -11,6 +11,7 @@
 //! [`TestCommand`] JSON payloads to `/cmd`, receiving [`TestResponse`] replies.
 
 use anyhow::{anyhow, Result};
+use base64::Engine;
 use serde::{Deserialize, Serialize};
 
 // --- Protocol types (shared between client and server) ---
@@ -52,6 +53,7 @@ pub enum TestCommand {
     Screenshot {
         path: String,
     },
+    CaptureScreenshot {},
     GetText {},
     GetTree {},
     Wait {
@@ -124,6 +126,7 @@ pub enum TestEvent {
     Screenshot {
         path: String,
     },
+    CaptureScreenshot,
     GetText,
     GetTree,
     Pump,
@@ -168,9 +171,20 @@ pub struct SemanticNode {
 #[serde(tag = "status")]
 pub enum TestResponse {
     Ok {},
-    Text { items: Vec<TextItem> },
-    Tree { nodes: Vec<SemanticNode> },
-    Error { message: String },
+    Text {
+        items: Vec<TextItem>,
+    },
+    Tree {
+        nodes: Vec<SemanticNode>,
+    },
+    Screenshot {
+        png_base64: String,
+        width: u32,
+        height: u32,
+    },
+    Error {
+        message: String,
+    },
 }
 
 // --- Client ---
@@ -288,10 +302,23 @@ impl LiveTestClient {
     }
 
     pub fn screenshot(&self, path: &str) -> Result<()> {
-        self.send(TestCommand::Screenshot {
-            path: path.to_string(),
-        })?;
-        Ok(())
+        match self.send(TestCommand::CaptureScreenshot {})? {
+            TestResponse::Screenshot {
+                png_base64,
+                width: _,
+                height: _,
+            } => {
+                let bytes = base64::engine::general_purpose::STANDARD
+                    .decode(png_base64)
+                    .map_err(|e| anyhow!("invalid screenshot payload: {}", e))?;
+                std::fs::write(path, bytes)?;
+                Ok(())
+            }
+            other => Err(anyhow!(
+                "unexpected response to CaptureScreenshot: {:?}",
+                other
+            )),
+        }
     }
 
     pub fn get_text(&self) -> Result<Vec<TextItem>> {

@@ -1,6 +1,7 @@
 #![allow(unexpected_cfgs)]
 
 use anyhow::Result;
+use base64::Engine;
 use std::collections::{HashMap, VecDeque};
 use std::sync::mpsc;
 use std::sync::{Arc, Mutex};
@@ -1378,6 +1379,7 @@ pub struct DesktopApp<S: AppState, W: Widget<S>> {
     key_handler: Option<KeyHandler<S>>,
     frame_hook: Option<FrameHook<S>>,
     title: String,
+    test_control_port: Option<u16>,
     /// Channel pair for receiving completed background effect results.
     effect_result_tx: mpsc::Sender<EffectResult>,
     effect_result_rx: mpsc::Receiver<EffectResult>,
@@ -1429,6 +1431,7 @@ impl<S: AppState + Default, W: Widget<S> + 'static> DesktopApp<S, W> {
             key_handler: None,
             frame_hook: None,
             title: "Fission".into(),
+            test_control_port: None,
             effect_result_tx,
             effect_result_rx,
             app_effect_handler: None,
@@ -1446,6 +1449,11 @@ impl<S: AppState + Default, W: Widget<S> + 'static> DesktopApp<S, W> {
 
     pub fn with_title(mut self, title: impl Into<String>) -> Self {
         self.title = title.into();
+        self
+    }
+
+    pub fn with_test_control_port(mut self, port: u16) -> Self {
+        self.test_control_port = Some(port);
         self
     }
 
@@ -1699,15 +1707,17 @@ impl<S: AppState + Default, W: Widget<S> + 'static> DesktopApp<S, W> {
         // Test control (enabled via FISSION_TEST_CONTROL_PORT env var).
         // The TCP server injects TestEvents via the EventLoopProxy and receives
         // query responses through a dedicated mpsc channel.
-        let test_response_tx: Option<test_control::ResponseSender> =
+        let test_control_port = self.test_control_port.or_else(|| {
             std::env::var("FISSION_TEST_CONTROL_PORT")
                 .ok()
                 .and_then(|v| v.parse::<u16>().ok())
-                .map(|port| {
-                    let (resp_tx, resp_rx) = test_control::create_response_channel();
-                    test_control::spawn_server(port, event_proxy.clone(), resp_rx);
-                    resp_tx
-                });
+        });
+        let test_response_tx: Option<test_control::ResponseSender> =
+            test_control_port.map(|port| {
+                let (resp_tx, resp_rx) = test_control::create_response_channel();
+                test_control::spawn_server(port, event_proxy.clone(), resp_rx);
+                resp_tx
+            });
         // Pending screenshot/pump: path + whether it needs a screenshot (vs pump).
         let mut pending_screenshot_path: Option<String> = None;
         // Simulated viewport size override for test resize events.
@@ -1960,6 +1970,10 @@ impl<S: AppState + Default, W: Widget<S> + 'static> DesktopApp<S, W> {
                             }
                             TestEvent::Screenshot { path } => {
                                 pending_screenshot_path = Some(path);
+                                window.request_redraw();
+                            }
+                            TestEvent::CaptureScreenshot => {
+                                pending_screenshot_path = Some("__capture__".into());
                                 window.request_redraw();
                             }
                             TestEvent::GetText => {
@@ -2820,14 +2834,24 @@ impl<S: AppState + Default, W: Widget<S> + 'static> DesktopApp<S, W> {
                                                 if path == "__pump__" {
                                                     let _ =
                                                         tx.send(fission_test_driver::TestResponse::Ok {});
+                                                } else if path == "__capture__" {
+                                                    let resp = gpu_screenshot(
+                                                        &device_handle.device,
+                                                        &device_handle.queue,
+                                                        &surface.target_texture,
+                                                        render_target_size.0,
+                                                        render_target_size.1,
+                                                        None,
+                                                    );
+                                                    let _ = tx.send(resp);
                                                 } else {
                                                     let resp = gpu_screenshot(
                                                         &device_handle.device,
                                                         &device_handle.queue,
-                                                    &surface.target_texture,
+                                                        &surface.target_texture,
                                                         render_target_size.0,
                                                         render_target_size.1,
-                                                        &path,
+                                                        Some(&path),
                                                     );
                                                     let _ = tx.send(resp);
                                                 }
@@ -3070,7 +3094,7 @@ fn gpu_screenshot(
     texture: &wgpu::Texture,
     width: u32,
     height: u32,
-    path: &str,
+    path: Option<&str>,
 ) -> fission_test_driver::TestResponse {
     if width == 0 || height == 0 {
         return fission_test_driver::TestResponse::Error {
@@ -3154,11 +3178,30 @@ fn gpu_screenshot(
     drop(data);
     staging.unmap();
 
-    match image::save_buffer(path, &rgba, width, height, image::ColorType::Rgba8) {
-        Ok(()) => fission_test_driver::TestResponse::Ok {},
-        Err(e) => fission_test_driver::TestResponse::Error {
-            message: format!("PNG save failed: {}", e),
-        },
+    let mut png = Vec::new();
+    {
+        use image::ImageEncoder;
+        let encoder = image::codecs::png::PngEncoder::new(&mut png);
+        if let Err(e) = encoder.write_image(&rgba, width, height, image::ExtendedColorType::Rgba8) {
+            return fission_test_driver::TestResponse::Error {
+                message: format!("PNG encode failed: {}", e),
+            };
+        }
+    }
+
+    if let Some(path) = path {
+        match std::fs::write(path, &png) {
+            Ok(()) => fission_test_driver::TestResponse::Ok {},
+            Err(e) => fission_test_driver::TestResponse::Error {
+                message: format!("PNG save failed: {}", e),
+            },
+        }
+    } else {
+        fission_test_driver::TestResponse::Screenshot {
+            png_base64: base64::engine::general_purpose::STANDARD.encode(png),
+            width,
+            height,
+        }
     }
 }
 

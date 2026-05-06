@@ -232,6 +232,11 @@ fn dispatch_command(
             wait_for_response(response_rx)
         }
 
+        TestCommand::CaptureScreenshot {} => {
+            let _ = proxy.send_event(TestEvent::CaptureScreenshot);
+            wait_for_response(response_rx)
+        }
+
         // ── GetText: needs IR, wait for response ────────────────────────
         TestCommand::GetText {} => {
             let _ = proxy.send_event(TestEvent::GetText);
