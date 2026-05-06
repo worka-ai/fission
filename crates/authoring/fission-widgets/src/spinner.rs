@@ -60,6 +60,7 @@ impl<S: fission_core::AppState> Widget<S> for Spinner {
                     repeat: true,
                     delay_ms: i as u64 * 200,
                     frame_interval_ms: Some(LOW_PRIORITY_REPEAT_FRAME_MS),
+                    easing: Default::default(),
                 });
                 Composite::new(boundary)
                     .animated_opacity(sub_id, 0.3)

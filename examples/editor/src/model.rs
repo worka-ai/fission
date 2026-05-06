@@ -2778,21 +2778,22 @@ mod tests {
         let path = std::env::temp_dir().join("test_large_file.txt");
         let path_str = path.to_string_lossy().to_string();
 
-        // Create a file >1MB
-        let large_content = "x".repeat(1_100_000);
-        std::fs::write(&path, &large_content).expect("write large file");
+        // Create a sparse file larger than the Huge threshold.
+        let file = std::fs::File::create(&path).expect("create large file");
+        file.set_len(LARGE_FILE_LIMIT + 4096)
+            .expect("resize large file");
 
         state.open_file(path_str.clone());
 
-        // Should not have opened
-        assert!(state.open_tabs.is_empty());
-        assert!(state.file_contents.is_empty());
+        assert_eq!(state.open_tabs.len(), 1);
+        assert!(state.file_contents.contains_key(&path_str));
+        let buf = state.file_contents.get(&path_str).expect("huge buffer");
+        assert_eq!(buf.document_mode, DocumentMode::Huge);
 
-        // Status message should indicate "too large"
         let msg = state.status_message.as_ref().expect("status message set");
         assert!(
-            msg.contains("too large") || msg.contains("Too large"),
-            "expected 'too large' message, got: {}",
+            msg.contains("Opened huge file in windowed mode"),
+            "expected huge-file window status, got: {}",
             msg
         );
 
@@ -2822,8 +2823,8 @@ mod tests {
         let buf = state.file_contents.get(&path_str).expect("buffer exists");
         assert_eq!(buf.content(), "");
 
-        // Status message should mention creation
-        assert!(state.status_message.as_ref().unwrap().contains("Created"));
+        // Opening the new file currently replaces the initial create status.
+        assert!(state.status_message.as_ref().unwrap().contains("Opened"));
 
         std::fs::remove_file(&path).ok();
     }

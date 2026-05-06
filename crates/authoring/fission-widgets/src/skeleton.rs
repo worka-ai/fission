@@ -60,6 +60,7 @@ impl<S: fission_core::AppState> Widget<S> for Skeleton {
                 repeat: true,
                 delay_ms: 0,
                 frame_interval_ms: Some(LOW_PRIORITY_REPEAT_FRAME_MS),
+                easing: Default::default(),
             });
             Composite::new(boundary)
                 .animated_opacity(self.id, 0.4)

@@ -3132,6 +3132,7 @@ mod tests {
                 duration: 600,
                 repeat: true,
                 frame_interval_ms: Some(166),
+                easing: fission_core::EasingFunction::Linear,
             },
         );
         assert_eq!(
@@ -3160,6 +3161,7 @@ mod tests {
                 duration: 600,
                 repeat: true,
                 frame_interval_ms: Some(200),
+                easing: fission_core::EasingFunction::Linear,
             },
         );
         animation.active.insert(
@@ -3176,6 +3178,7 @@ mod tests {
                 duration: 600,
                 repeat: true,
                 frame_interval_ms: Some(100),
+                easing: fission_core::EasingFunction::Linear,
             },
         );
         assert_eq!(

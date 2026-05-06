@@ -74,8 +74,8 @@ pub use fission_layout::{
 };
 pub use lowering::{LoweringContext, NodeBuilder};
 pub use registry::{
-    ActionRegistry, AnimationPropertyId, AnimationRequest, AnimationStartValue, BuildCtx, Handler,
-    PortalLayer, VideoRegistration,
+    ActionRegistry, AnimationPropertyId, AnimationRequest, AnimationStartValue, BuildCtx,
+    EasingFunction, Handler, PortalLayer, VideoRegistration,
 };
 pub use time::{Clock, CurrentTime};
 pub use ui::{

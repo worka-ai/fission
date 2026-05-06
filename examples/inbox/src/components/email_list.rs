@@ -688,9 +688,13 @@ mod tests {
     use fission_test::TestHarness;
     use std::collections::HashSet;
 
-    fn count_subject_text_nodes(h: &TestHarness<InboxState>) -> usize {
+    fn visible_subject_texts(h: &TestHarness<InboxState>) -> HashSet<String> {
         let state = h.runtime.get_app_state::<InboxState>().unwrap();
-        let subjects: HashSet<String> = state.emails.iter().map(|e| e.subject.clone()).collect();
+        let subjects: HashSet<String> = state
+            .emails
+            .iter()
+            .map(|e| e.subject.clone())
+            .collect();
         let ir = h.last_ir.as_ref().unwrap();
         ir.nodes
             .values()
@@ -701,7 +705,15 @@ mod tests {
                         if subjects.contains(text)
                 )
             })
-            .count()
+            .filter_map(|n| match &n.op {
+                fission_ir::Op::Paint(fission_ir::PaintOp::DrawText { text, .. })
+                    if subjects.contains(text) =>
+                {
+                    Some(text.clone())
+                }
+                _ => None,
+            })
+            .collect()
     }
 
     #[test]
@@ -719,23 +731,35 @@ mod tests {
         let mut h = TestHarness::new(InboxState::default()).with_root_widget(Root);
         h.pump()?;
 
-        let all_count = count_subject_text_nodes(&h);
-        assert!(all_count > 0, "expected some subjects in All mode");
+        let all_subjects = visible_subject_texts(&h);
+        assert!(!all_subjects.is_empty(), "expected some subjects in All mode");
 
         h.dispatch(SetFilterMode(1))?; // Unread
         h.pump()?;
-        let unread_count = count_subject_text_nodes(&h);
+        let unread_subjects = visible_subject_texts(&h);
+        assert_ne!(
+            unread_subjects, all_subjects,
+            "Unread mode should change the visible subject set"
+        );
         assert!(
-            unread_count < all_count,
-            "Unread should show fewer items than All"
+            !unread_subjects.contains("Design review: Inbox refresh"),
+            "read threads should disappear in Unread mode"
+        );
+        assert!(
+            unread_subjects.contains("Quarterly planning sync"),
+            "known unread threads should remain visible in Unread mode"
         );
 
         h.dispatch(SetFilterMode(2))?; // Starred
         h.pump()?;
-        let starred_count = count_subject_text_nodes(&h);
+        let starred_subjects = visible_subject_texts(&h);
+        assert_ne!(
+            starred_subjects, all_subjects,
+            "Starred mode should change the visible subject set"
+        );
         assert!(
-            starred_count < all_count,
-            "Starred should show fewer items than All"
+            starred_subjects.contains("Design review: Inbox refresh"),
+            "flagged threads should remain visible in Starred mode"
         );
 
         Ok(())

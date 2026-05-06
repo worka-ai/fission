@@ -1,13 +1,13 @@
 use fission_core::{
-    env::ActiveAnimation, AnimationPropertyId, AnimationRequest, AnimationStartValue, Runtime,
-    WidgetNodeId,
+    env::ActiveAnimation, AnimationPropertyId, AnimationRequest, AnimationStartValue,
+    EasingFunction, Runtime, WidgetNodeId,
 };
 
 #[test]
 fn test_animation_tick() {
     let mut runtime = Runtime::default();
 
-    // Manually add an active animation
+    // Manually add an active animation (Linear easing to preserve existing test expectations)
     let widget_id = WidgetNodeId::explicit("test_anim");
     let property = AnimationPropertyId::opacity();
     runtime
@@ -26,7 +26,8 @@ fn test_animation_tick() {
             duration: 1000,
             repeat: false,
             frame_interval_ms: None,
-        },
+            easing: EasingFunction::Linear,
+        }
     );
 
     // Tick 500ms
@@ -79,6 +80,7 @@ fn test_enqueue_animation_skips_noop_terminal_transition() {
             repeat: false,
             delay_ms: 0,
             frame_interval_ms: None,
+            easing: EasingFunction::Linear,
         },
     );
 
@@ -114,6 +116,7 @@ fn test_sync_animation_requests_removes_stale_repeating_animation() {
             repeat: true,
             delay_ms: 0,
             frame_interval_ms: None,
+            easing: EasingFunction::Linear,
         },
     );
     runtime.enqueue_animation(
@@ -126,6 +129,7 @@ fn test_sync_animation_requests_removes_stale_repeating_animation() {
             repeat: true,
             delay_ms: 0,
             frame_interval_ms: None,
+            easing: EasingFunction::Linear,
         },
     );
 
@@ -139,6 +143,7 @@ fn test_sync_animation_requests_removes_stale_repeating_animation() {
             repeat: true,
             delay_ms: 0,
             frame_interval_ms: None,
+            easing: EasingFunction::Linear,
         },
     )]);
 

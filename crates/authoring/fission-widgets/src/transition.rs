@@ -39,6 +39,7 @@ impl<S: fission_core::AppState> Widget<S> for Transition {
                 delay_ms: self.delay,
                 repeat: false,
                 frame_interval_ms: None,
+                easing: Default::default(),
             },
         );
 

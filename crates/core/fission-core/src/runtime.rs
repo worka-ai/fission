@@ -364,8 +364,8 @@ impl Runtime {
                 finished.push((*target, property.clone()));
             }
 
-            let value = anim.start_value + (anim.end_value - anim.start_value) * progress;
-
+            let eased_progress = anim.easing.apply(progress);
+            let value = anim.start_value + (anim.end_value - anim.start_value) * eased_progress;
             // Only update and mark dirty if the value actually changed
             let current_val = self
                 .runtime_state
@@ -399,6 +399,7 @@ impl Runtime {
                 && active.duration == request.duration_ms
                 && active.repeat == request.repeat
                 && active.frame_interval_ms == request.frame_interval_ms
+                && active.easing == request.easing
             {
                 // Continue existing animation
                 return;
@@ -434,6 +435,7 @@ impl Runtime {
             duration: request.duration_ms,
             repeat: request.repeat,
             frame_interval_ms: request.frame_interval_ms.filter(|ms| *ms > 0),
+            easing: request.easing.clone(),
         };
 
         self.runtime_state

@@ -208,6 +208,47 @@ pub enum AnimationStartValue {
 ///
 /// Registered via [`BuildCtx::request_animation_for`] or
 /// [`AnimCtx::request`].
+/// Easing function applied to animation progress before interpolation.
+#[derive(Clone, Debug, PartialEq)]
+pub enum EasingFunction {
+    Linear,
+    EaseIn,
+    EaseOut,
+    EaseInOut,
+    CubicBezier(f32, f32, f32, f32),
+}
+
+impl Default for EasingFunction {
+    fn default() -> Self {
+        Self::EaseInOut
+    }
+}
+
+impl EasingFunction {
+    /// Map a linear progress value `t` in [0, 1] to an eased value.
+    pub fn apply(&self, t: f32) -> f32 {
+        match self {
+            Self::Linear => t,
+            Self::EaseIn => t * t,
+            Self::EaseOut => 1.0 - (1.0 - t) * (1.0 - t),
+            Self::EaseInOut => {
+                if t < 0.5 {
+                    2.0 * t * t
+                } else {
+                    1.0 - (-2.0 * t + 2.0).powi(2) / 2.0
+                }
+            }
+            Self::CubicBezier(_x1, y1, _x2, y2) => {
+                // Simplified cubic bezier approximation (y-axis only)
+                let t2 = t * t;
+                let t3 = t2 * t;
+                3.0 * (1.0 - t) * (1.0 - t) * t * y1
+                    + 3.0 * (1.0 - t) * t2 * y2
+                    + t3
+            }
+        }
+    }
+}
 #[derive(Clone, Debug)]
 pub struct AnimationRequest {
     /// The property to animate.
@@ -227,6 +268,7 @@ pub struct AnimationRequest {
     /// This is primarily useful for low-priority repeating effects such as
     /// loading indicators that do not need full frame-rate updates.
     pub frame_interval_ms: Option<u64>,
+    pub easing: EasingFunction,
 }
 
 /// Registration data for a [`Video`](crate::ui::Video) widget collected during

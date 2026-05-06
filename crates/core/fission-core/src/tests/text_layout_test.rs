@@ -61,6 +61,7 @@ fn test_text_wrapping_in_constrained_flex() {
             size: 16.0,
             color: fission_ir::op::Color::BLACK,
             underline: false,
+            wrap: true,
             caret_index: None,
         }),
     );

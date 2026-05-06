@@ -186,6 +186,7 @@ mod tests {
                 size: 12.0,
                 color: fission_ir::op::Color::BLACK,
                 underline: false,
+                wrap: true,
                 caret_index: None,
             }),
             vec![],
@@ -214,6 +215,7 @@ mod tests {
                 size: 12.0,
                 color: fission_ir::op::Color::BLACK,
                 underline: false,
+                wrap: true,
                 caret_index: None,
             });
         }

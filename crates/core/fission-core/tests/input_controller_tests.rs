@@ -414,6 +414,7 @@ fn create_rich_text_input_tree(
                         background_color: None,
                     },
                 }],
+                wrap: true,
                 caret_index: None,
             }),
             composite: fission_ir::CompositeStyle::default(),
