@@ -26,15 +26,23 @@ fn launch_inbox(control_port: u16) -> Child {
 }
 
 fn screenshot_dir() -> String {
-    let dir = std::env::var("FISSION_SCREENSHOT_DIR")
-        .unwrap_or_else(|_| format!("{}/../../.artifacts/screenshots/examples/inbox/inbox_e2e", env!("CARGO_MANIFEST_DIR")));
+    let dir = std::env::var("FISSION_SCREENSHOT_DIR").unwrap_or_else(|_| {
+        format!(
+            "{}/../../.artifacts/screenshots/examples/inbox/inbox_e2e",
+            env!("CARGO_MANIFEST_DIR")
+        )
+    });
     std::fs::create_dir_all(&dir).ok();
     dir
 }
 
 fn differing_pixels(path_a: &str, path_b: &str, x0: u32, y0: u32, x1: u32, y1: u32) -> usize {
-    let a = image::open(path_a).expect("open first screenshot").to_rgba8();
-    let b = image::open(path_b).expect("open second screenshot").to_rgba8();
+    let a = image::open(path_a)
+        .expect("open first screenshot")
+        .to_rgba8();
+    let b = image::open(path_b)
+        .expect("open second screenshot")
+        .to_rgba8();
     let width = a.width().min(b.width());
     let height = a.height().min(b.height());
     let x1 = x1.min(width);
@@ -49,6 +57,24 @@ fn differing_pixels(path_a: &str, path_b: &str, x0: u32, y0: u32, x1: u32, y1: u
         }
     }
     diff
+}
+
+fn non_near_white_pixels(path: &str, x0: u32, y0: u32, x1: u32, y1: u32) -> usize {
+    let img = image::open(path).expect("open screenshot").to_rgba8();
+    let width = img.width();
+    let height = img.height();
+    let x1 = x1.min(width);
+    let y1 = y1.min(height);
+    let mut count = 0usize;
+    for y in y0.min(height)..y1 {
+        for x in x0.min(width)..x1 {
+            let px = img.get_pixel(x, y);
+            if px[0] < 245 || px[1] < 245 || px[2] < 245 {
+                count += 1;
+            }
+        }
+    }
+    count
 }
 
 #[test]
@@ -220,9 +246,9 @@ fn compose_recipient_typing_shows_suggestions() {
         .screenshot(&format!("{}/08_compose_suggestions.png", dir))
         .expect("compose suggestion screenshot");
 
-    client.assert_text_visible("alice@example.com").expect(
-        "typing in the compose recipient field should show the inline suggestion popup",
-    );
+    client
+        .assert_text_visible("alice@example.com")
+        .expect("typing in the compose recipient field should show the inline suggestion popup");
 
     client.quit().expect("quit");
     let _ = child.wait();
@@ -243,12 +269,21 @@ fn wide_resize_rebuilds_responsive_sidebar() {
         .expect("resize inbox to wide viewport");
     client.pump().expect("pump after resize");
     client.wait(700).expect("wait for responsive rebuild");
-    client
-        .screenshot(&format!("{}/09_wide_sidebar.png", dir))
-        .expect("wide sidebar screenshot");
+    let path = format!("{}/09_wide_sidebar.png", dir);
+    client.screenshot(&path).expect("wide sidebar screenshot");
     client
         .assert_text_visible("Synced")
         .expect("responsive right sidebar should appear after wide resize");
+    let left_rail_pixels = non_near_white_pixels(&path, 0, 0, 280, 900);
+    let list_pixels = non_near_white_pixels(&path, 280, 160, 1080, 820);
+    assert!(
+        left_rail_pixels > 12_000,
+        "wide inbox left rail should paint real content, found only {left_rail_pixels} non-background pixels"
+    );
+    assert!(
+        list_pixels > 20_000,
+        "wide inbox message list should paint real content, found only {list_pixels} non-background pixels"
+    );
 
     client.quit().expect("quit");
     let _ = child.wait();

@@ -274,7 +274,7 @@ impl LiveResizeController {
         Self {
             active_until: None,
             settle_delay,
-            layout_interval: Duration::from_millis(24),
+            layout_interval: Duration::from_millis(16),
             last_layout_at: None,
         }
     }
@@ -1602,7 +1602,7 @@ impl<S: AppState + Default, W: Widget<S> + 'static> DesktopApp<S, W> {
             .and_then(|v| v.parse::<u32>().ok())
             .filter(|v| *v > 0)
             .map(|v| v.min(max_fps))
-            .unwrap_or(30);
+            .unwrap_or(60);
         let resize_frame = Duration::from_secs_f32(1.0 / resize_fps as f32);
         let resize_settle_delay = Duration::from_millis(
             std::env::var("FISSION_RESIZE_SETTLE_MS")
@@ -3202,8 +3202,8 @@ mod tests {
         resize.note_resize(now);
 
         assert!(resize.should_apply_layout(now, true, false));
-        assert!(!resize.should_apply_layout(now + Duration::from_millis(20), true, false));
-        assert!(resize.should_apply_layout(now + Duration::from_millis(55), true, false));
+        assert!(!resize.should_apply_layout(now + Duration::from_millis(8), true, false));
+        assert!(resize.should_apply_layout(now + Duration::from_millis(20), true, false));
     }
 
     #[test]
