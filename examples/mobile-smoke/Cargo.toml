@@ -3,6 +3,10 @@ name = "mobile-smoke"
 version = "0.1.0"
 edition = "2021"
 
+[lib]
+name = "mobile_smoke"
+crate-type = ["cdylib", "rlib"]
+
 [dependencies]
 anyhow = "1.0"
 fission-core = { path = "../../crates/core/fission-core" }

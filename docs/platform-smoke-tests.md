@@ -7,8 +7,8 @@ This document records the current reproducible target setup for the Fission repo
 | Target | Example / shell | Status | Notes |
 |---|---|---|---|
 | Desktop | `examples/mobile-smoke` + `fission-shell-mobile` | runnable | `cargo run -p mobile-smoke` uses the shared winit + Vello path on the host |
-| iOS | `examples/mobile-smoke` + `fission-shell-mobile` | runnable in Simulator | the checked-in example and a CLI-generated app both build a simulator app bundle and launch through `simctl` |
-| Android | `examples/mobile-smoke` + `fission-shell-mobile` | compile smoke verified | requires Android SDK + NDK env vars; both the checked-in example and a CLI-generated app cross-compile |
+| iOS | `examples/mobile-smoke` + `fission-shell-mobile` | scaffolded, not runnable end to end | the checked-in example and a CLI-generated app both build and launch a simulator app bundle, but the current Vello path only produces a black frame on CoreSimulator because the simulator Metal device lacks `INDIRECT_EXECUTION` |
+| Android | `examples/mobile-smoke` + `fission-shell-mobile` | runnable on emulator | requires Android SDK + NDK env vars; both the checked-in example and a CLI-generated app package, install, and launch through `run-emulator.sh` |
 | Web/WASM | `crates/shell/fission-shell-web` | not runnable yet | toolchain setup is documented, but there is no checked-in web shell/runtime or `web-smoke` example yet |
 
 ## Rust targets
@@ -32,7 +32,7 @@ Sanity check:
 xcrun --sdk iphonesimulator --show-sdk-path
 ```
 
-Smoke command:
+Scaffold/launch command:
 
 ```sh
 ./examples/mobile-smoke/platforms/ios/run-sim.sh
@@ -44,6 +44,12 @@ Optional test-control port:
 FISSION_TEST_CONTROL_PORT=48711 ./examples/mobile-smoke/platforms/ios/run-sim.sh
 curl http://127.0.0.1:48711/health
 ```
+
+Current blocker:
+
+- the simulator runtime currently logs `wgpu` / Vello validation errors for missing `DownlevelFlags(INDIRECT_EXECUTION)`
+- the app stays up and exposes test control, but the rendered output is a black frame
+- this means the iOS host-project generation is in place, but the current renderer path is not yet simulator-safe
 
 Relevant paths:
 
@@ -71,17 +77,25 @@ export CC_aarch64_linux_android="$ANDROID_TOOLCHAIN/aarch64-linux-android24-clan
 export AR_aarch64_linux_android="$ANDROID_TOOLCHAIN/llvm-ar"
 ```
 
-Notes:
-
-- the host prebuilt directory may be `darwin-arm64`, `darwin-x86_64`, or a Linux variant on other machines
-- the smoke path only needs the toolchain env above; it does not currently need `cargo-apk` or `cargo-ndk`
-- first-party Android packaging/launcher generation is not implemented yet
-
 Smoke command:
 
 ```sh
-cargo check -p fission-shell-mobile -p mobile-smoke --target aarch64-linux-android
+./examples/mobile-smoke/platforms/android/run-emulator.sh
 ```
+
+Optional test-control port:
+
+```sh
+FISSION_TEST_CONTROL_PORT=48761 ./examples/mobile-smoke/platforms/android/run-emulator.sh
+curl http://127.0.0.1:48761/health
+```
+
+Notes:
+
+- the host prebuilt directory may be `darwin-arm64`, `darwin-x86_64`, or a Linux variant on other machines
+- the script launches a visible emulator when it boots a fresh AVD
+- set `ANDROID_EMULATOR_HEADLESS=1` for background/CI runs
+- set `ANDROID_EMULATOR_RESTART=1` if a hidden emulator is already running and you want the script to relaunch it visibly
 
 Relevant paths:
 
@@ -116,7 +130,7 @@ cargo fission add-target ios android web --project-dir /tmp/demo-app
 cd /tmp/demo-app
 ./platforms/ios/run-sim.sh
 # after exporting the Android env block from the Android section above
-cargo check --target aarch64-linux-android
+./platforms/android/run-emulator.sh
 ```
 
-The generated app is runnable on the iOS Simulator after the target is added. Android is still compile-smoke only because the CLI does not yet generate the launcher/package files there.
+The generated app now gets both Android launcher/package scripts and iOS simulator packaging scripts. Android is runnable on the emulator. iOS is still blocked at runtime by the Vello/CoreSimulator issue above.

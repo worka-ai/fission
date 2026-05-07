@@ -117,8 +117,8 @@ The CLI currently does three things:
 Current status:
 
 - desktop targets are runnable today through `DesktopApp`
-- iOS now has a verified simulator run path both through `examples/mobile-smoke/` and through CLI-generated apps after `fission add-target ios`
-- Android has a verified compile-smoke path, but `fission add-target android` does not yet generate packaging or launcher files
+- iOS now has simulator packaging and launch scaffolding both through `examples/mobile-smoke/` and through CLI-generated apps after `fission add-target ios`, but the current Vello path still renders a black frame on CoreSimulator because the simulator Metal device does not expose `INDIRECT_EXECUTION`
+- Android now has a verified emulator run path through `examples/mobile-smoke/` and through CLI-generated apps after `fission add-target android`
 - web/WASM is still scaffold-only; `fission-shell-web` is not implemented yet
 
 If you are developing against a local Fission checkout, use:
@@ -139,8 +139,8 @@ More detail lives in:
 The current reproducible smoke path is:
 
 - desktop preview: `cargo run -p mobile-smoke`
-- iOS simulator smoke: `FISSION_TEST_CONTROL_PORT=48711 ./examples/mobile-smoke/platforms/ios/run-sim.sh`
-- Android compile smoke: `cargo check -p fission-shell-mobile -p mobile-smoke --target aarch64-linux-android`
+- iOS simulator scaffold: `FISSION_TEST_CONTROL_PORT=48711 ./examples/mobile-smoke/platforms/ios/run-sim.sh`
+- Android emulator smoke: `FISSION_TEST_CONTROL_PORT=48761 ./examples/mobile-smoke/platforms/android/run-emulator.sh`
 
 Install the extra Rust targets first:
 
@@ -159,6 +159,16 @@ export AR_aarch64_linux_android="$ANDROID_TOOLCHAIN/llvm-ar"
 ```
 
 If your NDK uses a different host prebuilt directory, replace `darwin-x86_64` with the correct value for your machine.
+
+Android emulator notes:
+
+- `run-emulator.sh` launches a visible emulator when it has to boot a new AVD
+- set `ANDROID_EMULATOR_HEADLESS=1` for CI/background runs
+- set `ANDROID_EMULATOR_RESTART=1` if an old hidden emulator is already running and you want the script to relaunch it visibly
+
+iOS simulator note:
+
+- the current `run-sim.sh` path packages and launches the app, but the render path still falls back to a black frame on CoreSimulator because Vello currently requires `DownlevelFlags(INDIRECT_EXECUTION)` there
 
 Web/WASM prerequisites today are:
 

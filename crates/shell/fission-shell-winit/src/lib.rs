@@ -97,6 +97,86 @@ struct ActivePlayer {
     last_muted: Option<bool>,
 }
 
+struct RenderState<'w> {
+    surface: RenderSurface<'w>,
+    target_texture_size: (u32, u32),
+    scene3d_renderer: fission_3d::render::Scene3DRenderer,
+    vello_renderer: VelloSceneRenderer,
+    texture_compositor: TextureLayerCompositor,
+}
+
+fn create_render_state<'w>(
+    render_cx: &mut RenderContext,
+    window: Arc<Window>,
+) -> anyhow::Result<RenderState<'w>> {
+    let mut surface = block_on(render_cx.create_surface(
+        window.clone(),
+        window.inner_size().width,
+        window.inner_size().height,
+        wgpu::PresentMode::AutoVsync,
+    ))?;
+
+    let device_handle = &render_cx.devices[surface.dev_id];
+    #[cfg(target_os = "ios")]
+    device_handle
+        .device
+        .on_uncaptured_error(Box::new(|error| {
+            eprintln!("wgpu uncaptured error: {error}");
+        }));
+    let downlevel_caps = device_handle.adapter().get_downlevel_capabilities();
+    let use_cpu_vello = std::env::var("FISSION_VELLO_USE_CPU")
+        .map(|value| matches!(value.to_ascii_lowercase().as_str(), "1" | "true" | "yes"))
+        .unwrap_or(false)
+        || !downlevel_caps
+            .flags
+            .contains(wgpu::DownlevelFlags::INDIRECT_EXECUTION);
+    if use_cpu_vello {
+        eprintln!(
+            "fission-shell-winit: using Vello CPU fallback (missing INDIRECT_EXECUTION support)"
+        );
+    }
+    surface.config.alpha_mode = wgpu::CompositeAlphaMode::PostMultiplied;
+    surface
+        .surface
+        .configure(&device_handle.device, &surface.config);
+
+    let target_texture_size = (surface.config.width, surface.config.height);
+    recreate_target_texture(
+        &mut surface,
+        render_cx,
+        target_texture_size.0,
+        target_texture_size.1,
+    );
+
+    let scene3d_renderer = fission_3d::render::Scene3DRenderer::new(
+        &device_handle.device,
+        window.inner_size().width,
+        window.inner_size().height,
+        wgpu::TextureFormat::Rgba8Unorm,
+    );
+
+    let vello_renderer = VelloSceneRenderer::new(
+        &device_handle.device,
+        RendererOptions {
+            use_cpu: use_cpu_vello,
+            antialiasing_support: AaSupport::all(),
+            num_init_threads: None,
+            pipeline_cache: None,
+        },
+    )?;
+
+    let texture_compositor =
+        TextureLayerCompositor::new(&device_handle.device, wgpu::TextureFormat::Rgba8Unorm);
+
+    Ok(RenderState {
+        surface,
+        target_texture_size,
+        scene3d_renderer,
+        vello_renderer,
+        texture_compositor,
+    })
+}
+
 fn request_redraw_throttled(
     window: &Window,
     elwt: &EventLoopWindowTarget<TestEvent>,
@@ -1581,55 +1661,12 @@ impl<S: AppState + Default, W: Widget<S> + 'static> WinitApp<S, W> {
         let ime_handler: Arc<dyn ImeHandler> = Arc::new(DesktopImeHandler::new(window.clone()));
         self.runtime = self.runtime.with_ime_handler(ime_handler);
 
-        // Vello Context
+        // Rendering state is created lazily so Android can wait for a valid
+        // native surface after the first resume event.
         let mut render_cx = RenderContext::new();
-        let mut surface = block_on(render_cx.create_surface(
-            window.clone(),
-            window.inner_size().width,
-            window.inner_size().height,
-            wgpu::PresentMode::AutoVsync,
-        ))
-        .unwrap();
-
-        // Enable Alpha for video hole punching
-        let device_handle = &render_cx.devices[surface.dev_id];
-        surface.config.alpha_mode = wgpu::CompositeAlphaMode::PostMultiplied;
-        surface
-            .surface
-            .configure(&device_handle.device, &surface.config);
-
-        // Recreate target texture with COPY_SRC so GPU screenshots work
-        let initial_target_texture_size = (surface.config.width, surface.config.height);
-        recreate_target_texture(
-            &mut surface,
-            &render_cx,
-            initial_target_texture_size.0,
-            initial_target_texture_size.1,
-        );
-        let mut target_texture_size = initial_target_texture_size;
-
-        let mut scene3d_renderer = fission_3d::render::Scene3DRenderer::new(
-            &device_handle.device,
-            window.inner_size().width,
-            window.inner_size().height,
-            wgpu::TextureFormat::Rgba8Unorm, // Same as vello render params
-        );
-
-        let mut vello_renderer = VelloSceneRenderer::new(
-            &device_handle.device,
-            RendererOptions {
-                use_cpu: false,
-                antialiasing_support: AaSupport::all(),
-                num_init_threads: None,
-                pipeline_cache: None,
-            },
-        )
-        .unwrap();
-
+        let mut render_state: Option<RenderState<'_>> = None;
         let mut scene = Scene::new();
         let mut retained_scene_cache = RetainedSceneCache::default();
-        let mut texture_compositor =
-            TextureLayerCompositor::new(&device_handle.device, wgpu::TextureFormat::Rgba8Unorm);
 
         window.request_redraw();
 
@@ -1737,6 +1774,22 @@ impl<S: AppState + Default, W: Widget<S> + 'static> WinitApp<S, W> {
                 elwt.set_control_flow(ControlFlow::Wait);
 
                 match event {
+                    Event::Resumed => {
+                        pending_resize = Some(window.inner_size());
+                        invalidations.mark_composite();
+                        request_redraw_logged(
+                            &window,
+                            elwt,
+                            &mut last_redraw_at,
+                            min_frame,
+                            &mut redraw_pending,
+                            &mut frame_trace,
+                            "app_resumed",
+                        );
+                    }
+                    Event::Suspended => {
+                        render_state = None;
+                    }
                     // ═══════════════════════════════════════════════════════
                     // UserEvent — injected by test control server via proxy
                     // ═══════════════════════════════════════════════════════
@@ -2517,29 +2570,57 @@ impl<S: AppState + Default, W: Widget<S> + 'static> WinitApp<S, W> {
                                     return;
                                 }
 
-                                if swapchain_size.width != surface.config.width
-                                    || swapchain_size.height != surface.config.height
+                                if render_state.is_none() {
+                                    match create_render_state(&mut render_cx, window.clone()) {
+                                        Ok(state) => {
+                                            render_state = Some(state);
+                                        }
+                                        Err(err) => {
+                                            eprintln!("render surface not ready yet: {err}");
+                                            request_redraw_logged(
+                                                &window,
+                                                elwt,
+                                                &mut last_redraw_at,
+                                                min_frame,
+                                                &mut redraw_pending,
+                                                &mut frame_trace,
+                                                "render_surface_pending",
+                                            );
+                                            diag::end_frame(diag::FrameStats::default());
+                                            return;
+                                        }
+                                    }
+                                }
+                                let render_state = render_state.as_mut().expect("render state");
+
+                                if swapchain_size.width != render_state.surface.config.width
+                                    || swapchain_size.height != render_state.surface.config.height
                                 {
                                     render_cx.resize_surface(
-                                        &mut surface,
+                                        &mut render_state.surface,
                                         swapchain_size.width,
                                         swapchain_size.height,
                                     );
-                                    let device_handle = &render_cx.devices[surface.dev_id];
-                                    surface.config.alpha_mode = wgpu::CompositeAlphaMode::PostMultiplied;
-                                    surface.surface.configure(&device_handle.device, &surface.config);
+                                    let device_handle =
+                                        &render_cx.devices[render_state.surface.dev_id];
+                                    render_state.surface.config.alpha_mode =
+                                        wgpu::CompositeAlphaMode::PostMultiplied;
+                                    render_state
+                                        .surface
+                                        .surface
+                                        .configure(&device_handle.device, &render_state.surface.config);
                                 }
 
-                                let render_target_size =
-                                    simulated_viewport.unwrap_or((swapchain_size.width, swapchain_size.height));
-                                if render_target_size != target_texture_size {
+                                let render_target_size = simulated_viewport
+                                    .unwrap_or((swapchain_size.width, swapchain_size.height));
+                                if render_target_size != render_state.target_texture_size {
                                     recreate_target_texture(
-                                        &mut surface,
+                                        &mut render_state.surface,
                                         &render_cx,
                                         render_target_size.0,
                                         render_target_size.1,
                                     );
-                                    target_texture_size = render_target_size;
+                                    render_state.target_texture_size = render_target_size;
                                 }
 
                                 let scale_factor = window.scale_factor();
@@ -2701,11 +2782,13 @@ impl<S: AppState + Default, W: Widget<S> + 'static> WinitApp<S, W> {
                                     &runtime.runtime_state.web,
                                 ) {
                                     Ok(_stats) => {
-                                        let surface_texture = surface
+                                        let surface_texture = render_state
+                                            .surface
                                             .surface
                                             .get_current_texture()
                                             .expect("failed to get texture");
-                                        let device_handle = &render_cx.devices[surface.dev_id];
+                                        let device_handle =
+                                            &render_cx.devices[render_state.surface.dev_id];
 
                                         let texture_plans = pipeline.texture_compositor_plans();
                                         let clear_color = vello::wgpu::Color {
@@ -2760,12 +2843,13 @@ impl<S: AppState + Default, W: Widget<S> + 'static> WinitApp<S, W> {
                                             renderer_wrapper
                                                 .render_scene(retained_scene)
                                                 .expect("failed to encode retained scene");
-                                            vello_renderer
+                                            render_state
+                                                .vello_renderer
                                                 .render_to_texture(
                                                     &device_handle.device,
                                                     &device_handle.queue,
                                                     &scene,
-                                                    &surface.target_view,
+                                                    &render_state.surface.target_view,
                                                     &render_params,
                                                 )
                                                 .expect("failed to render");
@@ -2773,11 +2857,12 @@ impl<S: AppState + Default, W: Widget<S> + 'static> WinitApp<S, W> {
                                             let force_full_compositor_redraw = invalidations.build
                                                 || invalidations.layout
                                                 || invalidations.paint;
-                                            let _compositor_stats = texture_compositor
+                                            let _compositor_stats = render_state
+                                                .texture_compositor
                                                 .render_layers(
                                                     &device_handle.device,
                                                     &device_handle.queue,
-                                                    &mut vello_renderer,
+                                                    &mut render_state.vello_renderer,
                                                     &mut retained_scene_cache,
                                                     measurer.clone(),
                                                     scale_factor,
@@ -2787,7 +2872,7 @@ impl<S: AppState + Default, W: Widget<S> + 'static> WinitApp<S, W> {
                                                     texture_plans,
                                                     force_full_compositor_redraw,
                                                     clear_color,
-                                                    &surface.target_view,
+                                                    &render_state.surface.target_view,
                                                 )
                                                 .expect("failed to composite texture layers");
                                         }
@@ -2801,10 +2886,10 @@ impl<S: AppState + Default, W: Widget<S> + 'static> WinitApp<S, W> {
                                                     height: Some(render_target_size.1 as f32),
                                                     primitives,
                                                 };
-                                                scene3d_renderer.render(
+                                                render_state.scene3d_renderer.render(
                                                     &device_handle.device,
                                                     &device_handle.queue,
-                                                    &surface.target_view,
+                                                    &render_state.surface.target_view,
                                                     &scene3d,
                                                 );
                                             }
@@ -2820,10 +2905,10 @@ impl<S: AppState + Default, W: Widget<S> + 'static> WinitApp<S, W> {
                                             },
                                         );
 
-                                        surface.blitter.copy(
+                                        render_state.surface.blitter.copy(
                                             &device_handle.device,
                                             &mut encoder,
-                                            &surface.target_view,
+                                            &render_state.surface.target_view,
                                             &surface_view,
                                         );
 
@@ -2838,7 +2923,7 @@ impl<S: AppState + Default, W: Widget<S> + 'static> WinitApp<S, W> {
                                                     let resp = gpu_screenshot(
                                                         &device_handle.device,
                                                         &device_handle.queue,
-                                                        &surface.target_texture,
+                                                        &render_state.surface.target_texture,
                                                         render_target_size.0,
                                                         render_target_size.1,
                                                         None,
@@ -2848,7 +2933,7 @@ impl<S: AppState + Default, W: Widget<S> + 'static> WinitApp<S, W> {
                                                     let resp = gpu_screenshot(
                                                         &device_handle.device,
                                                         &device_handle.queue,
-                                                        &surface.target_texture,
+                                                        &render_state.surface.target_texture,
                                                         render_target_size.0,
                                                         render_target_size.1,
                                                         Some(&path),

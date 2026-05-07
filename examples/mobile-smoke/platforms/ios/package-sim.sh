@@ -37,4 +37,5 @@ PY
 mkdir -p "$BUNDLE_DIR"
 cp "$TARGET_DIR/$TARGET/$ARTIFACT_DIR/$PACKAGE_NAME" "$BUNDLE_DIR/$EXECUTABLE_NAME"
 cp "$SCRIPT_DIR/Info.plist" "$BUNDLE_DIR/Info.plist"
+cp "$PROJECT_DIR/docs/fission_logo.png" "$BUNDLE_DIR/AppIcon.png"
 printf '%s\n' "$BUNDLE_DIR"

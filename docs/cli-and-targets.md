@@ -23,7 +23,9 @@ cargo fission add-target web ios android --project-dir my-app
 The generated project contains:
 
 - `src/main.rs` desktop entrypoint
+- `src/lib.rs` shared desktop/mobile entry helpers
 - `src/app.rs` minimal counter app
+- `assets/app-icon.png` seeded from `docs/fission_logo.png`
 - `fission.toml` target manifest
 - `platforms/<target>/README.md` target notes and prerequisites
 
@@ -40,7 +42,7 @@ cargo check
 
 That flow completes successfully today.
 
-The repository now has two verified iOS simulator launch paths:
+The repository now has two generated iOS simulator launch paths:
 
 1. the checked-in `examples/mobile-smoke/` example
 2. a CLI-generated app after `cargo fission add-target ios android web`
@@ -51,7 +53,9 @@ Direct example commands:
 ./examples/mobile-smoke/platforms/ios/run-sim.sh
 ```
 
-On macOS, Android also works with the NDK toolchain environment configured:
+Those scripts package and launch correctly, but the current runtime still renders a black frame on CoreSimulator because the simulator Metal device does not expose `DownlevelFlags(INDIRECT_EXECUTION)` for Vello.
+
+On macOS, Android works end to end with the NDK toolchain environment configured:
 
 ```sh
 export ANDROID_HOME="$HOME/Library/Android/sdk"
@@ -68,7 +72,7 @@ Generated-app commands from the scaffolded project root:
 ```sh
 ./platforms/ios/run-sim.sh
 # after exporting the Android env block from below
-cargo check --target aarch64-linux-android
+./platforms/android/run-emulator.sh
 ```
 
 ## Current target status
@@ -78,8 +82,8 @@ cargo check --target aarch64-linux-android
 | Windows | yes | yes | yes | Uses the generated desktop entrypoint |
 | macOS | yes | yes | yes | Uses the generated desktop entrypoint |
 | Linux | yes | yes | yes | Uses the generated desktop entrypoint |
-| iOS | yes | yes | yes (simulator) | the checked-in mobile smoke example and a CLI-generated app both generate a simulator app bundle and launch through `simctl` |
-| Android | yes | yes | no | the checked-in mobile smoke example and a CLI-generated app both cross-compile, but Android still needs NDK env vars and no Gradle/NativeActivity packaging is generated yet |
+| iOS | yes | yes | no | simulator packaging/launch scripts are generated, but the current Vello path only produces a black frame on CoreSimulator because the simulator Metal device lacks `INDIRECT_EXECUTION` |
+| Android | yes | yes | yes (emulator) | the checked-in mobile smoke example and a CLI-generated app both package, install, and launch through `platforms/android/run-emulator.sh` |
 | Web | yes | no | no | `fission-shell-web` is still a placeholder; there is no runnable `web-smoke` example yet |
 
 ## Toolchains, env vars, and paths
@@ -94,11 +98,15 @@ iOS prerequisites:
 
 - Xcode installed
 - `xcrun --sdk iphonesimulator --show-sdk-path` must resolve an iPhoneSimulator SDK
-- smoke command:
+- scaffold/launch command:
 
 ```sh
 ./examples/mobile-smoke/platforms/ios/run-sim.sh
 ```
+
+Known blocker:
+
+- the app currently launches but only renders a black frame inside CoreSimulator because `wgpu` / Vello still requires `DownlevelFlags(INDIRECT_EXECUTION)` there
 
 Generated app command after `cargo fission add-target ios`:
 
@@ -126,6 +134,24 @@ export AR_aarch64_linux_android="$ANDROID_TOOLCHAIN/llvm-ar"
 
 If your NDK uses a different host directory, replace `darwin-x86_64` with the matching prebuilt folder.
 
+Android run command from the checked-in example:
+
+```sh
+./examples/mobile-smoke/platforms/android/run-emulator.sh
+```
+
+Android run command from a generated app:
+
+```sh
+./platforms/android/run-emulator.sh
+```
+
+Android emulator script controls:
+
+- visible by default when it launches a fresh AVD
+- `ANDROID_EMULATOR_HEADLESS=1` for background/CI runs
+- `ANDROID_EMULATOR_RESTART=1` to kill an already-running hidden emulator and relaunch it visibly
+
 WASM prerequisites:
 
 - `rustup target add wasm32-unknown-unknown`
@@ -141,7 +167,7 @@ Relevant paths:
 
 ## Immediate next work
 
-1. implement `fission-shell-web` with a WASM entrypoint and WebGPU surface
-2. teach `fission add-target` to generate real Android launchers/package files
+1. replace the current Vello path on iOS simulator with a renderer/runtime path that does not require `INDIRECT_EXECUTION`
+2. implement `fission-shell-web` with a WASM entrypoint and WebGPU surface
 3. add a first-party `web-smoke` example once `fission-shell-web` exists
 4. add first-party devtools hooks so the CLI can launch apps with widget-tree inspection enabled

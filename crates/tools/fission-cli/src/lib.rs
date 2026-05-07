@@ -6,6 +6,7 @@ use std::fs;
 use std::path::{Path, PathBuf};
 
 const CURRENT_VERSION: &str = env!("CARGO_PKG_VERSION");
+const DEFAULT_APP_ICON_PNG: &[u8] = include_bytes!("../../../../docs/fission_logo.png");
 
 #[derive(Parser, Debug)]
 #[command(
@@ -158,8 +159,10 @@ fn init_project(
         &root.join("Cargo.toml"),
         &render_cargo_toml(&project, local_path.as_deref()),
     )?;
-    write_file(&root.join("src/main.rs"), APP_MAIN)?;
+    write_file(&root.join("src/main.rs"), &render_app_main(project.app.name.as_str()))?;
+    write_file(&root.join("src/lib.rs"), APP_LIB)?;
     write_file(&root.join("src/app.rs"), APP_RS)?;
+    write_binary_file(&root.join("assets/app-icon.png"), DEFAULT_APP_ICON_PNG)?;
     write_file(&root.join("README.md"), &render_project_readme(&project))?;
     write_file(&root.join(".gitignore"), "target/\nplatforms/*/build/\n")?;
     write_project_config(root, &project)?;
@@ -203,26 +206,33 @@ fn read_project_config(root: &Path) -> Result<FissionProject> {
 fn scaffold_target(root: &Path, project: &FissionProject, target: Target) -> Result<()> {
     let relative = Path::new(target.scaffold_relative_path());
     let text = match target {
-        Target::Android => platform_readme(
-            "Android",
-            "Scaffolded target. A generated Fission app can cross-compile for Android after `fission add-target`, but the CLI does not generate Android packaging or launcher files yet.",
-            &[
-                "Install the Rust target: `rustup target add aarch64-linux-android`.",
-                "Set `ANDROID_HOME` and `ANDROID_NDK`.",
-                "Set `CC_aarch64_linux_android` and `AR_aarch64_linux_android` from `$ANDROID_NDK/toolchains/llvm/prebuilt/<host>/bin`.",
-                "Run `cargo check --target aarch64-linux-android` from the project root to verify the generated app compiles.",
-                "Next work: teach `fission add-target` to generate the Android launcher/package files.",
-            ],
-        ),
+        Target::Android => {
+            scaffold_android_bundle(root, project)?;
+            platform_readme(
+                "Android",
+                "Runnable emulator target. The CLI generates a NativeActivity manifest plus shell scripts that build, install, and launch the Fission app on an Android emulator.",
+                &[
+                    "Install the Rust target: `rustup target add aarch64-linux-android`.",
+                    "Set `ANDROID_HOME` and `ANDROID_NDK`.",
+                    "Run `./platforms/android/run-emulator.sh` from the project root to build, package, install, and launch the app on the configured emulator.",
+                    "Override `ANDROID_AVD_NAME`, `ANDROID_SYSTEM_IMAGE`, or `ANDROID_HOME` if your local SDK setup differs.",
+                    "Set `ANDROID_EMULATOR_HEADLESS=1` for background/CI runs, or `ANDROID_EMULATOR_RESTART=1` to relaunch a hidden emulator visibly.",
+                    "The generated package uses `assets/app-icon.png` as its default launcher icon.",
+                    "Set `FISSION_TEST_CONTROL_PORT=<host-port>` before `run-emulator.sh`; the script forwards it to the fixed in-app device port.",
+                ],
+            )
+        }
         Target::Ios => {
             scaffold_ios_bundle(root, project)?;
             platform_readme(
                 "iOS",
-                "Runnable simulator target. The CLI generates a simulator app bundle template plus shell scripts that build, install, and launch the Fission app with `simctl`.",
+                "Simulator scaffolding target. The CLI generates a simulator app bundle template plus shell scripts that build, install, and launch the Fission app with `simctl`, but the current Vello path still renders a black frame on CoreSimulator.",
                 &[
                     "Install the Rust targets: `rustup target add aarch64-apple-ios aarch64-apple-ios-sim`.",
                     "Confirm the simulator SDK path with `xcrun --sdk iphonesimulator --show-sdk-path`.",
                     "Run `./platforms/ios/run-sim.sh` from the project root to build, install, and launch the app on the first available iPhone simulator.",
+                    "Current blocker: CoreSimulator's Metal device does not expose `DownlevelFlags(INDIRECT_EXECUTION)`, so the app launches but only renders a black frame inside `wgpu` / Vello.",
+                    "The generated bundle uses `assets/app-icon.png` as its default app icon.",
                     "Set `FISSION_TEST_CONTROL_PORT=<port>` before `run-sim.sh` to expose the in-app test control server on the host.",
                     "Set `IOS_SIM_DEVICE_ID=<udid>` if you want a specific simulator device.",
                 ],
@@ -275,7 +285,39 @@ fn scaffold_ios_bundle(root: &Path, project: &FissionProject) -> Result<()> {
     Ok(())
 }
 
+fn scaffold_android_bundle(root: &Path, project: &FissionProject) -> Result<()> {
+    let manifest = render_android_manifest(project);
+    let package_script = render_android_package_script(project);
+    let run_script = render_android_run_script(project);
+
+    write_file(&root.join("platforms/android/AndroidManifest.xml"), &manifest)?;
+    write_file(
+        &root.join("platforms/android/package-apk.sh"),
+        &package_script,
+    )?;
+    write_file(
+        &root.join("platforms/android/run-emulator.sh"),
+        &run_script,
+    )?;
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let package_path = root.join("platforms/android/package-apk.sh");
+        let run_path = root.join("platforms/android/run-emulator.sh");
+        fs::set_permissions(&package_path, fs::Permissions::from_mode(0o755))?;
+        fs::set_permissions(&run_path, fs::Permissions::from_mode(0o755))?;
+    }
+    Ok(())
+}
+
 fn write_file(path: &Path, contents: &str) -> Result<()> {
+    if let Some(parent) = path.parent() {
+        fs::create_dir_all(parent)?;
+    }
+    fs::write(path, contents).with_context(|| format!("failed to write {}", path.display()))
+}
+
+fn write_binary_file(path: &Path, contents: &[u8]) -> Result<()> {
     if let Some(parent) = path.parent() {
         fs::create_dir_all(parent)?;
     }
@@ -299,10 +341,11 @@ fn render_cargo_toml(project: &FissionProject, local_path: Option<&Path>) -> Str
             CURRENT_VERSION, CURRENT_VERSION, CURRENT_VERSION
         )
     };
+    let lib_name = project.app.name.replace('-', "_");
 
     format!(
-        "[package]\nname = \"{}\"\nversion = \"0.1.0\"\nedition = \"2021\"\n\n[dependencies]\nanyhow = \"1\"\nserde = {{ version = \"1\", features = [\"derive\"] }}\n{}",
-        project.app.name, deps
+        "[package]\nname = \"{}\"\nversion = \"0.1.0\"\nedition = \"2021\"\n\n[lib]\nname = \"{}\"\ncrate-type = [\"cdylib\", \"rlib\"]\n\n[dependencies]\nanyhow = \"1\"\nserde = {{ version = \"1\", features = [\"derive\"] }}\n{}",
+        project.app.name, lib_name, deps
     )
 }
 
@@ -312,7 +355,7 @@ fn render_project_readme(project: &FissionProject) -> String {
         targets.push_str(&format!("- `{}`\n", target.as_str()));
     }
     format!(
-        "# {}\n\nGenerated by `fission init`.\n\n## Targets\n\n{}\n## Commands\n\n- `cargo run` -- launch the desktop app\n- `cargo fission add-target web ios android` -- scaffold more targets\n- `cat platforms/<target>/README.md` -- inspect the current prerequisites and status for each target\n\n## Status\n\nDesktop is runnable today. iOS is runnable on the Simulator after `cargo fission add-target ios` via `./platforms/ios/run-sim.sh`. Android still needs first-party launcher/package generation. Web remains scaffold-only until `fission-shell-web` lands.\n",
+        "# {}\n\nGenerated by `fission init`.\n\n## Targets\n\n{}\n## Commands\n\n- `cargo run` -- launch the desktop app\n- `cargo fission add-target web ios android` -- scaffold more targets\n- `cat platforms/<target>/README.md` -- inspect the current prerequisites and status for each target\n\n## Assets\n\n- `assets/app-icon.png` is the default mobile app icon seed copied from Fission's `docs/fission_logo.png`\n\n## Status\n\nDesktop is runnable today. iOS has simulator packaging and launch scaffolding after `cargo fission add-target ios`, but the current Vello path still renders a black frame on CoreSimulator. Android is runnable on the emulator after `cargo fission add-target android` via `./platforms/android/run-emulator.sh`. Web remains scaffold-only until `fission-shell-web` lands.\n",
         project.app.name, targets
     )
 }
@@ -362,6 +405,10 @@ fn ios_bundle_name(project: &FissionProject) -> String {
     }
 }
 
+fn android_library_name(project: &FissionProject) -> String {
+    project.app.name.replace('-', "_")
+}
+
 fn render_ios_plist(project: &FissionProject, executable: &str) -> String {
     format!(
         r#"<?xml version="1.0" encoding="UTF-8"?>
@@ -386,6 +433,8 @@ fn render_ios_plist(project: &FissionProject, executable: &str) -> String {
   <string>0.1.0</string>
   <key>CFBundleVersion</key>
   <string>1</string>
+  <key>CFBundleIconFile</key>
+  <string>AppIcon</string>
   <key>LSRequiresIPhoneOS</key>
   <true/>
   <key>MinimumOSVersion</key>
@@ -449,6 +498,7 @@ PY
 mkdir -p "$BUNDLE_DIR"
 cp "$TARGET_DIR/$TARGET/$ARTIFACT_DIR/$PACKAGE_NAME" "$BUNDLE_DIR/$EXECUTABLE_NAME"
 cp "$SCRIPT_DIR/Info.plist" "$BUNDLE_DIR/Info.plist"
+cp "$PROJECT_DIR/assets/app-icon.png" "$BUNDLE_DIR/AppIcon.png"
 printf '%s\n' "$BUNDLE_DIR"
 "#,
         package_name = project.app.name,
@@ -498,32 +548,246 @@ fi
     )
 }
 
-const APP_MAIN: &str = r#"mod app;
+fn render_android_manifest(project: &FissionProject) -> String {
+    format!(
+        r#"<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    package="{app_id}">
+
+    <uses-permission android:name="android.permission.INTERNET" />
+
+    <uses-sdk
+        android:minSdkVersion="24"
+        android:targetSdkVersion="32" />
+
+    <application
+        android:debuggable="true"
+        android:extractNativeLibs="true"
+        android:hasCode="false"
+        android:icon="@drawable/app_icon"
+        android:label="{label}">
+        <activity
+            android:name="android.app.NativeActivity"
+            android:configChanges="orientation|keyboardHidden|screenSize|screenLayout|smallestScreenSize|uiMode|density"
+            android:exported="true"
+            android:launchMode="singleTask">
+            <meta-data
+                android:name="android.app.lib_name"
+                android:value="{lib_name}" />
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity>
+    </application>
+
+</manifest>
+"#,
+        app_id = project.app.app_id,
+        label = ios_bundle_name(project),
+        lib_name = android_library_name(project),
+    )
+}
+
+fn render_android_package_script(project: &FissionProject) -> String {
+    let lib_name = android_library_name(project);
+    format!(
+        r#"#!/usr/bin/env bash
+set -euo pipefail
+
+SCRIPT_DIR=$(cd -- "$(dirname "${{BASH_SOURCE[0]}}")" && pwd)
+PROJECT_DIR=$(cd -- "$SCRIPT_DIR/../.." && pwd)
+TARGET="${{ANDROID_TARGET_TRIPLE:-aarch64-linux-android}}"
+PACKAGE_NAME="{package_name}"
+LIB_NAME="{lib_name}"
+PROFILE="${{ANDROID_PROFILE:-debug}}"
+ANDROID_HOME="${{ANDROID_HOME:-$HOME/Library/Android/sdk}}"
+ANDROID_NDK="${{ANDROID_NDK:-$ANDROID_HOME/ndk/24.0.8215888}}"
+ANDROID_TOOLCHAIN="${{ANDROID_TOOLCHAIN:-$ANDROID_NDK/toolchains/llvm/prebuilt/darwin-x86_64/bin}}"
+CC_aarch64_linux_android="${{CC_aarch64_linux_android:-$ANDROID_TOOLCHAIN/aarch64-linux-android24-clang}}"
+AR_aarch64_linux_android="${{AR_aarch64_linux_android:-$ANDROID_TOOLCHAIN/llvm-ar}}"
+CARGO_TARGET_AARCH64_LINUX_ANDROID_LINKER="${{CARGO_TARGET_AARCH64_LINUX_ANDROID_LINKER:-$CC_aarch64_linux_android}}"
+CARGO_TARGET_AARCH64_LINUX_ANDROID_AR="${{CARGO_TARGET_AARCH64_LINUX_ANDROID_AR:-$AR_aarch64_linux_android}}"
+export ANDROID_HOME ANDROID_NDK ANDROID_TOOLCHAIN CC_aarch64_linux_android AR_aarch64_linux_android
+export CARGO_TARGET_AARCH64_LINUX_ANDROID_LINKER CARGO_TARGET_AARCH64_LINUX_ANDROID_AR
+
+BUILD_TOOLS=$(find "$ANDROID_HOME/build-tools" -maxdepth 1 -mindepth 1 -type d | sort -V | tail -1)
+ANDROID_JAR=$(find "$ANDROID_HOME/platforms" -maxdepth 2 -path '*/android.jar' | sort -V | tail -1)
+AAPT="$BUILD_TOOLS/aapt"
+ZIPALIGN="$BUILD_TOOLS/zipalign"
+APKSIGNER="$BUILD_TOOLS/apksigner"
+
+BUILD_ARGS=(build --manifest-path "$PROJECT_DIR/Cargo.toml" --lib --target "$TARGET" --package "$PACKAGE_NAME")
+ARTIFACT_DIR=debug
+if [[ "$PROFILE" == "release" ]]; then
+  BUILD_ARGS+=(--release)
+  ARTIFACT_DIR=release
+fi
+
+cargo "${{BUILD_ARGS[@]}}"
+TARGET_DIR=$(python3 - <<'PY' "$PROJECT_DIR/Cargo.toml"
+import json
+import subprocess
+import sys
+
+manifest = sys.argv[1]
+metadata = json.loads(
+    subprocess.check_output(
+        ["cargo", "metadata", "--manifest-path", manifest, "--format-version", "1", "--no-deps"]
+    )
+)
+print(metadata["target_directory"])
+PY
+)
+
+SO_PATH="$TARGET_DIR/$TARGET/$ARTIFACT_DIR/lib$LIB_NAME.so"
+BUILD_DIR="$SCRIPT_DIR/build/$PROFILE"
+APK_ROOT="$BUILD_DIR/apk-root"
+UNALIGNED_APK="$BUILD_DIR/$PACKAGE_NAME-unaligned.apk"
+ALIGNED_APK="$BUILD_DIR/$PACKAGE_NAME-aligned.apk"
+SIGNED_APK="$BUILD_DIR/$PACKAGE_NAME.apk"
+KEYSTORE="${{ANDROID_DEBUG_KEYSTORE:-$HOME/.android/debug.keystore}}"
+
+rm -rf "$APK_ROOT"
+mkdir -p "$APK_ROOT/lib/arm64-v8a" "$APK_ROOT/res/drawable-nodpi" "$BUILD_DIR"
+cp "$SO_PATH" "$APK_ROOT/lib/arm64-v8a/lib$LIB_NAME.so"
+cp "$PROJECT_DIR/assets/app-icon.png" "$APK_ROOT/res/drawable-nodpi/app_icon.png"
+
+"$AAPT" package -f -F "$UNALIGNED_APK" -M "$SCRIPT_DIR/AndroidManifest.xml" -S "$APK_ROOT/res" -I "$ANDROID_JAR"
+(cd "$APK_ROOT" && zip -qr "$UNALIGNED_APK" lib)
+"$ZIPALIGN" -f 4 "$UNALIGNED_APK" "$ALIGNED_APK"
+
+if [[ ! -f "$KEYSTORE" ]]; then
+  mkdir -p "$(dirname "$KEYSTORE")"
+  keytool -genkeypair -v \
+    -keystore "$KEYSTORE" \
+    -storepass android \
+    -alias androiddebugkey \
+    -keypass android \
+    -dname "CN=Android Debug,O=Android,C=US" \
+    -keyalg RSA \
+    -keysize 2048 \
+    -validity 10000 >/dev/null 2>&1
+fi
+
+"$APKSIGNER" sign \
+  --ks "$KEYSTORE" \
+  --ks-pass pass:android \
+  --key-pass pass:android \
+  --out "$SIGNED_APK" \
+  "$ALIGNED_APK"
+
+printf '%s\n' "$SIGNED_APK"
+"#,
+        package_name = project.app.name,
+        lib_name = lib_name,
+    )
+}
+
+fn render_android_run_script(project: &FissionProject) -> String {
+    format!(
+        r#"#!/usr/bin/env bash
+set -euo pipefail
+
+SCRIPT_DIR=$(cd -- "$(dirname "${{BASH_SOURCE[0]}}")" && pwd)
+ANDROID_HOME="${{ANDROID_HOME:-$HOME/Library/Android/sdk}}"
+ADB="$ANDROID_HOME/platform-tools/adb"
+EMULATOR_BIN="$ANDROID_HOME/emulator/emulator"
+AVDMANAGER="${{ANDROID_AVDMANAGER:-$ANDROID_HOME/cmdline-tools/latest/bin/avdmanager}}"
+AVD_NAME="${{ANDROID_AVD_NAME:-FissionApi32Arm64}}"
+SYSTEM_IMAGE="${{ANDROID_SYSTEM_IMAGE:-system-images;android-32;google_apis;arm64-v8a}}"
+DEVICE_PORT="${{ANDROID_TEST_CONTROL_DEVICE_PORT:-48761}}"
+HOST_PORT="${{FISSION_TEST_CONTROL_PORT:-48761}}"
+HEADLESS="${{ANDROID_EMULATOR_HEADLESS:-0}}"
+RESTART_EMULATOR="${{ANDROID_EMULATOR_RESTART:-0}}"
+
+if ! "$AVDMANAGER" list avd | grep -q "Name: $AVD_NAME"; then
+  echo "no" | "$AVDMANAGER" create avd -n "$AVD_NAME" -k "$SYSTEM_IMAGE" --abi "google_apis/arm64-v8a" --device "pixel_5"
+fi
+
+RUNNING_EMULATOR=$("$ADB" devices | awk '/^emulator-.*device$/ {{ print $1; exit }}')
+if [[ -n "$RUNNING_EMULATOR" && "$RESTART_EMULATOR" == "1" ]]; then
+  "$ADB" -s "$RUNNING_EMULATOR" emu kill >/dev/null || true
+  until ! "$ADB" devices | grep -q '^emulator-'; do
+    sleep 1
+  done
+  RUNNING_EMULATOR=""
+fi
+
+if [[ -z "$RUNNING_EMULATOR" ]]; then
+  EMULATOR_ARGS=(-avd "$AVD_NAME" -gpu "${{ANDROID_EMULATOR_GPU:-swiftshader_indirect}}" -no-audio)
+  if [[ "$HEADLESS" == "1" ]]; then
+    EMULATOR_ARGS+=(-no-window)
+  fi
+  printf 'Launching emulator %s (%s)\n' "$AVD_NAME" "$([[ "$HEADLESS" == "1" ]] && echo headless || echo visible)"
+  "$EMULATOR_BIN" "${{EMULATOR_ARGS[@]}}" >/tmp/fission-android-emulator.log 2>&1 &
+  "$ADB" wait-for-device
+  until "$ADB" shell getprop sys.boot_completed 2>/dev/null | tr -d '\r' | grep -q '^1$'; do
+    sleep 1
+  done
+else
+  printf 'Using existing emulator %s\n' "$RUNNING_EMULATOR"
+  if [[ "$HEADLESS" != "1" ]]; then
+    printf 'If the window is not visible, restart with ANDROID_EMULATOR_RESTART=1 to relaunch a visible emulator.\n'
+  fi
+fi
+
+APK=$("$SCRIPT_DIR/package-apk.sh")
+"$ADB" install -r "$APK"
+"$ADB" forward "tcp:$HOST_PORT" "tcp:$DEVICE_PORT"
+"$ADB" shell am start -n {app_id}/android.app.NativeActivity >/dev/null
+printf 'APK=%s\n' "$APK"
+"#,
+        app_id = project.app.app_id,
+    )
+}
+
+fn render_app_main(package_name: &str) -> String {
+    let lib_name = package_name.replace('-', "_");
+    format!(
+        r#"#[cfg(target_os = "android")]
+fn main() {{}}
+
+#[cfg(target_os = "ios")]
+fn main() -> anyhow::Result<()> {{
+    {lib_name}::run_mobile()
+}}
+
+#[cfg(not(any(target_os = "ios", target_os = "android")))]
+fn main() -> anyhow::Result<()> {{
+    {lib_name}::run_desktop()
+}}
+"#
+    )
+}
+
+const APP_LIB: &str = r#"pub mod app;
 
 use crate::app::{CounterApp, CounterState};
 use fission::prelude::*;
 
+#[cfg(target_os = "android")]
+const ANDROID_TEST_CONTROL_PORT: u16 = 48761;
+
 fn mobile_app() -> MobileApp<CounterState, CounterApp> {
-    MobileApp::new(CounterApp).with_title("Fission App")
+    let app = MobileApp::new(CounterApp).with_title("Fission App");
+    #[cfg(target_os = "android")]
+    let app = app.with_test_control_port(ANDROID_TEST_CONTROL_PORT);
+    app
+}
+
+pub fn run_desktop() -> anyhow::Result<()> {
+    DesktopApp::new(CounterApp).run()
+}
+
+pub fn run_mobile() -> anyhow::Result<()> {
+    mobile_app().run()
 }
 
 #[cfg(target_os = "android")]
 #[no_mangle]
 fn android_main(app_handle: AndroidApp) {
     let _ = mobile_app().run_with_android_app(app_handle);
-}
-
-#[cfg(target_os = "android")]
-fn main() {}
-
-#[cfg(target_os = "ios")]
-fn main() -> anyhow::Result<()> {
-    mobile_app().run()
-}
-
-#[cfg(not(any(target_os = "ios", target_os = "android")))]
-fn main() -> anyhow::Result<()> {
-    DesktopApp::new(CounterApp).run()
 }
 "#;
 
@@ -592,7 +856,9 @@ mod tests {
 
         assert!(dir.join("Cargo.toml").exists());
         assert!(dir.join("src/main.rs").exists());
+        assert!(dir.join("src/lib.rs").exists());
         assert!(dir.join("src/app.rs").exists());
+        assert!(dir.join("assets/app-icon.png").exists());
         assert!(dir.join("fission.toml").exists());
         assert!(dir.join("platforms/windows/README.md").exists());
         assert!(dir.join("platforms/macos/README.md").exists());
@@ -624,6 +890,15 @@ mod tests {
         assert!(dir.join("platforms/ios/package-sim.sh").exists());
         assert!(dir.join("platforms/ios/run-sim.sh").exists());
         assert!(dir.join("platforms/android/README.md").exists());
+        assert!(dir.join("platforms/android/AndroidManifest.xml").exists());
+        assert!(dir.join("platforms/android/package-apk.sh").exists());
+        assert!(dir.join("platforms/android/run-emulator.sh").exists());
+        assert!(std::fs::read_to_string(dir.join("platforms/android/AndroidManifest.xml"))
+            .unwrap()
+            .contains("android:icon=\"@drawable/app_icon\""));
+        assert!(std::fs::read_to_string(dir.join("platforms/ios/package-sim.sh"))
+            .unwrap()
+            .contains("AppIcon.png"));
     }
 
     #[test]

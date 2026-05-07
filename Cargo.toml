@@ -40,3 +40,6 @@ lto = true
 opt-level = "z"
 codegen-units = 1
 panic = "abort"
+
+[patch.crates-io]
+android-activity = { path = "third_party/android-activity" }

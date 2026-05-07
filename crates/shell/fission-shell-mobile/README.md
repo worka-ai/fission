@@ -11,10 +11,10 @@ work is being built out.
 
 Current branch status:
 
-- host + iOS simulator smoke: verified
-- Android compile smoke: verified with the Android NDK toolchain env configured
+- host desktop preview: verified
+- Android emulator smoke: verified with the Android SDK + NDK env configured
 - iOS simulator packaging/launcher generation: implemented
-- Android packaging/launcher generation: not implemented yet
+- iOS simulator runtime: currently blocked because the Vello path only renders a black frame on CoreSimulator when `INDIRECT_EXECUTION` is unavailable
 - touch, safe-area, soft-keyboard, and mobile-specific lifecycle hooks: still in progress
 
 ## Verified commands
@@ -25,7 +25,7 @@ Desktop preview of the shared UI path:
 cargo run -p mobile-smoke
 ```
 
-iOS simulator smoke:
+iOS simulator scaffold/launch:
 
 ```sh
 rustup target add aarch64-apple-ios aarch64-apple-ios-sim
@@ -33,7 +33,11 @@ xcrun --sdk iphonesimulator --show-sdk-path
 ./examples/mobile-smoke/platforms/ios/run-sim.sh
 ```
 
-Android compile smoke on macOS:
+Known blocker:
+
+- the current renderer path logs `wgpu` / Vello validation errors on CoreSimulator and only renders a black frame when `DownlevelFlags(INDIRECT_EXECUTION)` is missing, so the simulator host project exists but does not yet render successfully
+
+Android emulator smoke on macOS:
 
 ```sh
 rustup target add aarch64-linux-android
@@ -43,7 +47,7 @@ export ANDROID_TOOLCHAIN="$ANDROID_NDK/toolchains/llvm/prebuilt/darwin-x86_64/bi
 export CC_aarch64_linux_android="$ANDROID_TOOLCHAIN/aarch64-linux-android24-clang"
 export AR_aarch64_linux_android="$ANDROID_TOOLCHAIN/llvm-ar"
 
-cargo check -p fission-shell-mobile -p mobile-smoke --target aarch64-linux-android
+./examples/mobile-smoke/platforms/android/run-emulator.sh
 ```
 
 If your NDK uses a different host prebuilt directory, replace `darwin-x86_64` with the matching
@@ -54,13 +58,14 @@ folder on your machine.
 - `MobileApp` wrapper for the shared `fission-shell-winit` runtime
 - Android `android_main` entry support
 - iOS simulator app-bundle packaging through `examples/mobile-smoke/platforms/ios/`
+- Android emulator packaging/launcher scripts through `examples/mobile-smoke/platforms/android/`
 - host-side screenshot/test-control transport via `FISSION_TEST_CONTROL_PORT`
 - smoke coverage through `examples/mobile-smoke/`
 
 ## Next work
 
+- replace the current Vello path on iOS simulator with a renderer/runtime path that does not require `INDIRECT_EXECUTION`
 - iOS device packaging/signing beyond the simulator path
-- Android shell using a first-class `NativeActivity` / packaging story
 - touch and gesture input mapping to Fission `InputEvent` types
 - safe-area insets and display-cutout awareness
 - soft keyboard / IME handling
