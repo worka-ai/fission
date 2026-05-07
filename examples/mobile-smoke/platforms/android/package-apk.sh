@@ -3,6 +3,8 @@ set -euo pipefail
 
 SCRIPT_DIR=$(cd -- "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 PROJECT_DIR=$(cd -- "$SCRIPT_DIR/../.." && pwd)
+REPO_ROOT=$(cd -- "$PROJECT_DIR/../.." && pwd)
+ICON_SOURCE="${FISSION_APP_ICON:-$REPO_ROOT/docs/fission_logo.png}"
 TARGET="${ANDROID_TARGET_TRIPLE:-aarch64-linux-android}"
 PACKAGE_NAME="mobile-smoke"
 LIB_NAME="mobile_smoke"
@@ -58,7 +60,7 @@ KEYSTORE="${ANDROID_DEBUG_KEYSTORE:-$HOME/.android/debug.keystore}"
 rm -rf "$APK_ROOT"
 mkdir -p "$APK_ROOT/lib/arm64-v8a" "$APK_ROOT/res/drawable-nodpi" "$BUILD_DIR"
 cp "$SO_PATH" "$APK_ROOT/lib/arm64-v8a/lib$LIB_NAME.so"
-cp "$PROJECT_DIR/docs/fission_logo.png" "$APK_ROOT/res/drawable-nodpi/app_icon.png"
+cp "$ICON_SOURCE" "$APK_ROOT/res/drawable-nodpi/app_icon.png"
 
 "$AAPT" package -f -F "$UNALIGNED_APK" -M "$SCRIPT_DIR/AndroidManifest.xml" -S "$APK_ROOT/res" -I "$ANDROID_JAR"
 (cd "$APK_ROOT" && zip -qr "$UNALIGNED_APK" lib)

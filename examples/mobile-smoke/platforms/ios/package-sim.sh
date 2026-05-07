@@ -3,6 +3,8 @@ set -euo pipefail
 
 SCRIPT_DIR=$(cd -- "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 PROJECT_DIR=$(cd -- "$SCRIPT_DIR/../.." && pwd)
+REPO_ROOT=$(cd -- "$PROJECT_DIR/../.." && pwd)
+ICON_SOURCE="${FISSION_APP_ICON:-$REPO_ROOT/docs/fission_logo.png}"
 TARGET="${IOS_SIM_TARGET:-aarch64-apple-ios-sim}"
 PROFILE="${IOS_SIM_PROFILE:-debug}"
 PACKAGE_NAME="mobile-smoke"
@@ -37,5 +39,5 @@ PY
 mkdir -p "$BUNDLE_DIR"
 cp "$TARGET_DIR/$TARGET/$ARTIFACT_DIR/$PACKAGE_NAME" "$BUNDLE_DIR/$EXECUTABLE_NAME"
 cp "$SCRIPT_DIR/Info.plist" "$BUNDLE_DIR/Info.plist"
-cp "$PROJECT_DIR/docs/fission_logo.png" "$BUNDLE_DIR/AppIcon.png"
+cp "$ICON_SOURCE" "$BUNDLE_DIR/AppIcon.png"
 printf '%s\n' "$BUNDLE_DIR"
