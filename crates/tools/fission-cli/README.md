@@ -29,10 +29,15 @@ cargo fission add-target web ios android --project-dir my-app
 ## Current platform status
 
 - `windows`, `macos`, `linux`: scaffolded and runnable through the generated desktop entrypoint
-- `ios`, `android`: scaffolded by the CLI and verified to cross-compile after `add-target`, but generated projects do not yet get native packaging or launcher files
+- `ios`: scaffolded by the CLI and runnable on the Simulator through `platforms/ios/run-sim.sh`
+- `android`: scaffolded by the CLI and verified to cross-compile after `add-target`, but generated projects do not yet get native packaging or launcher files
 - `web`: scaffolded only; `fission-shell-web` is still pending
 
-The CLI writes platform state to `fission.toml` and creates `platforms/<target>/README.md` notes with the current prerequisites and next steps for each target.
+The CLI writes platform state to `fission.toml` and creates `platforms/<target>/README.md` notes with the current prerequisites and next steps for each target. For iOS it also generates:
+
+- `platforms/ios/Info.plist`
+- `platforms/ios/package-sim.sh`
+- `platforms/ios/run-sim.sh`
 
 See also:
 

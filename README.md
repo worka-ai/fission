@@ -117,7 +117,8 @@ The CLI currently does three things:
 Current status:
 
 - desktop targets are runnable today through `DesktopApp`
-- iOS and Android now have verified compile-smoke paths both through `examples/mobile-smoke/` and through CLI-generated apps after `fission add-target`, but `fission add-target` does not yet generate native packaging or launcher files
+- iOS now has a verified simulator run path both through `examples/mobile-smoke/` and through CLI-generated apps after `fission add-target ios`
+- Android has a verified compile-smoke path, but `fission add-target android` does not yet generate packaging or launcher files
 - web/WASM is still scaffold-only; `fission-shell-web` is not implemented yet
 
 If you are developing against a local Fission checkout, use:
@@ -138,13 +139,13 @@ More detail lives in:
 The current reproducible smoke path is:
 
 - desktop preview: `cargo run -p mobile-smoke`
-- iOS compile smoke: `cargo check -p fission-shell-mobile -p mobile-smoke --target aarch64-apple-ios`
+- iOS simulator smoke: `FISSION_TEST_CONTROL_PORT=48711 ./examples/mobile-smoke/platforms/ios/run-sim.sh`
 - Android compile smoke: `cargo check -p fission-shell-mobile -p mobile-smoke --target aarch64-linux-android`
 
 Install the extra Rust targets first:
 
 ```sh
-rustup target add aarch64-apple-ios aarch64-linux-android wasm32-unknown-unknown
+rustup target add aarch64-apple-ios aarch64-apple-ios-sim aarch64-linux-android wasm32-unknown-unknown
 ```
 
 On macOS, the Android check also needs the SDK + NDK environment:
@@ -562,7 +563,7 @@ Output is structured JSON, suitable for piping into analysis tools, dashboards, 
 | macOS | Supported |
 | Linux | Supported |
 | Windows | Supported |
-| iOS | In progress |
+| iOS | Simulator supported, device packaging in progress |
 | Android | In progress |
 | Web (WASM) | In progress |
 
@@ -676,8 +677,9 @@ For the iOS and Android cross-target smoke commands, see `docs/platform-smoke-te
 | [`fission-render`](crates/rendering/fission-render) | Rendering primitives -- display list, paint ops, text styles |
 | [`fission-render-vello`](crates/rendering/fission-render-vello) | Vello/wgpu rendering backend |
 | [`fission-shell`](crates/shell/fission-shell) | Shared shell abstractions (event loop, windowing) |
-| [`fission-shell-desktop`](crates/shell/fission-shell-desktop) | Desktop shell -- winit + Vello + wgpu integration |
-| [`fission-shell-mobile`](crates/shell/fission-shell-mobile) | Mobile shell (iOS / Android) -- compile-smoke path verified, packaging still in progress |
+| [`fission-shell-winit`](crates/shell/fission-shell-winit) | Shared winit + Vello runtime used by desktop and mobile shells |
+| [`fission-shell-desktop`](crates/shell/fission-shell-desktop) | Desktop shell wrapper around the shared winit runtime |
+| [`fission-shell-mobile`](crates/shell/fission-shell-mobile) | Mobile shell (iOS / Android) -- iOS simulator path verified, Android packaging still in progress |
 | [`fission-shell-web`](crates/shell/fission-shell-web) | Web shell (WASM + WebGPU) -- in progress |
 | [`fission-cli`](crates/tools/fission-cli) | Project scaffolding CLI and `cargo fission` entrypoint |
 | [`fission-diagnostics`](crates/tools/fission-diagnostics) | Structured diagnostic logging and performance tracing |

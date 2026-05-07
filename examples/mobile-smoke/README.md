@@ -5,7 +5,7 @@ Shared mobile smoke example for the current `fission-shell-mobile` path.
 ## What it proves
 
 - the shared runtime launches on the host through `MobileApp`
-- the same example cross-compiles for iOS
+- the same example packages, installs, and launches on the iOS Simulator
 - the same example cross-compiles for Android when the NDK toolchain env is set
 
 ## Commands
@@ -16,12 +16,19 @@ Desktop preview:
 cargo run -p mobile-smoke
 ```
 
-iOS compile smoke:
+iOS simulator smoke:
 
 ```sh
-rustup target add aarch64-apple-ios
-xcrun --sdk iphoneos --show-sdk-path
-cargo check -p fission-shell-mobile -p mobile-smoke --target aarch64-apple-ios
+rustup target add aarch64-apple-ios aarch64-apple-ios-sim
+xcrun --sdk iphonesimulator --show-sdk-path
+./examples/mobile-smoke/platforms/ios/run-sim.sh
+```
+
+Optional test-control port:
+
+```sh
+FISSION_TEST_CONTROL_PORT=48711 ./examples/mobile-smoke/platforms/ios/run-sim.sh
+curl http://127.0.0.1:48711/health
 ```
 
 Android compile smoke on macOS:

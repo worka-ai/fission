@@ -1,35 +1,39 @@
-# fission-shell-desktop
+# fission-shell-winit
 
-Desktop shell for Fission applications. Provides the native window, GPU-accelerated rendering pipeline, input handling, and platform integrations needed to run a Fission UI on macOS, Windows, and Linux.
+Shared winit + Vello runtime for Fission applications.
+
+This crate holds the common event loop, rendering pipeline, input routing, and test-control
+transport used by both `fission-shell-desktop` and `fission-shell-mobile`.
 
 ## Architecture
 
 ```
-DesktopApp<S, W>
+WinitApp<S, W>
   |
   +-- Runtime         (fission-core: state management, action dispatch, animation ticking)
   +-- LayoutEngine    (fission-layout: flexbox layout computation)
   +-- Pipeline        (IR diffing, layout, paint, display list generation)
   +-- VelloRenderer   (fission-render-vello: GPU rasterization via Vello + wgpu)
   +-- VelloTextMeasurer (font context, text shaping via Parley + Fontique)
-  +-- DesktopClipboard (platform clipboard via arboard)
+  +-- DesktopClipboard (or in-memory clipboard fallback on mobile)
   +-- DesktopImeHandler (IME composition via winit)
   +-- VideoBackend    (macOS AVFoundation video, or mock on other platforms)
   +-- TestControl     (optional HTTP server for automated UI testing)
 ```
 
-The main entry point is `DesktopApp::new(root_widget)`, which creates a winit event loop and runs the full build-layout-paint-present cycle on every frame.
+The main entry point is `WinitApp::new(root_widget)`, which creates a winit event loop and runs
+the full build-layout-paint-present cycle on every frame.
 
-## `DesktopApp`
+## `WinitApp`
 
-The generic `DesktopApp<S: AppState, W: Widget<S>>` owns the entire application lifecycle.
+The generic `WinitApp<S: AppState, W: Widget<S>>` owns the shared application lifecycle.
 
 ### Construction
 
 ```rust
-use fission_shell_desktop::DesktopApp;
+use fission_shell_winit::WinitApp;
 
-DesktopApp::new(MyRootWidget)
+WinitApp::new(MyRootWidget)
     .with_title("My App")
     .with_state_init(|state| {
         state.counter = 42;
@@ -114,5 +118,6 @@ When `FISSION_TEST_CONTROL_PORT` is set, the shell spawns a TCP server that acce
 
 ## Platform support
 
-- **macOS**: Full support including AVFoundation video playback and IME.
-- **Windows/Linux**: Rendering and input fully supported. Video playback uses a mock backend.
+- **Desktop**: used by `fission-shell-desktop`
+- **iOS / Android**: used by `fission-shell-mobile`
+- **Web**: not used today; `fission-shell-web` remains separate work

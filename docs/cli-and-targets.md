@@ -40,7 +40,7 @@ cargo check
 
 That flow completes successfully today.
 
-The repository also has two verified mobile compile-smoke paths:
+The repository now has two verified iOS simulator launch paths:
 
 1. the checked-in `examples/mobile-smoke/` example
 2. a CLI-generated app after `cargo fission add-target ios android web`
@@ -48,7 +48,7 @@ The repository also has two verified mobile compile-smoke paths:
 Direct example commands:
 
 ```sh
-cargo check -p fission-shell-mobile -p mobile-smoke --target aarch64-apple-ios
+./examples/mobile-smoke/platforms/ios/run-sim.sh
 ```
 
 On macOS, Android also works with the NDK toolchain environment configured:
@@ -66,7 +66,7 @@ cargo check -p fission-shell-mobile -p mobile-smoke --target aarch64-linux-andro
 Generated-app commands from the scaffolded project root:
 
 ```sh
-cargo check --target aarch64-apple-ios
+./platforms/ios/run-sim.sh
 # after exporting the Android env block from below
 cargo check --target aarch64-linux-android
 ```
@@ -78,7 +78,7 @@ cargo check --target aarch64-linux-android
 | Windows | yes | yes | yes | Uses the generated desktop entrypoint |
 | macOS | yes | yes | yes | Uses the generated desktop entrypoint |
 | Linux | yes | yes | yes | Uses the generated desktop entrypoint |
-| iOS | yes | yes | no | the checked-in mobile smoke example and a CLI-generated app both cross-compile, but `fission add-target` does not generate an Xcode launcher yet |
+| iOS | yes | yes | yes (simulator) | the checked-in mobile smoke example and a CLI-generated app both generate a simulator app bundle and launch through `simctl` |
 | Android | yes | yes | no | the checked-in mobile smoke example and a CLI-generated app both cross-compile, but Android still needs NDK env vars and no Gradle/NativeActivity packaging is generated yet |
 | Web | yes | no | no | `fission-shell-web` is still a placeholder; there is no runnable `web-smoke` example yet |
 
@@ -87,17 +87,23 @@ cargo check --target aarch64-linux-android
 Install the Rust targets:
 
 ```sh
-rustup target add aarch64-apple-ios aarch64-linux-android wasm32-unknown-unknown
+rustup target add aarch64-apple-ios aarch64-apple-ios-sim aarch64-linux-android wasm32-unknown-unknown
 ```
 
 iOS prerequisites:
 
 - Xcode installed
-- `xcrun --sdk iphoneos --show-sdk-path` must resolve an iPhoneOS SDK
+- `xcrun --sdk iphonesimulator --show-sdk-path` must resolve an iPhoneSimulator SDK
 - smoke command:
 
 ```sh
-cargo check -p fission-shell-mobile -p mobile-smoke --target aarch64-apple-ios
+./examples/mobile-smoke/platforms/ios/run-sim.sh
+```
+
+Generated app command after `cargo fission add-target ios`:
+
+```sh
+./platforms/ios/run-sim.sh
 ```
 
 Android prerequisites:
@@ -136,6 +142,6 @@ Relevant paths:
 ## Immediate next work
 
 1. implement `fission-shell-web` with a WASM entrypoint and WebGPU surface
-2. teach `fission add-target` to generate real iOS and Android launchers/package files
+2. teach `fission add-target` to generate real Android launchers/package files
 3. add a first-party `web-smoke` example once `fission-shell-web` exists
 4. add first-party devtools hooks so the CLI can launch apps with widget-tree inspection enabled
