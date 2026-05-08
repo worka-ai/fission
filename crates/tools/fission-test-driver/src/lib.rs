@@ -73,7 +73,9 @@ pub enum TestCommand {
         y: f32,
     },
     SimulateResize {
+        /// Target logical viewport width in test-space pixels.
         width: u32,
+        /// Target logical viewport height in test-space pixels.
         height: u32,
     },
 }
@@ -145,7 +147,8 @@ pub enum TestEvent {
     },
 }
 
-/// A visible text element with its bounding rectangle, returned by [`TestCommand::GetText`].
+/// A visible text element with its bounding rectangle, in logical test-space
+/// pixels, returned by [`TestCommand::GetText`].
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TextItem {
     pub text: String,
@@ -156,6 +159,7 @@ pub struct TextItem {
 }
 
 /// A node in the semantic accessibility tree, returned by [`TestCommand::GetTree`].
+/// Bounding rectangles are expressed in logical test-space pixels.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SemanticNode {
     pub role: String,
@@ -181,7 +185,9 @@ pub enum TestResponse {
     },
     Screenshot {
         png_base64: String,
+        /// PNG width in logical test-space pixels.
         width: u32,
+        /// PNG height in logical test-space pixels.
         height: u32,
     },
     Error {
@@ -368,7 +374,7 @@ impl LiveTestClient {
         Ok(())
     }
 
-    /// Simulate a window resize — goes through the real Resized path.
+    /// Simulate a window resize in logical test-space pixels.
     pub fn simulate_resize(&self, width: u32, height: u32) -> Result<()> {
         self.send(TestCommand::SimulateResize { width, height })?;
         Ok(())
