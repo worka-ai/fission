@@ -26,17 +26,18 @@ All commands are serialized with `#[serde(tag = "cmd")]`:
 
 | Command | Fields | Description |
 |---------|--------|-------------|
-| `Tap` | `x: f32, y: f32` | Simulate a pointer down + up at the given coordinates. |
+| `Tap` | `x: f32, y: f32` | Simulate a pointer down + up at the given logical coordinates. |
 | `TapText` | `text: String` | Find visible text matching the string and tap its center. |
-| `Scroll` | `x, y, dx, dy: f32` | Simulate a scroll event at (x, y) with delta (dx, dy). |
+| `Scroll` | `x, y, dx, dy: f32` | Simulate a scroll event at logical position `(x, y)` with logical delta `(dx, dy)`. |
 | `TypeText` | `text: String` | Type each character as a keyboard event into the focused input. |
 | `PressKey` | `key: String, modifiers: u8` | Press a named key (e.g., `"Enter"`, `"Escape"`, `"Tab"`, `"a"`) with modifier flags. |
-| `Screenshot` | `path: String` | Capture the current frame to a PNG file at the given path. |
-| `GetText` | (none) | Return all visible text items with their bounding rects. |
-| `GetTree` | (none) | Return the semantic accessibility tree. |
+| `Screenshot` | `path: String` | Capture the current frame to a PNG file at the given path. The PNG dimensions are in logical test-space pixels so they align with `GetText` / `GetTree` coordinates. |
+| `GetText` | (none) | Return all visible text items with bounding rects in logical test-space pixels. |
+| `GetTree` | (none) | Return the semantic accessibility tree with bounds in logical test-space pixels. |
 | `Wait` | `ms: u64` | Sleep for the given duration (server-side). |
 | `Pump` | (none) | Force a frame render and wait for it to complete. |
 | `Quit` | (none) | Exit the application. |
+| `SimulateResize` | `width: u32, height: u32` | Resize the test viewport to the given logical size. |
 
 ### `TestResponse`
 
@@ -59,6 +60,8 @@ pub struct TextItem {
 }
 ```
 
+All geometry in `TextItem` is reported in logical test-space pixels.
+
 ### `SemanticNode`
 
 ```rust
@@ -73,6 +76,8 @@ pub struct SemanticNode {
     pub height: f32,
 }
 ```
+
+All geometry in `SemanticNode` is reported in logical test-space pixels.
 
 ## `LiveTestClient`
 

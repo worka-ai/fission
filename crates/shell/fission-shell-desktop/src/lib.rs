@@ -2530,8 +2530,26 @@ impl<S: AppState + Default, W: Widget<S> + 'static> DesktopApp<S, W> {
                                     surface.surface.configure(&device_handle.device, &surface.config);
                                 }
 
-                                let render_target_size =
-                                    simulated_viewport.unwrap_or((swapchain_size.width, swapchain_size.height));
+                                let scale_factor = window.scale_factor();
+                                let pending_layout_viewport = if let Some((sw, sh)) = simulated_viewport {
+                                    LayoutSize {
+                                        width: sw as f32,
+                                        height: sh as f32,
+                                    }
+                                } else {
+                                    LayoutSize {
+                                        width: (swapchain_size.width as f64 / scale_factor) as f32,
+                                        height: (swapchain_size.height as f64 / scale_factor) as f32,
+                                    }
+                                };
+                                let render_target_size = if simulated_viewport.is_some() {
+                                    logical_viewport_to_render_target_size(
+                                        pending_layout_viewport,
+                                        scale_factor,
+                                    )
+                                } else {
+                                    (swapchain_size.width, swapchain_size.height)
+                                };
                                 if render_target_size != target_texture_size {
                                     recreate_target_texture(
                                         &mut surface,
@@ -2541,16 +2559,6 @@ impl<S: AppState + Default, W: Widget<S> + 'static> DesktopApp<S, W> {
                                     );
                                     target_texture_size = render_target_size;
                                 }
-
-                                let scale_factor = window.scale_factor();
-                                let pending_layout_viewport = if let Some((sw, sh)) = simulated_viewport {
-                                    (sw as f32, sh as f32)
-                                } else {
-                                    (
-                                        (swapchain_size.width as f64 / scale_factor) as f32,
-                                        (swapchain_size.height as f64 / scale_factor) as f32,
-                                    )
-                                };
 
                                 let force_resize_layout = invalidations.build
                                     || pipeline.prev_ir.is_none()
@@ -2567,8 +2575,8 @@ impl<S: AppState + Default, W: Widget<S> + 'static> DesktopApp<S, W> {
                                 let resize_settled =
                                     pending_resize.is_some() && !live_resize.is_live(now);
                                 let target_viewport = LayoutSize {
-                                    width: pending_layout_viewport.0,
-                                    height: pending_layout_viewport.1,
+                                    width: pending_layout_viewport.width,
+                                    height: pending_layout_viewport.height,
                                 };
                                 let viewport_changed = pipeline
                                     .last_viewport
@@ -2689,10 +2697,7 @@ impl<S: AppState + Default, W: Widget<S> + 'static> DesktopApp<S, W> {
                                 }
 
                                 match pipeline.prepare_current(
-                                    LayoutSize {
-                                        width: pending_layout_viewport.0,
-                                        height: pending_layout_viewport.1,
-                                    },
+                                    pending_layout_viewport,
                                     viewport,
                                     pending_resize.is_some() && !apply_resize_layout,
                                     &runtime.runtime_state.scroll,
@@ -2830,6 +2835,8 @@ impl<S: AppState + Default, W: Widget<S> + 'static> DesktopApp<S, W> {
                                         device_handle.queue.submit(Some(encoder.finish()));
 
                                         if let Some(path) = pending_screenshot_path.take() {
+                                            let screenshot_dimensions =
+                                                layout_size_to_image_dimensions(viewport);
                                             if let Some(ref tx) = test_response_tx {
                                                 if path == "__pump__" {
                                                     let _ =
@@ -2841,6 +2848,8 @@ impl<S: AppState + Default, W: Widget<S> + 'static> DesktopApp<S, W> {
                                                         &surface.target_texture,
                                                         render_target_size.0,
                                                         render_target_size.1,
+                                                        screenshot_dimensions.0,
+                                                        screenshot_dimensions.1,
                                                         None,
                                                     );
                                                     let _ = tx.send(resp);
@@ -2851,6 +2860,8 @@ impl<S: AppState + Default, W: Widget<S> + 'static> DesktopApp<S, W> {
                                                         &surface.target_texture,
                                                         render_target_size.0,
                                                         render_target_size.1,
+                                                        screenshot_dimensions.0,
+                                                        screenshot_dimensions.1,
                                                         Some(&path),
                                                     );
                                                     let _ = tx.send(resp);
@@ -3092,21 +3103,23 @@ fn gpu_screenshot(
     device: &wgpu::Device,
     queue: &wgpu::Queue,
     texture: &wgpu::Texture,
-    width: u32,
-    height: u32,
+    texture_width: u32,
+    texture_height: u32,
+    output_width: u32,
+    output_height: u32,
     path: Option<&str>,
 ) -> fission_test_driver::TestResponse {
-    if width == 0 || height == 0 {
+    if texture_width == 0 || texture_height == 0 || output_width == 0 || output_height == 0 {
         return fission_test_driver::TestResponse::Error {
             message: "zero-size viewport".into(),
         };
     }
 
     let bytes_per_pixel = 4u32;
-    let unpadded_bytes_per_row = width * bytes_per_pixel;
+    let unpadded_bytes_per_row = texture_width * bytes_per_pixel;
     let align = wgpu::COPY_BYTES_PER_ROW_ALIGNMENT;
     let padded_bytes_per_row = (unpadded_bytes_per_row + align - 1) / align * align;
-    let buffer_size = (padded_bytes_per_row * height) as u64;
+    let buffer_size = (padded_bytes_per_row * texture_height) as u64;
 
     let staging = device.create_buffer(&wgpu::BufferDescriptor {
         label: Some("screenshot staging"),
@@ -3131,12 +3144,12 @@ fn gpu_screenshot(
             layout: wgpu::TexelCopyBufferLayout {
                 offset: 0,
                 bytes_per_row: Some(padded_bytes_per_row),
-                rows_per_image: Some(height),
+                rows_per_image: Some(texture_height),
             },
         },
         wgpu::Extent3d {
-            width,
-            height,
+            width: texture_width,
+            height: texture_height,
             depth_or_array_layers: 1,
         },
     );
@@ -3168,15 +3181,33 @@ fn gpu_screenshot(
     let data = staging.slice(..).get_mapped_range();
 
     // Remove row padding (texture is Rgba8Unorm, no swizzle needed)
-    let mut rgba = Vec::with_capacity((width * height * 4) as usize);
-    for row in 0..height {
+    let mut rgba = Vec::with_capacity((texture_width * texture_height * 4) as usize);
+    for row in 0..texture_height {
         let start = (row * padded_bytes_per_row) as usize;
-        let end = start + (width * bytes_per_pixel) as usize;
+        let end = start + (texture_width * bytes_per_pixel) as usize;
         rgba.extend_from_slice(&data[start..end]);
     }
 
     drop(data);
     staging.unmap();
+
+    let (rgba, width, height) = if texture_width == output_width && texture_height == output_height
+    {
+        (rgba, texture_width, texture_height)
+    } else {
+        let Some(image) = image::RgbaImage::from_raw(texture_width, texture_height, rgba) else {
+            return fission_test_driver::TestResponse::Error {
+                message: "failed to decode screenshot RGBA buffer".into(),
+            };
+        };
+        let resized = image::imageops::resize(
+            &image,
+            output_width,
+            output_height,
+            image::imageops::FilterType::Triangle,
+        );
+        (resized.into_raw(), output_width, output_height)
+    };
 
     let mut png = Vec::new();
     {
@@ -3203,6 +3234,18 @@ fn gpu_screenshot(
             height,
         }
     }
+}
+
+fn layout_size_to_image_dimensions(size: LayoutSize) -> (u32, u32) {
+    let width = size.width.max(1.0).round() as u32;
+    let height = size.height.max(1.0).round() as u32;
+    (width.max(1), height.max(1))
+}
+
+fn logical_viewport_to_render_target_size(size: LayoutSize, scale_factor: f64) -> (u32, u32) {
+    let width = (size.width.max(1.0) as f64 * scale_factor).ceil() as u32;
+    let height = (size.height.max(1.0) as f64 * scale_factor).ceil() as u32;
+    (width.max(1), height.max(1))
 }
 
 fn recreate_target_texture(
