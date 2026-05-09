@@ -518,6 +518,7 @@ fn create_rich_text_input_tree(
                         color: Color::BLACK,
                         underline: false,
                         font_family: None,
+                        locale: None,
                         font_weight: 400,
                         font_style: fission_ir::op::FontStyle::Normal,
                         line_height: None,

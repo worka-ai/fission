@@ -723,6 +723,8 @@ pub struct TextStyle {
     pub underline: bool,
     #[serde(default)]
     pub font_family: Option<String>,
+    #[serde(default)]
+    pub locale: Option<String>,
     #[serde(default = "text_weight_default")]
     pub font_weight: u16,
     #[serde(default)]
@@ -741,6 +743,7 @@ impl std::hash::Hash for TextStyle {
         self.color.hash(state);
         self.underline.hash(state);
         self.font_family.hash(state);
+        self.locale.hash(state);
         self.font_weight.hash(state);
         self.font_style.hash(state);
         self.line_height.map(f32::to_bits).hash(state);
@@ -764,6 +767,36 @@ const fn text_weight_default() -> u16 {
 pub struct TextRun {
     pub text: String,
     pub style: TextStyle,
+}
+
+pub const INLINE_WIDGET_MARKER_PREFIX: &str = "__fission_inline_widget__:";
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct InlineWidgetMarker {
+    pub id: u64,
+    pub width: LayoutUnit,
+    pub height: LayoutUnit,
+}
+
+pub fn encode_inline_widget_marker(
+    id: u64,
+    width: LayoutUnit,
+    height: LayoutUnit,
+) -> String {
+    format!("{INLINE_WIDGET_MARKER_PREFIX}{id}:{width}:{height}")
+}
+
+pub fn decode_inline_widget_marker(family: Option<&str>) -> Option<InlineWidgetMarker> {
+    let family = family?;
+    let encoded = family.strip_prefix(INLINE_WIDGET_MARKER_PREFIX)?;
+    let mut parts = encoded.split(':');
+    let id = parts.next()?.parse().ok()?;
+    let width = parts.next()?.parse().ok()?;
+    let height = parts.next()?.parse().ok()?;
+    if parts.next().is_some() {
+        return None;
+    }
+    Some(InlineWidgetMarker { id, width, height })
 }
 
 const fn text_wrap_default() -> bool {
@@ -918,7 +951,8 @@ impl std::hash::Hash for PaintOp {
 #[cfg(test)]
 mod tests {
     use super::{
-        decode_text_paragraph_style, encode_text_paragraph_style, TextAlign, TextOverflow,
+        decode_inline_widget_marker, decode_text_paragraph_style, encode_inline_widget_marker,
+        encode_text_paragraph_style, InlineWidgetMarker, TextAlign, TextOverflow,
         TextParagraphStyle, TEXT_PARAGRAPH_MAX_ENCODED_LINES,
     };
 
@@ -948,6 +982,19 @@ mod tests {
                 text_align: TextAlign::End,
                 max_lines: Some(TEXT_PARAGRAPH_MAX_ENCODED_LINES),
                 overflow: TextOverflow::Ellipsis,
+            })
+        );
+    }
+
+    #[test]
+    fn inline_widget_marker_round_trips() {
+        let encoded = encode_inline_widget_marker(7, 24.5, 12.0);
+        assert_eq!(
+            decode_inline_widget_marker(Some(encoded.as_str())),
+            Some(InlineWidgetMarker {
+                id: 7,
+                width: 24.5,
+                height: 12.0,
             })
         );
     }

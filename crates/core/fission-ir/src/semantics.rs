@@ -206,6 +206,8 @@ pub struct Semantics {
     pub role: Role,
     /// A human-readable label for assistive technology (e.g., "Close" for a button).
     pub label: Option<String>,
+    /// Stable semantic identifier for tooling and automation.
+    pub identifier: Option<String>,
     /// The current value as a string (e.g., the text in an input field).
     pub value: Option<String>,
     /// The set of actions this node responds to.
@@ -286,6 +288,7 @@ impl std::hash::Hash for Semantics {
     fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
         self.role.hash(state);
         self.label.hash(state);
+        self.identifier.hash(state);
         self.value.hash(state);
         self.actions.hash(state);
         self.focusable.hash(state);
@@ -330,6 +333,7 @@ impl Default for Semantics {
         Self {
             role: Role::Generic,
             label: None,
+            identifier: None,
             value: None,
             actions: ActionSet::default(),
             focusable: false,

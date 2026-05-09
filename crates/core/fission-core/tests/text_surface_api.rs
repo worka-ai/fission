@@ -1,10 +1,10 @@
 use fission_core::env::{Env, RuntimeState};
 use fission_core::lowering::LoweringContext;
-use fission_core::ui::widgets::text::RichTextSpan;
+use fission_core::ui::widgets::text::{InlineWidgetSpan, RichTextChild, RichTextSpan};
 use fission_core::ui::widgets::text_input::TextAlignVertical;
 use fission_core::ui::{Button, Container, Node, RichText, RichTextRun, Spacer, Text, TextInput};
 use fission_ir::op::{
-    Color, Fill, LayoutOp, Op, PaintOp, TextAlign, TextOverflow,
+    decode_inline_widget_marker, Color, Fill, LayoutOp, Op, PaintOp, TextAlign, TextOverflow,
 };
 use fission_ir::{CoreIR, FlexDirection};
 
@@ -480,6 +480,57 @@ fn nested_rich_text_spans_flatten_styles_in_order() {
 }
 
 #[test]
+fn rich_text_inline_widgets_lower_marker_runs_and_child_nodes() {
+    let ir = lower_node(
+        RichText::from_spans(vec![
+            RichTextChild::from(RichTextSpan::new("Before ")),
+            RichTextChild::from(InlineWidgetSpan::new(
+                Spacer {
+                    width: Some(18.0),
+                    height: Some(10.0),
+                    ..Default::default()
+                }
+                .into_node(),
+                18.0,
+                10.0,
+            )
+            .semantics_label("[badge]")),
+            RichTextChild::from(RichTextSpan::new(" after")),
+        ])
+        .into_node(),
+    );
+
+    let (paint_node_id, runs) = ir
+        .nodes
+        .iter()
+        .find_map(|(id, node)| match &node.op {
+            Op::Paint(PaintOp::DrawRichText { runs, .. }) => Some((*id, runs)),
+            _ => None,
+        })
+        .expect("rich text paint op");
+
+    assert_eq!(ir.nodes.get(&paint_node_id).unwrap().children.len(), 1);
+    assert_eq!(runs.len(), 3);
+    assert_eq!(runs[0].text, "Before ");
+    assert_eq!(runs[2].text, " after");
+
+    let marker = runs
+        .iter()
+        .find_map(|run| {
+            if run.text.is_empty() {
+                decode_inline_widget_marker(run.style.font_family.as_deref())
+            } else {
+                None
+            }
+        })
+        .expect("inline widget marker");
+
+    assert_eq!(marker.id, 0);
+    assert_eq!(marker.width, 18.0);
+    assert_eq!(marker.height, 10.0);
+}
+
+#[test]
 fn rich_text_span_semantics_labels_wrap_accessible_text() {
     let ir = lower_node(
         RichText::from_span(
@@ -501,6 +552,91 @@ fn rich_text_span_semantics_labels_wrap_accessible_text() {
 
     assert_eq!(semantics.label.as_deref(), Some("For your information!"));
     assert!(semantics.multiline);
+}
+
+#[test]
+fn text_locale_scale_selection_and_identifier_lower_to_rich_text() {
+    let ir = lower_node(
+        Text::new("Visible text")
+            .locale("fr-FR")
+            .text_scale(1.25)
+            .selection_range((0, 7))
+            .selection_color(Color {
+                r: 1,
+                g: 2,
+                b: 3,
+                a: 255,
+            })
+            .selection_text_color(Color::WHITE)
+            .semantics_identifier("hero-copy")
+            .into_node(),
+    );
+
+    let runs = paint_ops(&ir)
+        .find_map(|op| match op {
+            PaintOp::DrawRichText { runs, .. } => Some(runs),
+            _ => None,
+        })
+        .expect("rich text paint op");
+    let base_size = Env::default().theme.tokens.typography.body_medium_size;
+
+    assert_eq!(runs.len(), 2);
+    assert_eq!(runs[0].text, "Visible");
+    assert_eq!(runs[0].style.locale.as_deref(), Some("fr-FR"));
+    assert_eq!(runs[0].style.font_size, base_size * 1.25);
+    assert_eq!(runs[0].style.background_color, Some(Color { r: 1, g: 2, b: 3, a: 255 }));
+    assert_eq!(runs[0].style.color, Color::WHITE);
+    assert_eq!(runs[1].style.locale.as_deref(), Some("fr-FR"));
+
+    let semantics = ir
+        .nodes
+        .values()
+        .find_map(|node| match &node.op {
+            Op::Semantics(semantics) if semantics.identifier.is_some() => Some(semantics),
+            _ => None,
+        })
+        .expect("text semantics");
+
+    assert_eq!(semantics.identifier.as_deref(), Some("hero-copy"));
+}
+
+#[test]
+fn rich_text_identifier_and_locale_propagate_from_nested_spans() {
+    let ir = lower_node(
+        RichText::from_span(
+            RichTextSpan::new("")
+                .locale("en-GB")
+                .semantics_identifier("nested-copy")
+                .child(RichTextSpan::new("Hello ").text_scale(1.5))
+                .child(RichTextSpan::new("world")),
+        )
+        .into_node(),
+    );
+
+    let runs = paint_ops(&ir)
+        .find_map(|op| match op {
+            PaintOp::DrawRichText { runs, .. } => Some(runs),
+            _ => None,
+        })
+        .expect("rich text paint op");
+    let base_size = Env::default().theme.tokens.typography.body_medium_size;
+
+    assert_eq!(runs.len(), 2);
+    assert_eq!(runs[0].style.locale.as_deref(), Some("en-GB"));
+    assert_eq!(runs[1].style.locale.as_deref(), Some("en-GB"));
+    assert_eq!(runs[0].style.font_size, base_size * 1.5);
+    assert_eq!(runs[1].style.font_size, base_size);
+
+    let semantics = ir
+        .nodes
+        .values()
+        .find_map(|node| match &node.op {
+            Op::Semantics(semantics) if semantics.identifier.is_some() => Some(semantics),
+            _ => None,
+        })
+        .expect("rich text semantics");
+
+    assert_eq!(semantics.identifier.as_deref(), Some("nested-copy"));
 }
 
 #[test]

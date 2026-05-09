@@ -302,6 +302,7 @@ impl Lower for Slider {
         let mut semantics = fission_ir::Semantics {
             role: fission_ir::Role::Slider,
             label: None,
+            identifier: None,
             value: Some(format!("{:.2}", self.value)),
             actions: Default::default(),
             focusable: true,

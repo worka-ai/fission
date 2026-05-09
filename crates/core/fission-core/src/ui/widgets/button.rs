@@ -431,6 +431,7 @@ fn default_button_semantics() -> Semantics {
     Semantics {
         role: Role::Button,
         label: None,
+        identifier: None,
         value: None,
         actions: ActionSet::default(),
         focusable: true,

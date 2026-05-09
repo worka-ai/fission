@@ -389,6 +389,7 @@ mod tests {
             },
             underline: false,
             font_family: None,
+            locale: None,
             font_weight: 400,
             font_style: FontStyle::Normal,
             line_height: None,
@@ -417,6 +418,7 @@ mod tests {
                 max_lines: None,
                 overflow: TextOverflow::Visible,
             },
+            &[],
             &styles,
         );
         let justify_layout = renderer.paragraph_layout(
@@ -429,6 +431,7 @@ mod tests {
                 max_lines: None,
                 overflow: TextOverflow::Visible,
             },
+            &[],
             &styles,
         );
 
@@ -470,6 +473,7 @@ mod tests {
                 max_lines: None,
                 overflow: TextOverflow::Fade,
             },
+            &[],
             &[(0..text.len(), style.clone())],
             None,
             None,
@@ -663,6 +667,7 @@ impl<'a> VelloRenderer<'a> {
             color: base_color,
             underline,
             font_family: None,
+            locale: None,
             font_weight: 400,
             font_style: fission_ir::op::FontStyle::Normal,
             line_height: None,
@@ -693,6 +698,7 @@ impl<'a> VelloRenderer<'a> {
                 style.font_size,
                 style.color,
                 &[(0..ellipsis.len(), style.clone())],
+                &[],
                 None,
             );
             let metrics = layout
@@ -723,6 +729,7 @@ impl<'a> VelloRenderer<'a> {
         wrap: bool,
         bounds: fission_render::LayoutRect,
         paragraph: TextParagraphStyle,
+        inline_boxes: &[crate::text::RichInlineBox],
         styles: &[(std::ops::Range<usize>, RenderTextStyle)],
     ) -> parley::layout::Layout<ParleyBrush> {
         let mut layout = (*self.measurer.layout_rich(
@@ -730,6 +737,7 @@ impl<'a> VelloRenderer<'a> {
             base_style.font_size,
             base_style.color,
             styles,
+            inline_boxes,
             if wrap && bounds.width() > 0.0 {
                 Some(bounds.width() as f32)
             } else {
@@ -933,6 +941,7 @@ impl<'a> VelloRenderer<'a> {
         position: fission_render::LayoutPoint,
         bounds: fission_render::LayoutRect,
         paragraph: TextParagraphStyle,
+        inline_boxes: &[crate::text::RichInlineBox],
         styles: &[(std::ops::Range<usize>, RenderTextStyle)],
         caret_index: Option<usize>,
         caret_color: Option<RenderColor>,
@@ -940,7 +949,15 @@ impl<'a> VelloRenderer<'a> {
         caret_height: Option<f32>,
         caret_radius: Option<f32>,
     ) {
-        let layout = self.paragraph_layout(text, base_style, wrap, bounds, paragraph, styles);
+        let layout = self.paragraph_layout(
+            text,
+            base_style,
+            wrap,
+            bounds,
+            paragraph,
+            inline_boxes,
+            styles,
+        );
 
         let total_lines = layout.lines().count();
         let visible_lines = paragraph
@@ -1044,6 +1061,7 @@ impl<'a> VelloRenderer<'a> {
                         None,
                         None,
                         None,
+                        &[],
                         &ellipsis_styles,
                     );
                 } else {
@@ -1061,6 +1079,7 @@ impl<'a> VelloRenderer<'a> {
                         None,
                         None,
                         None,
+                        &[],
                         &[],
                     );
                 }
@@ -1098,6 +1117,7 @@ impl<'a> VelloRenderer<'a> {
         caret_height: Option<f32>,
         caret_radius: Option<f32>,
         paragraph_style: Option<TextParagraphStyle>,
+        inline_boxes: &[crate::text::RichInlineBox],
         styles: &[(std::ops::Range<usize>, RenderTextStyle)],
     ) {
         let paragraph = paragraph_style
@@ -1126,6 +1146,7 @@ impl<'a> VelloRenderer<'a> {
                 position,
                 bounds,
                 paragraph,
+                inline_boxes,
                 paragraph_styles,
                 caret_index,
                 caret_color,
@@ -1137,7 +1158,7 @@ impl<'a> VelloRenderer<'a> {
         }
 
         // Fast path for simple text using cache
-        if styles.is_empty() {
+        if styles.is_empty() && inline_boxes.is_empty() {
             let layout = self.measurer.get_layout(
                 text,
                 base_size,
@@ -1230,6 +1251,7 @@ impl<'a> VelloRenderer<'a> {
             base_size,
             base_color,
             styles,
+            inline_boxes,
             if wrap && bounds.width() > 0.0 {
                 Some(bounds.width() as f32)
             } else {
@@ -1669,6 +1691,7 @@ impl<'a> VelloRenderer<'a> {
                         *caret_radius,
                         *paragraph_style,
                         &[],
+                        &[],
                     );
                 }
                 DisplayOp::DrawRichText {
@@ -1684,16 +1707,16 @@ impl<'a> VelloRenderer<'a> {
                     paragraph_style,
                     ..
                 } => {
+                    let rich = crate::text::VelloTextMeasurer::rich_layout_input_from_render_runs(
+                        runs,
+                    );
                     if let Some(first) = runs.first() {
                         if runs.iter().all(|run| run.style == first.style)
+                            && rich.inline_boxes.is_empty()
                             && !text_style_requires_rich_layout(&first.style)
                         {
-                            let mut full_text = String::new();
-                            for run in runs {
-                                full_text.push_str(&run.text);
-                            }
                             self.render_text(
-                                &full_text,
+                                &rich.text,
                                 first.style.font_size,
                                 first.style.color,
                                 first.style.underline,
@@ -1707,38 +1730,16 @@ impl<'a> VelloRenderer<'a> {
                                 *caret_radius,
                                 *paragraph_style,
                                 &[],
+                                &[],
                             );
                             continue;
                         }
                     }
 
-                    let mut full_text = String::new();
-                    let mut styles = Vec::new();
-                    let mut start = 0;
-                    for run in runs {
-                        full_text.push_str(&run.text);
-                        let end = start + run.text.len();
-                        styles.push((start..end, run.style.clone()));
-                        start = end;
-                    }
-                    let (base_size, base_color) = if let Some(first) = runs.first() {
-                        (first.style.font_size, first.style.color)
-                    } else {
-                        (
-                            14.0,
-                            RenderColor {
-                                r: 0,
-                                g: 0,
-                                b: 0,
-                                a: 255,
-                            },
-                        )
-                    };
-
                     self.render_text(
-                        &full_text,
-                        base_size,
-                        base_color,
+                        &rich.text,
+                        rich.base_size,
+                        rich.base_color,
                         false,
                         *wrap,
                         *position,
@@ -1749,7 +1750,8 @@ impl<'a> VelloRenderer<'a> {
                         *caret_height,
                         *caret_radius,
                         *paragraph_style,
-                        &styles,
+                        &rich.inline_boxes,
+                        &rich.styles,
                     );
                 }
                 DisplayOp::DrawImage {

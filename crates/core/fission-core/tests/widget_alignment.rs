@@ -1,8 +1,9 @@
 use fission_core::env::{Env, RuntimeState};
 use fission_core::lowering::{build_layout_tree, LoweringContext};
-use fission_core::ui::{Checkbox, Node, Radio};
+use fission_core::ui::widgets::text::{InlineWidgetSpan, RichTextChild, RichTextSpan};
+use fission_core::ui::{Checkbox, Node, Radio, RichText, Spacer};
 use fission_ir::{CoreIR, LayoutOp, NodeId, Op};
-use fission_layout::{LayoutEngine, LayoutSize, TextMeasurer};
+use fission_layout::{LayoutEngine, LayoutSize, RichTextInlineBox, RichTextLayoutInfo, TextMeasurer};
 use std::collections::HashMap;
 use std::sync::Arc;
 
@@ -30,6 +31,44 @@ impl TextMeasurer for SimpleMeasurer {
         let text: String = runs.iter().map(|r| r.text.clone()).collect();
         self.measure(&text, 16.0, available_width)
     }
+}
+
+struct InlineWidgetMeasurer;
+
+impl TextMeasurer for InlineWidgetMeasurer {
+    fn measure(&self, text: &str, _font_size: f32, available_width: Option<f32>) -> (f32, f32) {
+        SimpleMeasurer.measure(text, 16.0, available_width)
+    }
+
+    fn measure_rich_text(
+        &self,
+        runs: &[fission_ir::op::TextRun],
+        available_width: Option<f32>,
+    ) -> (f32, f32) {
+        layout_info_size(self.layout_rich_text(runs, available_width))
+    }
+
+    fn layout_rich_text(
+        &self,
+        _runs: &[fission_ir::op::TextRun],
+        _available_width: Option<f32>,
+    ) -> RichTextLayoutInfo {
+        RichTextLayoutInfo {
+            width: 72.0,
+            height: 20.0,
+            inline_boxes: vec![RichTextInlineBox {
+                id: 0,
+                x: 14.0,
+                y: 6.0,
+                width: 18.0,
+                height: 10.0,
+            }],
+        }
+    }
+}
+
+fn layout_info_size(value: RichTextLayoutInfo) -> (f32, f32) {
+    (value.width, value.height)
 }
 
 fn approx_eq(a: f32, b: f32) -> bool {
@@ -64,9 +103,15 @@ fn find_boxes_by_size(ir: &CoreIR, width: f32, height: f32) -> Vec<NodeId> {
 }
 
 fn layout_from_node(node: Node) -> (CoreIR, fission_layout::LayoutSnapshot) {
+    layout_from_node_with_measurer(node, Arc::new(SimpleMeasurer))
+}
+
+fn layout_from_node_with_measurer(
+    node: Node,
+    measurer: Arc<dyn TextMeasurer>,
+) -> (CoreIR, fission_layout::LayoutSnapshot) {
     let env = Env::default();
     let runtime_state = RuntimeState::default();
-    let measurer: Arc<dyn TextMeasurer> = Arc::new(SimpleMeasurer);
     let measurer_ref = measurer.clone();
 
     let mut cx = LoweringContext::new(&env, &runtime_state, Some(&measurer_ref), None);
@@ -179,4 +224,48 @@ fn radio_dot_centered() {
         approx_eq(sx, cx) && approx_eq(sy, cy),
         "radio dot should be centered"
     );
+}
+
+#[test]
+fn rich_text_inline_widget_uses_layout_inline_box_positions() {
+    let rich_text = RichText::from_spans(vec![
+        RichTextChild::from(RichTextSpan::new("Before ")),
+        RichTextChild::from(InlineWidgetSpan::new(
+            Spacer {
+                width: Some(18.0),
+                height: Some(10.0),
+                ..Default::default()
+            }
+            .into_node(),
+            18.0,
+            10.0,
+        )),
+        RichTextChild::from(RichTextSpan::new(" after")),
+    ]);
+
+    let (ir, snapshot) = layout_from_node_with_measurer(
+        rich_text.into_node(),
+        Arc::new(InlineWidgetMeasurer),
+    );
+
+    let paint_node = ir
+        .nodes
+        .iter()
+        .find_map(|(id, node)| match &node.op {
+            Op::Paint(fission_ir::PaintOp::DrawRichText { .. }) => Some((*id, node)),
+            _ => None,
+        })
+        .expect("rich text paint node");
+
+    assert_eq!(paint_node.1.children.len(), 1);
+    let inline_widget_id = paint_node.1.children[0];
+    let inline_rect = snapshot
+        .get_node_geometry(inline_widget_id)
+        .expect("inline widget geometry")
+        .rect;
+
+    assert!(approx_eq(inline_rect.x(), 14.0));
+    assert!(approx_eq(inline_rect.y(), 6.0));
+    assert!(approx_eq(inline_rect.width(), 18.0));
+    assert!(approx_eq(inline_rect.height(), 10.0));
 }

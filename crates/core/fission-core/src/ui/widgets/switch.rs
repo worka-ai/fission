@@ -151,6 +151,7 @@ impl Lower for Switch {
         let mut semantics = fission_ir::Semantics {
             role: fission_ir::Role::Switch,
             label: None,
+            identifier: None,
             value: Some(if self.checked {
                 "true".into()
             } else {

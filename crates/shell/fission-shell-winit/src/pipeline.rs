@@ -1844,6 +1844,7 @@ fn build_local_paint_list(
                         },
                         underline: r.style.underline,
                         font_family: r.style.font_family.clone(),
+                        locale: r.style.locale.clone(),
                         font_weight: r.style.font_weight,
                         font_style: r.style.font_style,
                         line_height: r.style.line_height,

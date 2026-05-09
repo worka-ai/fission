@@ -229,6 +229,7 @@ impl Lower for Radio {
         let mut semantics = fission_ir::Semantics {
             role: fission_ir::Role::Checkbox, // Reuse Checkbox for Radio behavior?
             label: self.label.clone(),
+            identifier: None,
             value: Some(if self.checked {
                 "true".into()
             } else {

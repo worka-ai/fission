@@ -70,6 +70,7 @@ pub struct TextStyle {
     pub color: Color,
     pub underline: bool,
     pub font_family: Option<String>,
+    pub locale: Option<String>,
     pub font_weight: u16,
     pub font_style: fission_ir::op::FontStyle,
     pub line_height: Option<LayoutUnit>,

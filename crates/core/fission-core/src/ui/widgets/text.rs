@@ -2,7 +2,8 @@ use crate::lowering::{LoweringContext, NodeBuilder};
 use crate::ui::traits::Lower;
 use fission_ir::{
     op::{
-        Color as IrColor, FontStyle as IrFontStyle, LayoutOp, Op, PaintOp,
+        decode_inline_widget_marker, encode_inline_widget_marker, Color as IrColor,
+        FontStyle as IrFontStyle, LayoutOp, Op, PaintOp,
         TextAlign as IrTextAlign, TextOverflow as IrTextOverflow,
         TextParagraphStyle as IrTextParagraphStyle, TextRun as IrTextRun,
     },
@@ -57,10 +58,12 @@ pub struct TextRunStyle {
     pub color: Option<IrColor>,
     pub underline: bool,
     pub font_family: Option<String>,
+    pub locale: Option<String>,
     pub font_weight: Option<u16>,
     pub font_style: TextFontStyle,
     pub line_height: Option<f32>,
     pub letter_spacing: Option<f32>,
+    pub text_scale: Option<f32>,
     pub background_color: Option<IrColor>,
 }
 
@@ -71,21 +74,26 @@ impl TextRunStyle {
         fallback_size: Option<f32>,
         fallback_color: Option<IrColor>,
     ) -> fission_ir::op::TextStyle {
+        let scale = self.text_scale.unwrap_or(1.0).max(0.0);
+        let base_font_size = self
+            .font_size
+            .or(fallback_size)
+            .unwrap_or(theme.tokens.typography.body_medium_size);
+        let base_line_height = self.line_height;
+        let base_letter_spacing = self.letter_spacing.unwrap_or(0.0);
         fission_ir::op::TextStyle {
-            font_size: self
-                .font_size
-                .or(fallback_size)
-                .unwrap_or(theme.tokens.typography.body_medium_size),
+            font_size: base_font_size * scale,
             color: self
                 .color
                 .or(fallback_color)
                 .unwrap_or(theme.tokens.colors.text_primary),
             underline: self.underline,
             font_family: self.font_family.clone(),
+            locale: self.locale.clone(),
             font_weight: self.font_weight.unwrap_or(400),
             font_style: self.font_style.into(),
-            line_height: self.line_height,
-            letter_spacing: self.letter_spacing.unwrap_or(0.0),
+            line_height: base_line_height.map(|value| value * scale),
+            letter_spacing: base_letter_spacing * scale,
             background_color: self.background_color,
         }
     }
@@ -125,6 +133,11 @@ impl RichTextRun {
         self
     }
 
+    pub fn locale(mut self, locale: impl Into<String>) -> Self {
+        self.style.locale = Some(locale.into());
+        self
+    }
+
     pub fn weight(mut self, weight: u16) -> Self {
         self.style.font_weight = Some(weight);
         self
@@ -146,6 +159,11 @@ impl RichTextRun {
 
     pub fn letter_spacing(mut self, letter_spacing: f32) -> Self {
         self.style.letter_spacing = Some(letter_spacing);
+        self
+    }
+
+    pub fn text_scale(mut self, text_scale: f32) -> Self {
+        self.style.text_scale = Some(text_scale);
         self
     }
 
@@ -177,10 +195,12 @@ pub struct RichTextSpanStyle {
     pub color: Option<IrColor>,
     pub underline: Option<bool>,
     pub font_family: Option<String>,
+    pub locale: Option<String>,
     pub font_weight: Option<u16>,
     pub font_style: Option<TextFontStyle>,
     pub line_height: Option<f32>,
     pub letter_spacing: Option<f32>,
+    pub text_scale: Option<f32>,
     pub background_color: Option<IrColor>,
 }
 
@@ -194,10 +214,12 @@ impl RichTextSpanStyle {
                 .font_family
                 .clone()
                 .or_else(|| inherited.font_family.clone()),
+            locale: self.locale.clone().or_else(|| inherited.locale.clone()),
             font_weight: self.font_weight.or(inherited.font_weight),
             font_style: self.font_style.unwrap_or(inherited.font_style),
             line_height: self.line_height.or(inherited.line_height),
             letter_spacing: self.letter_spacing.or(inherited.letter_spacing),
+            text_scale: self.text_scale.or(inherited.text_scale),
             background_color: self.background_color.or(inherited.background_color),
         }
     }
@@ -207,11 +229,51 @@ impl RichTextSpanStyle {
 pub struct RichTextSpan {
     pub text: String,
     pub style: RichTextSpanStyle,
-    pub children: Vec<RichTextSpan>,
+    pub children: Vec<RichTextChild>,
     pub semantics_label: Option<String>,
+    pub semantics_identifier: Option<String>,
 }
 
 pub type TextSpan = RichTextSpan;
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct InlineWidgetSpan {
+    pub widget: Box<crate::ui::Node>,
+    pub width: f32,
+    pub height: f32,
+    pub semantics_label: Option<String>,
+}
+
+impl PartialEq for InlineWidgetSpan {
+    fn eq(&self, other: &Self) -> bool {
+        self.width == other.width
+            && self.height == other.height
+            && self.semantics_label == other.semantics_label
+            && serde_json::to_vec(&self.widget).ok() == serde_json::to_vec(&other.widget).ok()
+    }
+}
+
+impl InlineWidgetSpan {
+    pub fn new(widget: impl Into<crate::ui::Node>, width: f32, height: f32) -> Self {
+        Self {
+            widget: Box::new(widget.into()),
+            width,
+            height,
+            semantics_label: None,
+        }
+    }
+
+    pub fn semantics_label(mut self, label: impl Into<String>) -> Self {
+        self.semantics_label = Some(label.into());
+        self
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub enum RichTextChild {
+    Span(RichTextSpan),
+    Widget(InlineWidgetSpan),
+}
 
 impl RichTextSpan {
     pub fn new(text: impl Into<String>) -> Self {
@@ -246,6 +308,11 @@ impl RichTextSpan {
         self
     }
 
+    pub fn locale(mut self, locale: impl Into<String>) -> Self {
+        self.style.locale = Some(locale.into());
+        self
+    }
+
     pub fn italic(mut self, italic: bool) -> Self {
         self.style.font_style = Some(if italic {
             TextFontStyle::Italic
@@ -265,6 +332,11 @@ impl RichTextSpan {
         self
     }
 
+    pub fn text_scale(mut self, text_scale: f32) -> Self {
+        self.style.text_scale = Some(text_scale);
+        self
+    }
+
     pub fn background_color(mut self, color: IrColor) -> Self {
         self.style.background_color = Some(color);
         self
@@ -275,9 +347,14 @@ impl RichTextSpan {
         self
     }
 
+    pub fn semantics_identifier(mut self, identifier: impl Into<String>) -> Self {
+        self.semantics_identifier = Some(identifier.into());
+        self
+    }
+
     pub fn child<T>(mut self, child: T) -> Self
     where
-        T: Into<RichTextSpan>,
+        T: Into<RichTextChild>,
     {
         self.children.push(child.into());
         self
@@ -286,17 +363,53 @@ impl RichTextSpan {
     pub fn children<I, T>(mut self, children: I) -> Self
     where
         I: IntoIterator<Item = T>,
-        T: Into<RichTextSpan>,
+        T: Into<RichTextChild>,
     {
         self.children.extend(children.into_iter().map(Into::into));
         self
     }
 
-    fn push_runs(&self, inherited: &TextRunStyle, runs: &mut Vec<RichTextRun>) {
+    fn push_runs(
+        &self,
+        inherited: &TextRunStyle,
+        runs: &mut Vec<RichTextRun>,
+        inline_widgets: &mut Vec<InlineWidgetSpan>,
+    ) {
         let style = self.style.cascade(inherited);
         push_rich_text_run(runs, &self.text, &style);
         for child in &self.children {
-            child.push_runs(&style, runs);
+            match child {
+                RichTextChild::Span(child) => child.push_runs(&style, runs, inline_widgets),
+                RichTextChild::Widget(widget) => {
+                    let inline_id = inline_widgets.len() as u64;
+                    inline_widgets.push(widget.clone());
+                    runs.push(RichTextRun {
+                        text: String::new(),
+                        style: TextRunStyle {
+                            font_size: style.font_size,
+                            color: Some(IrColor {
+                                r: 0,
+                                g: 0,
+                                b: 0,
+                                a: 0,
+                            }),
+                            underline: false,
+                            font_family: Some(encode_inline_widget_marker(
+                                inline_id,
+                                widget.width,
+                                widget.height,
+                            )),
+                            locale: style.locale.clone(),
+                            font_weight: style.font_weight,
+                            font_style: style.font_style,
+                            line_height: style.line_height,
+                            letter_spacing: style.letter_spacing,
+                            text_scale: style.text_scale,
+                            background_color: None,
+                        },
+                    });
+                }
+            }
         }
     }
 
@@ -309,9 +422,33 @@ impl RichTextSpan {
             out.push_str(&self.text);
         }
         for child in &self.children {
-            has_override |= child.collect_semantics_text(out);
+            match child {
+                RichTextChild::Span(child) => {
+                    has_override |= child.collect_semantics_text(out);
+                }
+                RichTextChild::Widget(widget) => {
+                    if let Some(label) = &widget.semantics_label {
+                        out.push_str(label);
+                        has_override = true;
+                    }
+                }
+            }
         }
         has_override
+    }
+
+    fn collect_semantics_identifier(&self) -> Option<String> {
+        if let Some(identifier) = &self.semantics_identifier {
+            return Some(identifier.clone());
+        }
+        for child in &self.children {
+            if let RichTextChild::Span(child) = child {
+                if let Some(identifier) = child.collect_semantics_identifier() {
+                    return Some(identifier);
+                }
+            }
+        }
+        None
     }
 }
 
@@ -324,15 +461,36 @@ impl From<RichTextRun> for RichTextSpan {
                 color: value.style.color,
                 underline: Some(value.style.underline),
                 font_family: value.style.font_family,
+                locale: value.style.locale,
                 font_weight: value.style.font_weight,
                 font_style: Some(value.style.font_style),
                 line_height: value.style.line_height,
                 letter_spacing: value.style.letter_spacing,
+                text_scale: value.style.text_scale,
                 background_color: value.style.background_color,
             },
             children: Vec::new(),
             semantics_label: None,
+            semantics_identifier: None,
         }
+    }
+}
+
+impl From<RichTextRun> for RichTextChild {
+    fn from(value: RichTextRun) -> Self {
+        Self::Span(value.into())
+    }
+}
+
+impl From<RichTextSpan> for RichTextChild {
+    fn from(value: RichTextSpan) -> Self {
+        Self::Span(value)
+    }
+}
+
+impl From<InlineWidgetSpan> for RichTextChild {
+    fn from(value: InlineWidgetSpan) -> Self {
+        Self::Widget(value)
     }
 }
 
@@ -355,10 +513,15 @@ pub struct Text {
     pub font_style: TextFontStyle,
     pub line_height: Option<f32>,
     pub letter_spacing: Option<f32>,
+    pub locale: Option<String>,
+    pub text_scale: Option<f32>,
     pub wrap: bool,
     pub text_align: IrTextAlign,
     pub max_lines: Option<usize>,
     pub overflow: IrTextOverflow,
+    pub selection_range: Option<(usize, usize)>,
+    pub selection_color: Option<IrColor>,
+    pub selection_text_color: Option<IrColor>,
     pub flex_grow: f32,
     pub flex_shrink: f32,
 }
@@ -437,6 +600,11 @@ impl Text {
         self
     }
 
+    pub fn locale(mut self, locale: impl Into<String>) -> Self {
+        self.locale = Some(locale.into());
+        self
+    }
+
     pub fn italic(mut self, italic: bool) -> Self {
         self.font_style = if italic {
             TextFontStyle::Italic
@@ -453,6 +621,11 @@ impl Text {
 
     pub fn letter_spacing(mut self, letter_spacing: f32) -> Self {
         self.letter_spacing = Some(letter_spacing);
+        self
+    }
+
+    pub fn text_scale(mut self, text_scale: f32) -> Self {
+        self.text_scale = Some(text_scale);
         self
     }
 
@@ -473,6 +646,28 @@ impl Text {
 
     pub fn overflow(mut self, overflow: IrTextOverflow) -> Self {
         self.overflow = overflow;
+        self
+    }
+
+    pub fn selection_range(mut self, range: (usize, usize)) -> Self {
+        self.selection_range = Some(range);
+        self
+    }
+
+    pub fn selection_color(mut self, color: IrColor) -> Self {
+        self.selection_color = Some(color);
+        self
+    }
+
+    pub fn selection_text_color(mut self, color: IrColor) -> Self {
+        self.selection_text_color = Some(color);
+        self
+    }
+
+    pub fn semantics_identifier(mut self, identifier: impl Into<String>) -> Self {
+        let mut semantics = self.semantics.take().unwrap_or_default();
+        semantics.identifier = Some(identifier.into());
+        self.semantics = Some(semantics);
         self
     }
 
@@ -498,29 +693,35 @@ impl Text {
     }
 
     fn resolved_style(&self, cx: &LoweringContext<'_>) -> fission_ir::op::TextStyle {
+        let scale = self.text_scale.unwrap_or(1.0).max(0.0);
+        let base_font_size = self
+            .font_size
+            .unwrap_or(cx.env.theme.tokens.typography.body_medium_size);
         fission_ir::op::TextStyle {
-            font_size: self
-                .font_size
-                .unwrap_or(cx.env.theme.tokens.typography.body_medium_size),
+            font_size: base_font_size * scale,
             color: self
                 .color
                 .unwrap_or(cx.env.theme.tokens.colors.text_primary),
             underline: self.underline,
             font_family: self.font_family.clone(),
+            locale: self.locale.clone(),
             font_weight: self.font_weight.unwrap_or(400),
             font_style: self.font_style.into(),
-            line_height: self.line_height,
-            letter_spacing: self.letter_spacing.unwrap_or(0.0),
+            line_height: self.line_height.map(|value| value * scale),
+            letter_spacing: self.letter_spacing.unwrap_or(0.0) * scale,
             background_color: None,
         }
     }
 
     fn needs_rich_text(&self) -> bool {
         self.font_family.is_some()
+            || self.locale.is_some()
             || self.font_weight.is_some()
             || self.font_style != TextFontStyle::Normal
             || self.line_height.is_some()
             || self.letter_spacing.unwrap_or(0.0) != 0.0
+            || self.text_scale.unwrap_or(1.0) != 1.0
+            || self.selection_range.is_some()
     }
 }
 
@@ -528,6 +729,7 @@ impl Text {
 pub struct RichText {
     pub id: Option<NodeId>,
     pub runs: Vec<RichTextRun>,
+    pub inline_widgets: Vec<InlineWidgetSpan>,
     pub semantics: Option<Semantics>,
     pub width: Option<f32>,
     pub height: Option<f32>,
@@ -539,6 +741,9 @@ pub struct RichText {
     pub text_align: IrTextAlign,
     pub max_lines: Option<usize>,
     pub overflow: IrTextOverflow,
+    pub selection_range: Option<(usize, usize)>,
+    pub selection_color: Option<IrColor>,
+    pub selection_text_color: Option<IrColor>,
     pub flex_grow: f32,
     pub flex_shrink: f32,
 }
@@ -547,6 +752,7 @@ impl RichText {
     pub fn new(runs: Vec<RichTextRun>) -> Self {
         Self {
             runs,
+            inline_widgets: Vec::new(),
             wrap: true,
             ..Default::default()
         }
@@ -554,7 +760,7 @@ impl RichText {
 
     pub fn from_span<T>(span: T) -> Self
     where
-        T: Into<RichTextSpan>,
+        T: Into<RichTextChild>,
     {
         Self::from_spans(std::iter::once(span))
     }
@@ -562,19 +768,65 @@ impl RichText {
     pub fn from_spans<I, T>(spans: I) -> Self
     where
         I: IntoIterator<Item = T>,
-        T: Into<RichTextSpan>,
+        T: Into<RichTextChild>,
     {
         let spans: Vec<_> = spans.into_iter().map(Into::into).collect();
         let mut runs = Vec::new();
+        let mut inline_widgets = Vec::new();
         let mut semantics_text = String::new();
         let mut has_semantics_override = false;
+        let mut semantics_identifier = None;
 
         for span in &spans {
-            span.push_runs(&TextRunStyle::default(), &mut runs);
-            has_semantics_override |= span.collect_semantics_text(&mut semantics_text);
+            match span {
+                RichTextChild::Span(span) => {
+                    span.push_runs(&TextRunStyle::default(), &mut runs, &mut inline_widgets);
+                    has_semantics_override |= span.collect_semantics_text(&mut semantics_text);
+                    if semantics_identifier.is_none() {
+                        semantics_identifier = span.collect_semantics_identifier();
+                    }
+                }
+                RichTextChild::Widget(widget) => {
+                    let inline_id = inline_widgets.len() as u64;
+                    inline_widgets.push(widget.clone());
+                    runs.push(RichTextRun {
+                        text: String::new(),
+                        style: TextRunStyle {
+                            font_size: None,
+                            color: Some(IrColor {
+                                r: 0,
+                                g: 0,
+                                b: 0,
+                                a: 0,
+                            }),
+                            underline: false,
+                            font_family: Some(encode_inline_widget_marker(
+                                inline_id,
+                                widget.width,
+                                widget.height,
+                            )),
+                            locale: None,
+                            font_weight: None,
+                            font_style: TextFontStyle::Normal,
+                            line_height: None,
+                            letter_spacing: None,
+                            text_scale: None,
+                            background_color: None,
+                        },
+                    });
+                    if let Some(label) = &widget.semantics_label {
+                        semantics_text.push_str(label);
+                        has_semantics_override = true;
+                    }
+                }
+            }
         }
 
         let mut rich_text = Self::new(runs);
+        rich_text.inline_widgets = inline_widgets;
+        if let Some(identifier) = semantics_identifier {
+            rich_text = rich_text.semantics_identifier(identifier);
+        }
         if has_semantics_override {
             rich_text.semantics = Some(merge_semantics_label(
                 rich_text.semantics.take(),
@@ -644,6 +896,28 @@ impl RichText {
         self
     }
 
+    pub fn selection_range(mut self, range: (usize, usize)) -> Self {
+        self.selection_range = Some(range);
+        self
+    }
+
+    pub fn selection_color(mut self, color: IrColor) -> Self {
+        self.selection_color = Some(color);
+        self
+    }
+
+    pub fn selection_text_color(mut self, color: IrColor) -> Self {
+        self.selection_text_color = Some(color);
+        self
+    }
+
+    pub fn semantics_identifier(mut self, identifier: impl Into<String>) -> Self {
+        let mut semantics = self.semantics.take().unwrap_or_default();
+        semantics.identifier = Some(identifier.into());
+        self.semantics = Some(semantics);
+        self
+    }
+
     pub fn semantics_label(mut self, label: impl Into<String>) -> Self {
         self.semantics = Some(merge_semantics_label(self.semantics.take(), label));
         self
@@ -677,6 +951,72 @@ fn push_rich_text_run(runs: &mut Vec<RichTextRun>, text: &str, style: &TextRunSt
         text: text.to_string(),
         style: style.clone(),
     });
+}
+
+fn apply_selection_to_runs(
+    runs: Vec<IrTextRun>,
+    selection_range: Option<(usize, usize)>,
+    selection_color: Option<IrColor>,
+    selection_text_color: Option<IrColor>,
+) -> Vec<IrTextRun> {
+    let Some((start, end)) = selection_range.map(|(start, end)| (start.min(end), start.max(end))) else {
+        return runs;
+    };
+    if start == end {
+        return runs;
+    }
+
+    let selection_fill = selection_color.unwrap_or(IrColor {
+        r: 38,
+        g: 132,
+        b: 255,
+        a: 64,
+    });
+
+    let mut out = Vec::new();
+    let mut byte_cursor = 0usize;
+
+    for run in runs {
+        let run_start = byte_cursor;
+        let run_end = run_start + run.text.len();
+        byte_cursor = run_end;
+
+        if end <= run_start || start >= run_end {
+            out.push(run);
+            continue;
+        }
+
+        let local_start = start.saturating_sub(run_start).min(run.text.len());
+        let local_end = end.saturating_sub(run_start).min(run.text.len());
+
+        if local_start > 0 {
+            out.push(IrTextRun {
+                text: run.text[..local_start].to_string(),
+                style: run.style.clone(),
+            });
+        }
+
+        if local_end > local_start {
+            let mut style = run.style.clone();
+            style.background_color = Some(selection_fill);
+            if let Some(color) = selection_text_color {
+                style.color = color;
+            }
+            out.push(IrTextRun {
+                text: run.text[local_start..local_end].to_string(),
+                style,
+            });
+        }
+
+        if local_end < run.text.len() {
+            out.push(IrTextRun {
+                text: run.text[local_end..].to_string(),
+                style: run.style,
+            });
+        }
+    }
+
+    out
 }
 
 fn merge_semantics_label(semantics: Option<Semantics>, label: impl Into<String>) -> Semantics {
@@ -763,7 +1103,13 @@ fn should_clip_paragraph(max_lines: Option<usize>, overflow: IrTextOverflow) -> 
 
 fn rich_text_line_height(runs: &[IrTextRun], fallback_size: f32) -> f32 {
     runs.iter()
-        .map(|run| resolve_line_height(run.style.font_size, run.style.line_height))
+        .map(|run| {
+            if let Some(marker) = decode_inline_widget_marker(run.style.font_family.as_deref()) {
+                marker.height
+            } else {
+                resolve_line_height(run.style.font_size, run.style.line_height)
+            }
+        })
         .fold(resolve_line_height(fallback_size, None), f32::max)
 }
 
@@ -798,13 +1144,19 @@ impl Lower for Text {
         let clip_to_bounds = should_clip_paragraph(self.max_lines, self.overflow);
 
         let paint_node_id = if self.needs_rich_text() {
+            let runs = apply_selection_to_runs(
+                vec![IrTextRun {
+                    text: resolved_text,
+                    style: style.clone(),
+                }],
+                self.selection_range,
+                self.selection_color,
+                self.selection_text_color,
+            );
             NodeBuilder::new(
                 cx.next_node_id(),
                 Op::Paint(PaintOp::DrawRichText {
-                    runs: vec![IrTextRun {
-                        text: resolved_text,
-                        style: style.clone(),
-                    }],
+                    runs,
                     wrap: self.wrap,
                     caret_index: None,
                     caret_color: None,
@@ -858,6 +1210,12 @@ impl Lower for RichText {
     fn lower(&self, cx: &mut LoweringContext) -> NodeId {
         let layout_node_id = self.id.unwrap_or_else(|| cx.next_node_id());
         let runs = self.lower_runs(cx);
+        let runs = apply_selection_to_runs(
+            runs,
+            self.selection_range,
+            self.selection_color,
+            self.selection_text_color,
+        );
         let paragraph_style =
             paragraph_style_metadata(self.text_align, self.max_lines, self.overflow);
         let max_height = cap_max_height(
@@ -866,7 +1224,7 @@ impl Lower for RichText {
             rich_text_line_height(&runs, cx.env.theme.tokens.typography.body_medium_size),
         );
         let clip_to_bounds = should_clip_paragraph(self.max_lines, self.overflow);
-        let paint_node_id = NodeBuilder::new(
+        let mut paint_builder = NodeBuilder::new(
             cx.next_node_id(),
             Op::Paint(PaintOp::DrawRichText {
                 runs,
@@ -878,8 +1236,12 @@ impl Lower for RichText {
                 caret_radius: None,
                 paragraph_style,
             }),
-        )
-        .build(cx);
+        );
+        for inline_widget in &self.inline_widgets {
+            let child_id = inline_widget.widget.lower(cx);
+            paint_builder.add_child(child_id);
+        }
+        let paint_node_id = paint_builder.build(cx);
 
         let layout_node_id = wrap_paint_in_layout(
             cx,

@@ -85,6 +85,7 @@ fn test_rich_text_display_ops_preserve_caret_metadata() {
                 },
                 underline: false,
                 font_family: Some("Inter".into()),
+                locale: None,
                 font_weight: 500,
                 font_style: fission_ir::op::FontStyle::Normal,
                 line_height: Some(20.0),

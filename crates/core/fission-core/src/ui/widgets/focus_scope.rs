@@ -57,6 +57,7 @@ impl Lower for FocusScope {
         let semantics = Semantics {
             role: Role::Generic,
             label: None,
+            identifier: None,
             value: None,
             actions: Default::default(),
             focusable: false,

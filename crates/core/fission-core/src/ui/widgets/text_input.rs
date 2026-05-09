@@ -534,6 +534,7 @@ impl Lower for TextInput {
             color: text_color,
             underline: false,
             font_family: self.font_family.clone(),
+            locale: None,
             font_weight,
             font_style: self.font_style.into(),
             line_height,
@@ -942,6 +943,7 @@ impl Lower for TextInput {
         let mut semantics = Semantics {
             role: Role::TextInput,
             label: resolved_placeholder.clone(),
+            identifier: None,
             value: Some(self.value.clone()),
             actions: Default::default(),
             focusable: self.enabled,

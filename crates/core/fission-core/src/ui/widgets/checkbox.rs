@@ -202,6 +202,7 @@ impl Lower for Checkbox {
         let mut semantics = fission_ir::Semantics {
             role: fission_ir::Role::Checkbox,
             label: self.label.clone(),
+            identifier: None,
             value: Some(if self.checked {
                 "true".into()
             } else {
