@@ -4,6 +4,7 @@ use fission_core::event::{
 };
 use fission_core::input::text::TextInputController;
 use fission_core::input::{ControllerContext, InputController};
+use fission_core::ui::widgets::text_input::TextContextMenuAction;
 use fission_ir::op::{Color, TextRun, TextStyle};
 use fission_ir::{
     semantics::{
@@ -288,6 +289,7 @@ fn create_text_node(id: NodeId, val: &str, multiline: bool) -> CoreIR {
                 role: Role::TextInput,
                 value: Some(val.to_string()),
                 label: None,
+                identifier: None,
                 actions: ActionSet {
                     entries: vec![ActionEntry {
                         trigger: ActionTrigger::Change,
@@ -429,6 +431,7 @@ fn create_rich_text_input_tree(
                 role: Role::TextInput,
                 value: Some(val.to_string()),
                 label: None,
+                identifier: None,
                 actions: ActionSet {
                     entries: vec![ActionEntry {
                         trigger: ActionTrigger::Change,
@@ -541,6 +544,63 @@ fn create_rich_text_input_tree(
 
     ir.root = Some(input_id);
     ir
+}
+
+fn attach_focusable_overlay_node(
+    ir: &mut CoreIR,
+    layout: &mut LayoutSnapshot,
+    parent_id: NodeId,
+    node_id: NodeId,
+    rect: LayoutRect,
+) {
+    ir.nodes.insert(
+        node_id,
+        fission_ir::CoreNode {
+            id: node_id,
+            parent: Some(parent_id),
+            children: vec![],
+            op: Op::Semantics(Semantics {
+                focusable: true,
+                ..Default::default()
+            }),
+            composite: fission_ir::CompositeStyle::default(),
+            hash: 0,
+        },
+    );
+    ir.nodes
+        .get_mut(&parent_id)
+        .expect("parent node")
+        .children
+        .push(node_id);
+    layout.nodes.insert(
+        node_id,
+        LayoutNodeGeometry {
+            rect,
+            content_size: rect.size,
+        },
+    );
+}
+
+fn test_text_input_selection_handle_id(
+    input_id: NodeId,
+    kind: fission_core::env::TextSelectionHandleKind,
+) -> NodeId {
+    let suffix = match kind {
+        fission_core::env::TextSelectionHandleKind::Caret => 0,
+        fission_core::env::TextSelectionHandleKind::Start => 1,
+        fission_core::env::TextSelectionHandleKind::End => 2,
+    };
+    NodeId::derived(input_id.as_u128(), &[900, suffix])
+}
+
+fn test_text_input_toolbar_button_id(input_id: NodeId, action: TextContextMenuAction) -> NodeId {
+    let suffix = match action {
+        TextContextMenuAction::Copy => 0,
+        TextContextMenuAction::Cut => 1,
+        TextContextMenuAction::Paste => 2,
+        TextContextMenuAction::SelectAll => 3,
+    };
+    NodeId::derived(input_id.as_u128(), &[901, suffix])
 }
 
 #[test]
@@ -1618,6 +1678,221 @@ fn test_shift_click_extends_selection_from_existing_anchor() {
     let state = ctx.text_edit.get(input_id).unwrap();
     assert_eq!(state.anchor, 2);
     assert!(state.caret >= 7, "shift-click should extend selection to the clicked caret");
+}
+
+#[test]
+fn test_secondary_click_shows_text_toolbar_affordance() {
+    let input_id = NodeId::derived(31, &[0]);
+    let scroll_id = NodeId::derived(31, &[1]);
+    let text_id = NodeId::derived(31, &[2]);
+    let value = "abcdefghij";
+    let ir = create_rich_text_input_tree(input_id, scroll_id, text_id, value, false);
+
+    let mut layout = LayoutSnapshot::new(LayoutSize::new(800.0, 600.0));
+    layout.nodes.insert(
+        scroll_id,
+        LayoutNodeGeometry {
+            rect: LayoutRect::new(200.0, 40.0, 120.0, 24.0),
+            content_size: LayoutSize::new(120.0, 24.0),
+        },
+    );
+    layout.nodes.insert(
+        input_id,
+        LayoutNodeGeometry {
+            rect: LayoutRect::new(180.0, 30.0, 180.0, 44.0),
+            content_size: LayoutSize::new(180.0, 44.0),
+        },
+    );
+
+    let mut text_edit = TextEditStateMap::default();
+    let mut interaction = InteractionStateMap::default();
+    let mut scroll = ScrollStateMap::default();
+    let mut gesture = fission_core::env::GestureState::default();
+    let clipboard: Arc<dyn Clipboard> = Arc::new(MockClipboard::new());
+    let measurer: Arc<dyn TextMeasurer> = Arc::new(MockTextMeasurer);
+
+    interaction.set_focused(Some(input_id));
+    text_edit.set_caret(input_id, 4, Some(4));
+
+    let mut controller = TextInputController;
+    let mut ctx = setup_ctx(
+        &ir,
+        &layout,
+        &mut text_edit,
+        &mut interaction,
+        &mut scroll,
+        &mut gesture,
+        &clipboard,
+        Some(&measurer),
+    );
+    let event = InputEvent::Pointer(PointerEvent::Down {
+        point: LayoutPoint::new(248.0, 50.0),
+        button: PointerButton::Secondary,
+        modifiers: 0,
+    });
+    assert!(controller.handle_event(&mut ctx, &event));
+
+    let affordances = &ctx.text_edit.get(input_id).expect("text state").affordances;
+    assert!(affordances.toolbar_visible);
+    assert_eq!(affordances.toolbar_anchor, Some(LayoutPoint::new(48.0, 10.0)));
+    assert!(!affordances.magnifier_visible);
+}
+
+#[test]
+fn test_toolbar_copy_button_click_uses_derived_node_id() {
+    let input_id = NodeId::derived(32, &[0]);
+    let scroll_id = NodeId::derived(32, &[1]);
+    let text_id = NodeId::derived(32, &[2]);
+    let value = "abcdefghij";
+    let mut ir = create_rich_text_input_tree(input_id, scroll_id, text_id, value, false);
+
+    let mut layout = LayoutSnapshot::new(LayoutSize::new(800.0, 600.0));
+    layout.nodes.insert(
+        scroll_id,
+        LayoutNodeGeometry {
+            rect: LayoutRect::new(200.0, 40.0, 120.0, 24.0),
+            content_size: LayoutSize::new(120.0, 24.0),
+        },
+    );
+    layout.nodes.insert(
+        input_id,
+        LayoutNodeGeometry {
+            rect: LayoutRect::new(180.0, 30.0, 180.0, 44.0),
+            content_size: LayoutSize::new(180.0, 44.0),
+        },
+    );
+    let copy_button_id = test_text_input_toolbar_button_id(input_id, TextContextMenuAction::Copy);
+    attach_focusable_overlay_node(
+        &mut ir,
+        &mut layout,
+        input_id,
+        copy_button_id,
+        LayoutRect::new(205.0, 4.0, 56.0, 28.0),
+    );
+
+    let clipboard_impl = Arc::new(MockClipboard::new());
+    let clipboard: Arc<dyn Clipboard> = clipboard_impl.clone();
+    let measurer: Arc<dyn TextMeasurer> = Arc::new(MockTextMeasurer);
+    let mut text_edit = TextEditStateMap::default();
+    let mut interaction = InteractionStateMap::default();
+    let mut scroll = ScrollStateMap::default();
+    let mut gesture = fission_core::env::GestureState::default();
+
+    interaction.set_focused(Some(input_id));
+    text_edit.set_caret(input_id, 5, Some(2));
+
+    let mut controller = TextInputController;
+    let mut ctx = setup_ctx(
+        &ir,
+        &layout,
+        &mut text_edit,
+        &mut interaction,
+        &mut scroll,
+        &mut gesture,
+        &clipboard,
+        Some(&measurer),
+    );
+    let event = InputEvent::Pointer(PointerEvent::Down {
+        point: LayoutPoint::new(220.0, 16.0),
+        button: PointerButton::Primary,
+        modifiers: 0,
+    });
+    assert!(controller.handle_event(&mut ctx, &event));
+    assert_eq!(clipboard_impl.get_text().as_deref(), Some("cde"));
+}
+
+#[test]
+fn test_selection_handle_drag_updates_selection_and_toolbar_lifecycle() {
+    let input_id = NodeId::derived(33, &[0]);
+    let scroll_id = NodeId::derived(33, &[1]);
+    let text_id = NodeId::derived(33, &[2]);
+    let value = "abcdefghij";
+    let mut ir = create_rich_text_input_tree(input_id, scroll_id, text_id, value, false);
+
+    let mut layout = LayoutSnapshot::new(LayoutSize::new(800.0, 600.0));
+    layout.nodes.insert(
+        scroll_id,
+        LayoutNodeGeometry {
+            rect: LayoutRect::new(200.0, 40.0, 120.0, 24.0),
+            content_size: LayoutSize::new(120.0, 24.0),
+        },
+    );
+    layout.nodes.insert(
+        input_id,
+        LayoutNodeGeometry {
+            rect: LayoutRect::new(180.0, 30.0, 180.0, 44.0),
+            content_size: LayoutSize::new(180.0, 44.0),
+        },
+    );
+    let start_handle_id = test_text_input_selection_handle_id(
+        input_id,
+        fission_core::env::TextSelectionHandleKind::Start,
+    );
+    attach_focusable_overlay_node(
+        &mut ir,
+        &mut layout,
+        input_id,
+        start_handle_id,
+        LayoutRect::new(215.0, 46.0, 14.0, 14.0),
+    );
+
+    let mut text_edit = TextEditStateMap::default();
+    let mut interaction = InteractionStateMap::default();
+    let mut scroll = ScrollStateMap::default();
+    let mut gesture = fission_core::env::GestureState::default();
+    let clipboard: Arc<dyn Clipboard> = Arc::new(MockClipboard::new());
+    let measurer: Arc<dyn TextMeasurer> = Arc::new(MockTextMeasurer);
+
+    interaction.set_focused(Some(input_id));
+    text_edit.set_caret(input_id, 8, Some(2));
+
+    let mut controller = TextInputController;
+    let mut ctx = setup_ctx(
+        &ir,
+        &layout,
+        &mut text_edit,
+        &mut interaction,
+        &mut scroll,
+        &mut gesture,
+        &clipboard,
+        Some(&measurer),
+    );
+
+    let down = InputEvent::Pointer(PointerEvent::Down {
+        point: LayoutPoint::new(220.0, 50.0),
+        button: PointerButton::Primary,
+        modifiers: 0,
+    });
+    assert!(controller.handle_event(&mut ctx, &down));
+    let affordances = &ctx.text_edit.get(input_id).expect("text state").affordances;
+    assert_eq!(
+        affordances.active_handle,
+        Some(fission_core::env::TextSelectionHandleKind::Start)
+    );
+    assert!(affordances.magnifier_visible);
+    assert!(!affordances.toolbar_visible);
+
+    let drag = InputEvent::Pointer(PointerEvent::Move {
+        point: LayoutPoint::new(212.0, 50.0),
+        modifiers: 0,
+    });
+    assert!(controller.handle_event(&mut ctx, &drag));
+    let state = ctx.text_edit.get(input_id).expect("text state");
+    assert_eq!(state.anchor, 1);
+    assert_eq!(state.caret, 8);
+    assert!(state.affordances.magnifier_visible);
+    assert_eq!(state.affordances.magnifier_anchor, state.affordances.selection_start_handle);
+
+    let up = InputEvent::Pointer(PointerEvent::Up {
+        point: LayoutPoint::new(212.0, 50.0),
+        button: PointerButton::Primary,
+        modifiers: 0,
+    });
+    assert!(controller.handle_event(&mut ctx, &up));
+    let affordances = &ctx.text_edit.get(input_id).expect("text state").affordances;
+    assert_eq!(affordances.active_handle, None);
+    assert!(!affordances.magnifier_visible);
+    assert!(affordances.toolbar_visible);
 }
 
 #[test]

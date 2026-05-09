@@ -1,6 +1,10 @@
 use crate::lowering::{LoweringContext, NodeBuilder};
-use crate::ui::{traits::Lower, Node, TextContent, TextFontStyle};
+use crate::ui::{
+    traits::Lower, Button, ButtonContentAlign, ButtonVariant, Container, Node, Positioned, Row,
+    Spacer, Text, TextContent, TextFontStyle,
+};
 use crate::ActionEnvelope;
+use crate::env::TextSelectionHandleKind;
 use fission_ir::{
     op::{
         Color as IrColor, Fill, LayoutOp, Op, PaintOp, Stroke, TextAlign as IrTextAlign,
@@ -38,6 +42,135 @@ impl TextAlignVertical {
             Self::Bottom => fission_ir::op::AlignItems::End,
         }
     }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum TextContextMenuAction {
+    Copy,
+    Cut,
+    Paste,
+    SelectAll,
+}
+
+impl TextContextMenuAction {
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::Copy => "Copy",
+            Self::Cut => "Cut",
+            Self::Paste => "Paste",
+            Self::SelectAll => "Select All",
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct TextContextMenuConfig {
+    pub enabled: bool,
+    pub actions: Vec<TextContextMenuAction>,
+    pub padding: [f32; 4],
+    pub gap: f32,
+    pub border_radius: f32,
+}
+
+impl Default for TextContextMenuConfig {
+    fn default() -> Self {
+        Self {
+            enabled: true,
+            actions: vec![
+                TextContextMenuAction::Copy,
+                TextContextMenuAction::Cut,
+                TextContextMenuAction::Paste,
+                TextContextMenuAction::SelectAll,
+            ],
+            padding: [10.0, 10.0, 8.0, 8.0],
+            gap: 6.0,
+            border_radius: 12.0,
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct TextSelectionControls {
+    pub show_collapsed_handle: bool,
+    pub handle_radius: f32,
+    pub handle_fill: IrColor,
+    pub handle_stroke: Option<IrColor>,
+    pub handle_stroke_width: f32,
+}
+
+impl Default for TextSelectionControls {
+    fn default() -> Self {
+        Self {
+            show_collapsed_handle: true,
+            handle_radius: 7.0,
+            handle_fill: IrColor {
+                r: 0,
+                g: 122,
+                b: 255,
+                a: 255,
+            },
+            handle_stroke: Some(IrColor {
+                r: 255,
+                g: 255,
+                b: 255,
+                a: 255,
+            }),
+            handle_stroke_width: 1.0,
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct TextMagnifierConfiguration {
+    pub enabled: bool,
+    pub diameter: f32,
+    pub scale: f32,
+    pub border_radius: f32,
+    pub border_color: Option<IrColor>,
+    pub border_width: f32,
+}
+
+impl Default for TextMagnifierConfiguration {
+    fn default() -> Self {
+        Self {
+            enabled: true,
+            diameter: 84.0,
+            scale: 1.4,
+            border_radius: 18.0,
+            border_color: Some(IrColor {
+                r: 210,
+                g: 214,
+                b: 224,
+                a: 255,
+            }),
+            border_width: 1.0,
+        }
+    }
+}
+
+pub(crate) fn text_input_selection_handle_id(
+    input_id: NodeId,
+    kind: TextSelectionHandleKind,
+) -> NodeId {
+    let suffix = match kind {
+        TextSelectionHandleKind::Caret => 0,
+        TextSelectionHandleKind::Start => 1,
+        TextSelectionHandleKind::End => 2,
+    };
+    NodeId::derived(input_id.as_u128(), &[900, suffix])
+}
+
+pub(crate) fn text_input_toolbar_button_id(
+    input_id: NodeId,
+    action: TextContextMenuAction,
+) -> NodeId {
+    let suffix = match action {
+        TextContextMenuAction::Copy => 0,
+        TextContextMenuAction::Cut => 1,
+        TextContextMenuAction::Paste => 2,
+        TextContextMenuAction::SelectAll => 3,
+    };
+    NodeId::derived(input_id.as_u128(), &[901, suffix])
 }
 
 /// An editable text field with support for single-line and multiline input,
@@ -209,6 +342,12 @@ pub struct TextInput {
     pub smart_quotes: bool,
     /// Platform autofill categories associated with this field.
     pub autofill_hints: Vec<String>,
+    /// Built-in context menu configuration for pointer and touch editing affordances.
+    pub context_menu: TextContextMenuConfig,
+    /// Selection-handle visual configuration.
+    pub selection_controls: TextSelectionControls,
+    /// Magnifier visual configuration shown while dragging selection handles.
+    pub magnifier_configuration: TextMagnifierConfiguration,
 }
 
 impl TextInput {
@@ -357,6 +496,24 @@ impl TextInput {
         self
     }
 
+    pub fn context_menu(mut self, context_menu: TextContextMenuConfig) -> Self {
+        self.context_menu = context_menu;
+        self
+    }
+
+    pub fn selection_controls(mut self, selection_controls: TextSelectionControls) -> Self {
+        self.selection_controls = selection_controls;
+        self
+    }
+
+    pub fn magnifier_configuration(
+        mut self,
+        magnifier_configuration: TextMagnifierConfiguration,
+    ) -> Self {
+        self.magnifier_configuration = magnifier_configuration;
+        self
+    }
+
     pub fn family(mut self, family: impl Into<String>) -> Self {
         self.font_family = Some(family.into());
         self
@@ -470,6 +627,9 @@ impl Default for TextInput {
             smart_dashes: true,
             smart_quotes: true,
             autofill_hints: Vec::new(),
+            context_menu: TextContextMenuConfig::default(),
+            selection_controls: TextSelectionControls::default(),
+            magnifier_configuration: TextMagnifierConfiguration::default(),
         }
     }
 }
@@ -491,6 +651,177 @@ impl TextInput {
             .nth(grapheme_count)
             .map(|(idx, _)| idx)
             .unwrap_or(masked.len())
+    }
+
+    fn build_selection_handle_overlay(
+        &self,
+        cx: &mut LoweringContext,
+        input_id: NodeId,
+        kind: TextSelectionHandleKind,
+        point: fission_layout::LayoutPoint,
+    ) -> NodeId {
+        let controls = &self.selection_controls;
+        let diameter = controls.handle_radius * 2.0;
+        let handle_node = Button {
+            id: Some(text_input_selection_handle_id(input_id, kind)),
+            child: Some(Box::new(
+                Container::new(
+                    Spacer {
+                        width: Some(diameter),
+                        height: Some(diameter),
+                        ..Default::default()
+                    }
+                    .into_node(),
+                )
+                .bg_fill(Fill::Solid(controls.handle_fill))
+                .border(
+                    controls.handle_stroke.unwrap_or(IrColor {
+                        r: 0,
+                        g: 0,
+                        b: 0,
+                        a: 0,
+                    }),
+                    controls.handle_stroke_width,
+                )
+                .border_radius(controls.handle_radius)
+                .into_node(),
+            )),
+            width: Some(diameter),
+            height: Some(diameter),
+            padding: Some([0.0; 4]),
+            content_align: ButtonContentAlign::Center,
+            variant: ButtonVariant::Ghost,
+            ..Default::default()
+        }
+        .into_node();
+
+        Positioned {
+            left: Some((point.x - controls.handle_radius).max(0.0)),
+            top: Some((point.y - controls.handle_radius).max(0.0)),
+            width: Some(diameter),
+            height: Some(diameter),
+            child: Some(Box::new(handle_node)),
+            ..Default::default()
+        }
+        .lower(cx)
+    }
+
+    fn build_toolbar_overlay(
+        &self,
+        cx: &mut LoweringContext,
+        input_id: NodeId,
+        anchor: fission_layout::LayoutPoint,
+    ) -> NodeId {
+        let tokens = &cx.env.theme.tokens;
+        let mut row = Row::default().gap(self.context_menu.gap);
+        for action in &self.context_menu.actions {
+            row.children.push(
+                Button {
+                    id: Some(text_input_toolbar_button_id(input_id, *action)),
+                    child: Some(Box::new(
+                        Text::new(action.label())
+                            .size(tokens.typography.label_large_size)
+                            .color(tokens.colors.text_primary)
+                            .into_node(),
+                    )),
+                    padding: Some([10.0, 10.0, 6.0, 6.0]),
+                    content_align: ButtonContentAlign::Center,
+                    variant: ButtonVariant::Ghost,
+                    ..Default::default()
+                }
+                .into_node(),
+            );
+        }
+
+        let toolbar = Container::new(row.into_node())
+            .bg_fill(Fill::Solid(tokens.colors.surface))
+            .border(tokens.colors.border, 1.0)
+            .border_radius(self.context_menu.border_radius)
+            .padding(self.context_menu.padding)
+            .into_node();
+
+        Positioned {
+            left: Some(anchor.x.max(0.0)),
+            top: Some((anchor.y - 44.0).max(0.0)),
+            child: Some(Box::new(toolbar)),
+            ..Default::default()
+        }
+        .lower(cx)
+    }
+
+    fn magnifier_snippet(display_text: &str, caret: usize) -> String {
+        let mut graphemes = Vec::new();
+        for (idx, grapheme) in display_text.grapheme_indices(true) {
+            graphemes.push((idx, grapheme));
+        }
+        if graphemes.is_empty() {
+            return String::new();
+        }
+
+        let caret_grapheme = graphemes
+            .iter()
+            .position(|(idx, _)| *idx >= caret.min(display_text.len()))
+            .unwrap_or(graphemes.len().saturating_sub(1));
+        let start = caret_grapheme.saturating_sub(4);
+        let end = (caret_grapheme + 5).min(graphemes.len());
+        graphemes[start..end]
+            .iter()
+            .map(|(_, grapheme)| *grapheme)
+            .collect::<String>()
+    }
+
+    fn build_magnifier_overlay(
+        &self,
+        cx: &mut LoweringContext,
+        anchor: fission_layout::LayoutPoint,
+        display_text: &str,
+        caret: usize,
+        base_text_style: &fission_ir::op::TextStyle,
+    ) -> NodeId {
+        let cfg = &self.magnifier_configuration;
+        let tokens = &cx.env.theme.tokens;
+        let preview = Self::magnifier_snippet(display_text, caret);
+        let preview_text = Text::new(preview)
+            .size(base_text_style.font_size * cfg.scale)
+            .color(base_text_style.color)
+            .family(
+                base_text_style
+                    .font_family
+                    .clone()
+                    .unwrap_or_else(|| "system-ui".to_string()),
+            )
+            .weight(base_text_style.font_weight)
+            .italic(base_text_style.font_style == fission_ir::op::FontStyle::Italic)
+            .line_height(
+                base_text_style
+                    .line_height
+                    .unwrap_or(base_text_style.font_size * 1.25)
+                    * cfg.scale,
+            )
+            .letter_spacing(base_text_style.letter_spacing * cfg.scale)
+            .into_node();
+
+        let magnifier = Container::new(preview_text)
+            .width(cfg.diameter)
+            .height(cfg.diameter)
+            .bg_fill(Fill::Solid(tokens.colors.surface))
+            .border(
+                cfg.border_color.unwrap_or(tokens.colors.border),
+                cfg.border_width,
+            )
+            .border_radius(cfg.border_radius)
+            .padding_all(8.0)
+            .into_node();
+
+        Positioned {
+            left: Some((anchor.x - cfg.diameter * 0.5).max(0.0)),
+            top: Some((anchor.y - cfg.diameter - 18.0).max(0.0)),
+            width: Some(cfg.diameter),
+            height: Some(cfg.diameter),
+            child: Some(Box::new(magnifier)),
+            ..Default::default()
+        }
+        .lower(cx)
     }
 }
 
@@ -937,7 +1268,74 @@ impl Lower for TextInput {
         }
         wrapper.add_child(content_id); // Content
 
-        let final_id = wrapper.build(cx);
+        let wrapper_visual_id = wrapper.build(cx);
+        let mut final_visual_id = wrapper_visual_id;
+
+        if is_focused && self.enabled {
+            if let Some(session_state) = session {
+                let affordances = &session_state.affordances;
+                let mut overlay_children = Vec::new();
+
+                if caret == anchor {
+                    if self.selection_controls.show_collapsed_handle {
+                        if let Some(point) = affordances.caret_handle {
+                            overlay_children.push(self.build_selection_handle_overlay(
+                                cx,
+                                input_id,
+                                TextSelectionHandleKind::Caret,
+                                point,
+                            ));
+                        }
+                    }
+                } else {
+                    if let Some(point) = affordances.selection_start_handle {
+                        overlay_children.push(self.build_selection_handle_overlay(
+                            cx,
+                            input_id,
+                            TextSelectionHandleKind::Start,
+                            point,
+                        ));
+                    }
+                    if let Some(point) = affordances.selection_end_handle {
+                        overlay_children.push(self.build_selection_handle_overlay(
+                            cx,
+                            input_id,
+                            TextSelectionHandleKind::End,
+                            point,
+                        ));
+                    }
+                }
+
+                if self.context_menu.enabled && affordances.toolbar_visible {
+                    if let Some(anchor_point) = affordances.toolbar_anchor {
+                        overlay_children.push(
+                            self.build_toolbar_overlay(cx, input_id, anchor_point),
+                        );
+                    }
+                }
+
+                if self.magnifier_configuration.enabled && affordances.magnifier_visible {
+                    if let Some(anchor_point) = affordances.magnifier_anchor {
+                        overlay_children.push(self.build_magnifier_overlay(
+                            cx,
+                            anchor_point,
+                            &display_text,
+                            caret.max(anchor),
+                            &base_text_style,
+                        ));
+                    }
+                }
+
+                if !overlay_children.is_empty() {
+                    let mut stack = NodeBuilder::new(cx.next_node_id(), Op::Layout(LayoutOp::ZStack));
+                    stack.add_child(wrapper_visual_id);
+                    for child in overlay_children {
+                        stack.add_child(child);
+                    }
+                    final_visual_id = stack.build(cx);
+                }
+            }
+        }
 
         // 5. Semantics
         let mut semantics = Semantics {
@@ -1014,7 +1412,7 @@ impl Lower for TextInput {
             });
         }
         let mut semantics_builder = NodeBuilder::new(input_id, Op::Semantics(semantics));
-        semantics_builder.add_child(final_id);
+        semantics_builder.add_child(final_visual_id);
         semantics_builder.build(cx)
     }
 }

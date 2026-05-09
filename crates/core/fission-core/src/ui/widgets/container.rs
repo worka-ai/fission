@@ -143,6 +143,11 @@ impl Container {
         self
     }
 
+    pub fn padding(mut self, padding: [f32; 4]) -> Self {
+        self.padding = padding;
+        self
+    }
+
     pub fn flex_grow(mut self, grow: f32) -> Self {
         self.flex_grow = grow;
         self

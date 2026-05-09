@@ -1,7 +1,9 @@
-use fission_core::env::{Env, RuntimeState};
+use fission_core::env::{Env, RuntimeState, TextSelectionHandleKind};
 use fission_core::lowering::LoweringContext;
 use fission_core::ui::widgets::text::{InlineWidgetSpan, RichTextChild, RichTextSpan};
-use fission_core::ui::widgets::text_input::TextAlignVertical;
+use fission_core::ui::widgets::text_input::{
+    TextAlignVertical, TextContextMenuAction, TextMagnifierConfiguration,
+};
 use fission_core::ui::{Button, Container, Node, RichText, RichTextRun, Spacer, Text, TextInput};
 use fission_ir::op::{
     decode_inline_widget_marker, Color, Fill, LayoutOp, Op, PaintOp, TextAlign, TextOverflow,
@@ -15,6 +17,39 @@ fn lower_node(node: Node) -> CoreIR {
     let root = node.lower(&mut cx);
     cx.ir.root = Some(root);
     cx.ir
+}
+
+fn lower_node_with_runtime(node: Node, runtime: RuntimeState) -> CoreIR {
+    let env = Env::default();
+    let mut cx = LoweringContext::new(&env, &runtime, None, None);
+    let root = node.lower(&mut cx);
+    cx.ir.root = Some(root);
+    cx.ir
+}
+
+fn test_text_input_selection_handle_id(
+    input_id: fission_ir::NodeId,
+    kind: TextSelectionHandleKind,
+) -> fission_ir::NodeId {
+    let suffix = match kind {
+        TextSelectionHandleKind::Caret => 0,
+        TextSelectionHandleKind::Start => 1,
+        TextSelectionHandleKind::End => 2,
+    };
+    fission_ir::NodeId::derived(input_id.as_u128(), &[900, suffix])
+}
+
+fn test_text_input_toolbar_button_id(
+    input_id: fission_ir::NodeId,
+    action: TextContextMenuAction,
+) -> fission_ir::NodeId {
+    let suffix = match action {
+        TextContextMenuAction::Copy => 0,
+        TextContextMenuAction::Cut => 1,
+        TextContextMenuAction::Paste => 2,
+        TextContextMenuAction::SelectAll => 3,
+    };
+    fission_ir::NodeId::derived(input_id.as_u128(), &[901, suffix])
 }
 
 fn paint_ops(ir: &CoreIR) -> impl Iterator<Item = &PaintOp> {
@@ -658,4 +693,68 @@ fn text_semantics_label_builder_sets_label() {
 
     assert_eq!(semantics.label.as_deref(), Some("Screen reader"));
     assert!(!semantics.multiline);
+}
+
+#[test]
+fn focused_text_input_lowers_toolbar_handles_and_magnifier_overlays() {
+    let input_id = fission_ir::NodeId::derived(88, &[0]);
+    let mut runtime = RuntimeState::default();
+    runtime.interaction.set_focused(Some(input_id));
+    let state = runtime.text_edit.get_mut_or_default(input_id);
+    state.caret = 8;
+    state.anchor = 2;
+    state.affordances.toolbar_visible = true;
+    state.affordances.toolbar_anchor = Some(fission_layout::LayoutPoint::new(40.0, 12.0));
+    state.affordances.selection_start_handle = Some(fission_layout::LayoutPoint::new(18.0, 24.0));
+    state.affordances.selection_end_handle = Some(fission_layout::LayoutPoint::new(96.0, 24.0));
+    state.affordances.active_handle = Some(TextSelectionHandleKind::End);
+    state.affordances.magnifier_visible = true;
+    state.affordances.magnifier_anchor = Some(fission_layout::LayoutPoint::new(96.0, 24.0));
+
+    let ir = lower_node_with_runtime(
+        TextInput {
+            id: Some(input_id),
+            value: "abcdefghij".into(),
+            magnifier_configuration: TextMagnifierConfiguration {
+                diameter: 72.0,
+                ..Default::default()
+            },
+            ..Default::default()
+        }
+        .into_node(),
+        runtime,
+    );
+
+    assert!(ir.nodes.contains_key(&test_text_input_selection_handle_id(
+        input_id,
+        TextSelectionHandleKind::Start
+    )));
+    assert!(ir.nodes.contains_key(&test_text_input_selection_handle_id(
+        input_id,
+        TextSelectionHandleKind::End
+    )));
+    assert!(ir
+        .nodes
+        .contains_key(&test_text_input_toolbar_button_id(
+            input_id,
+            TextContextMenuAction::Copy
+        )));
+
+    let magnifier_box = ir
+        .nodes
+        .values()
+        .find(|node| {
+            matches!(
+                node.op,
+                Op::Layout(LayoutOp::Positioned {
+                    width: Some(width),
+                    height: Some(height),
+                    ..
+                }) if (width - 72.0).abs() < 0.001 && (height - 72.0).abs() < 0.001
+            )
+        })
+        .expect("magnifier positioned overlay");
+    assert!(matches!(magnifier_box.op, Op::Layout(LayoutOp::Positioned { .. })));
+
+    assert!(paint_ops(&ir).any(|op| matches!(op, PaintOp::DrawRichText { .. })));
 }

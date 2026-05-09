@@ -159,6 +159,7 @@ pub struct TextEditState {
     /// Used to deduplicate dispatches and prevent unnecessary model updates
     /// that could cause extra rebuild cycles.
     pub last_dispatched_cursor: Option<(usize, usize)>,
+    pub affordances: TextInputAffordanceState,
 }
 
 impl Default for TextEditState {
@@ -171,8 +172,29 @@ impl Default for TextEditState {
             preedit: None,
             pending_model_sync: false,
             last_dispatched_cursor: None,
+            affordances: TextInputAffordanceState::default(),
         }
     }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
+pub enum TextSelectionHandleKind {
+    #[default]
+    Caret,
+    Start,
+    End,
+}
+
+#[derive(Clone, Debug, Default)]
+pub struct TextInputAffordanceState {
+    pub toolbar_visible: bool,
+    pub toolbar_anchor: Option<LayoutPoint>,
+    pub caret_handle: Option<LayoutPoint>,
+    pub selection_start_handle: Option<LayoutPoint>,
+    pub selection_end_handle: Option<LayoutPoint>,
+    pub active_handle: Option<TextSelectionHandleKind>,
+    pub magnifier_visible: bool,
+    pub magnifier_anchor: Option<LayoutPoint>,
 }
 
 #[derive(Clone, Debug)]

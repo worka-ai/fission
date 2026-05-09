@@ -1,6 +1,10 @@
 use super::{ControllerContext, InputController};
+use crate::env::TextSelectionHandleKind;
 use crate::event::{
     InputEvent, KeyCode, KeyEvent, PointerEvent, MOD_ALT, MOD_CTRL, MOD_SHIFT, MOD_SUPER,
+};
+use crate::ui::widgets::text_input::{
+    text_input_selection_handle_id, text_input_toolbar_button_id, TextContextMenuAction,
 };
 use crate::ActionEnvelope;
 use crate::ActionId;
@@ -25,17 +29,72 @@ impl InputController for TextInputController {
             InputEvent::Ime(ime) => self.handle_ime(ctx, ime),
             InputEvent::Pointer(PointerEvent::Down {
                 point,
+                button,
                 modifiers,
                 ..
             }) => {
+                let hit = crate::hit_test::hit_test_with_scroll(ctx.ir, ctx.layout, ctx.scroll, *point);
+
+                if let Some(focused_id) = ctx.interaction.focused {
+                    if let Some(node) = ctx.ir.nodes.get(&focused_id) {
+                        if let Op::Semantics(sem) = &node.op {
+                            if sem.role == fission_ir::semantics::Role::TextInput {
+                                if let Some(hit_node_id) = hit {
+                                    if let Some(action) =
+                                        Self::toolbar_action_hit(ctx.ir, focused_id, hit_node_id)
+                                    {
+                                        return self.execute_toolbar_action(ctx, action);
+                                    }
+                                    if let Some(handle_kind) = Self::selection_handle_hit(
+                                        ctx.ir,
+                                        focused_id,
+                                        hit_node_id,
+                                    ) {
+                                        let value = sem.value.as_deref().unwrap_or("").to_string();
+                                        let state = ctx.text_edit.get_mut_or_default(focused_id);
+                                        state.affordances.active_handle = Some(handle_kind);
+                                        state.affordances.toolbar_visible = false;
+                                        Self::sync_text_input_affordances(
+                                            ctx,
+                                            focused_id,
+                                            sem,
+                                            &value,
+                                            false,
+                                            None,
+                                        );
+                                        return true;
+                                    }
+                                }
+
+                                if matches!(button, crate::event::PointerButton::Secondary) {
+                                    let value = sem.value.as_deref().unwrap_or("").to_string();
+                                    let wrapper_anchor = Self::input_wrapper_geometry(ctx, focused_id)
+                                        .map(|geom| {
+                                            fission_layout::LayoutPoint::new(
+                                                (point.x - geom.rect.origin.x).max(0.0),
+                                                (point.y - geom.rect.origin.y).max(0.0),
+                                            )
+                                        });
+                                    Self::sync_text_input_affordances(
+                                        ctx,
+                                        focused_id,
+                                        sem,
+                                        &value,
+                                        true,
+                                        wrapper_anchor,
+                                    );
+                                    return true;
+                                }
+                            }
+                        }
+                    }
+                }
+
                 // Only keep handling pointer-down inside the already-focused input
                 // if the hit test still resolves into that subtree. Otherwise we
                 // must fall through so Runtime can move focus to a different
                 // widget instead of swallowing the click.
                 let effective_focused = if let Some(focused_id) = ctx.interaction.focused {
-                    let hit = crate::hit_test::hit_test_with_scroll(
-                        ctx.ir, ctx.layout, ctx.scroll, *point,
-                    );
                     let mut walk = hit;
                     let mut belongs_to_focused = false;
                     while let Some(nid) = walk {
@@ -53,9 +112,6 @@ impl InputController for TextInputController {
                 } else {
                     // If nothing is focused, try to find the TextInput under the
                     // click point and focus + place the caret in one step.
-                    let hit = crate::hit_test::hit_test_with_scroll(
-                        ctx.ir, ctx.layout, ctx.scroll, *point,
-                    );
                     hit.and_then(|hit| {
                         let mut walk = Some(hit);
                         while let Some(nid) = walk {
@@ -249,6 +305,14 @@ impl InputController for TextInputController {
                                         Self::dispatch_cursor_change(
                                             ctx, sem, focused_id, caret, anchor,
                                         );
+                                        Self::sync_text_input_affordances(
+                                            ctx,
+                                            focused_id,
+                                            sem,
+                                            value,
+                                            false,
+                                            None,
+                                        );
                                     }
                                 }
                                 return true;
@@ -263,6 +327,99 @@ impl InputController for TextInputController {
                     if let Some(node) = ctx.ir.nodes.get(&focused_id) {
                         if let Op::Semantics(sem) = &node.op {
                             if sem.role == fission_ir::semantics::Role::TextInput {
+                                let active_handle = ctx
+                                    .text_edit
+                                    .states
+                                    .get(&focused_id)
+                                    .and_then(|state| state.affordances.active_handle);
+                                if let Some(active_handle) = active_handle {
+                                    if let Some((scroll_id, _text_op_node_id, _scroll_direction)) =
+                                        Self::find_scroll_container_and_text_op(
+                                            ctx.ir,
+                                            focused_id,
+                                            sem.multiline,
+                                        )
+                                    {
+                                        if let Some(scroll_geom) =
+                                            ctx.layout.get_node_geometry(scroll_id)
+                                        {
+                                            let value = sem.value.as_deref().unwrap_or("");
+                                            let display_value =
+                                                Self::display_value_for_metrics(ctx, focused_id, value);
+                                            let metric_text = if sem.masked {
+                                                Self::mask_text_for_metrics(&display_value)
+                                            } else {
+                                                display_value.clone()
+                                            };
+                                            let offset = ctx.scroll.get_offset(scroll_id);
+                                            let new_caret = if let Some(measurer) = ctx.measurer {
+                                                let local_x =
+                                                    point.x - scroll_geom.rect.origin.x + offset;
+                                                let local_y = point.y - scroll_geom.rect.origin.y;
+                                                let masked_caret = Self::hit_test_text(
+                                                    measurer,
+                                                    ctx.ir,
+                                                    focused_id,
+                                                    sem.masked,
+                                                    &metric_text,
+                                                    scroll_geom,
+                                                    local_x,
+                                                    local_y,
+                                                );
+                                                if sem.masked {
+                                                    Self::source_byte_offset_from_masked(
+                                                        &display_value,
+                                                        &metric_text,
+                                                        masked_caret,
+                                                    )
+                                                } else {
+                                                    masked_caret
+                                                }
+                                            } else {
+                                                0
+                                            };
+                                            let (caret, anchor) = {
+                                                let st =
+                                                    ctx.text_edit.get_mut_or_default(focused_id);
+                                                match active_handle {
+                                                    TextSelectionHandleKind::Caret => {
+                                                        st.caret = new_caret;
+                                                        st.anchor = new_caret;
+                                                    }
+                                                    TextSelectionHandleKind::Start => {
+                                                        if st.caret <= st.anchor {
+                                                            st.caret = new_caret;
+                                                        } else {
+                                                            st.anchor = new_caret;
+                                                        }
+                                                    }
+                                                    TextSelectionHandleKind::End => {
+                                                        if st.caret >= st.anchor {
+                                                            st.caret = new_caret;
+                                                        } else {
+                                                            st.anchor = new_caret;
+                                                        }
+                                                    }
+                                                }
+                                                (st.caret, st.anchor)
+                                            };
+                                            Self::auto_scroll_textinput(ctx, focused_id);
+                                            Self::dispatch_cursor_change(
+                                                ctx, sem, focused_id, caret, anchor,
+                                            );
+                                            Self::sync_text_input_affordances(
+                                                ctx,
+                                                focused_id,
+                                                sem,
+                                                value,
+                                                false,
+                                                None,
+                                            );
+                                        }
+                                    }
+                                    return true;
+                                }
+
                                 if !ctx.interaction.pressed.is_empty() {
                                     let mut moved_enough = true;
                                     if let Some(start) = ctx.interaction.last_down_point {
@@ -390,10 +547,56 @@ impl InputController for TextInputController {
                                                     new_caret,
                                                     current_anchor,
                                                 );
+                                                Self::sync_text_input_affordances(
+                                                    ctx,
+                                                    focused_id,
+                                                    sem,
+                                                    value,
+                                                    false,
+                                                    None,
+                                                );
                                             }
                                         }
                                     }
                                 }
+                                return true;
+                            }
+                        }
+                    }
+                }
+                false
+            }
+            InputEvent::Pointer(PointerEvent::Up { point, button, .. }) => {
+                if let Some(focused_id) = ctx.interaction.focused {
+                    if let Some(node) = ctx.ir.nodes.get(&focused_id) {
+                        if let Op::Semantics(sem) = &node.op {
+                            if sem.role == fission_ir::semantics::Role::TextInput {
+                                let value = sem.value.as_deref().unwrap_or("").to_string();
+                                let toolbar_anchor = Self::input_wrapper_geometry(ctx, focused_id).map(|geom| {
+                                    fission_layout::LayoutPoint::new(
+                                        (point.x - geom.rect.origin.x).max(0.0),
+                                        (point.y - geom.rect.origin.y).max(0.0),
+                                    )
+                                });
+                                let show_toolbar = matches!(button, crate::event::PointerButton::Secondary)
+                                    || ctx
+                                        .text_edit
+                                        .states
+                                        .get(&focused_id)
+                                        .map(|state| state.caret != state.anchor)
+                                        .unwrap_or(false);
+                                if let Some(state) = ctx.text_edit.states.get_mut(&focused_id) {
+                                    state.affordances.active_handle = None;
+                                    state.affordances.magnifier_visible = false;
+                                }
+                                Self::sync_text_input_affordances(
+                                    ctx,
+                                    focused_id,
+                                    sem,
+                                    &value,
+                                    show_toolbar,
+                                    if show_toolbar { toolbar_anchor } else { None },
+                                );
                                 return true;
                             }
                         }
@@ -861,6 +1064,7 @@ impl TextInputController {
             // Apply undo/redo result
             self.dispatch_change(ctx, semantics, focused_id, v);
             Self::dispatch_cursor_change(ctx, semantics, focused_id, c, a);
+            Self::sync_text_input_affordances(ctx, focused_id, semantics, value.as_str(), false, None);
             return true;
         }
 
@@ -870,6 +1074,7 @@ impl TextInputController {
             let txt = st.apply_edit(range, &replacement, next_caret, next_anchor);
             self.dispatch_change(ctx, semantics, focused_id, txt);
             Self::dispatch_cursor_change(ctx, semantics, focused_id, next_caret, next_anchor);
+            Self::sync_text_input_affordances(ctx, focused_id, semantics, value.as_str(), false, None);
         } else if handled {
             // Cursor movement only
             let st = ctx.text_edit.get_mut_or_default(focused_id);
@@ -878,6 +1083,7 @@ impl TextInputController {
             st.clear_preedit();
             Self::auto_scroll_textinput(ctx, focused_id);
             Self::dispatch_cursor_change(ctx, semantics, focused_id, next_caret, next_anchor);
+            Self::sync_text_input_affordances(ctx, focused_id, semantics, value.as_str(), false, None);
         }
 
         handled
@@ -916,6 +1122,295 @@ impl TextInputController {
             Self::has_alt(modifiers)
         } else {
             Self::has_ctrl(modifiers)
+        }
+    }
+
+    fn primary_shortcut_modifier() -> u8 {
+        if Self::is_apple_platform() {
+            MOD_SUPER
+        } else {
+            MOD_CTRL
+        }
+    }
+
+    fn node_or_ancestor_matches(
+        ir: &fission_ir::CoreIR,
+        node_id: NodeId,
+        expected: NodeId,
+    ) -> bool {
+        let mut current = Some(node_id);
+        while let Some(id) = current {
+            if id == expected {
+                return true;
+            }
+            current = ir.nodes.get(&id).and_then(|node| node.parent);
+        }
+        false
+    }
+
+    fn toolbar_action_hit(
+        ir: &fission_ir::CoreIR,
+        focused_id: NodeId,
+        hit_node_id: NodeId,
+    ) -> Option<TextContextMenuAction> {
+        for action in [
+            TextContextMenuAction::Copy,
+            TextContextMenuAction::Cut,
+            TextContextMenuAction::Paste,
+            TextContextMenuAction::SelectAll,
+        ] {
+            if Self::node_or_ancestor_matches(
+                ir,
+                hit_node_id,
+                text_input_toolbar_button_id(focused_id, action),
+            ) {
+                return Some(action);
+            }
+        }
+        None
+    }
+
+    fn selection_handle_hit(
+        ir: &fission_ir::CoreIR,
+        focused_id: NodeId,
+        hit_node_id: NodeId,
+    ) -> Option<TextSelectionHandleKind> {
+        for kind in [
+            TextSelectionHandleKind::Caret,
+            TextSelectionHandleKind::Start,
+            TextSelectionHandleKind::End,
+        ] {
+            if Self::node_or_ancestor_matches(
+                ir,
+                hit_node_id,
+                text_input_selection_handle_id(focused_id, kind),
+            ) {
+                return Some(kind);
+            }
+        }
+        None
+    }
+
+    fn execute_toolbar_action(
+        &mut self,
+        ctx: &mut ControllerContext,
+        action: TextContextMenuAction,
+    ) -> bool {
+        match action {
+            TextContextMenuAction::Copy => {
+                self.handle_key(
+                    ctx,
+                    KeyCode::Char('c'),
+                    Self::primary_shortcut_modifier(),
+                )
+            }
+            TextContextMenuAction::Cut => {
+                self.handle_key(
+                    ctx,
+                    KeyCode::Char('x'),
+                    Self::primary_shortcut_modifier(),
+                )
+            }
+            TextContextMenuAction::Paste => self.handle_key(
+                ctx,
+                KeyCode::Char('v'),
+                Self::primary_shortcut_modifier(),
+            ),
+            TextContextMenuAction::SelectAll => self.handle_key(
+                ctx,
+                KeyCode::Char('a'),
+                Self::primary_shortcut_modifier(),
+            ),
+        }
+    }
+
+    fn input_wrapper_geometry<'a>(
+        ctx: &'a ControllerContext<'_>,
+        focused_id: NodeId,
+    ) -> Option<&'a fission_layout::LayoutNodeGeometry> {
+        let wrapper_id = ctx.ir.nodes.get(&focused_id)?.children.first().copied()?;
+        ctx.layout.get_node_geometry(wrapper_id)
+    }
+
+    fn line_metric_for_index<'a>(
+        line_metrics: &'a [fission_layout::LineMetric],
+        caret_index: usize,
+    ) -> Option<(usize, &'a fission_layout::LineMetric)> {
+        line_metrics
+            .iter()
+            .enumerate()
+            .find(|(_, line)| caret_index >= line.start_index && caret_index <= line.end_index)
+            .or_else(|| line_metrics.iter().enumerate().last())
+    }
+
+    fn local_text_point_for_index(
+        measurer: &std::sync::Arc<dyn fission_layout::TextMeasurer>,
+        ir: &fission_ir::CoreIR,
+        focused_id: NodeId,
+        wrapper_geom: &fission_layout::LayoutNodeGeometry,
+        scroll_geom: &fission_layout::LayoutNodeGeometry,
+        scroll_direction: FlexDirection,
+        scroll_offset: f32,
+        metric_text: &str,
+        metric_index: usize,
+    ) -> Option<fission_layout::LayoutPoint> {
+        let font_size = Self::extract_font_size(ir, focused_id).unwrap_or(16.0);
+        let paragraph = Self::extract_paragraph_style(ir, focused_id).unwrap_or_default();
+        let render_width = if scroll_direction == FlexDirection::Column {
+            Some(scroll_geom.rect.size.width)
+        } else {
+            None
+        };
+        let (mut caret_x, caret_y) =
+            measurer.get_caret_position(metric_text, font_size, render_width, metric_index);
+        let line_metrics = measurer.get_line_metrics(metric_text, font_size, render_width);
+        let (line_index, line_metric) = Self::line_metric_for_index(&line_metrics, metric_index)?;
+        let is_last_line = line_index + 1 == line_metrics.len();
+        if let Some(width) = render_width {
+            caret_x += Self::paragraph_line_x_offset(paragraph, width, line_metric.width, is_last_line);
+        }
+
+        let visible_x = if scroll_direction == FlexDirection::Row {
+            caret_x - scroll_offset
+        } else {
+            caret_x
+        };
+        let visible_y = if scroll_direction == FlexDirection::Column {
+            caret_y - scroll_offset
+        } else {
+            caret_y
+        };
+
+        let local_x = (scroll_geom.rect.origin.x - wrapper_geom.rect.origin.x) + visible_x;
+        let local_y = (scroll_geom.rect.origin.y - wrapper_geom.rect.origin.y)
+            + visible_y
+            + line_metric.height.max(1.0);
+
+        Some(fission_layout::LayoutPoint::new(local_x, local_y))
+    }
+
+    fn clear_text_input_affordances(ctx: &mut ControllerContext, focused_id: NodeId) {
+        if let Some(state) = ctx.text_edit.states.get_mut(&focused_id) {
+            state.affordances = Default::default();
+        }
+    }
+
+    fn sync_text_input_affordances(
+        ctx: &mut ControllerContext,
+        focused_id: NodeId,
+        semantics: &Semantics,
+        value: &str,
+        toolbar_visible: bool,
+        toolbar_anchor_override: Option<fission_layout::LayoutPoint>,
+    ) {
+        let Some(measurer) = ctx.measurer else {
+            Self::clear_text_input_affordances(ctx, focused_id);
+            return;
+        };
+        let Some(wrapper_geom) = Self::input_wrapper_geometry(ctx, focused_id).cloned() else {
+            Self::clear_text_input_affordances(ctx, focused_id);
+            return;
+        };
+        let Some((scroll_id, _text_node_id, scroll_direction)) =
+            Self::find_scroll_container_and_text_op(ctx.ir, focused_id, semantics.multiline)
+        else {
+            Self::clear_text_input_affordances(ctx, focused_id);
+            return;
+        };
+        let Some(scroll_geom) = ctx.layout.get_node_geometry(scroll_id).cloned() else {
+            Self::clear_text_input_affordances(ctx, focused_id);
+            return;
+        };
+
+        let display_value = Self::display_value_for_metrics(
+            ctx,
+            focused_id,
+            semantics.value.as_deref().unwrap_or(value),
+        );
+        let metric_text = if semantics.masked {
+            Self::mask_text_for_metrics(&display_value)
+        } else {
+            display_value.clone()
+        };
+        let (caret, anchor, active_handle) = {
+            let state = ctx.text_edit.get_mut_or_default(focused_id);
+            (state.caret, state.anchor, state.affordances.active_handle)
+        };
+
+        let map_metric_index = |index: usize| {
+            if semantics.masked {
+                Self::masked_byte_offset_from_source(&display_value, &metric_text, index)
+            } else {
+                index.min(metric_text.len())
+            }
+        };
+
+        let scroll_offset = ctx.scroll.get_offset(scroll_id);
+        let caret_point = Self::local_text_point_for_index(
+            measurer,
+            ctx.ir,
+            focused_id,
+            &wrapper_geom,
+            &scroll_geom,
+            scroll_direction,
+            scroll_offset,
+            &metric_text,
+            map_metric_index(caret),
+        );
+        let anchor_point = Self::local_text_point_for_index(
+            measurer,
+            ctx.ir,
+            focused_id,
+            &wrapper_geom,
+            &scroll_geom,
+            scroll_direction,
+            scroll_offset,
+            &metric_text,
+            map_metric_index(anchor),
+        );
+
+        let selection_range = if caret == anchor {
+            None
+        } else {
+            Some((caret.min(anchor), caret.max(anchor)))
+        };
+
+        let toolbar_anchor = if let Some(override_point) = toolbar_anchor_override {
+            Some(override_point)
+        } else {
+            match (caret_point, anchor_point, selection_range) {
+                (Some(caret_point), Some(anchor_point), Some(_)) => Some(fission_layout::LayoutPoint::new(
+                    (caret_point.x + anchor_point.x) * 0.5,
+                    caret_point.y.min(anchor_point.y),
+                )),
+                (Some(point), _, None) => Some(point),
+                _ => None,
+            }
+        };
+
+        let state = ctx.text_edit.get_mut_or_default(focused_id);
+        state.affordances.toolbar_visible = toolbar_visible;
+        state.affordances.toolbar_anchor = toolbar_anchor;
+        state.affordances.magnifier_visible = active_handle.is_some();
+        state.affordances.magnifier_anchor = match active_handle {
+            Some(TextSelectionHandleKind::Caret) => caret_point,
+            Some(TextSelectionHandleKind::Start) => anchor_point,
+            Some(TextSelectionHandleKind::End) => caret_point,
+            None => None,
+        };
+        if selection_range.is_some() {
+            let (start_point, end_point) = if caret <= anchor {
+                (caret_point, anchor_point)
+            } else {
+                (anchor_point, caret_point)
+            };
+            state.affordances.caret_handle = None;
+            state.affordances.selection_start_handle = start_point;
+            state.affordances.selection_end_handle = end_point;
+        } else {
+            state.affordances.caret_handle = caret_point;
+            state.affordances.selection_start_handle = None;
+            state.affordances.selection_end_handle = None;
         }
     }
 
