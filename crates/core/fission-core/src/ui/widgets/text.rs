@@ -1,13 +1,15 @@
 use crate::lowering::{LoweringContext, NodeBuilder};
 use crate::ui::traits::Lower;
+use crate::ActionEnvelope;
 use fission_ir::{
     op::{
         decode_inline_widget_marker, encode_inline_widget_marker, Color as IrColor,
-        FontStyle as IrFontStyle, LayoutOp, Op, PaintOp,
-        TextAlign as IrTextAlign, TextOverflow as IrTextOverflow,
-        TextParagraphStyle as IrTextParagraphStyle, TextRun as IrTextRun,
+        FontStyle as IrFontStyle, LayoutOp, Op, PaintOp, TextAlign as IrTextAlign,
+        TextOverflow as IrTextOverflow, TextParagraphStyle as IrTextParagraphStyle,
+        TextRun as IrTextRun,
     },
-    CompositeStyle, NodeId, Semantics,
+    semantics::ActionTrigger,
+    ActionEntry, CompositeStyle, NodeId, Role, Semantics,
 };
 use serde::{Deserialize, Serialize};
 
@@ -103,6 +105,8 @@ impl TextRunStyle {
 pub struct RichTextRun {
     pub text: String,
     pub style: TextRunStyle,
+    pub semantics_label: Option<String>,
+    pub semantics_identifier: Option<String>,
 }
 
 impl RichTextRun {
@@ -110,6 +114,8 @@ impl RichTextRun {
         Self {
             text: text.into(),
             style: TextRunStyle::default(),
+            semantics_label: None,
+            semantics_identifier: None,
         }
     }
 
@@ -169,6 +175,16 @@ impl RichTextRun {
 
     pub fn background_color(mut self, color: IrColor) -> Self {
         self.style.background_color = Some(color);
+        self
+    }
+
+    pub fn semantics_label(mut self, label: impl Into<String>) -> Self {
+        self.semantics_label = Some(label.into());
+        self
+    }
+
+    pub fn semantics_identifier(mut self, identifier: impl Into<String>) -> Self {
+        self.semantics_identifier = Some(identifier.into());
         self
     }
 
@@ -407,6 +423,8 @@ impl RichTextSpan {
                             text_scale: style.text_scale,
                             background_color: None,
                         },
+                        semantics_label: None,
+                        semantics_identifier: None,
                     });
                 }
             }
@@ -470,8 +488,8 @@ impl From<RichTextRun> for RichTextSpan {
                 background_color: value.style.background_color,
             },
             children: Vec::new(),
-            semantics_label: None,
-            semantics_identifier: None,
+            semantics_label: value.semantics_label,
+            semantics_identifier: value.semantics_identifier,
         }
     }
 }
@@ -676,6 +694,42 @@ impl Text {
         self
     }
 
+    pub fn on_tap(mut self, action: ActionEnvelope) -> Self {
+        self.semantics = Some(merge_semantics_action(
+            self.semantics.take(),
+            ActionTrigger::Default,
+            action,
+        ));
+        self
+    }
+
+    pub fn on_hover_enter(mut self, action: ActionEnvelope) -> Self {
+        self.semantics = Some(merge_semantics_action(
+            self.semantics.take(),
+            ActionTrigger::HoverEnter,
+            action,
+        ));
+        self
+    }
+
+    pub fn on_hover_exit(mut self, action: ActionEnvelope) -> Self {
+        self.semantics = Some(merge_semantics_action(
+            self.semantics.take(),
+            ActionTrigger::HoverExit,
+            action,
+        ));
+        self
+    }
+
+    pub fn on_secondary_click(mut self, action: ActionEnvelope) -> Self {
+        self.semantics = Some(merge_semantics_action(
+            self.semantics.take(),
+            ActionTrigger::SecondaryClick,
+            action,
+        ));
+        self
+    }
+
     pub fn into_node(self) -> crate::ui::Node {
         crate::ui::Node::Text(self)
     }
@@ -750,6 +804,13 @@ pub struct RichText {
 
 impl RichText {
     pub fn new(runs: Vec<RichTextRun>) -> Self {
+        if runs
+            .iter()
+            .any(|run| run.semantics_label.is_some() || run.semantics_identifier.is_some())
+        {
+            return Self::from_spans(runs);
+        }
+
         Self {
             runs,
             inline_widgets: Vec::new(),
@@ -813,6 +874,8 @@ impl RichText {
                             text_scale: None,
                             background_color: None,
                         },
+                        semantics_label: None,
+                        semantics_identifier: None,
                     });
                     if let Some(label) = &widget.semantics_label {
                         semantics_text.push_str(label);
@@ -822,8 +885,12 @@ impl RichText {
             }
         }
 
-        let mut rich_text = Self::new(runs);
-        rich_text.inline_widgets = inline_widgets;
+        let mut rich_text = Self {
+            runs,
+            inline_widgets,
+            wrap: true,
+            ..Default::default()
+        };
         if let Some(identifier) = semantics_identifier {
             rich_text = rich_text.semantics_identifier(identifier);
         }
@@ -923,6 +990,42 @@ impl RichText {
         self
     }
 
+    pub fn on_tap(mut self, action: ActionEnvelope) -> Self {
+        self.semantics = Some(merge_semantics_action(
+            self.semantics.take(),
+            ActionTrigger::Default,
+            action,
+        ));
+        self
+    }
+
+    pub fn on_hover_enter(mut self, action: ActionEnvelope) -> Self {
+        self.semantics = Some(merge_semantics_action(
+            self.semantics.take(),
+            ActionTrigger::HoverEnter,
+            action,
+        ));
+        self
+    }
+
+    pub fn on_hover_exit(mut self, action: ActionEnvelope) -> Self {
+        self.semantics = Some(merge_semantics_action(
+            self.semantics.take(),
+            ActionTrigger::HoverExit,
+            action,
+        ));
+        self
+    }
+
+    pub fn on_secondary_click(mut self, action: ActionEnvelope) -> Self {
+        self.semantics = Some(merge_semantics_action(
+            self.semantics.take(),
+            ActionTrigger::SecondaryClick,
+            action,
+        ));
+        self
+    }
+
     pub fn into_node(self) -> crate::ui::Node {
         crate::ui::Node::RichText(self)
     }
@@ -950,6 +1053,8 @@ fn push_rich_text_run(runs: &mut Vec<RichTextRun>, text: &str, style: &TextRunSt
     runs.push(RichTextRun {
         text: text.to_string(),
         style: style.clone(),
+        semantics_label: None,
+        semantics_identifier: None,
     });
 }
 
@@ -959,7 +1064,8 @@ fn apply_selection_to_runs(
     selection_color: Option<IrColor>,
     selection_text_color: Option<IrColor>,
 ) -> Vec<IrTextRun> {
-    let Some((start, end)) = selection_range.map(|(start, end)| (start.min(end), start.max(end))) else {
+    let Some((start, end)) = selection_range.map(|(start, end)| (start.min(end), start.max(end)))
+    else {
         return runs;
     };
     if start == end {
@@ -1023,6 +1129,32 @@ fn merge_semantics_label(semantics: Option<Semantics>, label: impl Into<String>)
     let mut semantics = semantics.unwrap_or_default();
     semantics.label = Some(label.into());
     semantics
+}
+
+fn merge_semantics_action(
+    semantics: Option<Semantics>,
+    trigger: ActionTrigger,
+    action: ActionEnvelope,
+) -> Semantics {
+    let mut semantics = semantics.unwrap_or_default();
+    upsert_semantics_action(&mut semantics, trigger, &action);
+    semantics
+}
+
+fn upsert_semantics_action(
+    semantics: &mut Semantics,
+    trigger: ActionTrigger,
+    action: &ActionEnvelope,
+) {
+    semantics
+        .actions
+        .entries
+        .retain(|entry| entry.trigger != trigger);
+    semantics.actions.entries.push(ActionEntry {
+        trigger,
+        action_id: action.id.as_u128(),
+        payload_data: Some(action.payload.clone()),
+    });
 }
 
 fn wrap_paint_in_layout(
@@ -1120,7 +1252,15 @@ fn maybe_wrap_semantics(
     multiline: bool,
 ) -> NodeId {
     if let Some(mut s) = semantics {
+        if s.role == Role::Generic {
+            s.role = Role::Text;
+        }
         s.multiline = multiline;
+        s.focusable |= s
+            .actions
+            .entries
+            .iter()
+            .any(|entry| entry.trigger == ActionTrigger::Default);
         let mut semantics_builder = NodeBuilder::new(cx.next_node_id(), Op::Semantics(s));
         semantics_builder.add_child(layout_node_id);
         semantics_builder.build(cx)

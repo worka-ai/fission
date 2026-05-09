@@ -5,9 +5,11 @@ use fission_core::ui::widgets::text_input::{
     TextAlignVertical, TextContextMenuAction, TextMagnifierConfiguration,
 };
 use fission_core::ui::{Button, Container, Node, RichText, RichTextRun, Spacer, Text, TextInput};
+use fission_core::{ActionEnvelope, ActionId};
 use fission_ir::op::{
     decode_inline_widget_marker, Color, Fill, LayoutOp, Op, PaintOp, TextAlign, TextOverflow,
 };
+use fission_ir::semantics::ActionTrigger;
 use fission_ir::{CoreIR, FlexDirection};
 
 fn lower_node(node: Node) -> CoreIR {
@@ -64,6 +66,13 @@ fn layout_ops(ir: &CoreIR) -> impl Iterator<Item = &LayoutOp> {
         Op::Layout(op) => Some(op),
         _ => None,
     })
+}
+
+fn test_action(name: &str, payload: &'static [u8]) -> ActionEnvelope {
+    ActionEnvelope {
+        id: ActionId::from_name(name),
+        payload: payload.to_vec(),
+    }
 }
 
 #[test]
@@ -519,17 +528,19 @@ fn rich_text_inline_widgets_lower_marker_runs_and_child_nodes() {
     let ir = lower_node(
         RichText::from_spans(vec![
             RichTextChild::from(RichTextSpan::new("Before ")),
-            RichTextChild::from(InlineWidgetSpan::new(
-                Spacer {
-                    width: Some(18.0),
-                    height: Some(10.0),
-                    ..Default::default()
-                }
-                .into_node(),
-                18.0,
-                10.0,
-            )
-            .semantics_label("[badge]")),
+            RichTextChild::from(
+                InlineWidgetSpan::new(
+                    Spacer {
+                        width: Some(18.0),
+                        height: Some(10.0),
+                        ..Default::default()
+                    }
+                    .into_node(),
+                    18.0,
+                    10.0,
+                )
+                .semantics_label("[badge]"),
+            ),
             RichTextChild::from(RichTextSpan::new(" after")),
         ])
         .into_node(),
@@ -586,7 +597,48 @@ fn rich_text_span_semantics_labels_wrap_accessible_text() {
         .expect("rich text semantics");
 
     assert_eq!(semantics.label.as_deref(), Some("For your information!"));
+    assert_eq!(semantics.role, fission_ir::Role::Text);
     assert!(semantics.multiline);
+}
+
+#[test]
+fn text_semantics_actions_keep_text_role_and_focusability() {
+    let tap = test_action("tests::text_tap", br#""tap""#);
+    let hover = test_action("tests::text_hover", br#""hover""#);
+    let secondary = test_action("tests::text_secondary", br#""secondary""#);
+
+    let ir = lower_node(
+        Text::new("Docs")
+            .semantics_label("Read docs")
+            .on_tap(tap.clone())
+            .on_hover_enter(hover.clone())
+            .on_secondary_click(secondary.clone())
+            .into_node(),
+    );
+
+    let semantics = ir
+        .nodes
+        .values()
+        .find_map(|node| match &node.op {
+            Op::Semantics(semantics) if semantics.label.as_deref() == Some("Read docs") => {
+                Some(semantics)
+            }
+            _ => None,
+        })
+        .expect("text semantics");
+
+    assert_eq!(semantics.role, fission_ir::Role::Text);
+    assert!(semantics.focusable);
+    assert!(!semantics.multiline);
+    assert!(semantics.actions.entries.iter().any(|entry| {
+        entry.trigger == ActionTrigger::Default && entry.action_id == tap.id.as_u128()
+    }));
+    assert!(semantics.actions.entries.iter().any(|entry| {
+        entry.trigger == ActionTrigger::HoverEnter && entry.action_id == hover.id.as_u128()
+    }));
+    assert!(semantics.actions.entries.iter().any(|entry| {
+        entry.trigger == ActionTrigger::SecondaryClick && entry.action_id == secondary.id.as_u128()
+    }));
 }
 
 #[test]
@@ -619,7 +671,15 @@ fn text_locale_scale_selection_and_identifier_lower_to_rich_text() {
     assert_eq!(runs[0].text, "Visible");
     assert_eq!(runs[0].style.locale.as_deref(), Some("fr-FR"));
     assert_eq!(runs[0].style.font_size, base_size * 1.25);
-    assert_eq!(runs[0].style.background_color, Some(Color { r: 1, g: 2, b: 3, a: 255 }));
+    assert_eq!(
+        runs[0].style.background_color,
+        Some(Color {
+            r: 1,
+            g: 2,
+            b: 3,
+            a: 255
+        })
+    );
     assert_eq!(runs[0].style.color, Color::WHITE);
     assert_eq!(runs[1].style.locale.as_deref(), Some("fr-FR"));
 
@@ -675,6 +735,39 @@ fn rich_text_identifier_and_locale_propagate_from_nested_spans() {
 }
 
 #[test]
+fn rich_text_run_semantics_metadata_surfaces_without_nested_spans() {
+    let hover_exit = test_action("tests::rich_text_hover_exit", br#""leave""#);
+    let ir = lower_node(
+        RichText::new(vec![
+            RichTextRun::new("Tap ").semantics_identifier("footer-copy"),
+            RichTextRun::new("here").semantics_label("link"),
+            RichTextRun::new(" now"),
+        ])
+        .on_hover_exit(hover_exit.clone())
+        .into_node(),
+    );
+
+    let semantics = ir
+        .nodes
+        .values()
+        .find_map(|node| match &node.op {
+            Op::Semantics(semantics) if semantics.identifier.as_deref() == Some("footer-copy") => {
+                Some(semantics)
+            }
+            _ => None,
+        })
+        .expect("rich text semantics");
+
+    assert_eq!(semantics.role, fission_ir::Role::Text);
+    assert_eq!(semantics.label.as_deref(), Some("Tap link now"));
+    assert_eq!(semantics.identifier.as_deref(), Some("footer-copy"));
+    assert!(semantics.multiline);
+    assert!(semantics.actions.entries.iter().any(|entry| {
+        entry.trigger == ActionTrigger::HoverExit && entry.action_id == hover_exit.id.as_u128()
+    }));
+}
+
+#[test]
 fn text_semantics_label_builder_sets_label() {
     let ir = lower_node(
         Text::new("Visible")
@@ -692,6 +785,7 @@ fn text_semantics_label_builder_sets_label() {
         .expect("text semantics");
 
     assert_eq!(semantics.label.as_deref(), Some("Screen reader"));
+    assert_eq!(semantics.role, fission_ir::Role::Text);
     assert!(!semantics.multiline);
 }
 
@@ -733,12 +827,10 @@ fn focused_text_input_lowers_toolbar_handles_and_magnifier_overlays() {
         input_id,
         TextSelectionHandleKind::End
     )));
-    assert!(ir
-        .nodes
-        .contains_key(&test_text_input_toolbar_button_id(
-            input_id,
-            TextContextMenuAction::Copy
-        )));
+    assert!(ir.nodes.contains_key(&test_text_input_toolbar_button_id(
+        input_id,
+        TextContextMenuAction::Copy
+    )));
 
     let magnifier_box = ir
         .nodes
@@ -754,7 +846,10 @@ fn focused_text_input_lowers_toolbar_handles_and_magnifier_overlays() {
             )
         })
         .expect("magnifier positioned overlay");
-    assert!(matches!(magnifier_box.op, Op::Layout(LayoutOp::Positioned { .. })));
+    assert!(matches!(
+        magnifier_box.op,
+        Op::Layout(LayoutOp::Positioned { .. })
+    ));
 
     assert!(paint_ops(&ir).any(|op| matches!(op, PaintOp::DrawRichText { .. })));
 }
