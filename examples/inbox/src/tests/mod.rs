@@ -367,10 +367,12 @@ fn click_rect(h: &mut TestHarness<InboxState>, rect: LayoutRect) -> Result<()> {
     h.send_event(InputEvent::Pointer(PointerEvent::Down {
         point,
         button: PointerButton::Primary,
+        modifiers: 0,
     }))?;
     h.send_event(InputEvent::Pointer(PointerEvent::Up {
         point,
         button: PointerButton::Primary,
+        modifiers: 0,
     }))?;
     Ok(())
 }
@@ -536,10 +538,12 @@ fn click(h: &mut TestHarness<InboxState>, x: f32, y: f32) -> Result<()> {
     h.send_event(InputEvent::Pointer(PointerEvent::Down {
         point,
         button: PointerButton::Primary,
+        modifiers: 0,
     }))?;
     h.send_event(InputEvent::Pointer(PointerEvent::Up {
         point,
         button: PointerButton::Primary,
+        modifiers: 0,
     }))?;
     Ok(())
 }
@@ -940,7 +944,7 @@ text_test!(tag_label_present, state_detail(), "Work");
 text_test!(wrap_tag_present, state_default(), "Planning");
 #[test]
 fn stat_help_text_present() -> Result<()> {
-    let h = pump_state_with_viewport(state_default(), 1400.0, 960.0)?;
+    let h = pump_state_with_viewport(state_default(), 1400.0, 1000.0)?;
     assert!(
         has_text(&h, "All folders"),
         "expected wide sidebar stats help text to be present"
@@ -1035,7 +1039,7 @@ layout_test!(
 
 #[test]
 fn calendar_grid_present() -> Result<()> {
-    let h = pump_state_with_viewport(state_default(), 1400.0, 960.0)?;
+    let h = pump_state_with_viewport(state_default(), 1400.0, 1000.0)?;
     let ir = h.last_ir.as_ref().unwrap();
     let found = ir.nodes.values().any(|n| match &n.op {
         Op::Layout(LayoutOp::Grid { columns, .. }) => {

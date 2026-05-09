@@ -170,6 +170,7 @@ fn test_modal_backdrop_dismiss() {
         fission_core::PointerEvent::Down {
             point: fission_core::LayoutPoint::new(10.0, 10.0),
             button: fission_core::PointerButton::Primary,
+            modifiers: 0,
         },
     ))
     .unwrap();
@@ -178,6 +179,7 @@ fn test_modal_backdrop_dismiss() {
         fission_core::PointerEvent::Up {
             point: fission_core::LayoutPoint::new(10.0, 10.0),
             button: fission_core::PointerButton::Primary,
+            modifiers: 0,
         },
     ))
     .unwrap();
@@ -248,12 +250,14 @@ fn test_modal_close_button_dismiss() {
     h.send_event(fission_core::InputEvent::Pointer(PointerEvent::Down {
         point: center,
         button: PointerButton::Primary,
+        modifiers: 0,
     }))
     .unwrap();
     h.pump().unwrap();
     h.send_event(fission_core::InputEvent::Pointer(PointerEvent::Up {
         point: center,
         button: PointerButton::Primary,
+        modifiers: 0,
     }))
     .unwrap();
     h.pump().unwrap();

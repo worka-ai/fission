@@ -319,6 +319,11 @@ impl LowerDyn for EditorRenderNode {
                     underline: false,
                     wrap: false,
                     caret_index: None,
+                    caret_color: None,
+                    caret_width: None,
+                    caret_height: None,
+                    caret_radius: None,
+                    paragraph_style: None,
                 }),
             )
             .build(cx);
@@ -351,6 +356,12 @@ impl LowerDyn for EditorRenderNode {
                         font_size: self.font_size,
                         color: DEFAULT_TEXT,
                         underline: false,
+                        font_family: None,
+                        locale: None,
+                        font_weight: 400,
+                        font_style: fission_ir::op::FontStyle::Normal,
+                        line_height: None,
+                        letter_spacing: 0.0,
                         background_color: None,
                     },
                 }]
@@ -363,6 +374,12 @@ impl LowerDyn for EditorRenderNode {
                             font_size: self.font_size,
                             color: span.color,
                             underline: false,
+                            font_family: None,
+                            locale: None,
+                            font_weight: 400,
+                            font_style: fission_ir::op::FontStyle::Normal,
+                            line_height: None,
+                            letter_spacing: 0.0,
                             background_color: None,
                         },
                     })
@@ -374,6 +391,12 @@ impl LowerDyn for EditorRenderNode {
                         font_size: self.font_size,
                         color: DEFAULT_TEXT,
                         underline: false,
+                        font_family: None,
+                        locale: None,
+                        font_weight: 400,
+                        font_style: fission_ir::op::FontStyle::Normal,
+                        line_height: None,
+                        letter_spacing: 0.0,
                         background_color: None,
                     },
                 }]
@@ -385,6 +408,11 @@ impl LowerDyn for EditorRenderNode {
                     runs,
                     wrap: self.wraps_softly(),
                     caret_index: None,
+                    caret_color: None,
+                    caret_width: None,
+                    caret_height: None,
+                    caret_radius: None,
+                    paragraph_style: None,
                 }),
             )
             .build(cx);
@@ -1045,6 +1073,9 @@ impl EditorRenderNode {
                 } else {
                     return CustomEventResult::ignored();
                 }
+            }
+            KeyCode::Delete | KeyCode::PageUp | KeyCode::PageDown => {
+                return CustomEventResult::ignored();
             }
         }
 

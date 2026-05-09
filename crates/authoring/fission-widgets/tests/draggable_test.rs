@@ -116,6 +116,7 @@ fn test_internal_drag_drop_flow() {
             fission_core::InputEvent::Pointer(fission_core::PointerEvent::Down {
                 point: down_point,
                 button: fission_core::PointerButton::Primary,
+                modifiers: 0,
             }),
             &ir,
             &snapshot,
@@ -131,6 +132,7 @@ fn test_internal_drag_drop_flow() {
         .handle_input(
             fission_core::InputEvent::Pointer(fission_core::PointerEvent::Move {
                 point: move_point,
+                modifiers: 0,
             }),
             &ir,
             &snapshot,
@@ -150,6 +152,7 @@ fn test_internal_drag_drop_flow() {
             fission_core::InputEvent::Pointer(fission_core::PointerEvent::Up {
                 point: move_point,
                 button: fission_core::PointerButton::Primary,
+                modifiers: 0,
             }),
             &ir,
             &snapshot,

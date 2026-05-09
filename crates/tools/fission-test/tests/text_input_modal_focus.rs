@@ -83,6 +83,7 @@ fn clicking_text_input_inside_modal_sets_focus() -> Result<()> {
     h.send_event(fission_core::InputEvent::Pointer(PointerEvent::Down {
         point: center,
         button: PointerButton::Primary,
+        modifiers: 0,
     }))?;
     h.pump()?;
 
