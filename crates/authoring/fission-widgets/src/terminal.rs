@@ -452,6 +452,7 @@ impl TerminalRenderNode {
                     color: to_ir_color(self.snapshot.palette.foreground),
                     underline: false,
                     font_family: None,
+                    locale: None,
                     font_weight: 400,
                     font_style: fission_ir::op::FontStyle::Normal,
                     line_height: None,
@@ -493,6 +494,11 @@ impl LowerDyn for TerminalRenderNode {
                     runs: self.row_runs(line),
                     wrap: false,
                     caret_index: None,
+                    caret_color: None,
+                    caret_width: None,
+                    caret_height: None,
+                    caret_radius: None,
+                    paragraph_style: None,
                 }),
             )
             .build(cx);
@@ -666,7 +672,7 @@ impl CustomRenderObject for TerminalRenderNode {
         node_rect: LayoutRect,
     ) -> CustomEventResult {
         match event {
-            InputEvent::Pointer(PointerEvent::Down { point, button }) => {
+            InputEvent::Pointer(PointerEvent::Down { point, button, .. }) => {
                 self.session.set_focused(true);
                 let (row, col, x_pixel_offset, y_pixel_offset) =
                     self.point_to_cell(*point, node_rect);
@@ -687,7 +693,7 @@ impl CustomRenderObject for TerminalRenderNode {
                 }
                 CustomEventResult::consumed()
             }
-            InputEvent::Pointer(PointerEvent::Move { point }) => {
+            InputEvent::Pointer(PointerEvent::Move { point, .. }) => {
                 let (row, col, x_pixel_offset, y_pixel_offset) =
                     self.point_to_cell(*point, node_rect);
                 if self.snapshot.mouse_grabbed {
@@ -705,7 +711,7 @@ impl CustomRenderObject for TerminalRenderNode {
                 }
                 CustomEventResult::consumed()
             }
-            InputEvent::Pointer(PointerEvent::Up { point, button }) => {
+            InputEvent::Pointer(PointerEvent::Up { point, button, .. }) => {
                 let (row, col, x_pixel_offset, y_pixel_offset) =
                     self.point_to_cell(*point, node_rect);
                 if self.snapshot.mouse_grabbed
@@ -725,7 +731,7 @@ impl CustomRenderObject for TerminalRenderNode {
                 }
                 CustomEventResult::consumed()
             }
-            InputEvent::Pointer(PointerEvent::Scroll { point, delta }) => {
+            InputEvent::Pointer(PointerEvent::Scroll { point, delta, .. }) => {
                 let lines = if delta.y.abs() < 1.0 {
                     1
                 } else {
@@ -1234,6 +1240,7 @@ fn map_key_code(key: &KeyCode) -> TermKeyCode {
         KeyCode::Enter => TermKeyCode::Enter,
         KeyCode::Escape => TermKeyCode::Escape,
         KeyCode::Backspace => TermKeyCode::Backspace,
+        KeyCode::Delete => TermKeyCode::Delete,
         KeyCode::Tab => TermKeyCode::Tab,
         KeyCode::Left => TermKeyCode::LeftArrow,
         KeyCode::Right => TermKeyCode::RightArrow,
@@ -1241,6 +1248,8 @@ fn map_key_code(key: &KeyCode) -> TermKeyCode {
         KeyCode::Down => TermKeyCode::DownArrow,
         KeyCode::Home => TermKeyCode::Home,
         KeyCode::End => TermKeyCode::End,
+        KeyCode::PageUp => TermKeyCode::PageUp,
+        KeyCode::PageDown => TermKeyCode::PageDown,
         KeyCode::Char(ch) => TermKeyCode::Char(*ch),
     }
 }
@@ -1351,6 +1360,7 @@ fn flush_run(
             color: style.fg,
             underline: style.underline,
             font_family: None,
+            locale: None,
             font_weight: 400,
             font_style: fission_ir::op::FontStyle::Normal,
             line_height: None,

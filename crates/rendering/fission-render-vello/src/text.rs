@@ -1,12 +1,16 @@
 use fission_diagnostics::prelude as diag;
-use fission_ir::op::FontStyle as IrFontStyle;
-use fission_ir::op::TextRun;
-use fission_layout::{LineMetric, TextMeasurer};
+use fission_ir::op::{
+    decode_inline_widget_marker, FontStyle as IrFontStyle, RichTextAnnotation, TextParagraphStyle,
+    TextRun,
+};
+use fission_ir::ActionEntry;
+use fission_layout::{LineMetric, RichTextInlineBox, RichTextLayoutInfo, TextMeasurer};
 use fission_render::TextStyle as RenderTextStyle;
 use parley::layout::{Layout, PositionedLayoutItem};
 use parley::style::{
     FontStack, FontStyle as ParleyFontStyle, FontWeight, LineHeight, StyleProperty,
 };
+use parley::InlineBox;
 use parley::{FontContext, LayoutContext};
 use std::borrow::Cow;
 use std::collections::HashMap;
@@ -32,6 +36,7 @@ struct RichCacheKey {
     base_color_rgba: [u8; 4],
     width_bits: Option<u32>,
     styles: Vec<RichStyleKey>,
+    inline_boxes: Vec<InlineBoxKey>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
@@ -41,11 +46,37 @@ struct RichStyleKey {
     color_rgba: [u8; 4],
     underline: bool,
     font_family: Option<String>,
+    locale: Option<String>,
     font_weight: u16,
     font_style: IrFontStyle,
     line_height_bits: Option<u32>,
     letter_spacing_bits: u32,
     background_color: Option<[u8; 4]>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+struct InlineBoxKey {
+    id: u64,
+    index: usize,
+    width_bits: u32,
+    height_bits: u32,
+}
+
+#[derive(Clone, Debug)]
+pub(crate) struct RichInlineBox {
+    pub(crate) id: u64,
+    pub(crate) index: usize,
+    pub(crate) width: f32,
+    pub(crate) height: f32,
+}
+
+#[derive(Clone, Debug)]
+pub(crate) struct RichLayoutInput {
+    pub(crate) text: String,
+    pub(crate) base_size: f32,
+    pub(crate) base_color: fission_render::Color,
+    pub(crate) styles: Vec<(std::ops::Range<usize>, RenderTextStyle)>,
+    pub(crate) inline_boxes: Vec<RichInlineBox>,
 }
 
 pub(crate) fn text_style_requires_rich_layout(style: &RenderTextStyle) -> bool {
@@ -104,6 +135,99 @@ impl VelloTextMeasurer {
 
     fn width_bits(width: Option<f32>) -> Option<u32> {
         width.map(|w| ((w * 4.0).round() / 4.0).to_bits())
+    }
+
+    fn inline_box_key(inline_box: &RichInlineBox) -> InlineBoxKey {
+        InlineBoxKey {
+            id: inline_box.id,
+            index: inline_box.index,
+            width_bits: inline_box.width.to_bits(),
+            height_bits: inline_box.height.to_bits(),
+        }
+    }
+
+    pub(crate) fn rich_layout_input_from_render_runs(
+        runs: &[fission_render::TextRun],
+    ) -> RichLayoutInput {
+        let mut text = String::new();
+        let mut styles = Vec::new();
+        let mut inline_boxes = Vec::new();
+        let mut start = 0usize;
+
+        for run in runs {
+            if run.text.is_empty() {
+                if let Some(marker) = decode_inline_widget_marker(run.style.font_family.as_deref())
+                {
+                    inline_boxes.push(RichInlineBox {
+                        id: marker.id,
+                        index: start,
+                        width: marker.width,
+                        height: marker.height,
+                    });
+                    continue;
+                }
+            }
+
+            text.push_str(&run.text);
+            let end = start + run.text.len();
+            styles.push((start..end, run.style.clone()));
+            start = end;
+        }
+
+        let (base_size, base_color) =
+            if let Some(first) = runs.iter().find(|run| !run.text.is_empty()) {
+                (first.style.font_size, first.style.color)
+            } else {
+                (
+                    14.0,
+                    fission_render::Color {
+                        r: 0,
+                        g: 0,
+                        b: 0,
+                        a: 255,
+                    },
+                )
+            };
+
+        RichLayoutInput {
+            text,
+            base_size,
+            base_color,
+            styles,
+            inline_boxes,
+        }
+    }
+
+    fn rich_layout_input_from_ir_runs(runs: &[TextRun]) -> RichLayoutInput {
+        let render_runs = runs
+            .iter()
+            .map(|run| fission_render::TextRun {
+                text: run.text.clone(),
+                style: RenderTextStyle {
+                    font_size: run.style.font_size,
+                    color: fission_render::Color {
+                        r: run.style.color.r,
+                        g: run.style.color.g,
+                        b: run.style.color.b,
+                        a: run.style.color.a,
+                    },
+                    underline: run.style.underline,
+                    font_family: run.style.font_family.clone(),
+                    locale: run.style.locale.clone(),
+                    font_weight: run.style.font_weight,
+                    font_style: run.style.font_style,
+                    line_height: run.style.line_height,
+                    letter_spacing: run.style.letter_spacing,
+                    background_color: run.style.background_color.map(|c| fission_render::Color {
+                        r: c.r,
+                        g: c.g,
+                        b: c.b,
+                        a: c.a,
+                    }),
+                },
+            })
+            .collect::<Vec<_>>();
+        Self::rich_layout_input_from_render_runs(&render_runs)
     }
 
     pub fn get_layout(
@@ -168,7 +292,12 @@ impl VelloTextMeasurer {
         layout_arc
     }
 
-    fn hit_test_layout_impl(text: &str, layout: &Layout<ParleyBrush>, x: f32, y: f32) -> usize {
+    pub(crate) fn hit_test_layout_impl(
+        text: &str,
+        layout: &Layout<ParleyBrush>,
+        x: f32,
+        y: f32,
+    ) -> usize {
         let mut target_line: Option<(usize, usize)> = None;
         let mut best_distance = f32::INFINITY;
 
@@ -246,6 +375,45 @@ impl VelloTextMeasurer {
         fallback_idx.min(text.len())
     }
 
+    pub(crate) fn hit_test_layout_index_at_point(
+        text: &str,
+        layout: &Layout<ParleyBrush>,
+        x: f32,
+        y: f32,
+    ) -> Option<usize> {
+        for line in layout.lines() {
+            let metrics = line.metrics();
+            let top = metrics.baseline - metrics.ascent;
+            let bottom = metrics.baseline + metrics.descent;
+            if y < top || y > bottom {
+                continue;
+            }
+
+            let mut left = f32::INFINITY;
+            let mut right = f32::NEG_INFINITY;
+            for item in line.items() {
+                match item {
+                    PositionedLayoutItem::GlyphRun(glyph_run) => {
+                        left = left.min(glyph_run.offset());
+                        right = right.max(glyph_run.offset() + glyph_run.advance());
+                    }
+                    PositionedLayoutItem::InlineBox(inline_box) => {
+                        left = left.min(inline_box.x);
+                        right = right.max(inline_box.x + inline_box.width);
+                    }
+                }
+            }
+
+            if !left.is_finite() || x < left || x > right {
+                return None;
+            }
+
+            return Some(Self::hit_test_layout_impl(text, layout, x, y));
+        }
+
+        None
+    }
+
     fn next_char_boundary(text: &str, idx: usize) -> usize {
         if idx >= text.len() {
             return text.len();
@@ -259,12 +427,24 @@ impl VelloTextMeasurer {
         }
     }
 
-    pub fn layout_rich(
+    fn prev_char_boundary(text: &str, idx: usize) -> usize {
+        if idx == 0 || idx > text.len() {
+            return 0;
+        }
+        let mut prev = 0usize;
+        for (offset, _) in text[..idx].char_indices() {
+            prev = offset;
+        }
+        prev
+    }
+
+    pub(crate) fn layout_rich(
         &self,
         text: &str,
         base_size: f32,
         base_color: fission_render::Color,
         styles: &[(std::ops::Range<usize>, RenderTextStyle)],
+        inline_boxes: &[RichInlineBox],
         width: Option<f32>,
     ) -> Arc<Layout<ParleyBrush>> {
         let start = Instant::now();
@@ -276,6 +456,7 @@ impl VelloTextMeasurer {
                 color_rgba: [s.color.r, s.color.g, s.color.b, s.color.a],
                 underline: s.underline,
                 font_family: s.font_family.clone(),
+                locale: s.locale.clone(),
                 font_weight: s.font_weight,
                 font_style: s.font_style,
                 line_height_bits: s.line_height.map(f32::to_bits),
@@ -283,6 +464,10 @@ impl VelloTextMeasurer {
                 background_color: s.background_color.map(|c| [c.r, c.g, c.b, c.a]),
             })
             .collect();
+        let inline_box_keys = inline_boxes
+            .iter()
+            .map(Self::inline_box_key)
+            .collect::<Vec<_>>();
 
         let cache_key = RichCacheKey {
             text: text.to_string(),
@@ -290,6 +475,7 @@ impl VelloTextMeasurer {
             base_color_rgba: [base_color.r, base_color.g, base_color.b, base_color.a],
             width_bits: Self::width_bits(width),
             styles: style_keys,
+            inline_boxes: inline_box_keys,
         };
 
         {
@@ -319,6 +505,14 @@ impl VelloTextMeasurer {
         ))));
         let brush = ParleyBrush([base_color.r, base_color.g, base_color.b, base_color.a]);
         builder.push_default(StyleProperty::Brush(brush));
+        for inline_box in inline_boxes {
+            builder.push_inline_box(InlineBox {
+                id: inline_box.id,
+                index: inline_box.index,
+                width: inline_box.width,
+                height: inline_box.height,
+            });
+        }
 
         for (range, style) in styles {
             let brush = ParleyBrush([style.color.r, style.color.g, style.color.b, style.color.a]);
@@ -329,6 +523,9 @@ impl VelloTextMeasurer {
                     StyleProperty::FontStack(FontStack::Source(Cow::Owned(font_family.clone()))),
                     range.clone(),
                 );
+            }
+            if let Some(locale) = &style.locale {
+                builder.push(StyleProperty::Locale(Some(locale.as_str())), range.clone());
             }
             builder.push(
                 StyleProperty::FontWeight(FontWeight::new(style.font_weight as f32)),
@@ -384,6 +581,76 @@ impl VelloTextMeasurer {
     }
 }
 
+fn upsert_resolved_action(actions: &mut Vec<ActionEntry>, action: ActionEntry) {
+    actions.retain(|entry| entry.trigger != action.trigger);
+    actions.push(action);
+}
+
+fn annotation_contains_index(text: &str, annotation: &RichTextAnnotation, idx: usize) -> bool {
+    if annotation.range.start >= annotation.range.end {
+        return false;
+    }
+    if annotation.range.contains(&idx) {
+        return true;
+    }
+    if idx == annotation.range.end {
+        let prev = VelloTextMeasurer::prev_char_boundary(text, idx);
+        return prev >= annotation.range.start && prev < annotation.range.end;
+    }
+    false
+}
+
+pub(crate) fn resolve_rich_text_annotation_at_index(
+    text: &str,
+    annotations: &[RichTextAnnotation],
+    idx: usize,
+) -> Option<RichTextAnnotation> {
+    let mut matches = annotations
+        .iter()
+        .filter(|annotation| annotation_contains_index(text, annotation, idx))
+        .collect::<Vec<_>>();
+    if matches.is_empty() {
+        return None;
+    }
+
+    matches.sort_by(|left, right| {
+        let left_len = left.range.end.saturating_sub(left.range.start);
+        let right_len = right.range.end.saturating_sub(right.range.start);
+        right_len
+            .cmp(&left_len)
+            .then_with(|| left.range.start.cmp(&right.range.start))
+    });
+
+    let mut resolved = RichTextAnnotation {
+        range: matches.last().expect("matched annotation").range.clone(),
+        semantics_label: None,
+        semantics_identifier: None,
+        spell_out: None,
+        mouse_cursor: None,
+        actions: Vec::new(),
+    };
+
+    for annotation in matches {
+        if annotation.semantics_label.is_some() {
+            resolved.semantics_label = annotation.semantics_label.clone();
+        }
+        if annotation.semantics_identifier.is_some() {
+            resolved.semantics_identifier = annotation.semantics_identifier.clone();
+        }
+        if annotation.spell_out.is_some() {
+            resolved.spell_out = annotation.spell_out;
+        }
+        if annotation.mouse_cursor.is_some() {
+            resolved.mouse_cursor = annotation.mouse_cursor;
+        }
+        for action in &annotation.actions {
+            upsert_resolved_action(&mut resolved.actions, action.clone());
+        }
+    }
+
+    Some(resolved)
+}
+
 impl TextMeasurer for VelloTextMeasurer {
     fn measure(&self, text: &str, font_size: f32, available_width: Option<f32>) -> (f32, f32) {
         let layout = self.get_layout(text, font_size, available_width);
@@ -396,75 +663,72 @@ impl TextMeasurer for VelloTextMeasurer {
         }
 
         let start = Instant::now();
-        let mut full_text = String::new();
-        let mut styles = Vec::new();
-        let mut offset = 0;
-        for run in runs {
-            let len = run.text.len();
-            full_text.push_str(&run.text);
-            styles.push((
-                offset..(offset + len),
-                RenderTextStyle {
-                    font_size: run.style.font_size,
-                    color: fission_render::Color {
-                        r: run.style.color.r,
-                        g: run.style.color.g,
-                        b: run.style.color.b,
-                        a: run.style.color.a,
-                    },
-                    underline: run.style.underline,
-                    font_family: run.style.font_family.clone(),
-                    font_weight: run.style.font_weight,
-                    font_style: run.style.font_style,
-                    line_height: run.style.line_height,
-                    letter_spacing: run.style.letter_spacing,
-                    background_color: run.style.background_color.map(|c| fission_render::Color {
-                        r: c.r,
-                        g: c.g,
-                        b: c.b,
-                        a: c.a,
-                    }),
-                },
-            ));
-            offset += len;
-        }
-
-        let (base_size, base_color) = if let Some(first) = runs.first() {
-            (
-                first.style.font_size,
-                fission_render::Color {
-                    r: first.style.color.r,
-                    g: first.style.color.g,
-                    b: first.style.color.b,
-                    a: first.style.color.a,
-                },
-            )
-        } else {
-            (
-                16.0,
-                fission_render::Color {
-                    r: 0,
-                    g: 0,
-                    b: 0,
-                    a: 255,
-                },
-            )
-        };
-
-        let layout = self.layout_rich(&full_text, base_size, base_color, &styles, available_width);
+        let rich = Self::rich_layout_input_from_ir_runs(runs);
+        let layout = self.layout_rich(
+            &rich.text,
+            rich.base_size,
+            rich.base_color,
+            &rich.styles,
+            &rich.inline_boxes,
+            available_width,
+        );
 
         let duration = start.elapsed().as_nanos() as u64;
         diag::emit(
             diag::DiagCategory::Paint,
             diag::DiagLevel::Debug,
             diag::DiagEventKind::TextLayoutPerformance {
-                text_len: full_text.len() as u32,
+                text_len: rich.text.len() as u32,
                 is_rich: true,
                 duration_ns: duration,
             },
         );
 
         (layout.width(), layout.height())
+    }
+
+    fn layout_rich_text(
+        &self,
+        runs: &[TextRun],
+        available_width: Option<f32>,
+    ) -> RichTextLayoutInfo {
+        if runs.is_empty() {
+            return RichTextLayoutInfo {
+                width: 0.0,
+                height: 0.0,
+                inline_boxes: Vec::new(),
+            };
+        }
+
+        let rich = Self::rich_layout_input_from_ir_runs(runs);
+        let layout = self.layout_rich(
+            &rich.text,
+            rich.base_size,
+            rich.base_color,
+            &rich.styles,
+            &rich.inline_boxes,
+            available_width,
+        );
+        let mut inline_boxes = Vec::new();
+        for line in layout.lines() {
+            for item in line.items() {
+                if let PositionedLayoutItem::InlineBox(inline_box) = item {
+                    inline_boxes.push(RichTextInlineBox {
+                        id: inline_box.id,
+                        x: inline_box.x,
+                        y: inline_box.y,
+                        width: inline_box.width,
+                        height: inline_box.height,
+                    });
+                }
+            }
+        }
+
+        RichTextLayoutInfo {
+            width: layout.width(),
+            height: layout.height(),
+            inline_boxes,
+        }
     }
 
     fn hit_test_rich(
@@ -483,7 +747,12 @@ impl TextMeasurer for VelloTextMeasurer {
         // here so we look up the SAME cached Parley Layout the renderer painted
         // with, rather than creating a separate entry in the rich cache.
         if let Some(first) = runs.first() {
+            let has_inline_boxes = runs.iter().any(|run| {
+                run.text.is_empty()
+                    && decode_inline_widget_marker(run.style.font_family.as_deref()).is_some()
+            });
             if runs.iter().all(|r| r.style == first.style)
+                && !has_inline_boxes
                 && !text_style_requires_rich_layout(&RenderTextStyle {
                     font_size: first.style.font_size,
                     color: fission_render::Color {
@@ -494,6 +763,7 @@ impl TextMeasurer for VelloTextMeasurer {
                     },
                     underline: first.style.underline,
                     font_family: first.style.font_family.clone(),
+                    locale: first.style.locale.clone(),
                     font_weight: first.style.font_weight,
                     font_style: first.style.font_style,
                     line_height: first.style.line_height,
@@ -516,65 +786,44 @@ impl TextMeasurer for VelloTextMeasurer {
         }
 
         // Multi-style path: build the same rich layout the renderer uses.
-        let mut full_text = String::new();
-        let mut styles = Vec::new();
-        let mut offset = 0;
-        for run in runs {
-            let len = run.text.len();
-            full_text.push_str(&run.text);
-            styles.push((
-                offset..(offset + len),
-                RenderTextStyle {
-                    font_size: run.style.font_size,
-                    color: fission_render::Color {
-                        r: run.style.color.r,
-                        g: run.style.color.g,
-                        b: run.style.color.b,
-                        a: run.style.color.a,
-                    },
-                    underline: run.style.underline,
-                    font_family: run.style.font_family.clone(),
-                    font_weight: run.style.font_weight,
-                    font_style: run.style.font_style,
-                    line_height: run.style.line_height,
-                    letter_spacing: run.style.letter_spacing,
-                    background_color: run.style.background_color.map(|c| fission_render::Color {
-                        r: c.r,
-                        g: c.g,
-                        b: c.b,
-                        a: c.a,
-                    }),
-                },
-            ));
-            offset += len;
-        }
-
-        let (base_size, base_color) = if let Some(first) = runs.first() {
-            (
-                first.style.font_size,
-                fission_render::Color {
-                    r: first.style.color.r,
-                    g: first.style.color.g,
-                    b: first.style.color.b,
-                    a: first.style.color.a,
-                },
-            )
-        } else {
-            (
-                13.0,
-                fission_render::Color {
-                    r: 212,
-                    g: 212,
-                    b: 212,
-                    a: 255,
-                },
-            )
-        };
-
-        let layout = self.layout_rich(&full_text, base_size, base_color, &styles, available_width);
+        let rich = Self::rich_layout_input_from_ir_runs(runs);
+        let layout = self.layout_rich(
+            &rich.text,
+            rich.base_size,
+            rich.base_color,
+            &rich.styles,
+            &rich.inline_boxes,
+            available_width,
+        );
 
         // Reuse the same hit-test logic as plain text but on the rich layout
-        Self::hit_test_layout_impl(&full_text, &layout, x, y)
+        Self::hit_test_layout_impl(&rich.text, &layout, x, y)
+    }
+
+    fn resolve_rich_text_annotation_at_point(
+        &self,
+        runs: &[TextRun],
+        available_width: Option<f32>,
+        x: f32,
+        y: f32,
+        _paragraph_style: TextParagraphStyle,
+        annotations: &[RichTextAnnotation],
+    ) -> Option<RichTextAnnotation> {
+        if annotations.is_empty() || runs.is_empty() {
+            return None;
+        }
+
+        let rich = Self::rich_layout_input_from_ir_runs(runs);
+        let layout = self.layout_rich(
+            &rich.text,
+            rich.base_size,
+            rich.base_color,
+            &rich.styles,
+            &rich.inline_boxes,
+            available_width,
+        );
+        let idx = Self::hit_test_layout_impl(&rich.text, &layout, x, y);
+        resolve_rich_text_annotation_at_index(&rich.text, annotations, idx)
     }
 
     fn hit_test(

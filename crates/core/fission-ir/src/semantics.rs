@@ -60,12 +60,22 @@ pub enum ActionTrigger {
     HoverEnter,
     /// The pointer left the node's hit area.
     HoverExit,
+    /// A semantic cursor request applied while the pointer hovers this node.
+    ///
+    /// This is metadata, not a dispatched reducer action.
+    HoverCursor,
     /// The node received keyboard focus.
     Focus,
     /// The node lost keyboard focus.
     Blur,
+    /// A pointer-down happened outside the active text field.
+    TapOutside,
     /// The node's value changed (sliders, text inputs, etc.).
     Change,
+    /// Text editing was explicitly completed by the current input method.
+    EditingComplete,
+    /// The user submitted a text field.
+    Submit,
     /// The caret or selection anchor position changed in a text field.
     CursorChange,
     /// A dragged payload was dropped onto this node.
@@ -82,6 +92,102 @@ impl Default for ActionTrigger {
     fn default() -> Self {
         ActionTrigger::Default
     }
+}
+
+/// Semantic cursor requests that shells map onto platform cursor icons.
+#[repr(u8)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, Default)]
+pub enum MouseCursor {
+    #[default]
+    Default = 0,
+    Pointer = 1,
+    Text = 2,
+    Crosshair = 3,
+    Move = 4,
+    NotAllowed = 5,
+    Grab = 6,
+    Grabbing = 7,
+    Wait = 8,
+    Help = 9,
+    VerticalText = 10,
+}
+
+impl MouseCursor {
+    pub fn from_repr(value: u128) -> Option<Self> {
+        match value {
+            0 => Some(Self::Default),
+            1 => Some(Self::Pointer),
+            2 => Some(Self::Text),
+            3 => Some(Self::Crosshair),
+            4 => Some(Self::Move),
+            5 => Some(Self::NotAllowed),
+            6 => Some(Self::Grab),
+            7 => Some(Self::Grabbing),
+            8 => Some(Self::Wait),
+            9 => Some(Self::Help),
+            10 => Some(Self::VerticalText),
+            _ => None,
+        }
+    }
+}
+
+/// Preferred software keyboard / input modality for a text field.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, Default)]
+pub enum TextInputType {
+    #[default]
+    Text,
+    Multiline,
+    Number,
+    EmailAddress,
+    Url,
+    Phone,
+    Name,
+}
+
+/// Preferred action for the return/submit key on software keyboards.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, Default)]
+pub enum TextInputAction {
+    #[default]
+    Done,
+    Go,
+    Search,
+    Send,
+    Next,
+    Previous,
+    Continue,
+    Join,
+    Route,
+    EmergencyCall,
+    Newline,
+}
+
+/// Automatic capitalization strategy for inserted text.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, Default)]
+pub enum TextCapitalization {
+    #[default]
+    None,
+    Characters,
+    Words,
+    Sentences,
+}
+
+/// Whether the framework should enforce `max_length` during editing.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, Default)]
+pub enum MaxLengthEnforcement {
+    None,
+    #[default]
+    Enforced,
+}
+
+/// Structured formatter primitives applied to inserted text.
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub enum InputFormatter {
+    DigitsOnly,
+    AsciiOnly,
+    Lowercase,
+    Uppercase,
+    TrimWhitespace,
+    SingleLine,
 }
 
 /// A single action binding: a trigger, an action ID, and optional payload.
@@ -109,6 +215,24 @@ pub struct ActionEntry {
     pub action_id: u128,
     /// Optional serialized payload. `None` for actions with no data.
     pub payload_data: Option<Vec<u8>>,
+}
+
+impl ActionEntry {
+    /// Creates a non-dispatched cursor request consumed by hover handling.
+    pub fn hover_cursor(cursor: MouseCursor) -> Self {
+        Self {
+            trigger: ActionTrigger::HoverCursor,
+            action_id: cursor as u128,
+            payload_data: None,
+        }
+    }
+
+    /// Returns the semantic cursor encoded by this entry, if any.
+    pub fn as_hover_cursor(&self) -> Option<MouseCursor> {
+        (self.trigger == ActionTrigger::HoverCursor)
+            .then(|| MouseCursor::from_repr(self.action_id))
+            .flatten()
+    }
 }
 
 /// Accessibility and interaction metadata for a node.
@@ -143,6 +267,8 @@ pub struct Semantics {
     pub role: Role,
     /// A human-readable label for assistive technology (e.g., "Close" for a button).
     pub label: Option<String>,
+    /// Stable semantic identifier for tooling and automation.
+    pub identifier: Option<String>,
     /// The current value as a string (e.g., the text in an input field).
     pub value: Option<String>,
     /// The set of actions this node responds to.
@@ -162,6 +288,10 @@ pub struct Semantics {
     pub checked: Option<bool>,
     /// Whether the node is disabled (grayed out, non-interactive).
     pub disabled: bool,
+    /// Whether the node can be focused and selected but not edited.
+    pub read_only: bool,
+    /// Whether this node should receive focus automatically when mounted.
+    pub autofocus: bool,
     /// Whether this node can be dragged.
     pub draggable: bool,
     /// Whether the node scrolls horizontally.
@@ -185,6 +315,32 @@ pub struct Semantics {
     /// Explicit tab order index. Lower values receive focus first. `None` means
     /// the node follows document order.
     pub focus_index: Option<i32>,
+    /// Preferred keyboard/input modality for text entry.
+    pub text_input_type: TextInputType,
+    /// Preferred submit/return key action.
+    pub text_input_action: TextInputAction,
+    /// Automatic capitalization strategy for inserted text.
+    pub text_capitalization: TextCapitalization,
+    /// Maximum number of Unicode scalar values allowed in the field.
+    pub max_length: Option<usize>,
+    /// Whether `max_length` should be enforced during editing.
+    pub max_length_enforcement: MaxLengthEnforcement,
+    /// Structured input formatters applied to inserted text.
+    pub input_formatters: Vec<InputFormatter>,
+    /// Hint to the platform IME whether autocorrect should be enabled.
+    pub autocorrect: bool,
+    /// Hint to the platform IME whether suggestions should be enabled.
+    pub enable_suggestions: bool,
+    /// Hint to the platform IME whether spell checking should be enabled.
+    pub spell_check: bool,
+    /// Hint to the platform IME whether smart dashes should be enabled.
+    pub smart_dashes: bool,
+    /// Hint to the platform IME whether smart quotes should be enabled.
+    pub smart_quotes: bool,
+    /// Platform autofill categories associated with this field.
+    pub autofill_hints: Vec<String>,
+    /// Extra padding to keep around the caret/selection when auto-scrolling `[left, right, top, bottom]`.
+    pub scroll_padding: Option<[f32; 4]>,
     /// When true, Tab key inserts spaces instead of moving focus.
     pub capture_tab: bool,
     /// When true, Enter copies leading whitespace from the current line.
@@ -195,6 +351,7 @@ impl std::hash::Hash for Semantics {
     fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
         self.role.hash(state);
         self.label.hash(state);
+        self.identifier.hash(state);
         self.value.hash(state);
         self.actions.hash(state);
         self.focusable.hash(state);
@@ -204,6 +361,8 @@ impl std::hash::Hash for Semantics {
         self.ime_preedit_range.hash(state);
         self.checked.hash(state);
         self.disabled.hash(state);
+        self.read_only.hash(state);
+        self.autofocus.hash(state);
         self.draggable.hash(state);
         self.scrollable_x.hash(state);
         self.scrollable_y.hash(state);
@@ -215,6 +374,21 @@ impl std::hash::Hash for Semantics {
         self.drag_payload.hash(state);
         self.hero_tag.hash(state);
         self.focus_index.hash(state);
+        self.text_input_type.hash(state);
+        self.text_input_action.hash(state);
+        self.text_capitalization.hash(state);
+        self.max_length.hash(state);
+        self.max_length_enforcement.hash(state);
+        self.input_formatters.hash(state);
+        self.autocorrect.hash(state);
+        self.enable_suggestions.hash(state);
+        self.spell_check.hash(state);
+        self.smart_dashes.hash(state);
+        self.smart_quotes.hash(state);
+        self.autofill_hints.hash(state);
+        self.scroll_padding
+            .map(|padding| padding.map(f32::to_bits))
+            .hash(state);
         self.capture_tab.hash(state);
         self.auto_indent.hash(state);
     }
@@ -225,6 +399,7 @@ impl Default for Semantics {
         Self {
             role: Role::Generic,
             label: None,
+            identifier: None,
             value: None,
             actions: ActionSet::default(),
             focusable: false,
@@ -234,6 +409,8 @@ impl Default for Semantics {
             ime_preedit_range: None,
             checked: None,
             disabled: false,
+            read_only: false,
+            autofocus: false,
             draggable: false,
             scrollable_x: false,
             scrollable_y: false,
@@ -245,6 +422,19 @@ impl Default for Semantics {
             drag_payload: None,
             hero_tag: None,
             focus_index: None,
+            text_input_type: TextInputType::Text,
+            text_input_action: TextInputAction::Done,
+            text_capitalization: TextCapitalization::None,
+            max_length: None,
+            max_length_enforcement: MaxLengthEnforcement::Enforced,
+            input_formatters: Vec::new(),
+            autocorrect: true,
+            enable_suggestions: true,
+            spell_check: true,
+            smart_dashes: true,
+            smart_quotes: true,
+            autofill_hints: Vec::new(),
+            scroll_padding: None,
             capture_tab: false,
             auto_indent: false,
         }

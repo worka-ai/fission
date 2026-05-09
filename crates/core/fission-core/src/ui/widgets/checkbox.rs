@@ -148,6 +148,11 @@ impl Lower for Checkbox {
                     underline: false,
                     wrap: false,
                     caret_index: None,
+                    caret_color: None,
+                    caret_width: None,
+                    caret_height: None,
+                    caret_radius: None,
+                    paragraph_style: None,
                 }),
             )
             .build(cx);
@@ -197,6 +202,7 @@ impl Lower for Checkbox {
         let mut semantics = fission_ir::Semantics {
             role: fission_ir::Role::Checkbox,
             label: self.label.clone(),
+            identifier: None,
             value: Some(if self.checked {
                 "true".into()
             } else {
@@ -210,6 +216,8 @@ impl Lower for Checkbox {
             ime_preedit_range: None,
             checked: Some(self.checked),
             disabled: false,
+            read_only: false,
+            autofocus: false,
             draggable: false,
             scrollable_x: false,
             scrollable_y: false,
@@ -221,6 +229,19 @@ impl Lower for Checkbox {
             drag_payload: None,
             hero_tag: None,
             focus_index: None,
+            text_input_type: fission_ir::semantics::TextInputType::Text,
+                        text_input_action: fission_ir::semantics::TextInputAction::Done,
+                        text_capitalization: fission_ir::semantics::TextCapitalization::None,
+                        max_length: None,
+                        max_length_enforcement: fission_ir::semantics::MaxLengthEnforcement::Enforced,
+                        input_formatters: Vec::new(),
+                        autocorrect: true,
+                        enable_suggestions: true,
+            spell_check: true,
+            smart_dashes: true,
+            smart_quotes: true,
+            autofill_hints: Vec::new(),
+            scroll_padding: None,
             capture_tab: false,
             auto_indent: false,
         };

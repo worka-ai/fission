@@ -6,6 +6,7 @@ use fission_layout::{LayoutSnapshot, TextMeasurer};
 use std::sync::Arc;
 
 pub mod gesture;
+pub mod hover;
 pub mod slider;
 pub mod text;
 

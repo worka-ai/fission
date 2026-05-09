@@ -30,7 +30,7 @@
 
 use anyhow::Result;
 use fission_diagnostics::prelude as diag;
-use fission_ir::op::TextRun;
+use fission_ir::op::{RichTextAnnotation, TextParagraphStyle, TextRun};
 use fission_ir::{FlexDirection as IrFlexDirection, FlexWrap as IrFlexWrap, NodeId};
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
@@ -515,6 +515,22 @@ pub struct LineMetric {
     pub width: f32,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct RichTextInlineBox {
+    pub id: u64,
+    pub x: f32,
+    pub y: f32,
+    pub width: f32,
+    pub height: f32,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct RichTextLayoutInfo {
+    pub width: f32,
+    pub height: f32,
+    pub inline_boxes: Vec<RichTextInlineBox>,
+}
+
 /// A platform-provided text measurement backend.
 ///
 /// The layout engine does not shape or measure text itself. Instead, platform
@@ -590,6 +606,29 @@ pub trait TextMeasurer: Send + Sync {
         (0.0, 0.0)
     }
 
+    /// Measures rich text and returns positioned inline-widget boxes, if any.
+    ///
+    /// Backends that understand inline rich-text widget markers should override
+    /// this so layout can place the child widgets at the same coordinates used
+    /// by text shaping.
+    fn layout_rich_text(
+        &self,
+        runs: &[TextRun],
+        available_width: Option<f32>,
+    ) -> RichTextLayoutInfo {
+        let (width, height) = if runs.len() == 1 {
+            let run = &runs[0];
+            self.measure(&run.text, run.style.font_size, available_width)
+        } else {
+            self.measure_rich_text(runs, available_width)
+        };
+        RichTextLayoutInfo {
+            width,
+            height,
+            inline_boxes: Vec::new(),
+        }
+    }
+
     /// Hit-test rich text (styled runs) at the given (x, y) position.
     /// Returns the byte offset into the concatenated text of all runs.
     /// Default falls back to plain hit_test using the first run's font size.
@@ -604,6 +643,22 @@ pub trait TextMeasurer: Send + Sync {
         let text: String = runs.iter().map(|r| r.text.as_str()).collect();
         let font_size = runs.first().map(|r| r.style.font_size).unwrap_or(13.0);
         self.hit_test(&text, font_size, None, x, y)
+    }
+
+    /// Resolves the rich-text annotation at the given point, if any.
+    ///
+    /// This is used for interactive rich-text spans that need hit testing
+    /// against shaped rich text rather than box nodes.
+    fn resolve_rich_text_annotation_at_point(
+        &self,
+        _runs: &[TextRun],
+        _available_width: Option<f32>,
+        _x: f32,
+        _y: f32,
+        _paragraph_style: TextParagraphStyle,
+        _annotations: &[RichTextAnnotation],
+    ) -> Option<RichTextAnnotation> {
+        None
     }
 }
 
@@ -974,6 +1029,7 @@ impl LayoutEngine {
                 flow_children.push(*child_id);
             }
         }
+        let rich_text_inline_children = node.rich_text.is_some() && !flow_children.is_empty();
 
         let mut content_size;
         let size = match &node.op {
@@ -1029,60 +1085,64 @@ impl LayoutEngine {
                 let base_child_constraints = local.deflate(*padding);
                 let mut max_child = LayoutSize::ZERO;
                 let mut measured_children: Vec<(NodeId, BoxConstraints, LayoutSize)> = Vec::new();
-                for child_id in &flow_children {
-                    let (child_width, child_height, child_max_width, child_max_height) = node_map
-                        .get(child_id)
-                        .map(|child| match &child.op {
-                            LayoutOp::Box {
-                                width,
-                                height,
-                                max_width,
-                                max_height,
-                                ..
-                            } => (*width, *height, *max_width, *max_height),
-                            LayoutOp::Scroll {
-                                width,
-                                height,
-                                max_width,
-                                max_height,
-                                ..
-                            } => (*width, *height, *max_width, *max_height),
-                            LayoutOp::Embed { width, height, .. } => (*width, *height, None, None),
-                            _ => (None, None, None, None),
-                        })
-                        .unwrap_or((None, None, None, None));
-                    let mut child_constraints = base_child_constraints;
-                    let stretch_width = child_constraints.min_w == child_constraints.max_w
-                        && child_width.is_none()
-                        && child_max_width.is_none();
-                    if stretch_width {
-                        child_constraints.min_w = child_constraints.max_w;
-                    } else {
-                        child_constraints.min_w = 0.0;
+                if !rich_text_inline_children {
+                    for child_id in &flow_children {
+                        let (child_width, child_height, child_max_width, child_max_height) = node_map
+                            .get(child_id)
+                            .map(|child| match &child.op {
+                                LayoutOp::Box {
+                                    width,
+                                    height,
+                                    max_width,
+                                    max_height,
+                                    ..
+                                } => (*width, *height, *max_width, *max_height),
+                                LayoutOp::Scroll {
+                                    width,
+                                    height,
+                                    max_width,
+                                    max_height,
+                                    ..
+                                } => (*width, *height, *max_width, *max_height),
+                                LayoutOp::Embed { width, height, .. } => {
+                                    (*width, *height, None, None)
+                                }
+                                _ => (None, None, None, None),
+                            })
+                            .unwrap_or((None, None, None, None));
+                        let mut child_constraints = base_child_constraints;
+                        let stretch_width = child_constraints.min_w == child_constraints.max_w
+                            && child_width.is_none()
+                            && child_max_width.is_none();
+                        if stretch_width {
+                            child_constraints.min_w = child_constraints.max_w;
+                        } else {
+                            child_constraints.min_w = 0.0;
+                        }
+                        let stretch_height = child_constraints.min_h == child_constraints.max_h
+                            && child_height.is_none()
+                            && child_max_height.is_none();
+                        if stretch_height {
+                            child_constraints.min_h = child_constraints.max_h;
+                        } else {
+                            child_constraints.min_h = 0.0;
+                        }
+                        let child_size = self.layout_node_constraints(
+                            *child_id,
+                            child_constraints,
+                            LayoutPoint::ZERO,
+                            node_map,
+                            out,
+                            constraints_out,
+                            measure_cache,
+                            scroll_source,
+                            false,
+                            depth + 1,
+                        );
+                        max_child.width = max_child.width.max(child_size.width);
+                        max_child.height = max_child.height.max(child_size.height);
+                        measured_children.push((*child_id, child_constraints, child_size));
                     }
-                    let stretch_height = child_constraints.min_h == child_constraints.max_h
-                        && child_height.is_none()
-                        && child_max_height.is_none();
-                    if stretch_height {
-                        child_constraints.min_h = child_constraints.max_h;
-                    } else {
-                        child_constraints.min_h = 0.0;
-                    }
-                    let child_size = self.layout_node_constraints(
-                        *child_id,
-                        child_constraints,
-                        LayoutPoint::ZERO,
-                        node_map,
-                        out,
-                        constraints_out,
-                        measure_cache,
-                        scroll_source,
-                        false,
-                        depth + 1,
-                    );
-                    max_child.width = max_child.width.max(child_size.width);
-                    max_child.height = max_child.height.max(child_size.height);
-                    measured_children.push((*child_id, child_constraints, child_size));
                 }
                 let padded = LayoutSize::new(
                     max_child.width + padding[0] + padding[1],
@@ -2476,14 +2536,41 @@ impl LayoutEngine {
                         (None, None) => None,
                     }
                 };
-                let (mw, mh) = if runs.len() == 1 {
-                    let run = &runs[0];
-                    measurer.measure(&run.text, run.style.font_size, avail_w)
-                } else {
-                    measurer.measure_rich_text(runs, avail_w)
-                };
-                let text_content = LayoutSize::new(mw, mh);
+                let rich_layout = measurer.layout_rich_text(runs, avail_w);
+                let text_content = LayoutSize::new(rich_layout.width, rich_layout.height);
                 let measured = constraints.constrain(text_content);
+                if rich_text_inline_children && rich_layout.inline_boxes.len() == flow_children.len() {
+                    let result =
+                        self.record_geometry(node_id, origin, measured, text_content, out, record);
+                    if record {
+                        let mut inline_boxes = rich_layout.inline_boxes;
+                        inline_boxes.sort_by_key(|inline_box| inline_box.id);
+                        for (child_id, inline_box) in flow_children.iter().zip(inline_boxes.iter()) {
+                            self.layout_node_constraints(
+                                *child_id,
+                                BoxConstraints::tight(LayoutSize::new(
+                                    inline_box.width,
+                                    inline_box.height,
+                                )),
+                                LayoutPoint::new(
+                                    origin.x + inline_box.x,
+                                    origin.y + inline_box.y,
+                                ),
+                                node_map,
+                                out,
+                                constraints_out,
+                                measure_cache,
+                                scroll_source,
+                                record,
+                                depth + 1,
+                            );
+                        }
+                    }
+                    if !record {
+                        measure_cache.insert(MeasureCacheKey::new(node_id, constraints), result);
+                    }
+                    return result;
+                }
                 if node.children_ids.is_empty() {
                     let result =
                         self.record_geometry(node_id, origin, measured, text_content, out, record);

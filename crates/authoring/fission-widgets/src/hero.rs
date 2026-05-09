@@ -45,6 +45,7 @@ impl LowerDyn for HeroLowerer {
         let semantics = Semantics {
             role: Role::Generic,
             label: None,
+            identifier: None,
             value: None,
             actions: Default::default(),
             focusable: false,
@@ -54,6 +55,8 @@ impl LowerDyn for HeroLowerer {
             ime_preedit_range: None,
             checked: None,
             disabled: false,
+            read_only: false,
+            autofocus: false,
             draggable: false,
             scrollable_x: false,
             scrollable_y: false,
@@ -65,8 +68,21 @@ impl LowerDyn for HeroLowerer {
             drag_payload: None,
             hero_tag: Some(self.tag.clone()),
             focus_index: None,
+            text_input_type: fission_ir::semantics::TextInputType::Text,
+                        text_input_action: fission_ir::semantics::TextInputAction::Done,
+                        text_capitalization: fission_ir::semantics::TextCapitalization::None,
+                        max_length: None,
+                        max_length_enforcement: fission_ir::semantics::MaxLengthEnforcement::Enforced,
+                        input_formatters: Vec::new(),
+                        autocorrect: true,
+                        enable_suggestions: true,
+                        spell_check: true,
+                        smart_dashes: true,
+            smart_quotes: true,
+            autofill_hints: Vec::new(),
             capture_tab: false,
             auto_indent: false,
+            scroll_padding: None,
         };
 
         let mut builder = NodeBuilder::new(id, Op::Semantics(semantics));

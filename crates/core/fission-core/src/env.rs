@@ -3,6 +3,8 @@ use crate::{
     registry::{AnimationPropertyId, EasingFunction},
 };
 use fission_i18n::{I18nRegistry, Locale};
+use fission_ir::op::RichTextAnnotation;
+use fission_ir::semantics::MouseCursor;
 use fission_ir::{NodeId, WidgetNodeId};
 use fission_layout::{LayoutPoint, LayoutSize};
 use fission_text_engine::{EditTransaction, TextBuffer, TextEdit};
@@ -145,6 +147,7 @@ impl ScrollStateMap {
 #[derive(Clone, Debug, Default)]
 pub struct TextEditStateMap {
     pub states: HashMap<NodeId, TextEditState>,
+    pub restoration: HashMap<String, TextRestorationSnapshot>,
 }
 
 #[derive(Clone, Debug)]
@@ -159,6 +162,7 @@ pub struct TextEditState {
     /// Used to deduplicate dispatches and prevent unnecessary model updates
     /// that could cause extra rebuild cycles.
     pub last_dispatched_cursor: Option<(usize, usize)>,
+    pub affordances: TextInputAffordanceState,
 }
 
 impl Default for TextEditState {
@@ -171,8 +175,29 @@ impl Default for TextEditState {
             preedit: None,
             pending_model_sync: false,
             last_dispatched_cursor: None,
+            affordances: TextInputAffordanceState::default(),
         }
     }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
+pub enum TextSelectionHandleKind {
+    #[default]
+    Caret,
+    Start,
+    End,
+}
+
+#[derive(Clone, Debug, Default)]
+pub struct TextInputAffordanceState {
+    pub toolbar_visible: bool,
+    pub toolbar_anchor: Option<LayoutPoint>,
+    pub caret_handle: Option<LayoutPoint>,
+    pub selection_start_handle: Option<LayoutPoint>,
+    pub selection_end_handle: Option<LayoutPoint>,
+    pub active_handle: Option<TextSelectionHandleKind>,
+    pub magnifier_visible: bool,
+    pub magnifier_anchor: Option<LayoutPoint>,
 }
 
 #[derive(Clone, Debug)]
@@ -188,6 +213,13 @@ pub struct TextHistoryEntry {
     pub before_anchor: usize,
     pub after_caret: usize,
     pub after_anchor: usize,
+}
+
+#[derive(Clone, Debug)]
+pub struct TextRestorationSnapshot {
+    pub value: String,
+    pub caret: usize,
+    pub anchor: usize,
 }
 
 #[derive(Clone, Debug)]
@@ -249,6 +281,42 @@ impl TextEditStateMap {
     pub fn get(&self, id: NodeId) -> Option<&TextEditState> {
         self.states.get(&id)
     }
+    pub fn sync_from_runtime(
+        &mut self,
+        id: NodeId,
+        semantic_value: &str,
+        restoration_id: Option<&str>,
+        undo_capacity: Option<usize>,
+    ) {
+        let restoration_snapshot = restoration_id.and_then(|rid| {
+            if semantic_value.is_empty() {
+                self.restoration.get(rid).cloned()
+            } else {
+                None
+            }
+        });
+        let st = self.states.entry(id).or_default();
+        st.sync_from_model(semantic_value);
+        if semantic_value.is_empty() && st.buffer.len_bytes() == 0 {
+            if let Some(snapshot) = restoration_snapshot.as_ref() {
+                st.restore_snapshot(snapshot);
+            }
+        }
+        if let Some(capacity) = undo_capacity {
+            st.set_history_capacity(capacity);
+        }
+        if let Some(rid) = restoration_id {
+            self.restoration.insert(rid.to_string(), st.snapshot());
+        }
+    }
+    pub fn persist_restoration(&mut self, id: NodeId, restoration_id: Option<&str>) {
+        let Some(rid) = restoration_id else {
+            return;
+        };
+        if let Some(st) = self.states.get(&id) {
+            self.restoration.insert(rid.to_string(), st.snapshot());
+        }
+    }
     pub fn set_caret(&mut self, id: NodeId, caret: usize, anchor: Option<usize>) {
         let st = self.states.entry(id).or_default();
         st.caret = caret;
@@ -258,6 +326,37 @@ impl TextEditStateMap {
 }
 
 impl TextEditState {
+    pub fn snapshot(&self) -> TextRestorationSnapshot {
+        TextRestorationSnapshot {
+            value: self.buffer.to_string(),
+            caret: self.caret,
+            anchor: self.anchor,
+        }
+    }
+
+    pub fn restore_snapshot(&mut self, snapshot: &TextRestorationSnapshot) {
+        self.buffer = TextBuffer::from_str(&snapshot.value);
+        self.caret = snapshot.caret.min(snapshot.value.len());
+        self.anchor = snapshot.anchor.min(snapshot.value.len());
+        self.preedit = None;
+        self.pending_model_sync = false;
+        self.last_dispatched_cursor = None;
+        self.history = TextEditHistory::default();
+    }
+
+    pub fn set_history_capacity(&mut self, capacity: usize) {
+        let capacity = capacity.max(1);
+        self.history.capacity = capacity;
+        if self.history.undo_stack.len() > capacity {
+            let overflow = self.history.undo_stack.len() - capacity;
+            self.history.undo_stack.drain(0..overflow);
+        }
+        if self.history.redo_stack.len() > capacity {
+            let overflow = self.history.redo_stack.len() - capacity;
+            self.history.redo_stack.drain(0..overflow);
+        }
+    }
+
     pub fn committed_text(&self) -> String {
         self.buffer.to_string()
     }
@@ -330,6 +429,10 @@ impl TextEditState {
         next_caret: usize,
         next_anchor: usize,
     ) -> String {
+        let buffer_len = self.buffer.len_bytes();
+        let start = range.start.min(buffer_len);
+        let end = range.end.min(buffer_len).max(start);
+        let range = start..end;
         let old_text = self.buffer.slice(range.clone()).to_string();
         let mut txn = EditTransaction::new();
         txn.push(TextEdit::new(range, new_text, old_text));
@@ -370,9 +473,18 @@ impl TextEditState {
 #[derive(Clone, Debug, Default)]
 pub struct InteractionStateMap {
     pub hovered: HashMap<NodeId, bool>,
+    pub hover_path: Vec<NodeId>,
+    pub hover_rich_text_annotation: Option<HoveredRichTextAnnotation>,
     pub pressed: HashMap<NodeId, bool>,
     pub focused: Option<NodeId>,
+    pub cursor: MouseCursor,
     pub last_down_point: Option<LayoutPoint>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct HoveredRichTextAnnotation {
+    pub node_id: NodeId,
+    pub annotation: RichTextAnnotation,
 }
 
 impl InteractionStateMap {
@@ -386,12 +498,35 @@ impl InteractionStateMap {
         self.focused == Some(id)
     }
 
+    pub fn hovered_path(&self) -> &[NodeId] {
+        &self.hover_path
+    }
+
+    pub fn hovered_rich_text_annotation(&self) -> Option<&HoveredRichTextAnnotation> {
+        self.hover_rich_text_annotation.as_ref()
+    }
+
+    pub fn cursor(&self) -> MouseCursor {
+        self.cursor
+    }
+
     pub fn set_hovered(&mut self, id: NodeId, value: bool) {
         if value {
             self.hovered.insert(id, true);
         } else {
             self.hovered.remove(&id);
         }
+    }
+
+    pub fn set_hover_path(&mut self, path: Vec<NodeId>) {
+        self.hover_path = path;
+    }
+
+    pub fn set_hovered_rich_text_annotation(
+        &mut self,
+        annotation: Option<HoveredRichTextAnnotation>,
+    ) {
+        self.hover_rich_text_annotation = annotation;
     }
 
     pub fn set_pressed(&mut self, id: NodeId, value: bool) {
@@ -404,6 +539,10 @@ impl InteractionStateMap {
 
     pub fn set_focused(&mut self, id: Option<NodeId>) {
         self.focused = id;
+    }
+
+    pub fn set_cursor(&mut self, cursor: MouseCursor) {
+        self.cursor = cursor;
     }
 }
 

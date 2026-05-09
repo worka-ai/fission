@@ -1,5 +1,6 @@
 use crate::env::{Env, RuntimeState};
 use fission_ir::{
+    op::decode_inline_widget_marker,
     CompositeStyle, CoreIR, GridPlacement, LayoutOp, NodeId, Op, PaintOp, WidgetNodeId,
 };
 use fission_layout::{LayoutInputNode, LayoutSnapshot, TextMeasurer};
@@ -381,6 +382,9 @@ pub fn build_layout_tree(ir: &CoreIR, env: &Env) -> Vec<LayoutInputNode> {
                 underline,
                 wrap: _,
                 caret_index: _,
+                caret_color: _,
+                caret_width: _,
+                ..
             }) => {
                 let (
                     inherit_width,
@@ -404,6 +408,7 @@ pub fn build_layout_tree(ir: &CoreIR, env: &Env) -> Vec<LayoutInputNode> {
                         color: *color,
                         underline: *underline,
                         font_family: None,
+                        locale: None,
                         font_weight: 400,
                         font_style: fission_ir::op::FontStyle::Normal,
                         line_height: None,
@@ -435,6 +440,9 @@ pub fn build_layout_tree(ir: &CoreIR, env: &Env) -> Vec<LayoutInputNode> {
                 runs,
                 wrap: _,
                 caret_index: _,
+                caret_color: _,
+                caret_width: _,
+                ..
             }) => {
                 let (
                     inherit_width,
@@ -452,7 +460,12 @@ pub fn build_layout_tree(ir: &CoreIR, env: &Env) -> Vec<LayoutInputNode> {
                 };
 
                 rich_text_content = Some(runs.clone());
-                children_to_visit.clear(); // Leaf node for layout
+                if !runs
+                    .iter()
+                    .any(|run| decode_inline_widget_marker(run.style.font_family.as_deref()).is_some())
+                {
+                    children_to_visit.clear(); // Leaf node for layout
+                }
                 (
                     LayoutOp::Box {
                         width: inherit_width.or(Some(measured_w)),

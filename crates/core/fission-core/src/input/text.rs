@@ -1,10 +1,18 @@
 use super::{ControllerContext, InputController};
-use crate::event::{InputEvent, KeyCode, KeyEvent, PointerEvent};
+use crate::env::TextSelectionHandleKind;
+use crate::event::{
+    InputEvent, KeyCode, KeyEvent, PointerEvent, MOD_ALT, MOD_CTRL, MOD_SHIFT, MOD_SUPER,
+};
+use crate::ui::widgets::text_input::{
+    downcast_text_input_runtime_config, text_input_selection_handle_id,
+    text_input_toolbar_button_id, DragStartBehavior, TextContextMenuAction,
+};
 use crate::ActionEnvelope;
 use crate::ActionId;
 use fission_ir::FlexDirection;
 use fission_ir::{
-    op::{self, LayoutOp, Op},
+    op::{self, decode_text_paragraph_style, LayoutOp, Op, TextAlign, TextParagraphStyle},
+    semantics::{InputFormatter, MaxLengthEnforcement, TextCapitalization, TextInputType},
     NodeId, Semantics,
 };
 use serde_json;
@@ -20,15 +28,68 @@ impl InputController for TextInputController {
                 modifiers,
             }) => self.handle_key(ctx, key_code.clone(), *modifiers),
             InputEvent::Ime(ime) => self.handle_ime(ctx, ime),
-            InputEvent::Pointer(PointerEvent::Down { point, .. }) => {
+            InputEvent::Pointer(PointerEvent::Down {
+                point,
+                button,
+                modifiers,
+                ..
+            }) => {
+                let hit =
+                    crate::hit_test::hit_test_with_scroll(ctx.ir, ctx.layout, ctx.scroll, *point);
+
+                if let Some(focused_id) = ctx.interaction.focused {
+                    if let Some(node) = ctx.ir.nodes.get(&focused_id) {
+                        if let Op::Semantics(sem) = &node.op {
+                            if sem.role == fission_ir::semantics::Role::TextInput {
+                                if let Some(hit_node_id) = hit {
+                                    if let Some(action) =
+                                        Self::toolbar_action_hit(ctx.ir, focused_id, hit_node_id)
+                                    {
+                                        return self.execute_toolbar_action(ctx, action);
+                                    }
+                                    if let Some(handle_kind) =
+                                        Self::selection_handle_hit(ctx.ir, focused_id, hit_node_id)
+                                    {
+                                        let value = sem.value.as_deref().unwrap_or("").to_string();
+                                        let state = ctx.text_edit.get_mut_or_default(focused_id);
+                                        state.affordances.active_handle = Some(handle_kind);
+                                        state.affordances.toolbar_visible = false;
+                                        Self::sync_text_input_affordances(
+                                            ctx, focused_id, sem, &value, false, None,
+                                        );
+                                        return true;
+                                    }
+                                }
+
+                                if matches!(button, crate::event::PointerButton::Secondary) {
+                                    let value = sem.value.as_deref().unwrap_or("").to_string();
+                                    let wrapper_anchor =
+                                        Self::input_wrapper_geometry(ctx, focused_id).map(|geom| {
+                                            fission_layout::LayoutPoint::new(
+                                                (point.x - geom.rect.origin.x).max(0.0),
+                                                (point.y - geom.rect.origin.y).max(0.0),
+                                            )
+                                        });
+                                    Self::sync_text_input_affordances(
+                                        ctx,
+                                        focused_id,
+                                        sem,
+                                        &value,
+                                        true,
+                                        wrapper_anchor,
+                                    );
+                                    return true;
+                                }
+                            }
+                        }
+                    }
+                }
+
                 // Only keep handling pointer-down inside the already-focused input
                 // if the hit test still resolves into that subtree. Otherwise we
                 // must fall through so Runtime can move focus to a different
                 // widget instead of swallowing the click.
                 let effective_focused = if let Some(focused_id) = ctx.interaction.focused {
-                    let hit = crate::hit_test::hit_test_with_scroll(
-                        ctx.ir, ctx.layout, ctx.scroll, *point,
-                    );
                     let mut walk = hit;
                     let mut belongs_to_focused = false;
                     while let Some(nid) = walk {
@@ -41,14 +102,28 @@ impl InputController for TextInputController {
                     if belongs_to_focused {
                         Some(focused_id)
                     } else {
+                        if let Some(node) = ctx.ir.nodes.get(&focused_id) {
+                            if let Op::Semantics(sem) = &node.op {
+                                if sem.role == fission_ir::semantics::Role::TextInput {
+                                    let current_value = sem.value.as_deref().unwrap_or("");
+                                    let _ = Self::dispatch_action_for_trigger(
+                                        ctx,
+                                        sem,
+                                        focused_id,
+                                        fission_ir::semantics::ActionTrigger::TapOutside,
+                                        Some(
+                                            serde_json::to_vec(&current_value.to_string()).unwrap(),
+                                        ),
+                                    );
+                                }
+                            }
+                        }
+                        Self::clear_text_input_affordances(ctx, focused_id);
                         None
                     }
                 } else {
                     // If nothing is focused, try to find the TextInput under the
                     // click point and focus + place the caret in one step.
-                    let hit = crate::hit_test::hit_test_with_scroll(
-                        ctx.ir, ctx.layout, ctx.scroll, *point,
-                    );
                     hit.and_then(|hit| {
                         let mut walk = Some(hit);
                         while let Some(nid) = walk {
@@ -150,6 +225,13 @@ impl InputController for TextInputController {
                                         ctx.layout.get_node_geometry(scroll_id)
                                     {
                                         let value = sem.value.as_deref().unwrap_or("");
+                                        let display_value =
+                                            Self::display_value_for_metrics(ctx, focused_id, value);
+                                        let metric_text = if sem.masked {
+                                            Self::mask_text_for_metrics(&display_value)
+                                        } else {
+                                            display_value.clone()
+                                        };
                                         let offset = ctx.scroll.get_offset(scroll_id);
 
                                         // Accumulate ancestor scroll offsets to convert
@@ -190,19 +272,32 @@ impl InputController for TextInputController {
                                             let local_y = point.y - scroll_geom.rect.origin.y
                                                 + ancestor_scroll_y;
 
-                                            Self::hit_test_text(
+                                            let masked_caret = Self::hit_test_text(
                                                 measurer,
                                                 ctx.ir,
                                                 focused_id,
-                                                value,
+                                                sem.masked,
+                                                &metric_text,
                                                 scroll_geom,
                                                 local_x,
                                                 local_y,
-                                            )
+                                            );
+                                            if sem.masked {
+                                                Self::source_byte_offset_from_masked(
+                                                    &display_value,
+                                                    &metric_text,
+                                                    masked_caret,
+                                                )
+                                            } else {
+                                                masked_caret
+                                            }
                                         } else {
+                                            let font_size =
+                                                Self::extract_font_size(ctx.ir, focused_id)
+                                                    .unwrap_or(13.0);
                                             Self::caret_from_point_in_text_fallback(
-                                                value,
-                                                16.0,
+                                                &display_value,
+                                                font_size,
                                                 scroll_geom.rect.origin.x,
                                                 scroll_geom.rect.size.width,
                                                 scroll_geom.content_size.width,
@@ -210,11 +305,19 @@ impl InputController for TextInputController {
                                                 point.x,
                                             )
                                         };
-                                        let st = ctx.text_edit.get_mut_or_default(focused_id);
-                                        st.caret = caret;
-                                        st.anchor = caret;
+                                        let anchor = {
+                                            let st = ctx.text_edit.get_mut_or_default(focused_id);
+                                            st.caret = caret;
+                                            if !Self::has_shift(*modifiers) {
+                                                st.anchor = caret;
+                                            }
+                                            st.anchor
+                                        };
                                         Self::dispatch_cursor_change(
-                                            ctx, sem, focused_id, caret, caret,
+                                            ctx, sem, focused_id, caret, anchor,
+                                        );
+                                        Self::sync_text_input_affordances(
+                                            ctx, focused_id, sem, value, false, None,
                                         );
                                     }
                                 }
@@ -230,15 +333,112 @@ impl InputController for TextInputController {
                     if let Some(node) = ctx.ir.nodes.get(&focused_id) {
                         if let Op::Semantics(sem) = &node.op {
                             if sem.role == fission_ir::semantics::Role::TextInput {
-                                if !ctx.interaction.pressed.is_empty() {
-                                    let mut moved_enough = true;
-                                    if let Some(start) = ctx.interaction.last_down_point {
-                                        let dx = point.x - start.x;
-                                        let dy = point.y - start.y;
-                                        if dx * dx + dy * dy < 4.0 {
-                                            moved_enough = false;
+                                let active_handle = ctx
+                                    .text_edit
+                                    .states
+                                    .get(&focused_id)
+                                    .and_then(|state| state.affordances.active_handle);
+                                if let Some(active_handle) = active_handle {
+                                    if let Some((scroll_id, _text_op_node_id, _scroll_direction)) =
+                                        Self::find_scroll_container_and_text_op(
+                                            ctx.ir,
+                                            focused_id,
+                                            sem.multiline,
+                                        )
+                                    {
+                                        if let Some(scroll_geom) =
+                                            ctx.layout.get_node_geometry(scroll_id)
+                                        {
+                                            let value = sem.value.as_deref().unwrap_or("");
+                                            let display_value = Self::display_value_for_metrics(
+                                                ctx, focused_id, value,
+                                            );
+                                            let metric_text = if sem.masked {
+                                                Self::mask_text_for_metrics(&display_value)
+                                            } else {
+                                                display_value.clone()
+                                            };
+                                            let offset = ctx.scroll.get_offset(scroll_id);
+                                            let new_caret = if let Some(measurer) = ctx.measurer {
+                                                let local_x =
+                                                    point.x - scroll_geom.rect.origin.x + offset;
+                                                let local_y = point.y - scroll_geom.rect.origin.y;
+                                                let masked_caret = Self::hit_test_text(
+                                                    measurer,
+                                                    ctx.ir,
+                                                    focused_id,
+                                                    sem.masked,
+                                                    &metric_text,
+                                                    scroll_geom,
+                                                    local_x,
+                                                    local_y,
+                                                );
+                                                if sem.masked {
+                                                    Self::source_byte_offset_from_masked(
+                                                        &display_value,
+                                                        &metric_text,
+                                                        masked_caret,
+                                                    )
+                                                } else {
+                                                    masked_caret
+                                                }
+                                            } else {
+                                                0
+                                            };
+                                            let (caret, anchor) = {
+                                                let st =
+                                                    ctx.text_edit.get_mut_or_default(focused_id);
+                                                match active_handle {
+                                                    TextSelectionHandleKind::Caret => {
+                                                        st.caret = new_caret;
+                                                        st.anchor = new_caret;
+                                                    }
+                                                    TextSelectionHandleKind::Start => {
+                                                        if st.caret <= st.anchor {
+                                                            st.caret = new_caret;
+                                                        } else {
+                                                            st.anchor = new_caret;
+                                                        }
+                                                    }
+                                                    TextSelectionHandleKind::End => {
+                                                        if st.caret >= st.anchor {
+                                                            st.caret = new_caret;
+                                                        } else {
+                                                            st.anchor = new_caret;
+                                                        }
+                                                    }
+                                                }
+                                                (st.caret, st.anchor)
+                                            };
+                                            Self::auto_scroll_textinput(ctx, focused_id);
+                                            Self::dispatch_cursor_change(
+                                                ctx, sem, focused_id, caret, anchor,
+                                            );
+                                            Self::sync_text_input_affordances(
+                                                ctx, focused_id, sem, value, false, None,
+                                            );
                                         }
                                     }
+                                    return true;
+                                }
+
+                                if !ctx.interaction.pressed.is_empty() {
+                                    let moved_enough =
+                                        match Self::drag_start_behavior(ctx, focused_id) {
+                                            DragStartBehavior::Down => true,
+                                            DragStartBehavior::Start => {
+                                                let mut moved_enough = true;
+                                                if let Some(start) = ctx.interaction.last_down_point
+                                                {
+                                                    let dx = point.x - start.x;
+                                                    let dy = point.y - start.y;
+                                                    if dx * dx + dy * dy < 4.0 {
+                                                        moved_enough = false;
+                                                    }
+                                                }
+                                                moved_enough
+                                            }
+                                        };
                                     if moved_enough {
                                         if let Some((
                                             scroll_id,
@@ -253,6 +453,14 @@ impl InputController for TextInputController {
                                                 ctx.layout.get_node_geometry(scroll_id)
                                             {
                                                 let value = sem.value.as_deref().unwrap_or("");
+                                                let display_value = Self::display_value_for_metrics(
+                                                    ctx, focused_id, value,
+                                                );
+                                                let metric_text = if sem.masked {
+                                                    Self::mask_text_for_metrics(&display_value)
+                                                } else {
+                                                    display_value.clone()
+                                                };
                                                 let offset = ctx.scroll.get_offset(scroll_id);
                                                 let new_caret = if let Some(measurer) = ctx.measurer
                                                 {
@@ -302,19 +510,32 @@ impl InputController for TextInputController {
                                                         - scroll_geom.rect.origin.y
                                                         + anc_scroll_y;
 
-                                                    Self::hit_test_text(
+                                                    let masked_caret = Self::hit_test_text(
                                                         measurer,
                                                         ctx.ir,
                                                         focused_id,
-                                                        value,
+                                                        sem.masked,
+                                                        &metric_text,
                                                         scroll_geom,
                                                         local_x,
                                                         local_y,
-                                                    )
+                                                    );
+                                                    if sem.masked {
+                                                        Self::source_byte_offset_from_masked(
+                                                            &display_value,
+                                                            &metric_text,
+                                                            masked_caret,
+                                                        )
+                                                    } else {
+                                                        masked_caret
+                                                    }
                                                 } else {
+                                                    let font_size =
+                                                        Self::extract_font_size(ctx.ir, focused_id)
+                                                            .unwrap_or(13.0);
                                                     Self::caret_from_point_in_text_fallback(
-                                                        value,
-                                                        16.0,
+                                                        &display_value,
+                                                        font_size,
                                                         scroll_geom.rect.origin.x,
                                                         scroll_geom.rect.size.width,
                                                         scroll_geom.content_size.width,
@@ -334,10 +555,53 @@ impl InputController for TextInputController {
                                                     new_caret,
                                                     current_anchor,
                                                 );
+                                                Self::sync_text_input_affordances(
+                                                    ctx, focused_id, sem, value, false, None,
+                                                );
                                             }
                                         }
                                     }
                                 }
+                                return true;
+                            }
+                        }
+                    }
+                }
+                false
+            }
+            InputEvent::Pointer(PointerEvent::Up { point, button, .. }) => {
+                if let Some(focused_id) = ctx.interaction.focused {
+                    if let Some(node) = ctx.ir.nodes.get(&focused_id) {
+                        if let Op::Semantics(sem) = &node.op {
+                            if sem.role == fission_ir::semantics::Role::TextInput {
+                                let value = sem.value.as_deref().unwrap_or("").to_string();
+                                let toolbar_anchor = Self::input_wrapper_geometry(ctx, focused_id)
+                                    .map(|geom| {
+                                        fission_layout::LayoutPoint::new(
+                                            (point.x - geom.rect.origin.x).max(0.0),
+                                            (point.y - geom.rect.origin.y).max(0.0),
+                                        )
+                                    });
+                                let show_toolbar =
+                                    matches!(button, crate::event::PointerButton::Secondary)
+                                        || ctx
+                                            .text_edit
+                                            .states
+                                            .get(&focused_id)
+                                            .map(|state| state.caret != state.anchor)
+                                            .unwrap_or(false);
+                                if let Some(state) = ctx.text_edit.states.get_mut(&focused_id) {
+                                    state.affordances.active_handle = None;
+                                    state.affordances.magnifier_visible = false;
+                                }
+                                Self::sync_text_input_affordances(
+                                    ctx,
+                                    focused_id,
+                                    sem,
+                                    &value,
+                                    show_toolbar,
+                                    if show_toolbar { toolbar_anchor } else { None },
+                                );
                                 return true;
                             }
                         }
@@ -395,7 +659,7 @@ impl TextInputController {
         anchor = Self::clamp_caret_to_value(&value, anchor);
 
         let sel = if caret != anchor {
-            Some((anchor, caret))
+            Some((caret.min(anchor), caret.max(anchor)))
         } else {
             None
         };
@@ -408,228 +672,373 @@ impl TextInputController {
 
         // Undo/Redo logic result
         let mut undo_redo_result: Option<(String, usize, usize)> = None;
+        let read_only = semantics.read_only;
+        let disabled = semantics.disabled;
+        let is_apple = Self::is_apple_platform();
+        let shift = Self::has_shift(modifiers);
+        let primary_shortcut = Self::has_primary_shortcut(modifiers);
+        let word_modifier = Self::has_word_modifier(modifiers);
+
+        if disabled {
+            return false;
+        }
 
         match key_code {
             KeyCode::Space => {
-                let (s, e) = sel
-                    .map(|(a, b)| if a <= b { (a, b) } else { (b, a) })
-                    .unwrap_or((caret, caret));
-                next_caret = s + 1;
-                next_anchor = next_caret;
-                next_edit = Some((s..e, " ".to_string()));
-                handled = true;
-            }
-            KeyCode::Char(ch) if ((modifiers & 4) != 0) || ((modifiers & 8) != 0) => {
-                let lower = ch.to_ascii_lowercase();
-                let (s, e) = if caret <= anchor {
-                    (caret, anchor)
+                if read_only {
+                    handled = true;
                 } else {
-                    (anchor, caret)
-                };
-                match lower {
-                    'c' => {
-                        if s != e {
-                            let txt = value[s..e].to_string();
-                            if let Some(cb) = ctx.clipboard {
-                                cb.set_text(&txt);
+                    let (s, e) = sel.unwrap_or((caret, caret));
+                    if let Some(inserted) =
+                        Self::prepare_inserted_text(semantics, &value, s, e, " ")
+                    {
+                        next_caret = s + inserted.len();
+                        next_anchor = next_caret;
+                        next_edit = Some((s..e, inserted));
+                    }
+                    handled = true;
+                }
+            }
+            KeyCode::Char(ch) => {
+                let lower = ch.to_ascii_lowercase();
+                if primary_shortcut {
+                    let (s, e) = sel.unwrap_or((caret, caret));
+                    match lower {
+                        'a' => {
+                            next_caret = value.len();
+                            next_anchor = 0;
+                            handled = true;
+                        }
+                        'c' => {
+                            if s != e {
+                                let txt = value[s..e].to_string();
+                                if let Some(cb) = ctx.clipboard {
+                                    cb.set_text(&txt);
+                                }
+                            }
+                            handled = true;
+                        }
+                        'x' => {
+                            if s != e {
+                                let txt = value[s..e].to_string();
+                                if let Some(cb) = ctx.clipboard {
+                                    cb.set_text(&txt);
+                                }
+                                if !read_only {
+                                    next_edit = Some((s..e, String::new()));
+                                    next_caret = s;
+                                    next_anchor = s;
+                                }
+                            }
+                            handled = true;
+                        }
+                        'v' => {
+                            handled = true;
+                            if !read_only {
+                                let text_to_paste = if let Some(cb) = ctx.clipboard {
+                                    cb.get_text().unwrap_or_default()
+                                } else {
+                                    String::new()
+                                };
+                                if !text_to_paste.is_empty() {
+                                    if let Some(inserted) = Self::prepare_inserted_text(
+                                        semantics,
+                                        &value,
+                                        s,
+                                        e,
+                                        &text_to_paste,
+                                    ) {
+                                        next_caret = s + inserted.len();
+                                        next_anchor = next_caret;
+                                        next_edit = Some((s..e, inserted));
+                                    }
+                                }
                             }
                         }
-                        handled = true;
-                    }
-                    'x' => {
-                        if s != e {
-                            let txt = value[s..e].to_string();
-                            if let Some(cb) = ctx.clipboard {
-                                cb.set_text(&txt);
-                            }
-                            next_edit = Some((s..e, String::new()));
-                            next_caret = s;
-                            next_anchor = s;
-                        }
-                        handled = true;
-                    }
-                    'v' => {
-                        let text_to_paste = if let Some(cb) = ctx.clipboard {
-                            cb.get_text().unwrap_or_default()
-                        } else {
-                            String::new()
-                        };
-                        if !text_to_paste.is_empty() {
-                            let (s, e) = sel
-                                .map(|(a, b)| if a <= b { (a, b) } else { (b, a) })
-                                .unwrap_or((caret, caret));
-                            next_caret = s + text_to_paste.len();
-                            next_anchor = next_caret;
-                            next_edit = Some((s..e, text_to_paste));
-                        }
-                        handled = true;
-                    }
-                    'z' => {
-                        let (ctrl_or_super, shift) = (
-                            ((modifiers & 4) != 0) || ((modifiers & 8) != 0),
-                            (modifiers & 1) != 0,
-                        );
-                        if ctrl_or_super {
+                        'z' => {
                             let st = ctx.text_edit.get_mut_or_default(focused_id);
                             if shift {
                                 if let Some((v, c, a)) = st.redo() {
                                     undo_redo_result = Some((v, c, a));
                                 }
-                            } else {
-                                if let Some((v, c, a)) = st.undo() {
-                                    undo_redo_result = Some((v, c, a));
-                                }
+                            } else if let Some((v, c, a)) = st.undo() {
+                                undo_redo_result = Some((v, c, a));
                             }
                             handled = true;
                         }
+                        'y' if !is_apple => {
+                            let st = ctx.text_edit.get_mut_or_default(focused_id);
+                            if let Some((v, c, a)) = st.redo() {
+                                undo_redo_result = Some((v, c, a));
+                            }
+                            handled = true;
+                        }
+                        _ => {}
                     }
-                    _ => {} // Do nothing for other shortcuts
-                }
-            }
-            KeyCode::Char(c) => {
-                // Check against input mask
-                if let Some(mask) = &semantics.input_mask {
-                    if !mask.is_valid_char(c) {
-                        return true; // Ignore invalid character
+                    if handled {
+                        // Skip plain text insertion when a primary shortcut matched.
                     }
                 }
-                let (s, e) = sel
-                    .map(|(a, b)| if a <= b { (a, b) } else { (b, a) })
-                    .unwrap_or((caret, caret));
-                let inserted = c.to_string();
-                next_caret = s + inserted.len();
-                next_anchor = next_caret;
-                next_edit = Some((s..e, inserted));
-                handled = true;
+
+                if !handled
+                    && is_apple
+                    && Self::has_ctrl(modifiers)
+                    && !Self::has_alt(modifiers)
+                    && !Self::has_super(modifiers)
+                {
+                    match lower {
+                        'a' => {
+                            let (line_start, _) = Self::current_line_bounds(
+                                ctx, focused_id, semantics, &value, caret,
+                            );
+                            next_caret = line_start;
+                            next_anchor = if shift { anchor } else { line_start };
+                            handled = true;
+                        }
+                        'e' => {
+                            let (_, line_end) = Self::current_line_bounds(
+                                ctx, focused_id, semantics, &value, caret,
+                            );
+                            next_caret = line_end;
+                            next_anchor = if shift { anchor } else { line_end };
+                            handled = true;
+                        }
+                        'f' => {
+                            let next = Self::next_grapheme_boundary(&value, caret);
+                            next_caret = next;
+                            next_anchor = if shift { anchor } else { next };
+                            handled = true;
+                        }
+                        'b' => {
+                            let prev = Self::prev_grapheme_boundary(&value, caret);
+                            next_caret = prev;
+                            next_anchor = if shift { anchor } else { prev };
+                            handled = true;
+                        }
+                        'n' if semantics.multiline => {
+                            self.handle_vertical_navigation(
+                                ctx, focused_id, semantics, &value, caret, modifiers, false,
+                            );
+                            return true;
+                        }
+                        'p' if semantics.multiline => {
+                            self.handle_vertical_navigation(
+                                ctx, focused_id, semantics, &value, caret, modifiers, true,
+                            );
+                            return true;
+                        }
+                        'h' => {
+                            handled = true;
+                            if !read_only {
+                                let (s, e) = sel.unwrap_or_else(|| {
+                                    if caret == 0 {
+                                        (0, 0)
+                                    } else {
+                                        (Self::prev_grapheme_boundary(&value, caret), caret)
+                                    }
+                                });
+                                next_edit = Some((s..e, String::new()));
+                                next_caret = s;
+                                next_anchor = s;
+                            }
+                        }
+                        'd' => {
+                            handled = true;
+                            if !read_only {
+                                let (s, e) = sel.unwrap_or_else(|| {
+                                    let next = Self::next_grapheme_boundary(&value, caret);
+                                    (caret, next)
+                                });
+                                next_edit = Some((s..e, String::new()));
+                                next_caret = s;
+                                next_anchor = s;
+                            }
+                        }
+                        _ => {}
+                    }
+                }
+
+                if !handled {
+                    if read_only {
+                        handled = true;
+                    } else {
+                        let (s, e) = sel.unwrap_or((caret, caret));
+                        if let Some(inserted) =
+                            Self::prepare_inserted_text(semantics, &value, s, e, &ch.to_string())
+                        {
+                            next_caret = s + inserted.len();
+                            next_anchor = next_caret;
+                            next_edit = Some((s..e, inserted));
+                        }
+                        handled = true;
+                    }
+                }
             }
             KeyCode::Backspace => {
-                if (modifiers & 2) != 0 && sel.is_none() {
-                    // Ctrl+Backspace
-                    let mut at = caret;
-                    while at > 0 {
-                        let prev = Self::prev_grapheme_boundary(&value, at);
-                        let ch = value[prev..].chars().next().unwrap_or('\0');
-                        if !ch.is_whitespace() {
-                            at = prev;
-                            break;
-                        }
-                        at = prev;
-                    }
-                    while at > 0 {
-                        let prev = Self::prev_grapheme_boundary(&value, at);
-                        let ch = value[prev..].chars().next().unwrap_or('\0');
-                        if ch.is_alphanumeric() || ch == '_' {
-                            at = prev;
-                        } else {
-                            break;
-                        }
-                    }
-                    next_edit = Some((at..caret, String::new()));
-                    next_caret = at;
-                    next_anchor = at;
-                } else {
-                    let (s, e) = if let Some((a, b)) = sel {
-                        if a <= b {
-                            (a, b)
-                        } else {
-                            (b, a)
-                        }
+                handled = true;
+                if !read_only {
+                    let (s, e) = if let Some((s, e)) = sel {
+                        (s, e)
+                    } else if is_apple && Self::has_super(modifiers) {
+                        let (line_start, _) =
+                            Self::current_line_bounds(ctx, focused_id, semantics, &value, caret);
+                        (line_start, caret)
+                    } else if word_modifier {
+                        (Self::prev_word_boundary(&value, caret), caret)
+                    } else if caret == 0 {
+                        (0, 0)
                     } else {
-                        let at = caret.min(value.len());
-                        if at == 0 {
-                            (0, 0)
-                        } else {
-                            (Self::prev_grapheme_boundary(&value, at), at)
-                        }
+                        (Self::prev_grapheme_boundary(&value, caret), caret)
                     };
                     next_edit = Some((s..e, String::new()));
                     next_caret = s;
                     next_anchor = s;
                 }
+            }
+            KeyCode::Delete => {
                 handled = true;
+                if !read_only {
+                    let (s, e) = if let Some((s, e)) = sel {
+                        (s, e)
+                    } else if is_apple && Self::has_super(modifiers) {
+                        let (_, line_end) =
+                            Self::current_line_bounds(ctx, focused_id, semantics, &value, caret);
+                        (caret, line_end)
+                    } else if word_modifier {
+                        (caret, Self::next_word_boundary(&value, caret))
+                    } else {
+                        let next = Self::next_grapheme_boundary(&value, caret);
+                        (caret, next)
+                    };
+                    next_edit = Some((s..e, String::new()));
+                    next_caret = s;
+                    next_anchor = s;
+                }
             }
             KeyCode::Left => {
-                let prev = if (modifiers & 2) != 0 {
-                    // Ctrl+Left
+                let prev = if let Some((s, _)) = sel {
+                    if !shift && !word_modifier && !(is_apple && Self::has_super(modifiers)) {
+                        s
+                    } else if is_apple && Self::has_super(modifiers) {
+                        Self::current_line_bounds(ctx, focused_id, semantics, &value, caret).0
+                    } else if word_modifier {
+                        Self::prev_word_boundary(&value, caret)
+                    } else {
+                        Self::prev_grapheme_boundary(&value, caret)
+                    }
+                } else if is_apple && Self::has_super(modifiers) {
+                    Self::current_line_bounds(ctx, focused_id, semantics, &value, caret).0
+                } else if word_modifier {
                     Self::prev_word_boundary(&value, caret)
                 } else {
                     Self::prev_grapheme_boundary(&value, caret)
                 };
                 next_caret = prev;
-                if (modifiers & 1) != 0 {
-                    next_anchor = anchor;
-                } else {
-                    next_anchor = prev;
-                }
+                next_anchor = if shift { anchor } else { prev };
                 handled = true;
             }
             KeyCode::Right => {
-                let next = if (modifiers & 2) != 0 {
-                    // Ctrl+Right
+                let next = if let Some((_, e)) = sel {
+                    if !shift && !word_modifier && !(is_apple && Self::has_super(modifiers)) {
+                        e
+                    } else if is_apple && Self::has_super(modifiers) {
+                        Self::current_line_bounds(ctx, focused_id, semantics, &value, caret).1
+                    } else if word_modifier {
+                        Self::next_word_boundary(&value, caret)
+                    } else {
+                        Self::next_grapheme_boundary(&value, caret)
+                    }
+                } else if is_apple && Self::has_super(modifiers) {
+                    Self::current_line_bounds(ctx, focused_id, semantics, &value, caret).1
+                } else if word_modifier {
                     Self::next_word_boundary(&value, caret)
                 } else {
                     Self::next_grapheme_boundary(&value, caret)
                 };
                 next_caret = next;
-                if (modifiers & 1) != 0 {
-                    next_anchor = anchor;
-                } else {
-                    next_anchor = next;
-                }
+                next_anchor = if shift { anchor } else { next };
                 handled = true;
             }
             KeyCode::Home => {
-                next_caret = 0;
-                if (modifiers & 1) != 0 {
-                    next_anchor = anchor;
+                next_caret = if semantics.multiline && !(Self::has_ctrl(modifiers) && !is_apple) {
+                    Self::current_line_bounds(ctx, focused_id, semantics, &value, caret).0
                 } else {
-                    next_anchor = 0;
-                }
+                    0
+                };
+                next_anchor = if shift { anchor } else { next_caret };
                 handled = true;
             }
             KeyCode::End => {
-                let end = value.len();
-                next_caret = end;
-                if (modifiers & 1) != 0 {
-                    next_anchor = anchor;
+                next_caret = if semantics.multiline && !(Self::has_ctrl(modifiers) && !is_apple) {
+                    Self::current_line_bounds(ctx, focused_id, semantics, &value, caret).1
                 } else {
-                    next_anchor = end;
-                }
+                    value.len()
+                };
+                next_anchor = if shift { anchor } else { next_caret };
                 handled = true;
             }
             KeyCode::Enter => {
                 if semantics.multiline {
-                    let insert_str = if semantics.auto_indent {
-                        // Find the leading whitespace of the current line
-                        let line_start = value[..caret].rfind('\n').map(|p| p + 1).unwrap_or(0);
-                        let leading: String = value[line_start..]
-                            .chars()
-                            .take_while(|c| *c == ' ' || *c == '\t')
-                            .collect();
-                        format!("\n{}", leading)
-                    } else {
-                        "\n".to_string()
-                    };
-                    let (s, e) = sel
-                        .map(|(a, b)| if a <= b { (a, b) } else { (b, a) })
-                        .unwrap_or((caret, caret));
-                    next_caret = s + insert_str.len();
-                    next_anchor = next_caret;
-                    next_edit = Some((s..e, insert_str));
                     handled = true;
+                    if !read_only {
+                        let insert_str = if semantics.auto_indent {
+                            let line_start = value[..caret].rfind('\n').map(|p| p + 1).unwrap_or(0);
+                            let leading: String = value[line_start..]
+                                .chars()
+                                .take_while(|c| *c == ' ' || *c == '\t')
+                                .collect();
+                            format!("\n{}", leading)
+                        } else {
+                            "\n".to_string()
+                        };
+                        let (s, e) = sel.unwrap_or((caret, caret));
+                        if let Some(inserted) =
+                            Self::prepare_inserted_text(semantics, &value, s, e, &insert_str)
+                        {
+                            next_caret = s + inserted.len();
+                            next_anchor = next_caret;
+                            next_edit = Some((s..e, inserted));
+                        }
+                    }
+                } else if Self::dispatch_submit(ctx, semantics, focused_id, &value) {
+                    return true;
                 }
             }
             KeyCode::Up => {
-                if semantics.multiline {
+                if is_apple && Self::has_super(modifiers) {
+                    next_caret = 0;
+                    next_anchor = if shift { anchor } else { 0 };
+                    handled = true;
+                } else if semantics.multiline {
                     self.handle_vertical_navigation(
                         ctx, focused_id, semantics, &value, caret, modifiers, true,
                     );
-                    return true; // Return early as handle_vertical_navigation does its own state update
+                    return true;
                 }
             }
             KeyCode::Down => {
-                if semantics.multiline {
+                if is_apple && Self::has_super(modifiers) {
+                    next_caret = value.len();
+                    next_anchor = if shift { anchor } else { value.len() };
+                    handled = true;
+                } else if semantics.multiline {
                     self.handle_vertical_navigation(
+                        ctx, focused_id, semantics, &value, caret, modifiers, false,
+                    );
+                    return true;
+                }
+            }
+            KeyCode::PageUp => {
+                if semantics.multiline {
+                    self.handle_page_navigation(
+                        ctx, focused_id, semantics, &value, caret, modifiers, true,
+                    );
+                    return true;
+                }
+            }
+            KeyCode::PageDown => {
+                if semantics.multiline {
+                    self.handle_page_navigation(
                         ctx, focused_id, semantics, &value, caret, modifiers, false,
                     );
                     return true;
@@ -637,25 +1046,35 @@ impl TextInputController {
             }
             KeyCode::Tab => {
                 if semantics.capture_tab {
-                    let tab_str = "    "; // 4 spaces
-                    let (s, e) = sel
-                        .map(|(a, b)| if a <= b { (a, b) } else { (b, a) })
-                        .unwrap_or((caret, caret));
-                    next_caret = s + tab_str.len();
-                    next_anchor = next_caret;
-                    next_edit = Some((s..e, tab_str.to_string()));
                     handled = true;
+                    if !read_only {
+                        let tab_str = "    ";
+                        let (s, e) = sel.unwrap_or((caret, caret));
+                        if let Some(inserted) =
+                            Self::prepare_inserted_text(semantics, &value, s, e, tab_str)
+                        {
+                            next_caret = s + inserted.len();
+                            next_anchor = next_caret;
+                            next_edit = Some((s..e, inserted));
+                        }
+                    }
                 }
-                // If capture_tab is false, fall through (return false) so focus
-                // navigation can handle Tab normally.
             }
-            _ => {} // Do nothing for other keys
+            _ => {}
         }
 
         if let Some((v, c, a)) = undo_redo_result {
             // Apply undo/redo result
             self.dispatch_change(ctx, semantics, focused_id, v);
             Self::dispatch_cursor_change(ctx, semantics, focused_id, c, a);
+            Self::sync_text_input_affordances(
+                ctx,
+                focused_id,
+                semantics,
+                value.as_str(),
+                false,
+                None,
+            );
             return true;
         }
 
@@ -665,6 +1084,14 @@ impl TextInputController {
             let txt = st.apply_edit(range, &replacement, next_caret, next_anchor);
             self.dispatch_change(ctx, semantics, focused_id, txt);
             Self::dispatch_cursor_change(ctx, semantics, focused_id, next_caret, next_anchor);
+            Self::sync_text_input_affordances(
+                ctx,
+                focused_id,
+                semantics,
+                value.as_str(),
+                false,
+                None,
+            );
         } else if handled {
             // Cursor movement only
             let st = ctx.text_edit.get_mut_or_default(focused_id);
@@ -673,9 +1100,574 @@ impl TextInputController {
             st.clear_preedit();
             Self::auto_scroll_textinput(ctx, focused_id);
             Self::dispatch_cursor_change(ctx, semantics, focused_id, next_caret, next_anchor);
+            Self::sync_text_input_affordances(
+                ctx,
+                focused_id,
+                semantics,
+                value.as_str(),
+                false,
+                None,
+            );
         }
 
         handled
+    }
+
+    fn is_apple_platform() -> bool {
+        cfg!(target_os = "macos") || cfg!(target_os = "ios")
+    }
+
+    fn runtime_config(
+        ctx: &ControllerContext,
+        focused_id: NodeId,
+    ) -> Option<crate::ui::widgets::text_input::TextInputRuntimeConfig> {
+        ctx.ir
+            .custom_render_objects
+            .get(&focused_id)
+            .and_then(downcast_text_input_runtime_config)
+            .cloned()
+    }
+
+    fn drag_start_behavior(ctx: &ControllerContext, focused_id: NodeId) -> DragStartBehavior {
+        Self::runtime_config(ctx, focused_id)
+            .map(|cfg| cfg.drag_start_behavior)
+            .unwrap_or_default()
+    }
+
+    fn sync_runtime_state(ctx: &mut ControllerContext, focused_id: NodeId, semantic_value: &str) {
+        let runtime = Self::runtime_config(ctx, focused_id);
+        ctx.text_edit.sync_from_runtime(
+            focused_id,
+            semantic_value,
+            runtime
+                .as_ref()
+                .and_then(|cfg| cfg.restoration_id.as_deref()),
+            runtime
+                .as_ref()
+                .and_then(|cfg| cfg.undo_controller.as_ref().map(|undo| undo.capacity)),
+        );
+    }
+
+    fn persist_runtime_state(ctx: &mut ControllerContext, focused_id: NodeId) {
+        let runtime = Self::runtime_config(ctx, focused_id);
+        ctx.text_edit.persist_restoration(
+            focused_id,
+            runtime
+                .as_ref()
+                .and_then(|cfg| cfg.restoration_id.as_deref()),
+        );
+    }
+
+    fn has_shift(modifiers: u8) -> bool {
+        (modifiers & MOD_SHIFT) != 0
+    }
+
+    fn has_alt(modifiers: u8) -> bool {
+        (modifiers & MOD_ALT) != 0
+    }
+
+    fn has_ctrl(modifiers: u8) -> bool {
+        (modifiers & MOD_CTRL) != 0
+    }
+
+    fn has_super(modifiers: u8) -> bool {
+        (modifiers & MOD_SUPER) != 0
+    }
+
+    fn has_primary_shortcut(modifiers: u8) -> bool {
+        if Self::is_apple_platform() {
+            Self::has_super(modifiers)
+        } else {
+            Self::has_ctrl(modifiers)
+        }
+    }
+
+    fn has_word_modifier(modifiers: u8) -> bool {
+        if Self::is_apple_platform() {
+            Self::has_alt(modifiers)
+        } else {
+            Self::has_ctrl(modifiers)
+        }
+    }
+
+    fn primary_shortcut_modifier() -> u8 {
+        if Self::is_apple_platform() {
+            MOD_SUPER
+        } else {
+            MOD_CTRL
+        }
+    }
+
+    fn node_or_ancestor_matches(
+        ir: &fission_ir::CoreIR,
+        node_id: NodeId,
+        expected: NodeId,
+    ) -> bool {
+        let mut current = Some(node_id);
+        while let Some(id) = current {
+            if id == expected {
+                return true;
+            }
+            current = ir.nodes.get(&id).and_then(|node| node.parent);
+        }
+        false
+    }
+
+    fn toolbar_action_hit(
+        ir: &fission_ir::CoreIR,
+        focused_id: NodeId,
+        hit_node_id: NodeId,
+    ) -> Option<TextContextMenuAction> {
+        for action in [
+            TextContextMenuAction::Copy,
+            TextContextMenuAction::Cut,
+            TextContextMenuAction::Paste,
+            TextContextMenuAction::SelectAll,
+        ] {
+            if Self::node_or_ancestor_matches(
+                ir,
+                hit_node_id,
+                text_input_toolbar_button_id(focused_id, action),
+            ) {
+                return Some(action);
+            }
+        }
+        None
+    }
+
+    fn selection_handle_hit(
+        ir: &fission_ir::CoreIR,
+        focused_id: NodeId,
+        hit_node_id: NodeId,
+    ) -> Option<TextSelectionHandleKind> {
+        for kind in [
+            TextSelectionHandleKind::Caret,
+            TextSelectionHandleKind::Start,
+            TextSelectionHandleKind::End,
+        ] {
+            if Self::node_or_ancestor_matches(
+                ir,
+                hit_node_id,
+                text_input_selection_handle_id(focused_id, kind),
+            ) {
+                return Some(kind);
+            }
+        }
+        None
+    }
+
+    fn execute_toolbar_action(
+        &mut self,
+        ctx: &mut ControllerContext,
+        action: TextContextMenuAction,
+    ) -> bool {
+        match action {
+            TextContextMenuAction::Copy => {
+                self.handle_key(ctx, KeyCode::Char('c'), Self::primary_shortcut_modifier())
+            }
+            TextContextMenuAction::Cut => {
+                self.handle_key(ctx, KeyCode::Char('x'), Self::primary_shortcut_modifier())
+            }
+            TextContextMenuAction::Paste => {
+                self.handle_key(ctx, KeyCode::Char('v'), Self::primary_shortcut_modifier())
+            }
+            TextContextMenuAction::SelectAll => {
+                self.handle_key(ctx, KeyCode::Char('a'), Self::primary_shortcut_modifier())
+            }
+        }
+    }
+
+    fn input_wrapper_geometry<'a>(
+        ctx: &'a ControllerContext<'_>,
+        focused_id: NodeId,
+    ) -> Option<&'a fission_layout::LayoutNodeGeometry> {
+        let wrapper_id = ctx.ir.nodes.get(&focused_id)?.children.first().copied()?;
+        ctx.layout.get_node_geometry(wrapper_id)
+    }
+
+    fn line_metric_for_index<'a>(
+        line_metrics: &'a [fission_layout::LineMetric],
+        caret_index: usize,
+    ) -> Option<(usize, &'a fission_layout::LineMetric)> {
+        line_metrics
+            .iter()
+            .enumerate()
+            .find(|(_, line)| caret_index >= line.start_index && caret_index <= line.end_index)
+            .or_else(|| line_metrics.iter().enumerate().last())
+    }
+
+    fn local_text_point_for_index(
+        measurer: &std::sync::Arc<dyn fission_layout::TextMeasurer>,
+        ir: &fission_ir::CoreIR,
+        focused_id: NodeId,
+        wrapper_geom: &fission_layout::LayoutNodeGeometry,
+        scroll_geom: &fission_layout::LayoutNodeGeometry,
+        scroll_direction: FlexDirection,
+        scroll_offset: f32,
+        metric_text: &str,
+        metric_index: usize,
+    ) -> Option<fission_layout::LayoutPoint> {
+        let font_size = Self::extract_font_size(ir, focused_id).unwrap_or(16.0);
+        let paragraph = Self::extract_paragraph_style(ir, focused_id).unwrap_or_default();
+        let render_width = if scroll_direction == FlexDirection::Column {
+            Some(scroll_geom.rect.size.width)
+        } else {
+            None
+        };
+        let (mut caret_x, caret_y) =
+            measurer.get_caret_position(metric_text, font_size, render_width, metric_index);
+        let line_metrics = measurer.get_line_metrics(metric_text, font_size, render_width);
+        let (line_index, line_metric) = Self::line_metric_for_index(&line_metrics, metric_index)?;
+        let is_last_line = line_index + 1 == line_metrics.len();
+        if let Some(width) = render_width {
+            caret_x +=
+                Self::paragraph_line_x_offset(paragraph, width, line_metric.width, is_last_line);
+        }
+
+        let visible_x = if scroll_direction == FlexDirection::Row {
+            caret_x - scroll_offset
+        } else {
+            caret_x
+        };
+        let visible_y = if scroll_direction == FlexDirection::Column {
+            caret_y - scroll_offset
+        } else {
+            caret_y
+        };
+
+        let local_x = (scroll_geom.rect.origin.x - wrapper_geom.rect.origin.x) + visible_x;
+        let local_y = (scroll_geom.rect.origin.y - wrapper_geom.rect.origin.y)
+            + visible_y
+            + line_metric.height.max(1.0);
+
+        Some(fission_layout::LayoutPoint::new(local_x, local_y))
+    }
+
+    fn clear_text_input_affordances(ctx: &mut ControllerContext, focused_id: NodeId) {
+        if let Some(state) = ctx.text_edit.states.get_mut(&focused_id) {
+            state.affordances = Default::default();
+        }
+    }
+
+    fn sync_text_input_affordances(
+        ctx: &mut ControllerContext,
+        focused_id: NodeId,
+        semantics: &Semantics,
+        value: &str,
+        toolbar_visible: bool,
+        toolbar_anchor_override: Option<fission_layout::LayoutPoint>,
+    ) {
+        let Some(measurer) = ctx.measurer else {
+            Self::clear_text_input_affordances(ctx, focused_id);
+            return;
+        };
+        let Some(wrapper_geom) = Self::input_wrapper_geometry(ctx, focused_id).cloned() else {
+            Self::clear_text_input_affordances(ctx, focused_id);
+            return;
+        };
+        let Some((scroll_id, _text_node_id, scroll_direction)) =
+            Self::find_scroll_container_and_text_op(ctx.ir, focused_id, semantics.multiline)
+        else {
+            Self::clear_text_input_affordances(ctx, focused_id);
+            return;
+        };
+        let Some(scroll_geom) = ctx.layout.get_node_geometry(scroll_id).cloned() else {
+            Self::clear_text_input_affordances(ctx, focused_id);
+            return;
+        };
+
+        let display_value = Self::display_value_for_metrics(
+            ctx,
+            focused_id,
+            semantics.value.as_deref().unwrap_or(value),
+        );
+        let metric_text = if semantics.masked {
+            Self::mask_text_for_metrics(&display_value)
+        } else {
+            display_value.clone()
+        };
+        let (caret, anchor, active_handle) = {
+            let state = ctx.text_edit.get_mut_or_default(focused_id);
+            (state.caret, state.anchor, state.affordances.active_handle)
+        };
+
+        let map_metric_index = |index: usize| {
+            if semantics.masked {
+                Self::masked_byte_offset_from_source(&display_value, &metric_text, index)
+            } else {
+                index.min(metric_text.len())
+            }
+        };
+
+        let scroll_offset = ctx.scroll.get_offset(scroll_id);
+        let caret_point = Self::local_text_point_for_index(
+            measurer,
+            ctx.ir,
+            focused_id,
+            &wrapper_geom,
+            &scroll_geom,
+            scroll_direction,
+            scroll_offset,
+            &metric_text,
+            map_metric_index(caret),
+        );
+        let anchor_point = Self::local_text_point_for_index(
+            measurer,
+            ctx.ir,
+            focused_id,
+            &wrapper_geom,
+            &scroll_geom,
+            scroll_direction,
+            scroll_offset,
+            &metric_text,
+            map_metric_index(anchor),
+        );
+
+        let selection_range = if caret == anchor {
+            None
+        } else {
+            Some((caret.min(anchor), caret.max(anchor)))
+        };
+
+        let toolbar_anchor = if let Some(override_point) = toolbar_anchor_override {
+            Some(override_point)
+        } else {
+            match (caret_point, anchor_point, selection_range) {
+                (Some(caret_point), Some(anchor_point), Some(_)) => {
+                    Some(fission_layout::LayoutPoint::new(
+                        (caret_point.x + anchor_point.x) * 0.5,
+                        caret_point.y.min(anchor_point.y),
+                    ))
+                }
+                (Some(point), _, None) => Some(point),
+                _ => None,
+            }
+        };
+
+        let state = ctx.text_edit.get_mut_or_default(focused_id);
+        state.affordances.toolbar_visible = toolbar_visible;
+        state.affordances.toolbar_anchor = toolbar_anchor;
+        state.affordances.magnifier_visible = active_handle.is_some();
+        state.affordances.magnifier_anchor = match active_handle {
+            Some(TextSelectionHandleKind::Caret) => caret_point,
+            Some(TextSelectionHandleKind::Start) => anchor_point,
+            Some(TextSelectionHandleKind::End) => caret_point,
+            None => None,
+        };
+        if selection_range.is_some() {
+            let (start_point, end_point) = if caret <= anchor {
+                (caret_point, anchor_point)
+            } else {
+                (anchor_point, caret_point)
+            };
+            state.affordances.caret_handle = None;
+            state.affordances.selection_start_handle = start_point;
+            state.affordances.selection_end_handle = end_point;
+        } else {
+            state.affordances.caret_handle = caret_point;
+            state.affordances.selection_start_handle = None;
+            state.affordances.selection_end_handle = None;
+        }
+    }
+
+    fn trim_line_end(value: &str, end: usize) -> usize {
+        let end = end.min(value.len());
+        if end > 0 && value.as_bytes()[end - 1] == b'\n' {
+            end - 1
+        } else {
+            end
+        }
+    }
+
+    fn current_line_bounds(
+        ctx: &ControllerContext,
+        focused_id: NodeId,
+        semantics: &Semantics,
+        value: &str,
+        caret: usize,
+    ) -> (usize, usize) {
+        let caret = caret.min(value.len());
+        if semantics.multiline {
+            if let Some(measurer) = ctx.measurer {
+                if let Some((scroll_id, _text_op_node_id, _scroll_direction)) =
+                    Self::find_scroll_container_and_text_op(ctx.ir, focused_id, semantics.multiline)
+                {
+                    if let Some(scroll_geom) = ctx.layout.get_node_geometry(scroll_id) {
+                        let font_size = Self::extract_font_size(ctx.ir, focused_id).unwrap_or(16.0);
+                        let line_metrics = measurer.get_line_metrics(
+                            value,
+                            font_size,
+                            Some(scroll_geom.rect.size.width),
+                        );
+                        if let Some(line) = line_metrics
+                            .iter()
+                            .find(|line| caret >= line.start_index && caret <= line.end_index)
+                            .or_else(|| line_metrics.last())
+                        {
+                            let start = line.start_index.min(value.len());
+                            let end = Self::trim_line_end(value, line.end_index);
+                            return (start.min(end), end);
+                        }
+                    }
+                }
+            }
+
+            let start = value[..caret].rfind('\n').map(|pos| pos + 1).unwrap_or(0);
+            let end = value[caret..]
+                .find('\n')
+                .map(|offset| caret + offset)
+                .unwrap_or(value.len());
+            (start.min(end), end)
+        } else {
+            (0, value.len())
+        }
+    }
+
+    fn truncate_to_chars(text: &str, max_chars: usize) -> String {
+        text.chars().take(max_chars).collect()
+    }
+
+    fn apply_text_capitalization(mode: TextCapitalization, prefix: &str, inserted: &str) -> String {
+        match mode {
+            TextCapitalization::None => inserted.to_string(),
+            TextCapitalization::Characters => inserted.to_uppercase(),
+            TextCapitalization::Words => {
+                let starts_new_word = prefix
+                    .chars()
+                    .next_back()
+                    .map(|ch| ch.is_whitespace() || ch.is_ascii_punctuation())
+                    .unwrap_or(true);
+                if starts_new_word {
+                    let mut chars = inserted.chars();
+                    if let Some(first) = chars.next() {
+                        let mut out = first.to_uppercase().to_string();
+                        out.push_str(chars.as_str());
+                        out
+                    } else {
+                        String::new()
+                    }
+                } else {
+                    inserted.to_string()
+                }
+            }
+            TextCapitalization::Sentences => {
+                let starts_sentence = prefix
+                    .chars()
+                    .rev()
+                    .find(|ch| !ch.is_whitespace())
+                    .map(|ch| matches!(ch, '.' | '!' | '?'))
+                    .unwrap_or(true);
+                if starts_sentence {
+                    let mut chars = inserted.chars();
+                    if let Some(first) = chars.next() {
+                        let mut out = first.to_uppercase().to_string();
+                        out.push_str(chars.as_str());
+                        out
+                    } else {
+                        String::new()
+                    }
+                } else {
+                    inserted.to_string()
+                }
+            }
+        }
+    }
+
+    fn apply_input_type_filter(input_type: TextInputType, text: &str, multiline: bool) -> String {
+        let mut filtered = String::new();
+        for ch in text.chars() {
+            let allowed = match input_type {
+                TextInputType::Text | TextInputType::Name => multiline || ch != '\n',
+                TextInputType::Multiline => true,
+                TextInputType::Number => ch.is_ascii_digit() || matches!(ch, '.' | ',' | '-' | '+'),
+                TextInputType::EmailAddress => !ch.is_whitespace(),
+                TextInputType::Url => !ch.is_whitespace(),
+                TextInputType::Phone => {
+                    ch.is_ascii_digit() || matches!(ch, '+' | '-' | '(' | ')' | ' ')
+                }
+            };
+            if allowed {
+                filtered.push(ch);
+            }
+        }
+        if !multiline {
+            filtered = filtered.replace('\n', "");
+        }
+        filtered
+    }
+
+    fn apply_formatters(text: &str, formatters: &[InputFormatter], multiline: bool) -> String {
+        let mut out = text.to_string();
+        for formatter in formatters {
+            match formatter {
+                InputFormatter::DigitsOnly => {
+                    out = out.chars().filter(|ch| ch.is_ascii_digit()).collect();
+                }
+                InputFormatter::AsciiOnly => {
+                    out = out.chars().filter(|ch| ch.is_ascii()).collect();
+                }
+                InputFormatter::Lowercase => {
+                    out = out.to_lowercase();
+                }
+                InputFormatter::Uppercase => {
+                    out = out.to_uppercase();
+                }
+                InputFormatter::TrimWhitespace => {
+                    out = out.trim().to_string();
+                }
+                InputFormatter::SingleLine => {
+                    out = out.replace('\n', "");
+                }
+            }
+        }
+        if !multiline {
+            out = out.replace('\n', "");
+        }
+        out
+    }
+
+    fn prepare_inserted_text(
+        semantics: &Semantics,
+        current_value: &str,
+        replace_start: usize,
+        replace_end: usize,
+        raw_text: &str,
+    ) -> Option<String> {
+        let replace_start = replace_start.min(current_value.len());
+        let replace_end = replace_end.min(current_value.len()).max(replace_start);
+
+        let mut inserted =
+            Self::apply_input_type_filter(semantics.text_input_type, raw_text, semantics.multiline);
+        inserted = Self::apply_text_capitalization(
+            semantics.text_capitalization,
+            &current_value[..replace_start],
+            &inserted,
+        );
+        inserted =
+            Self::apply_formatters(&inserted, &semantics.input_formatters, semantics.multiline);
+
+        if let Some(mask) = &semantics.input_mask {
+            inserted = inserted
+                .chars()
+                .filter(|ch| mask.is_valid_char(*ch))
+                .collect();
+        }
+
+        if semantics.max_length_enforcement == MaxLengthEnforcement::Enforced {
+            if let Some(max_length) = semantics.max_length {
+                let current_chars = current_value.chars().count();
+                let replaced_chars = current_value[replace_start..replace_end].chars().count();
+                let available =
+                    max_length.saturating_sub(current_chars.saturating_sub(replaced_chars));
+                inserted = Self::truncate_to_chars(&inserted, available);
+            }
+        }
+
+        if inserted.is_empty() {
+            None
+        } else {
+            Some(inserted)
+        }
     }
 
     fn handle_ime(&mut self, ctx: &mut ControllerContext, ime: &crate::event::ImeEvent) -> bool {
@@ -685,30 +1677,25 @@ impl TextInputController {
                     if let Some(node) = ctx.ir.nodes.get(&focused_id) {
                         if let Op::Semantics(semantics) = &node.op {
                             if semantics.role == fission_ir::semantics::Role::TextInput {
-                                let (_value, _caret, _anchor) = Self::resolve_editing_value(
+                                if semantics.disabled || semantics.read_only {
+                                    return true;
+                                }
+                                let (value, _caret, _anchor) = Self::resolve_editing_value(
                                     ctx,
                                     focused_id,
                                     semantics.value.as_deref().unwrap_or(""),
                                 );
                                 let st = ctx.text_edit.get_mut_or_default(focused_id);
 
-                                let mut filtered_text = String::new();
-                                if let Some(mask) = &semantics.input_mask {
-                                    for ch in text.chars() {
-                                        if mask.is_valid_char(ch) {
-                                            filtered_text.push(ch);
-                                        }
-                                    }
-                                } else {
-                                    filtered_text = text.clone();
-                                }
+                                let (start, end) = st
+                                    .preedit
+                                    .as_ref()
+                                    .map(|preedit| preedit.range)
+                                    .unwrap_or_else(|| st.selection_range());
 
-                                if !filtered_text.is_empty() {
-                                    let (start, end) = st
-                                        .preedit
-                                        .as_ref()
-                                        .map(|preedit| preedit.range)
-                                        .unwrap_or_else(|| st.selection_range());
+                                if let Some(filtered_text) =
+                                    Self::prepare_inserted_text(semantics, &value, start, end, text)
+                                {
                                     let new_caret = start + filtered_text.len();
                                     let new_text = st.apply_edit(
                                         start..end,
@@ -732,6 +1719,13 @@ impl TextInputController {
             }
             crate::event::ImeEvent::Preedit { text } => {
                 if let Some(focused_id) = ctx.interaction.focused {
+                    if let Some(node) = ctx.ir.nodes.get(&focused_id) {
+                        if let Op::Semantics(semantics) = &node.op {
+                            if semantics.disabled || semantics.read_only {
+                                return true;
+                            }
+                        }
+                    }
                     let st = ctx.text_edit.get_mut_or_default(focused_id);
                     st.set_preedit(text.clone());
                     Self::auto_scroll_textinput(ctx, focused_id);
@@ -749,6 +1743,7 @@ impl TextInputController {
         node_id: NodeId,
         new_text: String,
     ) {
+        Self::persist_runtime_state(ctx, node_id);
         if let Some(action_entry) = semantics
             .actions
             .entries
@@ -785,6 +1780,8 @@ impl TextInputController {
             }
         }
 
+        Self::persist_runtime_state(ctx, node_id);
+
         if let Some(action_entry) = semantics
             .actions
             .entries
@@ -810,15 +1807,112 @@ impl TextInputController {
         }
     }
 
+    fn dispatch_submit(
+        ctx: &mut ControllerContext,
+        semantics: &fission_ir::Semantics,
+        node_id: NodeId,
+        current_value: &str,
+    ) -> bool {
+        let mut dispatched = false;
+        for trigger in [
+            fission_ir::semantics::ActionTrigger::EditingComplete,
+            fission_ir::semantics::ActionTrigger::Submit,
+        ] {
+            dispatched |= Self::dispatch_action_for_trigger(
+                ctx,
+                semantics,
+                node_id,
+                trigger,
+                Some(serde_json::to_vec(&current_value.to_string()).unwrap()),
+            );
+        }
+        dispatched
+    }
+
+    fn dispatch_action_for_trigger(
+        ctx: &mut ControllerContext,
+        semantics: &fission_ir::Semantics,
+        node_id: NodeId,
+        trigger: fission_ir::semantics::ActionTrigger,
+        fallback_payload: Option<Vec<u8>>,
+    ) -> bool {
+        let Some(action_entry) = semantics
+            .actions
+            .entries
+            .iter()
+            .find(|e| e.trigger == trigger)
+        else {
+            return false;
+        };
+        let payload = action_entry
+            .payload_data
+            .clone()
+            .or(fallback_payload)
+            .unwrap_or_else(|| serde_json::to_vec(&()).unwrap());
+        let envelope = ActionEnvelope {
+            id: ActionId::from_u128(action_entry.action_id),
+            payload,
+        };
+        ctx.dispatched_actions
+            .push((node_id, envelope, crate::ActionInput::None));
+        true
+    }
+
     fn resolve_editing_value(
         ctx: &mut ControllerContext,
         focused_id: NodeId,
         semantic_value: &str,
     ) -> (String, usize, usize) {
+        Self::sync_runtime_state(ctx, focused_id, semantic_value);
         let st = ctx.text_edit.get_mut_or_default(focused_id);
-        st.sync_from_model(semantic_value);
         let value = st.committed_text();
         (value, st.caret, st.anchor)
+    }
+
+    fn display_value_for_metrics(
+        ctx: &mut ControllerContext,
+        focused_id: NodeId,
+        semantic_value: &str,
+    ) -> String {
+        Self::sync_runtime_state(ctx, focused_id, semantic_value);
+        let state = ctx.text_edit.get_mut_or_default(focused_id);
+        state.display_text().0
+    }
+
+    fn mask_text_for_metrics(text: &str) -> String {
+        let mut masked = String::new();
+        for _ in text.graphemes(true) {
+            masked.push('•');
+        }
+        masked
+    }
+
+    fn masked_byte_offset_from_source(
+        source: &str,
+        masked: &str,
+        source_byte_offset: usize,
+    ) -> usize {
+        let clamped = source_byte_offset.min(source.len());
+        let grapheme_count = source[..clamped].graphemes(true).count();
+        masked
+            .grapheme_indices(true)
+            .nth(grapheme_count)
+            .map(|(idx, _)| idx)
+            .unwrap_or(masked.len())
+    }
+
+    fn source_byte_offset_from_masked(
+        source: &str,
+        masked: &str,
+        masked_byte_offset: usize,
+    ) -> usize {
+        let clamped = masked_byte_offset.min(masked.len());
+        let grapheme_count = masked[..clamped].graphemes(true).count();
+        source
+            .grapheme_indices(true)
+            .nth(grapheme_count)
+            .map(|(idx, _)| idx)
+            .unwrap_or(source.len())
     }
 
     fn clamp_caret_to_value(value: &str, caret: usize) -> usize {
@@ -850,49 +1944,32 @@ impl TextInputController {
     }
 
     fn prev_word_boundary(value: &str, idx: usize) -> usize {
-        let mut at = idx.min(value.len());
-        while at > 0 {
-            let prev = Self::prev_grapheme_boundary(value, at);
-            let ch = value[prev..].chars().next().unwrap_or('\0');
-            if !ch.is_whitespace() {
-                at = prev;
-                break;
+        let at = idx.min(value.len());
+        let segments: Vec<(usize, &str)> = value.split_word_bound_indices().collect();
+        for (start, segment) in segments.into_iter().rev() {
+            let end = start + segment.len();
+            if end > at {
+                continue;
             }
-            at = prev;
-        }
-        while at > 0 {
-            let prev = Self::prev_grapheme_boundary(value, at);
-            let ch = value[prev..].chars().next().unwrap_or('\0');
-            if ch.is_alphanumeric() || ch == '_' {
-                at = prev;
-            } else {
-                break;
+            if segment.chars().any(|ch| ch.is_alphanumeric() || ch == '_') {
+                return start;
             }
         }
-        at
+        0
     }
 
     fn next_word_boundary(value: &str, idx: usize) -> usize {
-        let mut at = idx.min(value.len());
-        while at < value.len() {
-            let next = Self::next_grapheme_boundary(value, at);
-            let ch = value[at..].chars().next().unwrap_or('\0');
-            if !ch.is_whitespace() {
-                at = next;
-                break;
+        let at = idx.min(value.len());
+        for (start, segment) in value.split_word_bound_indices() {
+            let end = start + segment.len();
+            if end <= at {
+                continue;
             }
-            at = next;
-        }
-        while at < value.len() {
-            let next = Self::next_grapheme_boundary(value, at);
-            let ch = value[at..].chars().next().unwrap_or('\0');
-            if ch.is_alphanumeric() || ch == '_' {
-                at = next;
-            } else {
-                break;
+            if segment.chars().any(|ch| ch.is_alphanumeric() || ch == '_') {
+                return end;
             }
         }
-        at
+        value.len()
     }
 
     fn find_scroll_container_and_text_op(
@@ -1001,27 +2078,39 @@ impl TextInputController {
         measurer: &std::sync::Arc<dyn fission_layout::TextMeasurer>,
         ir: &fission_ir::CoreIR,
         focused_id: NodeId,
-        value: &str,
+        prefer_plain_text: bool,
+        text: &str,
         scroll_geom: &fission_layout::LayoutNodeGeometry,
         local_x: f32,
         local_y: f32,
     ) -> usize {
-        // The renderer calls `layout_rich(…, if bounds.width() > 0 { Some(w) } else { None })`.
-        // The bounds rect for a text node equals the layout geometry rect whose width comes
-        // from the scroll container (or the text node itself).  We replicate this here so
-        // the cache key matches and we reuse the SAME Parley layout the renderer painted.
-        let render_width = if scroll_geom.rect.size.width > 0.0 {
+        let viewport_width = if scroll_geom.rect.size.width > 0.0 {
             Some(scroll_geom.rect.size.width)
         } else {
             None
         };
+        let render_width = viewport_width;
+        let font_size = Self::extract_font_size(ir, focused_id).unwrap_or(13.0);
+        let paragraph = Self::extract_paragraph_style(ir, focused_id).unwrap_or_default();
 
-        if let Some(runs) = Self::extract_rich_runs(ir, focused_id) {
-            measurer.hit_test_rich(&runs, render_width, local_x, local_y)
-        } else {
-            let font_size = Self::extract_font_size(ir, focused_id).unwrap_or(13.0);
-            measurer.hit_test(value, font_size, render_width, local_x, local_y)
+        if paragraph.text_align != TextAlign::Start {
+            let line_metrics = measurer.get_line_metrics(text, font_size, render_width);
+            if let (Some(width), Some(line)) = (
+                viewport_width,
+                Self::line_metric_for_local_y(&line_metrics, local_y),
+            ) {
+                let aligned_x =
+                    local_x - Self::paragraph_line_x_offset(paragraph, width, line.width, false);
+                return measurer.hit_test(text, font_size, render_width, aligned_x, local_y);
+            }
         }
+
+        if !prefer_plain_text {
+            if let Some(runs) = Self::extract_rich_runs(ir, focused_id) {
+                return measurer.hit_test_rich(&runs, render_width, local_x, local_y);
+            }
+        }
+        measurer.hit_test(text, font_size, render_width, local_x, local_y)
     }
 
     fn caret_from_point_in_text_fallback(
@@ -1039,7 +2128,7 @@ impl TextInputController {
     }
 
     fn auto_scroll_textinput(ctx: &mut ControllerContext, text_root: NodeId) {
-        let font_size = 16.0; // Default font size
+        let font_size = Self::extract_font_size(ctx.ir, text_root).unwrap_or(16.0);
         if let Some(measurer) = ctx.measurer {
             // Need to get multiline status from semantics here
             let is_multiline = if let Some(node) = ctx.ir.nodes.get(&text_root) {
@@ -1058,21 +2147,48 @@ impl TextInputController {
                 if let Some(scroll_geom) = ctx.layout.get_node_geometry(scroll_id) {
                     let viewport_size = scroll_geom.rect.size;
 
-                    let current_text_value = if let Some(node) = ctx.ir.nodes.get(&text_root) {
-                        if let Op::Semantics(sem) = &node.op {
-                            sem.value.clone().unwrap_or_default()
+                    let (current_text_value, metric_text, masked, scroll_padding) =
+                        if let Some(node) = ctx.ir.nodes.get(&text_root) {
+                            if let Op::Semantics(sem) = &node.op {
+                                let display_value = Self::display_value_for_metrics(
+                                    ctx,
+                                    text_root,
+                                    sem.value.as_deref().unwrap_or(""),
+                                );
+                                let metric_text = if sem.masked {
+                                    Self::mask_text_for_metrics(&display_value)
+                                } else {
+                                    display_value.clone()
+                                };
+                                (
+                                    display_value,
+                                    metric_text,
+                                    sem.masked,
+                                    sem.scroll_padding.unwrap_or([2.0, 3.0, 2.0, 3.0]),
+                                )
+                            } else {
+                                (String::new(), String::new(), false, [2.0, 3.0, 2.0, 3.0])
+                            }
                         } else {
-                            String::new()
-                        }
-                    } else {
-                        String::new()
-                    };
+                            (String::new(), String::new(), false, [2.0, 3.0, 2.0, 3.0])
+                        };
 
                     let current_caret_idx = if let Some(st) = ctx.text_edit.get(text_root) {
                         st.caret
                     } else {
                         0
                     };
+                    let metric_caret_idx = if masked {
+                        Self::masked_byte_offset_from_source(
+                            &current_text_value,
+                            &metric_text,
+                            current_caret_idx,
+                        )
+                    } else {
+                        current_caret_idx
+                    };
+                    let paragraph =
+                        Self::extract_paragraph_style(ctx.ir, text_root).unwrap_or_default();
                     let measurer_width = if scroll_direction == op::FlexDirection::Column {
                         Some(viewport_size.width)
                     } else {
@@ -1080,22 +2196,33 @@ impl TextInputController {
                     };
 
                     let (caret_x, caret_y) = measurer.get_caret_position(
-                        &current_text_value,
+                        &metric_text,
                         font_size,
                         measurer_width,
-                        current_caret_idx,
+                        metric_caret_idx,
                     );
 
                     let mut offset = ctx.scroll.get_offset(scroll_id);
 
                     if scroll_direction == op::FlexDirection::Row {
                         // Handle horizontal scrolling for single-line text
-                        let caret_left = caret_x;
+                        let line_width = measurer
+                            .get_line_metrics(&metric_text, font_size, None)
+                            .first()
+                            .map(|line| line.width)
+                            .unwrap_or_else(|| measurer.measure(&metric_text, font_size, None).0);
+                        let caret_left = caret_x
+                            + Self::paragraph_line_x_offset(
+                                paragraph,
+                                viewport_size.width,
+                                line_width,
+                                false,
+                            );
                         let caret_width = 2.0f32;
                         let caret_right = caret_left + caret_width;
 
-                        let margin_left = 2.0f32;
-                        let margin_right = 3.0f32;
+                        let margin_left = scroll_padding[0].max(0.0);
+                        let margin_right = scroll_padding[1].max(0.0);
 
                         let visible_left = caret_left - offset;
                         let visible_right = caret_right - offset;
@@ -1119,8 +2246,8 @@ impl TextInputController {
                             .1;
                         let caret_bottom = caret_top + caret_height;
 
-                        let margin_top = 2.0f32;
-                        let margin_bottom = 3.0f32;
+                        let margin_top = scroll_padding[2].max(0.0);
+                        let margin_bottom = scroll_padding[3].max(0.0);
 
                         let visible_top = caret_top - offset;
                         let visible_bottom = caret_bottom - offset;
@@ -1157,7 +2284,7 @@ impl TextInputController {
             {
                 if let Some(scroll_geom) = ctx.layout.get_node_geometry(scroll_id) {
                     let viewport_w = scroll_geom.rect.size.width;
-                    let font_size = 16.0;
+                    let font_size = Self::extract_font_size(ctx.ir, focused_id).unwrap_or(16.0);
 
                     let (current_caret_x, _current_caret_y) =
                         measurer.get_caret_position(value, font_size, Some(viewport_w), caret);
@@ -1203,7 +2330,7 @@ impl TextInputController {
 
                         let st = ctx.text_edit.get_mut_or_default(focused_id);
                         st.caret = new_caret_pos;
-                        if (modifiers & 1) == 0 {
+                        if !Self::has_shift(modifiers) {
                             st.anchor = new_caret_pos;
                         } // If no shift, collapse selection
                         let final_anchor = st.anchor;
@@ -1218,6 +2345,167 @@ impl TextInputController {
                     }
                 }
             }
+        }
+    }
+
+    fn handle_page_navigation(
+        &mut self,
+        ctx: &mut ControllerContext,
+        focused_id: NodeId,
+        semantics: &Semantics,
+        value: &str,
+        caret: usize,
+        modifiers: u8,
+        is_page_up: bool,
+    ) {
+        if let Some(measurer) = ctx.measurer {
+            if let Some((scroll_id, _text_op_node_id, _scroll_direction)) =
+                Self::find_scroll_container_and_text_op(ctx.ir, focused_id, semantics.multiline)
+            {
+                if let Some(scroll_geom) = ctx.layout.get_node_geometry(scroll_id) {
+                    let viewport_w = scroll_geom.rect.size.width;
+                    let viewport_h = scroll_geom.rect.size.height.max(1.0);
+                    let font_size = Self::extract_font_size(ctx.ir, focused_id).unwrap_or(16.0);
+                    let (current_caret_x, _current_caret_y) =
+                        measurer.get_caret_position(value, font_size, Some(viewport_w), caret);
+                    let line_metrics =
+                        measurer.get_line_metrics(value, font_size, Some(viewport_w));
+
+                    if line_metrics.is_empty() {
+                        return;
+                    }
+
+                    let mut current_line_idx = 0usize;
+                    for (idx, line) in line_metrics.iter().enumerate() {
+                        if caret >= line.start_index && caret <= line.end_index {
+                            current_line_idx = idx;
+                        }
+                    }
+
+                    let line_height = line_metrics
+                        .get(current_line_idx)
+                        .map(|line| line.height.max(1.0))
+                        .unwrap_or(20.0);
+                    let lines_per_page = (viewport_h / line_height).floor().max(1.0) as isize;
+                    let delta = if is_page_up {
+                        -lines_per_page
+                    } else {
+                        lines_per_page
+                    };
+                    let target_line_idx = current_line_idx
+                        .saturating_add_signed(delta)
+                        .min(line_metrics.len().saturating_sub(1));
+
+                    if let Some(target_line) = line_metrics.get(target_line_idx) {
+                        let target_y = target_line.baseline;
+                        let mut new_caret_pos = measurer.hit_test(
+                            value,
+                            font_size,
+                            Some(viewport_w),
+                            current_caret_x,
+                            target_y,
+                        );
+                        let target_end = Self::trim_line_end(
+                            value,
+                            target_line.end_index.max(target_line.start_index),
+                        );
+                        new_caret_pos = new_caret_pos.clamp(
+                            target_line.start_index,
+                            target_end.max(target_line.start_index),
+                        );
+
+                        let st = ctx.text_edit.get_mut_or_default(focused_id);
+                        st.caret = new_caret_pos;
+                        if !Self::has_shift(modifiers) {
+                            st.anchor = new_caret_pos;
+                        }
+                        let final_anchor = st.anchor;
+                        Self::auto_scroll_textinput(ctx, focused_id);
+                        Self::dispatch_cursor_change(
+                            ctx,
+                            semantics,
+                            focused_id,
+                            new_caret_pos,
+                            final_anchor,
+                        );
+                    }
+                }
+            }
+        }
+    }
+
+    fn extract_paragraph_style(
+        ir: &fission_ir::CoreIR,
+        semantics_id: NodeId,
+    ) -> Option<TextParagraphStyle> {
+        fn walk(
+            ir: &fission_ir::CoreIR,
+            node_id: NodeId,
+            depth: usize,
+        ) -> Option<TextParagraphStyle> {
+            if depth > 10 {
+                return None;
+            }
+            let node = ir.nodes.get(&node_id)?;
+            match &node.op {
+                Op::Paint(fission_ir::PaintOp::DrawText {
+                    paragraph_style,
+                    caret_width,
+                    ..
+                }) => paragraph_style.or_else(|| decode_text_paragraph_style(*caret_width)),
+                Op::Paint(fission_ir::PaintOp::DrawRichText {
+                    paragraph_style,
+                    caret_width,
+                    ..
+                }) => paragraph_style.or_else(|| decode_text_paragraph_style(*caret_width)),
+                _ => {
+                    for child_id in &node.children {
+                        if let Some(style) = walk(ir, *child_id, depth + 1) {
+                            return Some(style);
+                        }
+                    }
+                    None
+                }
+            }
+        }
+        walk(ir, semantics_id, 0)
+    }
+
+    fn line_metric_for_local_y<'a>(
+        line_metrics: &'a [fission_layout::LineMetric],
+        local_y: f32,
+    ) -> Option<&'a fission_layout::LineMetric> {
+        if line_metrics.is_empty() {
+            return None;
+        }
+        let mut line_top = 0.0f32;
+        for (index, line) in line_metrics.iter().enumerate() {
+            let line_height = line.height.max(1.0);
+            let line_bottom = line_top + line_height;
+            if local_y < line_bottom || index + 1 == line_metrics.len() {
+                return Some(line);
+            }
+            line_top = line_bottom;
+        }
+        line_metrics.last()
+    }
+
+    fn paragraph_line_x_offset(
+        paragraph: TextParagraphStyle,
+        bounds_width: f32,
+        line_width: f32,
+        is_last_line: bool,
+    ) -> f32 {
+        if bounds_width <= 0.0 {
+            return 0.0;
+        }
+
+        match paragraph.text_align {
+            TextAlign::Start | TextAlign::Left => 0.0,
+            TextAlign::Center => (bounds_width - line_width) * 0.5,
+            TextAlign::End | TextAlign::Right => bounds_width - line_width,
+            TextAlign::Justify if is_last_line => 0.0,
+            TextAlign::Justify => 0.0,
         }
     }
 }

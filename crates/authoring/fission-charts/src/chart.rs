@@ -212,6 +212,11 @@ impl fission_core::ui::traits::LowerDyn for ChartLowerer {
                     underline: false,
                     wrap: false,
                     caret_index: None,
+                    caret_color: None,
+                    caret_width: None,
+                    caret_height: None,
+                    caret_radius: None,
+                    paragraph_style: None,
                 });
                 let mut label_pos = fission_core::lowering::NodeBuilder::new(
                     cx.next_node_id(),
@@ -248,6 +253,11 @@ impl fission_core::ui::traits::LowerDyn for ChartLowerer {
                     underline: false,
                     wrap: false,
                     caret_index: None,
+                    caret_color: None,
+                    caret_width: None,
+                    caret_height: None,
+                    caret_radius: None,
+                    paragraph_style: None,
                 });
                 let mut label_pos = fission_core::lowering::NodeBuilder::new(
                     cx.next_node_id(),
@@ -1203,6 +1213,11 @@ impl fission_core::ui::traits::LowerDyn for ChartLowerer {
                             underline: false,
                             wrap: false,
                             caret_index: None,
+                            caret_color: None,
+                            caret_width: None,
+                            caret_height: None,
+                            caret_radius: None,
+                            paragraph_style: None,
                         });
                         // To properly center the label we'd need bounding box of the path, but we'll omit for parity milestone
                         root.add_child(cx.insert_node(lbl_id, lbl_paint, vec![]));
@@ -1578,6 +1593,11 @@ impl fission_core::ui::traits::LowerDyn for ChartLowerer {
                             underline: false,
                             wrap: false,
                             caret_index: None,
+                            caret_color: None,
+                            caret_width: None,
+                            caret_height: None,
+                            caret_radius: None,
+                            paragraph_style: None,
                         });
                         let mut pos_b = fission_core::lowering::NodeBuilder::new(
                             cx.next_node_id(),

@@ -1,3 +1,4 @@
+use fission_ir::op::{RichTextAnnotation, TextParagraphStyle};
 use fission_ir::NodeId;
 pub use fission_layout::{LayoutPoint, LayoutRect, LayoutSize, LayoutUnit};
 use serde::{Deserialize, Serialize};
@@ -69,6 +70,7 @@ pub struct TextStyle {
     pub color: Color,
     pub underline: bool,
     pub font_family: Option<String>,
+    pub locale: Option<String>,
     pub font_weight: u16,
     pub font_style: fission_ir::op::FontStyle,
     pub line_height: Option<LayoutUnit>,
@@ -122,6 +124,11 @@ pub enum DisplayOp {
         underline: bool,
         wrap: bool,
         caret_index: Option<usize>,
+        caret_color: Option<Color>,
+        caret_width: Option<LayoutUnit>,
+        caret_height: Option<LayoutUnit>,
+        caret_radius: Option<LayoutUnit>,
+        paragraph_style: Option<TextParagraphStyle>,
     },
     DrawRichText {
         runs: Vec<TextRun>,
@@ -130,6 +137,13 @@ pub enum DisplayOp {
         node_id: Option<NodeId>,
         wrap: bool,
         caret_index: Option<usize>,
+        caret_color: Option<Color>,
+        caret_width: Option<LayoutUnit>,
+        caret_height: Option<LayoutUnit>,
+        caret_radius: Option<LayoutUnit>,
+        paragraph_style: Option<TextParagraphStyle>,
+        #[serde(default)]
+        annotations: Vec<RichTextAnnotation>,
     },
     DrawImage {
         rect: LayoutRect,

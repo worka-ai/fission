@@ -14,18 +14,19 @@ use winit::{
     dpi::PhysicalPosition,
     event::{Event, Ime, MouseButton, MouseScrollDelta, WindowEvent},
     event_loop::{ControlFlow, EventLoopBuilder, EventLoopProxy, EventLoopWindowTarget},
-    window::{Window, WindowBuilder},
+    window::{CursorIcon, Window, WindowBuilder},
 };
 
 use fission_core::env::VideoStatus;
 use fission_core::lowering::LoweringContext;
 use fission_core::ui::custom_render::downcast_render_object;
 use fission_core::{
-    ActionId, AppState, BuildCtx, Env, ImeHandler, InputEvent, KeyCode,
-    KeyEvent as FissionKeyEvent, PointerButton, PointerEvent, Runtime, View, Widget,
+    ActionId, AppState, BuildCtx, Env, InputEvent, KeyCode, KeyEvent as FissionKeyEvent,
+    PointerButton, PointerEvent, Runtime, View, Widget,
 };
 use fission_core::{ActionInput, Effect, EffectPayload, SystemEffect};
 use fission_diagnostics::prelude as diag;
+use fission_ir::semantics::MouseCursor;
 use fission_ir::{CoreIR, NodeId, Op, WidgetNodeId};
 use fission_layout::{LayoutEngine, LayoutSize};
 use fission_render::{LayoutPoint, LayoutRect, Renderer as _};
@@ -56,7 +57,7 @@ use video_backend::MockVideoBackend;
 mod clipboard;
 use clipboard::DesktopClipboard;
 mod ime;
-use ime::DesktopImeHandler;
+use ime::{DesktopImeHandler, TextInputConfig};
 pub mod test_control;
 
 use fission_core::action::ActionEnvelope;
@@ -682,6 +683,16 @@ fn focused_text_input_id(runtime: &Runtime, ir: Option<&CoreIR>) -> Option<NodeI
     None
 }
 
+fn focused_text_input_config(runtime: &Runtime, ir: Option<&CoreIR>) -> Option<TextInputConfig> {
+    let id = focused_text_input_id(runtime, ir)?;
+    let ir = ir?;
+    let node = ir.nodes.get(&id)?;
+    match &node.op {
+        Op::Semantics(semantics) => Some(TextInputConfig::from_semantics(semantics)),
+        _ => None,
+    }
+}
+
 fn focused_custom_text_input(runtime: &Runtime, ir: Option<&CoreIR>) -> bool {
     let focused = match runtime.runtime_state.interaction.focused {
         Some(id) => id,
@@ -848,10 +859,31 @@ fn map_test_button(button: u8) -> PointerButton {
     }
 }
 
+fn cursor_icon_for(cursor: MouseCursor) -> CursorIcon {
+    match cursor {
+        MouseCursor::Default => CursorIcon::Default,
+        MouseCursor::Pointer => CursorIcon::Pointer,
+        MouseCursor::Text => CursorIcon::Text,
+        MouseCursor::Crosshair => CursorIcon::Crosshair,
+        MouseCursor::Move => CursorIcon::Move,
+        MouseCursor::NotAllowed => CursorIcon::NotAllowed,
+        MouseCursor::Grab => CursorIcon::Grab,
+        MouseCursor::Grabbing => CursorIcon::Grabbing,
+        MouseCursor::Wait => CursorIcon::Wait,
+        MouseCursor::Help => CursorIcon::Help,
+        MouseCursor::VerticalText => CursorIcon::VerticalText,
+    }
+}
+
+fn sync_window_cursor(window: &Window, runtime: &Runtime) {
+    window.set_cursor_icon(cursor_icon_for(runtime.runtime_state.interaction.cursor()));
+}
+
 /// Handle cursor/mouse move — shared by WindowEvent::CursorMoved and TestEvent::MouseMove.
 fn handle_cursor_moved(
     x: f32,
     y: f32,
+    modifiers: u8,
     runtime: &mut Runtime,
     pipeline: &Pipeline,
     effect_result_tx: &mpsc::Sender<EffectResult>,
@@ -867,10 +899,11 @@ fn handle_cursor_moved(
 ) {
     if let (Some(ir), Some(layout)) = (&pipeline.prev_ir, &pipeline.last_snapshot) {
         let point = LayoutPoint { x, y };
-        let event = InputEvent::Pointer(PointerEvent::Move { point });
+        let event = InputEvent::Pointer(PointerEvent::Move { point, modifiers });
         if let Err(e) = runtime.handle_input(event, ir, layout) {
             eprintln!("Input handling error: {:?}", e);
         }
+        sync_window_cursor(window, runtime);
         invalidations.mark_build();
         if process_pending_effects(runtime, effect_result_tx, event_proxy, app_effect_handler) {
             invalidations.mark_build();
@@ -903,6 +936,7 @@ fn handle_mouse_button(
     y: f32,
     button: PointerButton,
     is_pressed: bool,
+    modifiers: u8,
     runtime: &mut Runtime,
     pipeline: &Pipeline,
     effect_result_tx: &mpsc::Sender<EffectResult>,
@@ -924,9 +958,17 @@ fn handle_mouse_button(
     if let (Some(ir), Some(layout)) = (&pipeline.prev_ir, &pipeline.last_snapshot) {
         let point = LayoutPoint { x, y };
         let pointer_event = if is_pressed {
-            PointerEvent::Down { point, button }
+            PointerEvent::Down {
+                point,
+                button,
+                modifiers,
+            }
         } else {
-            PointerEvent::Up { point, button }
+            PointerEvent::Up {
+                point,
+                button,
+                modifiers,
+            }
         };
         let input_event = InputEvent::Pointer(pointer_event);
 
@@ -946,6 +988,7 @@ fn handle_mouse_button(
         if let Err(e) = runtime.handle_input(input_event, ir, layout) {
             eprintln!("Input handling error: {:?}", e);
         }
+        sync_window_cursor(window, runtime);
         invalidations.mark_build();
 
         mark_text_trace_handled(pending_text_traces, trace_seq);
@@ -997,6 +1040,7 @@ fn handle_scroll(
     point_y: f32,
     delta_x: f32,
     delta_y: f32,
+    modifiers: u8,
     runtime: &mut Runtime,
     pipeline: &Pipeline,
     effect_result_tx: &mpsc::Sender<EffectResult>,
@@ -1022,10 +1066,12 @@ fn handle_scroll(
         let event = InputEvent::Pointer(PointerEvent::Scroll {
             point,
             delta: scroll_delta,
+            modifiers,
         });
         if let Err(e) = runtime.handle_input(event, ir, layout) {
             eprintln!("Scroll error: {:?}", e);
         }
+        sync_window_cursor(window, runtime);
         // Scroll offsets can affect more than a compositor translation. Virtualized
         // lists, scrollbars, and scroll-aware wrappers depend on the updated offset
         // during build/lowering, so treat scroll as a build invalidation.
@@ -1054,6 +1100,69 @@ fn handle_scroll(
     }
 }
 
+fn handle_cursor_left(
+    last_cursor_position: Option<PhysicalPosition<f64>>,
+    runtime: &mut Runtime,
+    pipeline: &Pipeline,
+    effect_result_tx: &mpsc::Sender<EffectResult>,
+    event_proxy: &EventLoopProxy<TestEvent>,
+    app_effect_handler: Option<&AppEffectHandler>,
+    window: &Window,
+    elwt: &EventLoopWindowTarget<TestEvent>,
+    last_redraw_at: &mut Instant,
+    min_frame: Duration,
+    redraw_pending: &mut bool,
+    frame_trace: &mut FrameTraceState,
+    invalidations: &mut InvalidationSet,
+) {
+    if let Some(ir) = &pipeline.prev_ir {
+        let point = last_cursor_position.map(|position| {
+            let scale_factor = window.scale_factor();
+            LayoutPoint::new(
+                (position.x / scale_factor) as f32,
+                (position.y / scale_factor) as f32,
+            )
+        });
+        match runtime.clear_hover_state(ir, point) {
+            Ok(changed) => {
+                sync_window_cursor(window, runtime);
+                if changed {
+                    invalidations.mark_build();
+                    if process_pending_effects(
+                        runtime,
+                        effect_result_tx,
+                        event_proxy,
+                        app_effect_handler,
+                    ) {
+                        invalidations.mark_build();
+                        request_redraw_logged(
+                            window,
+                            elwt,
+                            last_redraw_at,
+                            min_frame,
+                            redraw_pending,
+                            frame_trace,
+                            "cursor_left:effects",
+                        );
+                    }
+                    request_redraw_logged(
+                        window,
+                        elwt,
+                        last_redraw_at,
+                        min_frame,
+                        redraw_pending,
+                        frame_trace,
+                        "cursor_left",
+                    );
+                }
+            }
+            Err(error) => eprintln!("Cursor-left handling error: {:?}", error),
+        }
+    } else {
+        sync_window_cursor(window, runtime);
+    }
+}
+
 /// Parse a key name string into a `KeyCode`.
 fn parse_key_code(key: &str) -> KeyCode {
     match key {
@@ -1061,12 +1170,15 @@ fn parse_key_code(key: &str) -> KeyCode {
         "Escape" => KeyCode::Escape,
         "Tab" => KeyCode::Tab,
         "Backspace" => KeyCode::Backspace,
+        "Delete" => KeyCode::Delete,
         "Left" => KeyCode::Left,
         "Right" => KeyCode::Right,
         "Up" => KeyCode::Up,
         "Down" => KeyCode::Down,
         "Home" => KeyCode::Home,
         "End" => KeyCode::End,
+        "PageUp" => KeyCode::PageUp,
+        "PageDown" => KeyCode::PageDown,
         "Space" => KeyCode::Space,
         s if s.len() == 1 => KeyCode::Char(s.chars().next().unwrap()),
         _ => KeyCode::Space,
@@ -1296,6 +1408,7 @@ fn handle_tap_text(
                 InputEvent::Pointer(PointerEvent::Down {
                     point,
                     button: PointerButton::Primary,
+                    modifiers: 0,
                 }),
                 ir,
                 snap,
@@ -1304,6 +1417,7 @@ fn handle_tap_text(
                 InputEvent::Pointer(PointerEvent::Up {
                     point,
                     button: PointerButton::Primary,
+                    modifiers: 0,
                 }),
                 ir,
                 snap,
@@ -1578,8 +1692,8 @@ impl<S: AppState + Default, W: Widget<S> + 'static> DesktopApp<S, W> {
                 .map_err(|e| anyhow::anyhow!("Window build error: {}", e))?,
         );
 
-        let ime_handler: Arc<dyn ImeHandler> = Arc::new(DesktopImeHandler::new(window.clone()));
-        self.runtime = self.runtime.with_ime_handler(ime_handler);
+        let ime_handler = Arc::new(DesktopImeHandler::new(window.clone()));
+        self.runtime = self.runtime.with_ime_handler(ime_handler.clone());
 
         // Vello Context
         let mut render_cx = RenderContext::new();
@@ -1750,7 +1864,7 @@ impl<S: AppState + Default, W: Widget<S> + 'static> DesktopApp<S, W> {
                                     (y as f64) * scale_factor,
                                 ));
                                 handle_cursor_moved(
-                                    x, y,
+                                    x, y, 0,
                                     &mut runtime, &pipeline,
                                     &effect_result_tx, &event_proxy, app_effect_handler.as_ref(),
                                     &window, elwt,
@@ -1762,7 +1876,7 @@ impl<S: AppState + Default, W: Widget<S> + 'static> DesktopApp<S, W> {
                             TestEvent::MouseDown { x, y, button } => {
                                 let btn = map_test_button(button);
                                 handle_mouse_button(
-                                    x, y, btn, true,
+                                    x, y, btn, true, 0,
                                     &mut runtime, &pipeline,
                                     &effect_result_tx, &event_proxy, app_effect_handler.as_ref(),
                                     &window, elwt,
@@ -1777,7 +1891,7 @@ impl<S: AppState + Default, W: Widget<S> + 'static> DesktopApp<S, W> {
                             TestEvent::MouseUp { x, y, button } => {
                                 let btn = map_test_button(button);
                                 handle_mouse_button(
-                                    x, y, btn, false,
+                                    x, y, btn, false, 0,
                                     &mut runtime, &pipeline,
                                     &effect_result_tx, &event_proxy, app_effect_handler.as_ref(),
                                     &window, elwt,
@@ -1916,7 +2030,7 @@ impl<S: AppState + Default, W: Widget<S> + 'static> DesktopApp<S, W> {
                             }
                             TestEvent::Scroll { x, y, dx, dy } => {
                                 handle_scroll(
-                                    x, y, dx, dy,
+                                    x, y, dx, dy, 0,
                                     &mut runtime, &pipeline,
                                     &effect_result_tx, &event_proxy, app_effect_handler.as_ref(),
                                     &window, elwt,
@@ -2154,7 +2268,12 @@ impl<S: AppState + Default, W: Widget<S> + 'static> DesktopApp<S, W> {
                             min_frame,
                         );
 
-                        let focused_text_input = focused_text_input_id(&runtime, pipeline.prev_ir.as_ref());
+                        ime_handler.set_text_input_config(focused_text_input_config(
+                            &runtime,
+                            pipeline.prev_ir.as_ref(),
+                        ));
+                        let focused_text_input =
+                            focused_text_input_id(&runtime, pipeline.prev_ir.as_ref());
                         if focused_text_input != blink_focus_id {
                             if let Some(prev) = blink_focus_id {
                                 runtime.runtime_state.caret_visible.remove(&prev);
@@ -2901,7 +3020,7 @@ impl<S: AppState + Default, W: Widget<S> + 'static> DesktopApp<S, W> {
                                 let x = (position.x / scale_factor) as f32;
                                 let y = (position.y / scale_factor) as f32;
                                 handle_cursor_moved(
-                                    x, y,
+                                    x, y, current_mods,
                                     &mut runtime, &pipeline,
                                     &effect_result_tx, &event_proxy, app_effect_handler.as_ref(),
                                     &window, elwt,
@@ -2909,6 +3028,24 @@ impl<S: AppState + Default, W: Widget<S> + 'static> DesktopApp<S, W> {
                                     &mut frame_trace,
                                     &mut invalidations,
                                 );
+                            }
+                            WindowEvent::CursorLeft { .. } => {
+                                handle_cursor_left(
+                                    last_cursor_position,
+                                    &mut runtime,
+                                    &pipeline,
+                                    &effect_result_tx,
+                                    &event_proxy,
+                                    app_effect_handler.as_ref(),
+                                    &window,
+                                    elwt,
+                                    &mut last_redraw_at,
+                                    min_frame,
+                                    &mut redraw_pending,
+                                    &mut frame_trace,
+                                    &mut invalidations,
+                                );
+                                last_cursor_position = None;
                             }
                             WindowEvent::MouseInput { state, button, .. } => {
                                 if let Some(position) = last_cursor_position {
@@ -2918,7 +3055,7 @@ impl<S: AppState + Default, W: Widget<S> + 'static> DesktopApp<S, W> {
                                     if let Some(btn) = map_mouse_button(button) {
                                         let is_pressed = state.is_pressed();
                                         handle_mouse_button(
-                                            x, y, btn, is_pressed,
+                                            x, y, btn, is_pressed, current_mods,
                                             &mut runtime, &pipeline,
                                             &effect_result_tx, &event_proxy, app_effect_handler.as_ref(),
                                             &window, elwt,
@@ -2953,7 +3090,7 @@ impl<S: AppState + Default, W: Widget<S> + 'static> DesktopApp<S, W> {
                                         );
                                     }
                                     handle_scroll(
-                                        point_x, point_y, dx, dy,
+                                        point_x, point_y, dx, dy, current_mods,
                                         &mut runtime, &pipeline,
                                         &effect_result_tx, &event_proxy, app_effect_handler.as_ref(),
                                         &window, elwt,
@@ -2978,6 +3115,7 @@ impl<S: AppState + Default, W: Widget<S> + 'static> DesktopApp<S, W> {
                                         Key::Named(NamedKey::Enter) => Some(KeyCode::Enter),
                                         Key::Named(NamedKey::Escape) => Some(KeyCode::Escape),
                                         Key::Named(NamedKey::Backspace) => Some(KeyCode::Backspace),
+                                        Key::Named(NamedKey::Delete) => Some(KeyCode::Delete),
                                         Key::Named(NamedKey::Tab) => Some(KeyCode::Tab),
                                         Key::Named(NamedKey::ArrowLeft) => Some(KeyCode::Left),
                                         Key::Named(NamedKey::ArrowRight) => Some(KeyCode::Right),
@@ -2985,6 +3123,8 @@ impl<S: AppState + Default, W: Widget<S> + 'static> DesktopApp<S, W> {
                                         Key::Named(NamedKey::ArrowDown) => Some(KeyCode::Down),
                                         Key::Named(NamedKey::Home) => Some(KeyCode::Home),
                                         Key::Named(NamedKey::End) => Some(KeyCode::End),
+                                        Key::Named(NamedKey::PageUp) => Some(KeyCode::PageUp),
+                                        Key::Named(NamedKey::PageDown) => Some(KeyCode::PageDown),
                                         _ => {
                                             if let Some(text) = &event.text {
                                                 text.chars().next().map(KeyCode::Char)
@@ -3281,15 +3421,26 @@ fn recreate_target_texture(
 #[cfg(test)]
 mod tests {
     use super::{
-        animation_redraw_interval, repeating_animation_redraw_interval,
+        animation_redraw_interval, cursor_icon_for, repeating_animation_redraw_interval,
         texture_plans_fit_device_limits, LiveResizeController,
     };
     use crate::pipeline::CompositorTexturePlan;
     use fission_core::env::{ActiveAnimation, AnimationStateMap};
     use fission_core::{AnimationPropertyId, WidgetNodeId};
+    use fission_ir::semantics::MouseCursor;
     use fission_layout::LayoutRect;
     use std::collections::HashMap;
     use std::time::Duration;
+    use winit::window::CursorIcon;
+
+    #[test]
+    fn semantic_cursor_icons_map_to_winit_icons() {
+        assert_eq!(cursor_icon_for(MouseCursor::Default), CursorIcon::Default);
+        assert_eq!(cursor_icon_for(MouseCursor::Pointer), CursorIcon::Pointer);
+        assert_eq!(cursor_icon_for(MouseCursor::Text), CursorIcon::Text);
+        assert_eq!(cursor_icon_for(MouseCursor::NotAllowed), CursorIcon::NotAllowed);
+        assert_eq!(cursor_icon_for(MouseCursor::VerticalText), CursorIcon::VerticalText);
+    }
 
     #[test]
     fn repeating_animation_uses_reduced_frame_rate() {

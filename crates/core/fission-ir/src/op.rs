@@ -1,4 +1,4 @@
-use super::semantics::Semantics;
+use super::semantics::{ActionEntry, Semantics};
 use super::widget_id::WidgetNodeId;
 use crate::NodeId;
 use serde::{Deserialize, Serialize};
@@ -80,6 +80,207 @@ pub struct CompositeStyle {
 }
 
 pub type LayoutUnit = f32;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Hash, Default)]
+pub enum TextAlign {
+    Left,
+    Right,
+    Center,
+    Justify,
+    #[default]
+    Start,
+    End,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Hash, Default)]
+pub enum TextOverflow {
+    Clip,
+    Ellipsis,
+    Fade,
+    #[default]
+    Visible,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Hash, Default)]
+pub enum TextDirection {
+    #[default]
+    Auto,
+    Ltr,
+    Rtl,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Hash, Default)]
+pub enum TextWidthBasis {
+    #[default]
+    Parent,
+    LongestLine,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Hash, Default)]
+pub enum MouseCursor {
+    #[default]
+    Basic,
+    Pointer,
+    Text,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Hash)]
+pub struct TextHeightBehavior {
+    pub apply_height_to_first_ascent: bool,
+    pub apply_height_to_last_descent: bool,
+}
+
+impl Default for TextHeightBehavior {
+    fn default() -> Self {
+        Self {
+            apply_height_to_first_ascent: true,
+            apply_height_to_last_descent: true,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, Default)]
+pub struct TextParagraphStyle {
+    pub text_align: TextAlign,
+    pub max_lines: Option<usize>,
+    pub overflow: TextOverflow,
+    #[serde(default)]
+    pub text_direction: TextDirection,
+    #[serde(default)]
+    pub text_width_basis: TextWidthBasis,
+    #[serde(default)]
+    pub strut_line_height: Option<LayoutUnit>,
+    #[serde(default)]
+    pub text_height_behavior: TextHeightBehavior,
+}
+
+impl PartialEq for TextParagraphStyle {
+    fn eq(&self, other: &Self) -> bool {
+        self.text_align == other.text_align
+            && self.max_lines == other.max_lines
+            && self.overflow == other.overflow
+            && self.text_direction == other.text_direction
+            && self.text_width_basis == other.text_width_basis
+            && self.strut_line_height.map(f32::to_bits) == other.strut_line_height.map(f32::to_bits)
+            && self.text_height_behavior == other.text_height_behavior
+    }
+}
+
+impl Eq for TextParagraphStyle {}
+
+impl std::hash::Hash for TextParagraphStyle {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        self.text_align.hash(state);
+        self.max_lines.hash(state);
+        self.overflow.hash(state);
+        self.text_direction.hash(state);
+        self.text_width_basis.hash(state);
+        self.strut_line_height.map(f32::to_bits).hash(state);
+        self.text_height_behavior.hash(state);
+    }
+}
+
+const TEXT_PARAGRAPH_ALIGN_BITS: u32 = 0b111;
+const TEXT_PARAGRAPH_OVERFLOW_BITS: u32 = 0b111 << 3;
+const TEXT_PARAGRAPH_MAX_LINES_SHIFT: u32 = 6;
+const TEXT_PARAGRAPH_SENTINEL: u32 = 1;
+const TEXT_PARAGRAPH_MAX_ENCODED_LINES: usize = ((1 << 24) - 1) >> TEXT_PARAGRAPH_MAX_LINES_SHIFT;
+
+const fn text_align_code(align: TextAlign) -> u32 {
+    match align {
+        TextAlign::Start => 0,
+        TextAlign::Left => 1,
+        TextAlign::Center => 2,
+        TextAlign::Right => 3,
+        TextAlign::End => 4,
+        TextAlign::Justify => 5,
+    }
+}
+
+const fn text_overflow_code(overflow: TextOverflow) -> u32 {
+    match overflow {
+        TextOverflow::Visible => 0,
+        TextOverflow::Clip => 1,
+        TextOverflow::Ellipsis => 2,
+        TextOverflow::Fade => 3,
+    }
+}
+
+const fn decode_text_align(code: u32) -> TextAlign {
+    match code {
+        1 => TextAlign::Left,
+        2 => TextAlign::Center,
+        3 => TextAlign::Right,
+        4 => TextAlign::End,
+        5 => TextAlign::Justify,
+        _ => TextAlign::Start,
+    }
+}
+
+const fn decode_text_overflow(code: u32) -> TextOverflow {
+    match code {
+        1 => TextOverflow::Clip,
+        2 => TextOverflow::Ellipsis,
+        3 => TextOverflow::Fade,
+        _ => TextOverflow::Visible,
+    }
+}
+
+pub fn encode_text_paragraph_style(style: TextParagraphStyle) -> Option<LayoutUnit> {
+    if style == TextParagraphStyle::default() {
+        return None;
+    }
+    if style.text_direction != TextDirection::Auto
+        || style.text_width_basis != TextWidthBasis::Parent
+        || style.strut_line_height.is_some()
+        || style.text_height_behavior != TextHeightBehavior::default()
+    {
+        return None;
+    }
+
+    let max_lines = style
+        .max_lines
+        .unwrap_or(0)
+        .min(TEXT_PARAGRAPH_MAX_ENCODED_LINES) as u32;
+    let encoded = TEXT_PARAGRAPH_SENTINEL
+        + text_align_code(style.text_align)
+        + (text_overflow_code(style.overflow) << 3)
+        + (max_lines << TEXT_PARAGRAPH_MAX_LINES_SHIFT);
+
+    Some(-(encoded as LayoutUnit))
+}
+
+pub fn decode_text_paragraph_style(
+    encoded_width: Option<LayoutUnit>,
+) -> Option<TextParagraphStyle> {
+    let encoded_width = encoded_width?;
+    if !encoded_width.is_finite() || encoded_width >= 0.0 {
+        return None;
+    }
+
+    let raw = (-encoded_width).round();
+    if raw < TEXT_PARAGRAPH_SENTINEL as f32 {
+        return None;
+    }
+
+    let bits = raw as u32 - TEXT_PARAGRAPH_SENTINEL;
+    let text_align = decode_text_align(bits & TEXT_PARAGRAPH_ALIGN_BITS);
+    let overflow = decode_text_overflow((bits & TEXT_PARAGRAPH_OVERFLOW_BITS) >> 3);
+    let max_lines = match bits >> TEXT_PARAGRAPH_MAX_LINES_SHIFT {
+        0 => None,
+        lines => Some(lines as usize),
+    };
+
+    Some(TextParagraphStyle {
+        text_align,
+        max_lines,
+        overflow,
+        text_direction: TextDirection::Auto,
+        text_width_basis: TextWidthBasis::Parent,
+        strut_line_height: None,
+        text_height_behavior: TextHeightBehavior::default(),
+    })
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize, Hash)]
 pub enum FlexDirection {
@@ -605,6 +806,8 @@ pub struct TextStyle {
     pub underline: bool,
     #[serde(default)]
     pub font_family: Option<String>,
+    #[serde(default)]
+    pub locale: Option<String>,
     #[serde(default = "text_weight_default")]
     pub font_weight: u16,
     #[serde(default)]
@@ -623,6 +826,7 @@ impl std::hash::Hash for TextStyle {
         self.color.hash(state);
         self.underline.hash(state);
         self.font_family.hash(state);
+        self.locale.hash(state);
         self.font_weight.hash(state);
         self.font_style.hash(state);
         self.line_height.map(f32::to_bits).hash(state);
@@ -648,6 +852,47 @@ pub struct TextRun {
     pub style: TextStyle,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Hash)]
+pub struct RichTextAnnotation {
+    pub range: std::ops::Range<usize>,
+    #[serde(default)]
+    pub semantics_label: Option<String>,
+    #[serde(default)]
+    pub semantics_identifier: Option<String>,
+    #[serde(default)]
+    pub spell_out: Option<bool>,
+    #[serde(default)]
+    pub mouse_cursor: Option<MouseCursor>,
+    #[serde(default)]
+    pub actions: Vec<ActionEntry>,
+}
+
+pub const INLINE_WIDGET_MARKER_PREFIX: &str = "__fission_inline_widget__:";
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct InlineWidgetMarker {
+    pub id: u64,
+    pub width: LayoutUnit,
+    pub height: LayoutUnit,
+}
+
+pub fn encode_inline_widget_marker(id: u64, width: LayoutUnit, height: LayoutUnit) -> String {
+    format!("{INLINE_WIDGET_MARKER_PREFIX}{id}:{width}:{height}")
+}
+
+pub fn decode_inline_widget_marker(family: Option<&str>) -> Option<InlineWidgetMarker> {
+    let family = family?;
+    let encoded = family.strip_prefix(INLINE_WIDGET_MARKER_PREFIX)?;
+    let mut parts = encoded.split(':');
+    let id = parts.next()?.parse().ok()?;
+    let width = parts.next()?.parse().ok()?;
+    let height = parts.next()?.parse().ok()?;
+    if parts.next().is_some() {
+        return None;
+    }
+    Some(InlineWidgetMarker { id, width, height })
+}
+
 const fn text_wrap_default() -> bool {
     true
 }
@@ -668,12 +913,32 @@ pub enum PaintOp {
         #[serde(default = "text_wrap_default")]
         wrap: bool,
         caret_index: Option<usize>,
+        #[serde(default)]
+        caret_color: Option<Color>,
+        #[serde(default)]
+        caret_width: Option<LayoutUnit>,
+        #[serde(default)]
+        caret_height: Option<LayoutUnit>,
+        #[serde(default)]
+        caret_radius: Option<LayoutUnit>,
+        #[serde(default)]
+        paragraph_style: Option<TextParagraphStyle>,
     },
     DrawRichText {
         runs: Vec<TextRun>,
         #[serde(default = "text_wrap_default")]
         wrap: bool,
         caret_index: Option<usize>,
+        #[serde(default)]
+        caret_color: Option<Color>,
+        #[serde(default)]
+        caret_width: Option<LayoutUnit>,
+        #[serde(default)]
+        caret_height: Option<LayoutUnit>,
+        #[serde(default)]
+        caret_radius: Option<LayoutUnit>,
+        #[serde(default)]
+        paragraph_style: Option<TextParagraphStyle>,
     },
     DrawImage {
         source: String,
@@ -713,6 +978,11 @@ impl std::hash::Hash for PaintOp {
                 underline,
                 wrap,
                 caret_index,
+                caret_color,
+                caret_width,
+                caret_height,
+                caret_radius,
+                paragraph_style,
             } => {
                 1.hash(state);
                 text.hash(state);
@@ -721,16 +991,31 @@ impl std::hash::Hash for PaintOp {
                 underline.hash(state);
                 wrap.hash(state);
                 caret_index.hash(state);
+                caret_color.hash(state);
+                caret_width.map(|w| w.to_bits()).hash(state);
+                caret_height.map(|h| h.to_bits()).hash(state);
+                caret_radius.map(|r| r.to_bits()).hash(state);
+                paragraph_style.hash(state);
             }
             Self::DrawRichText {
                 runs,
                 wrap,
                 caret_index,
+                caret_color,
+                caret_width,
+                caret_height,
+                caret_radius,
+                paragraph_style,
             } => {
                 2.hash(state);
                 runs.hash(state);
                 wrap.hash(state);
                 caret_index.hash(state);
+                caret_color.hash(state);
+                caret_width.map(|w| w.to_bits()).hash(state);
+                caret_height.map(|h| h.to_bits()).hash(state);
+                caret_radius.map(|r| r.to_bits()).hash(state);
+                paragraph_style.hash(state);
             }
             Self::DrawImage { source, fit } => {
                 3.hash(state);
@@ -754,5 +1039,89 @@ impl std::hash::Hash for PaintOp {
                 stroke.hash(state);
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{
+        decode_inline_widget_marker, decode_text_paragraph_style, encode_inline_widget_marker,
+        encode_text_paragraph_style, InlineWidgetMarker, TextAlign, TextDirection,
+        TextHeightBehavior, TextOverflow, TextParagraphStyle, TextWidthBasis,
+        TEXT_PARAGRAPH_MAX_ENCODED_LINES,
+    };
+
+    #[test]
+    fn paragraph_style_round_trips_alignment_overflow_and_line_cap() {
+        let style = TextParagraphStyle {
+            text_align: TextAlign::Justify,
+            max_lines: Some(3),
+            overflow: TextOverflow::Fade,
+            text_direction: TextDirection::Auto,
+            text_width_basis: TextWidthBasis::Parent,
+            strut_line_height: None,
+            text_height_behavior: TextHeightBehavior::default(),
+        };
+
+        let encoded = encode_text_paragraph_style(style);
+        assert_eq!(decode_text_paragraph_style(encoded), Some(style));
+    }
+
+    #[test]
+    fn paragraph_style_clamps_line_count_to_precise_encoding_budget() {
+        let encoded = encode_text_paragraph_style(TextParagraphStyle {
+            text_align: TextAlign::End,
+            max_lines: Some(TEXT_PARAGRAPH_MAX_ENCODED_LINES + 99),
+            overflow: TextOverflow::Ellipsis,
+            text_direction: TextDirection::Auto,
+            text_width_basis: TextWidthBasis::Parent,
+            strut_line_height: None,
+            text_height_behavior: TextHeightBehavior::default(),
+        });
+
+        assert_eq!(
+            decode_text_paragraph_style(encoded),
+            Some(TextParagraphStyle {
+                text_align: TextAlign::End,
+                max_lines: Some(TEXT_PARAGRAPH_MAX_ENCODED_LINES),
+                overflow: TextOverflow::Ellipsis,
+                text_direction: TextDirection::Auto,
+                text_width_basis: TextWidthBasis::Parent,
+                strut_line_height: None,
+                text_height_behavior: TextHeightBehavior::default(),
+            })
+        );
+    }
+
+    #[test]
+    fn paragraph_style_compact_encoding_rejects_extended_fields() {
+        assert_eq!(
+            encode_text_paragraph_style(TextParagraphStyle {
+                text_align: TextAlign::Start,
+                max_lines: Some(2),
+                overflow: TextOverflow::Visible,
+                text_direction: TextDirection::Rtl,
+                text_width_basis: TextWidthBasis::LongestLine,
+                strut_line_height: Some(24.0),
+                text_height_behavior: TextHeightBehavior {
+                    apply_height_to_first_ascent: false,
+                    apply_height_to_last_descent: true,
+                },
+            }),
+            None
+        );
+    }
+
+    #[test]
+    fn inline_widget_marker_round_trips() {
+        let encoded = encode_inline_widget_marker(7, 24.5, 12.0);
+        assert_eq!(
+            decode_inline_widget_marker(Some(encoded.as_str())),
+            Some(InlineWidgetMarker {
+                id: 7,
+                width: 24.5,
+                height: 12.0,
+            })
+        );
     }
 }

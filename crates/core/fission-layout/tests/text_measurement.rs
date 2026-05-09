@@ -91,6 +91,7 @@ fn make_text_node(
                 color: Color::BLACK,
                 underline: false,
                 font_family: None,
+                locale: None,
                 font_weight: 400,
                 font_style: fission_ir::op::FontStyle::Normal,
                 line_height: None,
