@@ -78,10 +78,11 @@ impl LowerDyn for HeroLowerer {
                         enable_suggestions: true,
                         spell_check: true,
                         smart_dashes: true,
-                        smart_quotes: true,
-                        autofill_hints: Vec::new(),
+            smart_quotes: true,
+            autofill_hints: Vec::new(),
             capture_tab: false,
             auto_indent: false,
+            scroll_padding: None,
         };
 
         let mut builder = NodeBuilder::new(id, Op::Semantics(semantics));

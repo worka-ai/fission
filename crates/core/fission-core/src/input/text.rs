@@ -2087,7 +2087,7 @@ impl TextInputController {
                 if let Some(scroll_geom) = ctx.layout.get_node_geometry(scroll_id) {
                     let viewport_size = scroll_geom.rect.size;
 
-                    let (current_text_value, metric_text, masked) =
+                    let (current_text_value, metric_text, masked, scroll_padding) =
                         if let Some(node) = ctx.ir.nodes.get(&text_root) {
                             if let Op::Semantics(sem) = &node.op {
                                 let display_value = Self::display_value_for_metrics(
@@ -2100,12 +2100,17 @@ impl TextInputController {
                                 } else {
                                     display_value.clone()
                                 };
-                                (display_value, metric_text, sem.masked)
+                                (
+                                    display_value,
+                                    metric_text,
+                                    sem.masked,
+                                    sem.scroll_padding.unwrap_or([2.0, 3.0, 2.0, 3.0]),
+                                )
                             } else {
-                                (String::new(), String::new(), false)
+                                (String::new(), String::new(), false, [2.0, 3.0, 2.0, 3.0])
                             }
                         } else {
-                            (String::new(), String::new(), false)
+                            (String::new(), String::new(), false, [2.0, 3.0, 2.0, 3.0])
                         };
 
                     let current_caret_idx = if let Some(st) = ctx.text_edit.get(text_root) {
@@ -2155,8 +2160,8 @@ impl TextInputController {
                         let caret_width = 2.0f32;
                         let caret_right = caret_left + caret_width;
 
-                        let margin_left = 2.0f32;
-                        let margin_right = 3.0f32;
+                        let margin_left = scroll_padding[0].max(0.0);
+                        let margin_right = scroll_padding[1].max(0.0);
 
                         let visible_left = caret_left - offset;
                         let visible_right = caret_right - offset;
@@ -2180,8 +2185,8 @@ impl TextInputController {
                             .1;
                         let caret_bottom = caret_top + caret_height;
 
-                        let margin_top = 2.0f32;
-                        let margin_bottom = 3.0f32;
+                        let margin_top = scroll_padding[2].max(0.0);
+                        let margin_bottom = scroll_padding[3].max(0.0);
 
                         let visible_top = caret_top - offset;
                         let visible_bottom = caret_bottom - offset;

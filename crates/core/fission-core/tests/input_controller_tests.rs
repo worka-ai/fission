@@ -329,6 +329,7 @@ fn create_text_node(id: NodeId, val: &str, multiline: bool) -> CoreIR {
                         smart_dashes: true,
                         smart_quotes: true,
                         autofill_hints: Vec::new(),
+                scroll_padding: None,
                 capture_tab: false,
                 auto_indent: false,
             }),
@@ -471,6 +472,7 @@ fn create_rich_text_input_tree(
                         smart_dashes: true,
                         smart_quotes: true,
                         autofill_hints: Vec::new(),
+                scroll_padding: None,
                 capture_tab: false,
                 auto_indent: false,
             }),
@@ -1173,6 +1175,194 @@ fn test_forward_delete_removes_next_grapheme() {
 }
 
 #[test]
+fn test_apple_ctrl_bindings_cover_line_and_char_navigation() {
+    if !cfg!(any(target_os = "macos", target_os = "ios")) {
+        return;
+    }
+
+    let node_id = NodeId::derived(211, &[0]);
+    let initial_text = "hello";
+    let ir = create_text_node(node_id, initial_text, false);
+    let layout = LayoutSnapshot::new(LayoutSize::new(100.0, 100.0));
+    let mut text_edit = TextEditStateMap::default();
+    let mut interaction = InteractionStateMap::default();
+    let mut scroll = ScrollStateMap::default();
+    let mut gesture = fission_core::env::GestureState::default();
+    let clipboard: Arc<dyn Clipboard> = Arc::new(MockClipboard::new());
+    let measurer: Arc<dyn TextMeasurer> = Arc::new(MockTextMeasurer);
+
+    interaction.set_focused(Some(node_id));
+    text_edit.set_caret(node_id, 2, Some(2));
+
+    let mut controller = TextInputController;
+
+    for (key_code, expected) in [
+        (KeyCode::Char('b'), 1usize),
+        (KeyCode::Char('f'), 2usize),
+        (KeyCode::Char('a'), 0usize),
+        (KeyCode::Char('e'), initial_text.len()),
+    ] {
+        let mut ctx = setup_ctx(
+            &ir,
+            &layout,
+            &mut text_edit,
+            &mut interaction,
+            &mut scroll,
+            &mut gesture,
+            &clipboard,
+            Some(&measurer),
+        );
+        let event = InputEvent::Keyboard(KeyEvent::Down {
+            key_code,
+            modifiers: MOD_CTRL,
+        });
+        assert!(controller.handle_event(&mut ctx, &event));
+        let st = ctx.text_edit.get(node_id).unwrap();
+        assert_eq!(st.caret, expected);
+        assert_eq!(st.anchor, expected);
+    }
+}
+
+#[test]
+fn test_apple_meta_delete_shortcuts_trim_current_line() {
+    if !cfg!(any(target_os = "macos", target_os = "ios")) {
+        return;
+    }
+
+    let node_id = NodeId::derived(213, &[0]);
+    let initial_text = "hello world";
+    let ir = create_text_node(node_id, initial_text, false);
+    let layout = LayoutSnapshot::new(LayoutSize::new(100.0, 100.0));
+    let mut text_edit = TextEditStateMap::default();
+    let mut interaction = InteractionStateMap::default();
+    let mut scroll = ScrollStateMap::default();
+    let mut gesture = fission_core::env::GestureState::default();
+    let clipboard: Arc<dyn Clipboard> = Arc::new(MockClipboard::new());
+    let measurer: Arc<dyn TextMeasurer> = Arc::new(MockTextMeasurer);
+
+    interaction.set_focused(Some(node_id));
+    text_edit.set_caret(node_id, 5, Some(5));
+
+    let mut controller = TextInputController;
+
+    {
+        let mut ctx = setup_ctx(
+            &ir,
+            &layout,
+            &mut text_edit,
+            &mut interaction,
+            &mut scroll,
+            &mut gesture,
+            &clipboard,
+            Some(&measurer),
+        );
+        let event = InputEvent::Keyboard(KeyEvent::Down {
+            key_code: KeyCode::Backspace,
+            modifiers: MOD_SUPER,
+        });
+        assert!(controller.handle_event(&mut ctx, &event));
+        let new_text: String = serde_json::from_slice(&ctx.dispatched_actions[0].1.payload).unwrap();
+        assert_eq!(new_text, " world");
+        let st = ctx.text_edit.get(node_id).unwrap();
+        assert_eq!(st.caret, 0);
+    }
+
+    text_edit.set_caret(node_id, 6, Some(6));
+
+    {
+        let mut ctx = setup_ctx(
+            &ir,
+            &layout,
+            &mut text_edit,
+            &mut interaction,
+            &mut scroll,
+            &mut gesture,
+            &clipboard,
+            Some(&measurer),
+        );
+        let event = InputEvent::Keyboard(KeyEvent::Down {
+            key_code: KeyCode::Delete,
+            modifiers: MOD_SUPER,
+        });
+        assert!(controller.handle_event(&mut ctx, &event));
+        let new_text: String = serde_json::from_slice(&ctx.dispatched_actions[0].1.payload).unwrap();
+        assert_eq!(new_text, "hello ");
+        let st = ctx.text_edit.get(node_id).unwrap();
+        assert_eq!(st.caret, 6);
+    }
+}
+
+#[test]
+fn test_page_up_down_navigate_by_viewport_height() {
+    let input_id = NodeId::derived(212, &[0]);
+    let scroll_id = NodeId::derived(212, &[1]);
+    let text_id = NodeId::derived(212, &[2]);
+    let value = "One\nTwo\nThree\nFour\nFive";
+    let ir = create_rich_text_input_tree(input_id, scroll_id, text_id, value, true);
+
+    let mut layout = LayoutSnapshot::new(LayoutSize::new(800.0, 600.0));
+    layout.nodes.insert(
+        scroll_id,
+        LayoutNodeGeometry {
+            rect: LayoutRect::new(120.0, 40.0, 120.0, 40.0),
+            content_size: LayoutSize::new(120.0, 120.0),
+        },
+    );
+
+    let mut text_edit = TextEditStateMap::default();
+    let mut interaction = InteractionStateMap::default();
+    let mut scroll = ScrollStateMap::default();
+    let mut gesture = fission_core::env::GestureState::default();
+    let clipboard: Arc<dyn Clipboard> = Arc::new(MockClipboard::new());
+    let measurer: Arc<dyn TextMeasurer> = Arc::new(MockTextMeasurer);
+
+    interaction.set_focused(Some(input_id));
+    text_edit.set_caret(input_id, 0, Some(0));
+
+    let mut controller = TextInputController;
+
+    {
+        let mut ctx = setup_ctx(
+            &ir,
+            &layout,
+            &mut text_edit,
+            &mut interaction,
+            &mut scroll,
+            &mut gesture,
+            &clipboard,
+            Some(&measurer),
+        );
+        let event = InputEvent::Keyboard(KeyEvent::Down {
+            key_code: KeyCode::PageDown,
+            modifiers: 0,
+        });
+        assert!(controller.handle_event(&mut ctx, &event));
+        let st = ctx.text_edit.get(input_id).unwrap();
+        assert_eq!(st.caret, "One\nTwo\n".len());
+    }
+
+    {
+        let mut ctx = setup_ctx(
+            &ir,
+            &layout,
+            &mut text_edit,
+            &mut interaction,
+            &mut scroll,
+            &mut gesture,
+            &clipboard,
+            Some(&measurer),
+        );
+        let event = InputEvent::Keyboard(KeyEvent::Down {
+            key_code: KeyCode::PageUp,
+            modifiers: 0,
+        });
+        assert!(controller.handle_event(&mut ctx, &event));
+        let st = ctx.text_edit.get(input_id).unwrap();
+        assert_eq!(st.caret, 0);
+    }
+}
+
+#[test]
 fn test_read_only_blocks_edits_but_allows_navigation() {
     let node_id = NodeId::derived(22, &[0]);
     let mut ir = create_text_node(node_id, "locked", false);
@@ -1605,6 +1795,59 @@ fn test_single_line_auto_scroll_with_rich_text_uses_local_coordinates() {
     assert!(
         ctx.scroll.get_offset(scroll_id) > 0.0,
         "single-line inputs should scroll horizontally to keep caret visible"
+    );
+}
+
+#[test]
+fn test_single_line_auto_scroll_respects_scroll_padding() {
+    let input_id = NodeId::derived(210, &[0]);
+    let scroll_id = NodeId::derived(210, &[1]);
+    let text_id = NodeId::derived(210, &[2]);
+    let value = "012345678901234567890123456789";
+    let mut ir = create_rich_text_input_tree(input_id, scroll_id, text_id, value, false);
+    if let Op::Semantics(semantics) = &mut ir.nodes.get_mut(&input_id).expect("input").op {
+        semantics.scroll_padding = Some([18.0, 24.0, 2.0, 3.0]);
+    }
+
+    let mut layout = LayoutSnapshot::new(LayoutSize::new(800.0, 600.0));
+    layout.nodes.insert(
+        scroll_id,
+        LayoutNodeGeometry {
+            rect: LayoutRect::new(240.0, 64.0, 100.0, 24.0),
+            content_size: LayoutSize::new(320.0, 24.0),
+        },
+    );
+
+    let mut text_edit = TextEditStateMap::default();
+    let mut interaction = InteractionStateMap::default();
+    let mut scroll = ScrollStateMap::default();
+    let mut gesture = fission_core::env::GestureState::default();
+    let clipboard: Arc<dyn Clipboard> = Arc::new(MockClipboard::new());
+    let measurer: Arc<dyn TextMeasurer> = Arc::new(MockTextMeasurer);
+
+    interaction.set_focused(Some(input_id));
+    text_edit.set_caret(input_id, value.len(), Some(value.len()));
+
+    let mut controller = TextInputController;
+    let mut ctx = setup_ctx(
+        &ir,
+        &layout,
+        &mut text_edit,
+        &mut interaction,
+        &mut scroll,
+        &mut gesture,
+        &clipboard,
+        Some(&measurer),
+    );
+    let event = InputEvent::Keyboard(KeyEvent::Down {
+        key_code: KeyCode::Char('!'),
+        modifiers: 0,
+    });
+    assert!(controller.handle_event(&mut ctx, &event));
+
+    assert!(
+        ctx.scroll.get_offset(scroll_id) >= 24.0,
+        "right scroll padding should leave extra room past the caret"
     );
 }
 

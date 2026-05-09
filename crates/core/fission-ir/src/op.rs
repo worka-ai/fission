@@ -110,6 +110,13 @@ pub enum TextDirection {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Hash, Default)]
+pub enum TextWidthBasis {
+    #[default]
+    Parent,
+    LongestLine,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Hash, Default)]
 pub enum MouseCursor {
     #[default]
     Basic,
@@ -140,6 +147,8 @@ pub struct TextParagraphStyle {
     #[serde(default)]
     pub text_direction: TextDirection,
     #[serde(default)]
+    pub text_width_basis: TextWidthBasis,
+    #[serde(default)]
     pub strut_line_height: Option<LayoutUnit>,
     #[serde(default)]
     pub text_height_behavior: TextHeightBehavior,
@@ -151,6 +160,7 @@ impl PartialEq for TextParagraphStyle {
             && self.max_lines == other.max_lines
             && self.overflow == other.overflow
             && self.text_direction == other.text_direction
+            && self.text_width_basis == other.text_width_basis
             && self.strut_line_height.map(f32::to_bits) == other.strut_line_height.map(f32::to_bits)
             && self.text_height_behavior == other.text_height_behavior
     }
@@ -164,6 +174,7 @@ impl std::hash::Hash for TextParagraphStyle {
         self.max_lines.hash(state);
         self.overflow.hash(state);
         self.text_direction.hash(state);
+        self.text_width_basis.hash(state);
         self.strut_line_height.map(f32::to_bits).hash(state);
         self.text_height_behavior.hash(state);
     }
@@ -220,6 +231,7 @@ pub fn encode_text_paragraph_style(style: TextParagraphStyle) -> Option<LayoutUn
         return None;
     }
     if style.text_direction != TextDirection::Auto
+        || style.text_width_basis != TextWidthBasis::Parent
         || style.strut_line_height.is_some()
         || style.text_height_behavior != TextHeightBehavior::default()
     {
@@ -264,6 +276,7 @@ pub fn decode_text_paragraph_style(
         max_lines,
         overflow,
         text_direction: TextDirection::Auto,
+        text_width_basis: TextWidthBasis::Parent,
         strut_line_height: None,
         text_height_behavior: TextHeightBehavior::default(),
     })
@@ -1032,7 +1045,8 @@ mod tests {
     use super::{
         decode_inline_widget_marker, decode_text_paragraph_style, encode_inline_widget_marker,
         encode_text_paragraph_style, InlineWidgetMarker, TextAlign, TextDirection,
-        TextHeightBehavior, TextOverflow, TextParagraphStyle, TEXT_PARAGRAPH_MAX_ENCODED_LINES,
+        TextHeightBehavior, TextOverflow, TextParagraphStyle, TextWidthBasis,
+        TEXT_PARAGRAPH_MAX_ENCODED_LINES,
     };
 
     #[test]
@@ -1042,6 +1056,7 @@ mod tests {
             max_lines: Some(3),
             overflow: TextOverflow::Fade,
             text_direction: TextDirection::Auto,
+            text_width_basis: TextWidthBasis::Parent,
             strut_line_height: None,
             text_height_behavior: TextHeightBehavior::default(),
         };
@@ -1057,6 +1072,7 @@ mod tests {
             max_lines: Some(TEXT_PARAGRAPH_MAX_ENCODED_LINES + 99),
             overflow: TextOverflow::Ellipsis,
             text_direction: TextDirection::Auto,
+            text_width_basis: TextWidthBasis::Parent,
             strut_line_height: None,
             text_height_behavior: TextHeightBehavior::default(),
         });
@@ -1068,6 +1084,7 @@ mod tests {
                 max_lines: Some(TEXT_PARAGRAPH_MAX_ENCODED_LINES),
                 overflow: TextOverflow::Ellipsis,
                 text_direction: TextDirection::Auto,
+                text_width_basis: TextWidthBasis::Parent,
                 strut_line_height: None,
                 text_height_behavior: TextHeightBehavior::default(),
             })
@@ -1082,6 +1099,7 @@ mod tests {
                 max_lines: Some(2),
                 overflow: TextOverflow::Visible,
                 text_direction: TextDirection::Rtl,
+                text_width_basis: TextWidthBasis::LongestLine,
                 strut_line_height: Some(24.0),
                 text_height_behavior: TextHeightBehavior {
                     apply_height_to_first_ascent: false,

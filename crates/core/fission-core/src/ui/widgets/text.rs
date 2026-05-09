@@ -8,7 +8,7 @@ use fission_ir::{
         RichTextAnnotation as IrRichTextAnnotation, TextAlign as IrTextAlign,
         TextDirection as IrTextDirection, TextHeightBehavior as IrTextHeightBehavior,
         TextOverflow as IrTextOverflow, TextParagraphStyle as IrTextParagraphStyle,
-        TextRun as IrTextRun,
+        TextRun as IrTextRun, TextWidthBasis as IrTextWidthBasis,
     },
     semantics::ActionTrigger,
     ActionEntry, CompositeStyle, NodeId, Role, Semantics,
@@ -599,6 +599,7 @@ pub struct Text {
     pub wrap: bool,
     pub text_align: IrTextAlign,
     pub text_direction: IrTextDirection,
+    pub text_width_basis: IrTextWidthBasis,
     pub max_lines: Option<usize>,
     pub overflow: IrTextOverflow,
     pub strut_line_height: Option<f32>,
@@ -725,6 +726,11 @@ impl Text {
 
     pub fn text_direction(mut self, text_direction: IrTextDirection) -> Self {
         self.text_direction = text_direction;
+        self
+    }
+
+    pub fn text_width_basis(mut self, text_width_basis: IrTextWidthBasis) -> Self {
+        self.text_width_basis = text_width_basis;
         self
     }
 
@@ -877,6 +883,7 @@ pub struct RichText {
     pub wrap: bool,
     pub text_align: IrTextAlign,
     pub text_direction: IrTextDirection,
+    pub text_width_basis: IrTextWidthBasis,
     pub max_lines: Option<usize>,
     pub overflow: IrTextOverflow,
     pub strut_line_height: Option<f32>,
@@ -1050,6 +1057,11 @@ impl RichText {
 
     pub fn text_direction(mut self, text_direction: IrTextDirection) -> Self {
         self.text_direction = text_direction;
+        self
+    }
+
+    pub fn text_width_basis(mut self, text_width_basis: IrTextWidthBasis) -> Self {
+        self.text_width_basis = text_width_basis;
         self
     }
 
@@ -1334,6 +1346,7 @@ fn paragraph_line_height(line_height: f32, strut_line_height: Option<f32>) -> f3
 fn paragraph_style_metadata(
     text_align: IrTextAlign,
     text_direction: IrTextDirection,
+    text_width_basis: IrTextWidthBasis,
     max_lines: Option<usize>,
     overflow: IrTextOverflow,
     strut_line_height: Option<f32>,
@@ -1342,6 +1355,7 @@ fn paragraph_style_metadata(
     let style = IrTextParagraphStyle {
         text_align,
         text_direction,
+        text_width_basis,
         max_lines,
         overflow,
         strut_line_height,
@@ -1412,6 +1426,7 @@ impl Lower for Text {
         let paragraph_style = paragraph_style_metadata(
             self.text_align,
             self.text_direction,
+            self.text_width_basis,
             self.max_lines,
             self.overflow,
             self.strut_line_height,
@@ -1503,6 +1518,7 @@ impl Lower for RichText {
         let paragraph_style = paragraph_style_metadata(
             self.text_align,
             self.text_direction,
+            self.text_width_basis,
             self.max_lines,
             self.overflow,
             self.strut_line_height,

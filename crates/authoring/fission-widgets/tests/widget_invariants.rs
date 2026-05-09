@@ -120,6 +120,7 @@ fn test_button_widget_lower_with_child_and_semantics() {
                         autofill_hints: Vec::new(),
             capture_tab: false,
             auto_indent: false,
+            scroll_padding: None,
         }),
         ..Default::default()
     };

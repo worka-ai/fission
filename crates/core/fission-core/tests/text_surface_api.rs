@@ -9,6 +9,7 @@ use fission_core::{ActionEnvelope, ActionId};
 use fission_ir::op::{
     decode_inline_widget_marker, Color, Fill, LayoutOp, MouseCursor, Op, PaintOp,
     RichTextAnnotation, TextAlign, TextDirection, TextHeightBehavior, TextOverflow,
+    TextWidthBasis,
 };
 use fission_ir::semantics::ActionTrigger;
 use fission_ir::{CoreIR, FlexDirection};
@@ -235,6 +236,9 @@ fn text_input_supports_decorations_and_typography_overrides() {
     let ir = lower_node(
         TextInput {
             value: "alice@example.com".into(),
+            label: Some("Email".into()),
+            helper_text: Some("We never share your address.".into()),
+            counter_text: Some("custom counter".into()),
             font_family: Some("Inter".into()),
             font_weight: Some(500),
             line_height: Some(22.0),
@@ -277,6 +281,24 @@ fn text_input_supports_decorations_and_typography_overrides() {
     assert_eq!(value_run.style.font_weight, 500);
     assert_eq!(value_run.style.line_height, Some(22.0));
     assert_eq!(value_run.style.letter_spacing, 0.25);
+
+    assert!(paint_ops(&ir).any(|op| match op {
+        PaintOp::DrawText { text, .. } => text == "Email",
+        PaintOp::DrawRichText { runs, .. } => runs.iter().any(|run| run.text == "Email"),
+        _ => false,
+    }));
+    assert!(paint_ops(&ir).any(|op| match op {
+        PaintOp::DrawText { text, .. } => text == "We never share your address.",
+        PaintOp::DrawRichText { runs, .. } => runs
+            .iter()
+            .any(|run| run.text == "We never share your address."),
+        _ => false,
+    }));
+    assert!(paint_ops(&ir).any(|op| match op {
+        PaintOp::DrawText { text, .. } => text == "custom counter",
+        PaintOp::DrawRichText { runs, .. } => runs.iter().any(|run| run.text == "custom counter"),
+        _ => false,
+    }));
 }
 
 #[test]
@@ -318,6 +340,12 @@ fn text_input_lowers_cursor_and_semantics_overrides() {
             cursor_radius: Some(2.0),
             text_align: TextAlign::Center,
             text_align_vertical: TextAlignVertical::Bottom,
+            locale: Some("fr-GB".into()),
+            text_scale: Some(1.25),
+            text_direction: TextDirection::Rtl,
+            strut_line_height: Some(24.0),
+            mouse_cursor: Some(fission_ir::semantics::MouseCursor::Text),
+            scroll_padding: Some([12.0, 13.0, 14.0, 15.0]),
             ..Default::default()
         }
         .into_node(),
@@ -352,12 +380,18 @@ fn text_input_lowers_cursor_and_semantics_overrides() {
         fission_ir::semantics::TextCapitalization::Words
     );
     assert_eq!(semantics.max_length, Some(24));
+    assert_eq!(semantics.scroll_padding, Some([12.0, 13.0, 14.0, 15.0]));
     assert_eq!(
         semantics.input_formatters,
         vec![fission_ir::semantics::InputFormatter::AsciiOnly]
     );
     assert!(!semantics.autocorrect);
     assert!(!semantics.enable_suggestions);
+    assert!(semantics
+        .actions
+        .entries
+        .iter()
+        .any(|entry| entry.as_hover_cursor() == Some(fission_ir::semantics::MouseCursor::Text)));
     assert!(semantics
         .actions
         .entries
@@ -407,11 +441,21 @@ fn text_input_lowers_cursor_and_semantics_overrides() {
             text_align: TextAlign::Center,
             max_lines: None,
             overflow: TextOverflow::Visible,
-            text_direction: TextDirection::Auto,
-            strut_line_height: None,
+            text_direction: TextDirection::Rtl,
+            text_width_basis: TextWidthBasis::Parent,
+            strut_line_height: Some(24.0),
             text_height_behavior: TextHeightBehavior::default(),
         })
     );
+
+    let value_run = paint_ops(&ir)
+        .find_map(|op| match op {
+            PaintOp::DrawRichText { runs, .. } => runs.iter().find(|run| run.text == "hello"),
+            _ => None,
+        })
+        .expect("value run");
+    assert_eq!(value_run.style.locale.as_deref(), Some("fr-GB"));
+    assert_eq!(value_run.style.font_size, 21.25);
 }
 
 #[test]
@@ -446,6 +490,7 @@ fn text_lowers_paragraph_controls_for_alignment_and_ellipsis() {
     assert_eq!(paragraph.max_lines, Some(2));
     assert_eq!(paragraph.overflow, TextOverflow::Ellipsis);
     assert_eq!(paragraph.text_direction, TextDirection::Rtl);
+    assert_eq!(paragraph.text_width_basis, TextWidthBasis::Parent);
     assert_eq!(paragraph.strut_line_height, Some(24.0));
     assert_eq!(paragraph.text_height_behavior, height_behavior);
 
@@ -501,6 +546,7 @@ fn rich_text_lowers_paragraph_controls_for_line_capping() {
     assert_eq!(paragraph.max_lines, Some(3));
     assert_eq!(paragraph.overflow, TextOverflow::Clip);
     assert_eq!(paragraph.text_direction, TextDirection::Ltr);
+    assert_eq!(paragraph.text_width_basis, TextWidthBasis::Parent);
     assert_eq!(paragraph.strut_line_height, Some(28.0));
     assert_eq!(paragraph.text_height_behavior, height_behavior);
 
@@ -520,6 +566,48 @@ fn rich_text_lowers_paragraph_controls_for_line_capping() {
         .expect("clipped layout box");
 
     assert!(matches!(clipped_box.op, Op::Layout(LayoutOp::Box { .. })));
+}
+
+#[test]
+fn text_lowers_longest_line_width_basis() {
+    let ir = lower_node(
+        Text::new("Width basis")
+            .text_width_basis(TextWidthBasis::LongestLine)
+            .into_node(),
+    );
+
+    let paragraph = paint_ops(&ir)
+        .find_map(|op| match op {
+            PaintOp::DrawText {
+                paragraph_style: Some(paragraph_style),
+                ..
+            } => Some(*paragraph_style),
+            _ => None,
+        })
+        .expect("paragraph metadata");
+
+    assert_eq!(paragraph.text_width_basis, TextWidthBasis::LongestLine);
+}
+
+#[test]
+fn rich_text_lowers_longest_line_width_basis() {
+    let ir = lower_node(
+        RichText::new(vec![RichTextRun::new("Width basis")])
+            .text_width_basis(TextWidthBasis::LongestLine)
+            .into_node(),
+    );
+
+    let paragraph = paint_ops(&ir)
+        .find_map(|op| match op {
+            PaintOp::DrawRichText {
+                paragraph_style: Some(paragraph_style),
+                ..
+            } => Some(*paragraph_style),
+            _ => None,
+        })
+        .expect("paragraph metadata");
+
+    assert_eq!(paragraph.text_width_basis, TextWidthBasis::LongestLine);
 }
 
 #[test]

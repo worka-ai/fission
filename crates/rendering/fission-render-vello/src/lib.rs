@@ -5,7 +5,7 @@ pub use text::VelloTextMeasurer;
 use anyhow::Result;
 use fission_ir::op::{
     decode_text_paragraph_style, TextAlign, TextDirection, TextHeightBehavior, TextOverflow,
-    TextParagraphStyle,
+    TextParagraphStyle, TextWidthBasis,
 };
 use fission_render::{
     Color as RenderColor, DisplayList, DisplayOp, LayerClip, RenderLayer, RenderNode, RenderScene,
@@ -246,6 +246,19 @@ fn paragraph_alignment_options(text_align: TextAlign) -> AlignmentOptions {
     }
 }
 
+fn paragraph_alignment_width(
+    layout: &parley::layout::Layout<ParleyBrush>,
+    bounds: fission_render::LayoutRect,
+    paragraph: TextParagraphStyle,
+) -> Option<f32> {
+    let width = match paragraph.text_width_basis {
+        TextWidthBasis::Parent => bounds.width(),
+        TextWidthBasis::LongestLine => layout.width(),
+    };
+
+    (width.is_finite() && width > 0.0).then_some(width)
+}
+
 fn paragraph_line_visual_bounds(
     line: &parley::layout::Line<'_, ParleyBrush>,
 ) -> Option<ParagraphLineVisualBounds> {
@@ -445,7 +458,7 @@ mod tests {
     };
     use fission_ir::op::{
         FontStyle, MouseCursor, RichTextAnnotation, TextAlign, TextDirection, TextHeightBehavior,
-        TextOverflow, TextParagraphStyle,
+        TextOverflow, TextParagraphStyle, TextWidthBasis,
     };
     use fission_ir::{semantics::ActionTrigger, ActionEntry};
     use fission_layout::TextMeasurer;
@@ -577,6 +590,55 @@ mod tests {
             paragraph_alignment(TextAlign::Justify),
             super::ParleyAlignment::Justify
         );
+    }
+
+    #[test]
+    fn longest_line_width_basis_aligns_against_content_width() {
+        let mut scene = Scene::new();
+        let mut cache = RetainedSceneCache::default();
+        let renderer = test_renderer(&mut scene, &mut cache);
+        let style = test_style();
+        let text = "paragraph width\nshort";
+        let bounds = LayoutRect::new(0.0, 0.0, 220.0, 80.0);
+        let styles = vec![(0..text.len(), style.clone())];
+
+        let parent_layout = renderer.paragraph_layout(
+            text,
+            &style,
+            false,
+            bounds,
+            TextParagraphStyle {
+                text_align: TextAlign::Center,
+                text_width_basis: TextWidthBasis::Parent,
+                ..Default::default()
+            },
+            &[],
+            &styles,
+        );
+        let longest_line_layout = renderer.paragraph_layout(
+            text,
+            &style,
+            false,
+            bounds,
+            TextParagraphStyle {
+                text_align: TextAlign::Center,
+                text_width_basis: TextWidthBasis::LongestLine,
+                ..Default::default()
+            },
+            &[],
+            &styles,
+        );
+
+        let parent_lines: Vec<_> = parent_layout.lines().collect();
+        let longest_line_lines: Vec<_> = longest_line_layout.lines().collect();
+        let parent_first = paragraph_line_visual_bounds(&parent_lines[0]).unwrap();
+        let parent_second = paragraph_line_visual_bounds(&parent_lines[1]).unwrap();
+        let longest_first = paragraph_line_visual_bounds(&longest_line_lines[0]).unwrap();
+        let longest_second = paragraph_line_visual_bounds(&longest_line_lines[1]).unwrap();
+
+        assert!(parent_first.left > longest_first.left + 5.0);
+        assert!(parent_second.left > longest_second.left + 5.0);
+        assert!((longest_first.left - bounds.x()).abs() < 1.0);
     }
 
     #[test]
@@ -1079,9 +1141,9 @@ impl<'a> VelloRenderer<'a> {
         ))
         .clone();
 
-        if bounds.width() > 0.0 {
+        if let Some(alignment_width) = paragraph_alignment_width(&layout, bounds, paragraph) {
             layout.align(
-                Some(bounds.width()),
+                Some(alignment_width),
                 paragraph_alignment(paragraph.text_align),
                 paragraph_alignment_options(paragraph.text_align),
             );

@@ -463,9 +463,10 @@ fn default_button_semantics() -> Semantics {
                     autocorrect: true,
                     enable_suggestions: true,
                         spell_check: true,
-                        smart_dashes: true,
-                        smart_quotes: true,
-                        autofill_hints: Vec::new(),
+        smart_dashes: true,
+        smart_quotes: true,
+        autofill_hints: Vec::new(),
+        scroll_padding: None,
         capture_tab: false,
         auto_indent: false,
     }

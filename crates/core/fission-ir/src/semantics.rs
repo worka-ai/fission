@@ -339,6 +339,8 @@ pub struct Semantics {
     pub smart_quotes: bool,
     /// Platform autofill categories associated with this field.
     pub autofill_hints: Vec<String>,
+    /// Extra padding to keep around the caret/selection when auto-scrolling `[left, right, top, bottom]`.
+    pub scroll_padding: Option<[f32; 4]>,
     /// When true, Tab key inserts spaces instead of moving focus.
     pub capture_tab: bool,
     /// When true, Enter copies leading whitespace from the current line.
@@ -384,6 +386,9 @@ impl std::hash::Hash for Semantics {
         self.smart_dashes.hash(state);
         self.smart_quotes.hash(state);
         self.autofill_hints.hash(state);
+        self.scroll_padding
+            .map(|padding| padding.map(f32::to_bits))
+            .hash(state);
         self.capture_tab.hash(state);
         self.auto_indent.hash(state);
     }
@@ -429,6 +434,7 @@ impl Default for Semantics {
             smart_dashes: true,
             smart_quotes: true,
             autofill_hints: Vec::new(),
+            scroll_padding: None,
             capture_tab: false,
             auto_indent: false,
         }
