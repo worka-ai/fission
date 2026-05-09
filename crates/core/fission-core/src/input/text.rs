@@ -107,6 +107,7 @@ impl InputController for TextInputController {
                     if belongs_to_focused {
                         Some(focused_id)
                     } else {
+                        Self::clear_text_input_affordances(ctx, focused_id);
                         None
                     }
                 } else {

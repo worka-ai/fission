@@ -111,13 +111,11 @@ impl ImeHandler for DesktopImeHandler {
     }
 
     fn set_ime_cursor_area(&self, rect: LayoutRect) {
-        if let Some(window) = self
-            .state
-            .lock()
-            .expect("ime handler lock poisoned")
-            .window
-            .as_ref()
-        {
+        let state = self.state.lock().expect("ime handler lock poisoned");
+        if !effective_ime_allowed(state.ime_allowed_requested, state.text_input_config.as_ref()) {
+            return;
+        }
+        if let Some(window) = state.window.as_ref() {
             // Position relative to window
             window.set_ime_cursor_area(
                 winit::dpi::PhysicalPosition::new(rect.x() as f64, rect.y() as f64),
@@ -442,5 +440,17 @@ mod tests {
         assert!(active_platform_config(Some(&read_only)).is_none());
         assert!(active_platform_config(Some(&disabled)).is_none());
         assert!(active_platform_config(Some(&editable)).is_some());
+    }
+
+    #[test]
+    fn ime_cursor_updates_follow_effective_editability() {
+        let read_only = TextInputConfig::from_semantics(&Semantics {
+            read_only: true,
+            ..Semantics::default()
+        });
+        let editable = TextInputConfig::from_semantics(&Semantics::default());
+
+        assert!(!effective_ime_allowed(true, Some(&read_only)));
+        assert!(effective_ime_allowed(true, Some(&editable)));
     }
 }

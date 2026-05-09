@@ -1739,6 +1739,72 @@ fn test_secondary_click_shows_text_toolbar_affordance() {
 }
 
 #[test]
+fn test_pointer_down_outside_focused_input_clears_text_affordances() {
+    let input_id = NodeId::derived(34, &[0]);
+    let scroll_id = NodeId::derived(34, &[1]);
+    let text_id = NodeId::derived(34, &[2]);
+    let value = "abcdefghij";
+    let ir = create_rich_text_input_tree(input_id, scroll_id, text_id, value, false);
+
+    let mut layout = LayoutSnapshot::new(LayoutSize::new(800.0, 600.0));
+    layout.nodes.insert(
+        scroll_id,
+        LayoutNodeGeometry {
+            rect: LayoutRect::new(200.0, 40.0, 120.0, 24.0),
+            content_size: LayoutSize::new(120.0, 24.0),
+        },
+    );
+    layout.nodes.insert(
+        input_id,
+        LayoutNodeGeometry {
+            rect: LayoutRect::new(180.0, 30.0, 180.0, 44.0),
+            content_size: LayoutSize::new(180.0, 44.0),
+        },
+    );
+
+    let mut text_edit = TextEditStateMap::default();
+    let mut interaction = InteractionStateMap::default();
+    let mut scroll = ScrollStateMap::default();
+    let mut gesture = fission_core::env::GestureState::default();
+    let clipboard: Arc<dyn Clipboard> = Arc::new(MockClipboard::new());
+    let measurer: Arc<dyn TextMeasurer> = Arc::new(MockTextMeasurer);
+
+    interaction.set_focused(Some(input_id));
+    let state = text_edit.get_mut_or_default(input_id);
+    state.caret = 8;
+    state.anchor = 2;
+    state.affordances.toolbar_visible = true;
+    state.affordances.toolbar_anchor = Some(LayoutPoint::new(48.0, 10.0));
+    state.affordances.selection_start_handle = Some(LayoutPoint::new(20.0, 16.0));
+    state.affordances.selection_end_handle = Some(LayoutPoint::new(80.0, 16.0));
+
+    let mut controller = TextInputController;
+    let mut ctx = setup_ctx(
+        &ir,
+        &layout,
+        &mut text_edit,
+        &mut interaction,
+        &mut scroll,
+        &mut gesture,
+        &clipboard,
+        Some(&measurer),
+    );
+    let outside_click = InputEvent::Pointer(PointerEvent::Down {
+        point: LayoutPoint::new(20.0, 20.0),
+        button: PointerButton::Primary,
+        modifiers: 0,
+    });
+    assert!(!controller.handle_event(&mut ctx, &outside_click));
+
+    let affordances = &ctx.text_edit.get(input_id).expect("text state").affordances;
+    assert!(!affordances.toolbar_visible);
+    assert!(affordances.toolbar_anchor.is_none());
+    assert!(affordances.selection_start_handle.is_none());
+    assert!(affordances.selection_end_handle.is_none());
+    assert!(affordances.caret_handle.is_none());
+}
+
+#[test]
 fn test_toolbar_copy_button_click_uses_derived_node_id() {
     let input_id = NodeId::derived(32, &[0]);
     let scroll_id = NodeId::derived(32, &[1]);
