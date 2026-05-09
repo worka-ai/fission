@@ -87,27 +87,114 @@ fn map_stroke(s: &fission_render::Stroke) -> (vello::kurbo::Stroke, Brush) {
     (stroke, map_fill_to_brush(&s.fill))
 }
 
-fn paragraph_line_x_offset(text_align: TextAlign, bounds_width: f32, line_width: f32) -> f32 {
-    if bounds_width <= 0.0 {
-        return 0.0;
-    }
-
-    match text_align {
-        TextAlign::Left | TextAlign::Start => 0.0,
-        TextAlign::Center => (bounds_width - line_width) * 0.5,
-        TextAlign::Right | TextAlign::End => bounds_width - line_width,
-        // Parley's justification hooks are not wired through yet, so fall back to start.
-        TextAlign::Justify => 0.0,
-    }
-}
 use crate::text::ParleyBrush;
 use lazy_static::lazy_static;
-use parley::layout::PositionedLayoutItem;
+use parley::layout::{Alignment as ParleyAlignment, AlignmentOptions, PositionedLayoutItem};
 use std::collections::hash_map::DefaultHasher;
 use std::collections::{HashMap, VecDeque};
 use std::hash::{Hash, Hasher};
 use std::sync::{Arc, Mutex};
 use vello::{Glyph, Scene};
+
+const PARAGRAPH_FADE_SLICE_COUNT: usize = 8;
+const PARAGRAPH_FADE_MIN_SPAN: f32 = 8.0;
+const PARAGRAPH_FADE_RIGHT_MULTIPLIER: f32 = 1.5;
+const PARAGRAPH_FADE_BOTTOM_FRACTION: f32 = 0.5;
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+struct ParagraphLineVisualBounds {
+    left: f32,
+    right: f32,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+enum ParagraphFade {
+    Right { start: f32, end: f32 },
+    Bottom { start: f32, end: f32 },
+}
+
+fn paragraph_alignment(text_align: TextAlign) -> ParleyAlignment {
+    match text_align {
+        TextAlign::Start => ParleyAlignment::Start,
+        TextAlign::Left => ParleyAlignment::Left,
+        TextAlign::Center => ParleyAlignment::Center,
+        TextAlign::Right => ParleyAlignment::Right,
+        TextAlign::End => ParleyAlignment::End,
+        TextAlign::Justify => ParleyAlignment::Justify,
+    }
+}
+
+fn paragraph_alignment_options(text_align: TextAlign) -> AlignmentOptions {
+    AlignmentOptions {
+        align_when_overflowing: !matches!(text_align, TextAlign::Justify),
+    }
+}
+
+fn paragraph_line_visual_bounds(
+    line: &parley::layout::Line<'_, ParleyBrush>,
+) -> Option<ParagraphLineVisualBounds> {
+    let mut left = f32::INFINITY;
+    let mut right = f32::NEG_INFINITY;
+
+    for item in line.items() {
+        match item {
+            PositionedLayoutItem::GlyphRun(glyph_run) => {
+                left = left.min(glyph_run.offset());
+                right = right.max(glyph_run.offset() + glyph_run.advance());
+            }
+            PositionedLayoutItem::InlineBox(inline_box) => {
+                left = left.min(inline_box.x);
+                right = right.max(inline_box.x + inline_box.width);
+            }
+        }
+    }
+
+    if left.is_finite() && right.is_finite() {
+        Some(ParagraphLineVisualBounds { left, right })
+    } else {
+        None
+    }
+}
+
+fn paragraph_fade(
+    paragraph: TextParagraphStyle,
+    bounds: fission_render::LayoutRect,
+    line_height: f32,
+    line_width: f32,
+    is_last_visible_line: bool,
+    has_more_lines: bool,
+    overflows_horizontally: bool,
+) -> Option<ParagraphFade> {
+    if !matches!(paragraph.overflow, TextOverflow::Fade) || !is_last_visible_line {
+        return None;
+    }
+
+    if has_more_lines {
+        let fade_height = (line_height * PARAGRAPH_FADE_BOTTOM_FRACTION)
+            .max(1.0)
+            .min(bounds.height().max(1.0));
+        return Some(ParagraphFade::Bottom {
+            start: (line_height - fade_height).max(0.0),
+            end: line_height,
+        });
+    }
+
+    if !overflows_horizontally || bounds.width() <= 0.0 {
+        return None;
+    }
+
+    let fade_width = line_width
+        .min(bounds.width())
+        .min((line_height * PARAGRAPH_FADE_RIGHT_MULTIPLIER).max(PARAGRAPH_FADE_MIN_SPAN));
+    if fade_width <= 0.0 {
+        return None;
+    }
+
+    Some(ParagraphFade::Right {
+        start: (bounds.width() - fade_width).max(0.0),
+        end: bounds.width(),
+    })
+}
 
 lazy_static! {
     static ref IMAGE_CACHE: Mutex<HashMap<String, Arc<ImageData>>> = Mutex::new(HashMap::new());
@@ -235,8 +322,17 @@ fn parse_svg_entry(content: &str) -> SvgCacheEntry {
 
 #[cfg(test)]
 mod tests {
-    use super::{paragraph_line_x_offset, parse_svg_entry, SvgShape};
-    use fission_ir::op::TextAlign;
+    use super::{
+        paragraph_alignment, paragraph_fade, paragraph_line_visual_bounds, parse_svg_entry,
+        ParagraphFade, RetainedSceneCache, SvgShape, VelloRenderer, VelloTextMeasurer,
+    };
+    use fission_ir::op::{FontStyle, TextAlign, TextOverflow, TextParagraphStyle};
+    use fission_render::{
+        Color as RenderColor, LayoutPoint, LayoutRect, TextStyle as RenderTextStyle,
+    };
+    use parley::FontContext;
+    use std::sync::{Arc, Mutex};
+    use vello::Scene;
 
     #[test]
     fn svg_parser_skips_fill_none_rect_placeholders() {
@@ -250,16 +346,142 @@ mod tests {
     }
 
     #[test]
-    fn paragraph_alignment_offsets_track_visible_bounds() {
-        assert_eq!(paragraph_line_x_offset(TextAlign::Start, 120.0, 40.0), 0.0);
+    fn paragraph_fade_prefers_bottom_when_extra_lines_are_clipped() {
         assert_eq!(
-            paragraph_line_x_offset(TextAlign::Center, 120.0, 40.0),
-            40.0
+            paragraph_fade(
+                TextParagraphStyle {
+                    text_align: TextAlign::Start,
+                    max_lines: Some(1),
+                    overflow: TextOverflow::Fade,
+                },
+                LayoutRect::new(0.0, 0.0, 120.0, 20.0),
+                18.0,
+                90.0,
+                true,
+                true,
+                false,
+            ),
+            Some(ParagraphFade::Bottom {
+                start: 9.0,
+                end: 18.0,
+            })
         );
-        assert_eq!(paragraph_line_x_offset(TextAlign::End, 120.0, 40.0), 80.0);
+    }
+
+    fn test_renderer<'a>(
+        scene: &'a mut Scene,
+        cache: &'a mut RetainedSceneCache,
+    ) -> VelloRenderer<'a> {
+        let measurer = Arc::new(VelloTextMeasurer::new(Arc::new(Mutex::new(
+            FontContext::new(),
+        ))));
+        VelloRenderer::new(scene, measurer, cache, 1.0)
+    }
+
+    fn test_style() -> RenderTextStyle {
+        RenderTextStyle {
+            font_size: 16.0,
+            color: RenderColor {
+                r: 0,
+                g: 0,
+                b: 0,
+                a: 255,
+            },
+            underline: false,
+            font_family: None,
+            font_weight: 400,
+            font_style: FontStyle::Normal,
+            line_height: None,
+            letter_spacing: 0.0,
+            background_color: None,
+        }
+    }
+
+    #[test]
+    fn justify_alignment_stretches_non_terminal_lines() {
+        let mut scene = Scene::new();
+        let mut cache = RetainedSceneCache::default();
+        let renderer = test_renderer(&mut scene, &mut cache);
+        let style = test_style();
+        let text = "one two three four five six seven eight";
+        let bounds = LayoutRect::new(0.0, 0.0, 90.0, 200.0);
+        let styles = vec![(0..text.len(), style.clone())];
+
+        let start_layout = renderer.paragraph_layout(
+            text,
+            &style,
+            true,
+            bounds,
+            TextParagraphStyle {
+                text_align: TextAlign::Start,
+                max_lines: None,
+                overflow: TextOverflow::Visible,
+            },
+            &styles,
+        );
+        let justify_layout = renderer.paragraph_layout(
+            text,
+            &style,
+            true,
+            bounds,
+            TextParagraphStyle {
+                text_align: TextAlign::Justify,
+                max_lines: None,
+                overflow: TextOverflow::Visible,
+            },
+            &styles,
+        );
+
+        let start_lines: Vec<_> = start_layout.lines().collect();
+        let justify_lines: Vec<_> = justify_layout.lines().collect();
+        assert!(start_lines.len() > 1, "expected the sample text to wrap");
+        assert_eq!(start_lines.len(), justify_lines.len());
+
+        let start_first = paragraph_line_visual_bounds(&start_lines[0]).unwrap();
+        let start_last = paragraph_line_visual_bounds(start_lines.last().unwrap()).unwrap();
+        let justify_first = paragraph_line_visual_bounds(&justify_lines[0]).unwrap();
+        let justify_last = paragraph_line_visual_bounds(justify_lines.last().unwrap()).unwrap();
+
+        assert!(justify_first.right > start_first.right + 1.0);
+        assert!(justify_first.right - justify_first.left > start_first.right - start_first.left);
+        assert!(justify_last.right - justify_last.left <= start_last.right - start_last.left + 0.5);
         assert_eq!(
-            paragraph_line_x_offset(TextAlign::Right, 120.0, 140.0),
-            -20.0
+            paragraph_alignment(TextAlign::Justify),
+            super::ParleyAlignment::Justify
+        );
+    }
+
+    #[test]
+    fn fade_overflow_adds_renderer_side_clips() {
+        let mut scene = Scene::new();
+        let mut cache = RetainedSceneCache::default();
+        let mut renderer = test_renderer(&mut scene, &mut cache);
+        let style = test_style();
+        let text = "this line should visibly fade instead of only clipping";
+
+        renderer.render_paragraph_text(
+            text,
+            &style,
+            false,
+            LayoutPoint::new(0.0, 0.0),
+            LayoutRect::new(0.0, 0.0, 80.0, 24.0),
+            TextParagraphStyle {
+                text_align: TextAlign::Start,
+                max_lines: None,
+                overflow: TextOverflow::Fade,
+            },
+            &[(0..text.len(), style.clone())],
+            None,
+            None,
+            None,
+            None,
+            None,
+        );
+        drop(renderer);
+
+        assert!(
+            scene.encoding().n_clips > 0,
+            "fade overflow should add internal clip layers"
         );
     }
 }
@@ -407,8 +629,26 @@ impl<'a> VelloRenderer<'a> {
     where
         F: FnOnce(&mut Self),
     {
+        if rect.width() <= 0.0 || rect.height() <= 0.0 {
+            return;
+        }
+
         self.scene
             .push_layer(Mix::Normal, 1.0, self.current_transform, &rect);
+        draw(self);
+        self.scene.pop_layer();
+    }
+
+    fn with_alpha_clip_rect<F>(&mut self, rect: Rect, alpha: f32, draw: F)
+    where
+        F: FnOnce(&mut Self),
+    {
+        if alpha <= 0.0 || rect.width() <= 0.0 || rect.height() <= 0.0 {
+            return;
+        }
+
+        self.scene
+            .push_layer(Mix::Normal, alpha, self.current_transform, &rect);
         draw(self);
         self.scene.pop_layer();
     }
@@ -476,17 +716,16 @@ impl<'a> VelloRenderer<'a> {
         (style.font_size, style.font_size)
     }
 
-    fn render_paragraph_text(
-        &mut self,
+    fn paragraph_layout(
+        &self,
         text: &str,
         base_style: &RenderTextStyle,
         wrap: bool,
-        position: fission_render::LayoutPoint,
         bounds: fission_render::LayoutRect,
         paragraph: TextParagraphStyle,
         styles: &[(std::ops::Range<usize>, RenderTextStyle)],
-    ) {
-        let layout = self.measurer.layout_rich(
+    ) -> parley::layout::Layout<ParleyBrush> {
+        let mut layout = (*self.measurer.layout_rich(
             text,
             base_style.font_size,
             base_style.color,
@@ -496,7 +735,212 @@ impl<'a> VelloRenderer<'a> {
             } else {
                 None
             },
-        );
+        ))
+        .clone();
+
+        if bounds.width() > 0.0 {
+            layout.align(
+                Some(bounds.width()),
+                paragraph_alignment(paragraph.text_align),
+                paragraph_alignment_options(paragraph.text_align),
+            );
+        }
+
+        layout
+    }
+
+    fn draw_paragraph_line(
+        &mut self,
+        line: &parley::layout::Line<'_, ParleyBrush>,
+        position: fission_render::LayoutPoint,
+        top_y: f32,
+        line_height: f32,
+        styles: &[(std::ops::Range<usize>, RenderTextStyle)],
+    ) {
+        for item in line.items() {
+            if let PositionedLayoutItem::GlyphRun(glyph_run) = item {
+                let style = glyph_run.style();
+                let run = glyph_run.run();
+                let font = run.font();
+                let font_size = run.font_size();
+                let brush_data = style.brush.clone();
+                let color = Color::from_rgba8(
+                    brush_data.0[0],
+                    brush_data.0[1],
+                    brush_data.0[2],
+                    brush_data.0[3],
+                );
+
+                let run_text_range = run.text_range();
+                for (range, style) in styles.iter() {
+                    if let Some(bg) = &style.background_color {
+                        let overlap_start = range.start.max(run_text_range.start);
+                        let overlap_end = range.end.min(run_text_range.end);
+                        if overlap_start < overlap_end {
+                            let bg_color = Color::from_rgba8(bg.r, bg.g, bg.b, bg.a);
+                            let x0 = position.x as f64 + glyph_run.offset() as f64;
+                            let x1 = x0 + glyph_run.advance() as f64;
+                            let y0 = position.y as f64 + top_y as f64;
+                            let bg_rect = Rect::new(x0, y0, x1, y0 + line_height as f64);
+                            self.scene.fill(
+                                Fill::NonZero,
+                                self.current_transform,
+                                bg_color,
+                                None,
+                                &bg_rect,
+                            );
+                            break;
+                        }
+                    }
+                }
+
+                let mut x = glyph_run.offset();
+                let y = glyph_run.baseline();
+                let glyphs = glyph_run.glyphs().map(|g| {
+                    let gx = x + g.x;
+                    let gy = y - g.y;
+                    x += g.advance;
+                    Glyph {
+                        id: g.id as u32,
+                        x: gx,
+                        y: gy,
+                    }
+                });
+
+                self.scene
+                    .draw_glyphs(font)
+                    .font_size(font_size)
+                    .transform(
+                        self.current_transform
+                            * Affine::translate((position.x as f64, position.y as f64)),
+                    )
+                    .brush(color)
+                    .draw(Fill::NonZero, glyphs);
+
+                if let Some(decoration) = &style.underline {
+                    let metrics = run.metrics();
+                    let offset = decoration.offset.unwrap_or(metrics.underline_offset);
+                    let size = decoration.size.unwrap_or(metrics.underline_size).max(1.0);
+                    let deco_brush = decoration.brush.clone();
+                    let deco_color = Color::from_rgba8(
+                        deco_brush.0[0],
+                        deco_brush.0[1],
+                        deco_brush.0[2],
+                        deco_brush.0[3],
+                    );
+
+                    let x0 = position.x as f64 + glyph_run.offset() as f64;
+                    let x1 = x0 + glyph_run.advance() as f64;
+                    let y0 = position.y as f64 + (glyph_run.baseline() + offset) as f64;
+                    let rect = Rect::new(x0, y0, x1, y0 + size as f64);
+                    self.scene.fill(
+                        Fill::NonZero,
+                        self.current_transform,
+                        deco_color,
+                        None,
+                        &rect,
+                    );
+                }
+            }
+        }
+    }
+
+    fn draw_paragraph_line_with_fade(
+        &mut self,
+        line: &parley::layout::Line<'_, ParleyBrush>,
+        position: fission_render::LayoutPoint,
+        bounds: fission_render::LayoutRect,
+        top_y: f32,
+        line_height: f32,
+        styles: &[(std::ops::Range<usize>, RenderTextStyle)],
+        fade: ParagraphFade,
+    ) {
+        let line_top = position.y + top_y;
+        let line_bottom = line_top + line_height;
+
+        match fade {
+            ParagraphFade::Right { start, end } => {
+                let body_end = start.max(0.0);
+                if body_end > 0.0 {
+                    let clip_rect = Rect::new(
+                        bounds.x() as f64,
+                        line_top as f64,
+                        (position.x + body_end).min(bounds.right()) as f64,
+                        line_bottom as f64,
+                    );
+                    self.with_clip_rect(clip_rect, |this| {
+                        this.draw_paragraph_line(line, position, top_y, line_height, styles);
+                    });
+                }
+
+                let fade_width = end - start;
+                for slice in 0..PARAGRAPH_FADE_SLICE_COUNT {
+                    let slice_start =
+                        start + fade_width * slice as f32 / PARAGRAPH_FADE_SLICE_COUNT as f32;
+                    let slice_end =
+                        start + fade_width * (slice + 1) as f32 / PARAGRAPH_FADE_SLICE_COUNT as f32;
+                    let alpha = 1.0 - (slice as f32 + 0.5) / PARAGRAPH_FADE_SLICE_COUNT as f32;
+                    let clip_rect = Rect::new(
+                        (position.x + slice_start).max(bounds.x()) as f64,
+                        line_top as f64,
+                        (position.x + slice_end).min(bounds.right()) as f64,
+                        line_bottom as f64,
+                    );
+                    self.with_alpha_clip_rect(clip_rect, alpha, |this| {
+                        this.draw_paragraph_line(line, position, top_y, line_height, styles);
+                    });
+                }
+            }
+            ParagraphFade::Bottom { start, end } => {
+                if start > 0.0 {
+                    let clip_rect = Rect::new(
+                        bounds.x() as f64,
+                        line_top as f64,
+                        bounds.right() as f64,
+                        (line_top + start).min(bounds.bottom()) as f64,
+                    );
+                    self.with_clip_rect(clip_rect, |this| {
+                        this.draw_paragraph_line(line, position, top_y, line_height, styles);
+                    });
+                }
+
+                let fade_height = end - start;
+                for slice in 0..PARAGRAPH_FADE_SLICE_COUNT {
+                    let slice_start =
+                        start + fade_height * slice as f32 / PARAGRAPH_FADE_SLICE_COUNT as f32;
+                    let slice_end = start
+                        + fade_height * (slice + 1) as f32 / PARAGRAPH_FADE_SLICE_COUNT as f32;
+                    let alpha = 1.0 - (slice as f32 + 0.5) / PARAGRAPH_FADE_SLICE_COUNT as f32;
+                    let clip_rect = Rect::new(
+                        bounds.x() as f64,
+                        (line_top + slice_start).max(bounds.y()) as f64,
+                        bounds.right() as f64,
+                        (line_top + slice_end).min(bounds.bottom()) as f64,
+                    );
+                    self.with_alpha_clip_rect(clip_rect, alpha, |this| {
+                        this.draw_paragraph_line(line, position, top_y, line_height, styles);
+                    });
+                }
+            }
+        }
+    }
+
+    fn render_paragraph_text(
+        &mut self,
+        text: &str,
+        base_style: &RenderTextStyle,
+        wrap: bool,
+        position: fission_render::LayoutPoint,
+        bounds: fission_render::LayoutRect,
+        paragraph: TextParagraphStyle,
+        styles: &[(std::ops::Range<usize>, RenderTextStyle)],
+        caret_index: Option<usize>,
+        caret_color: Option<RenderColor>,
+        caret_width: Option<f32>,
+        caret_height: Option<f32>,
+        caret_radius: Option<f32>,
+    ) {
+        let layout = self.paragraph_layout(text, base_style, wrap, bounds, paragraph, styles);
 
         let total_lines = layout.lines().count();
         let visible_lines = paragraph
@@ -509,125 +953,45 @@ impl<'a> VelloRenderer<'a> {
                 break;
             }
 
-            let metrics = line.metrics();
+            let metrics = *line.metrics();
             let line_height = metrics
                 .line_height
                 .max(metrics.ascent + metrics.descent)
                 .max(1.0);
             let top_y = metrics.baseline - metrics.ascent;
-            let line_width = metrics.advance;
-            let x_offset =
-                paragraph_line_x_offset(paragraph.text_align, bounds.width(), line_width);
+            let visual_bounds =
+                paragraph_line_visual_bounds(&line).unwrap_or(ParagraphLineVisualBounds {
+                    left: metrics.offset,
+                    right: metrics.offset + metrics.advance,
+                });
+            let line_width = (visual_bounds.right - visual_bounds.left).max(0.0);
             let is_last_visible_line = line_idx + 1 == visible_lines;
             let has_more_lines = line_idx + 1 < total_lines;
             let overflows_horizontally = bounds.width() > 0.0 && line_width > bounds.width();
             let show_ellipsis = matches!(paragraph.overflow, TextOverflow::Ellipsis)
                 && is_last_visible_line
                 && (has_more_lines || overflows_horizontally);
+            let fade = paragraph_fade(
+                paragraph,
+                bounds,
+                line_height,
+                line_width,
+                is_last_visible_line,
+                has_more_lines,
+                overflows_horizontally,
+            );
 
             let ellipsis = show_ellipsis.then(|| {
                 let style = self.resolve_ellipsis_style(line.text_range(), base_style, styles);
                 let (width, baseline) = self.ellipsis_metrics(&style);
                 let line_end = if bounds.width() > 0.0 {
-                    (x_offset + line_width).min(bounds.width()).max(0.0)
+                    visual_bounds.right.min(bounds.width()).max(0.0)
                 } else {
-                    (x_offset + line_width).max(0.0)
+                    visual_bounds.right.max(0.0)
                 };
                 let left = (line_end - width).max(0.0);
                 (style, width, baseline, left)
             });
-
-            let draw_line = |this: &mut Self| {
-                for item in line.items() {
-                    if let PositionedLayoutItem::GlyphRun(glyph_run) = item {
-                        let style = glyph_run.style();
-                        let run = glyph_run.run();
-                        let font = run.font();
-                        let font_size = run.font_size();
-                        let brush_data = style.brush.clone();
-                        let color = Color::from_rgba8(
-                            brush_data.0[0],
-                            brush_data.0[1],
-                            brush_data.0[2],
-                            brush_data.0[3],
-                        );
-
-                        let run_text_range = run.text_range();
-                        for (range, style) in styles.iter() {
-                            if let Some(bg) = &style.background_color {
-                                let overlap_start = range.start.max(run_text_range.start);
-                                let overlap_end = range.end.min(run_text_range.end);
-                                if overlap_start < overlap_end {
-                                    let bg_color = Color::from_rgba8(bg.r, bg.g, bg.b, bg.a);
-                                    let x0 = position.x as f64
-                                        + x_offset as f64
-                                        + glyph_run.offset() as f64;
-                                    let x1 = x0 + glyph_run.advance() as f64;
-                                    let y0 = position.y as f64 + top_y as f64;
-                                    let bg_rect = Rect::new(x0, y0, x1, y0 + line_height as f64);
-                                    this.scene.fill(
-                                        Fill::NonZero,
-                                        this.current_transform,
-                                        bg_color,
-                                        None,
-                                        &bg_rect,
-                                    );
-                                    break;
-                                }
-                            }
-                        }
-
-                        let mut x = glyph_run.offset();
-                        let y = glyph_run.baseline();
-                        let glyphs = glyph_run.glyphs().map(|g| {
-                            let gx = x + g.x + x_offset;
-                            let gy = y - g.y;
-                            x += g.advance;
-                            Glyph {
-                                id: g.id as u32,
-                                x: gx,
-                                y: gy,
-                            }
-                        });
-
-                        this.scene
-                            .draw_glyphs(font)
-                            .font_size(font_size)
-                            .transform(
-                                this.current_transform
-                                    * Affine::translate((position.x as f64, position.y as f64)),
-                            )
-                            .brush(color)
-                            .draw(Fill::NonZero, glyphs);
-
-                        if let Some(decoration) = &style.underline {
-                            let metrics = run.metrics();
-                            let offset = decoration.offset.unwrap_or(metrics.underline_offset);
-                            let size = decoration.size.unwrap_or(metrics.underline_size).max(1.0);
-                            let deco_brush = decoration.brush.clone();
-                            let deco_color = Color::from_rgba8(
-                                deco_brush.0[0],
-                                deco_brush.0[1],
-                                deco_brush.0[2],
-                                deco_brush.0[3],
-                            );
-
-                            let x0 =
-                                position.x as f64 + x_offset as f64 + glyph_run.offset() as f64;
-                            let x1 = x0 + glyph_run.advance() as f64;
-                            let y0 = position.y as f64 + (glyph_run.baseline() + offset) as f64;
-                            let rect = Rect::new(x0, y0, x1, y0 + size as f64);
-                            this.scene.fill(
-                                Fill::NonZero,
-                                this.current_transform,
-                                deco_color,
-                                None,
-                                &rect,
-                            );
-                        }
-                    }
-                }
-            };
 
             if let Some((_, _, _, ellipsis_left)) = ellipsis.as_ref() {
                 let clip_rect = Rect::new(
@@ -636,9 +1000,21 @@ impl<'a> VelloRenderer<'a> {
                     (position.x + *ellipsis_left).max(bounds.x()) as f64,
                     position.y as f64 + top_y as f64 + line_height as f64,
                 );
-                self.with_clip_rect(clip_rect, draw_line);
+                self.with_clip_rect(clip_rect, |this| {
+                    this.draw_paragraph_line(&line, position, top_y, line_height, styles);
+                });
+            } else if let Some(fade) = fade {
+                self.draw_paragraph_line_with_fade(
+                    &line,
+                    position,
+                    bounds,
+                    top_y,
+                    line_height,
+                    styles,
+                    fade,
+                );
             } else {
-                draw_line(self);
+                self.draw_paragraph_line(&line, position, top_y, line_height, styles);
             }
 
             if let Some((style, width, baseline, ellipsis_left)) = ellipsis {
@@ -665,6 +1041,9 @@ impl<'a> VelloRenderer<'a> {
                         None,
                         None,
                         None,
+                        None,
+                        None,
+                        None,
                         &ellipsis_styles,
                     );
                 } else {
@@ -679,10 +1058,28 @@ impl<'a> VelloRenderer<'a> {
                         None,
                         None,
                         None,
+                        None,
+                        None,
+                        None,
                         &[],
                     );
                 }
             }
+        }
+
+        if let Some(idx) = caret_index {
+            self.draw_caret(
+                &layout,
+                idx,
+                position,
+                text,
+                base_style.font_size,
+                caret_color.unwrap_or(base_style.color),
+                caret_width.unwrap_or(2.0),
+                caret_height,
+                caret_radius,
+                paragraph,
+            );
         }
     }
 
@@ -698,14 +1095,20 @@ impl<'a> VelloRenderer<'a> {
         caret_index: Option<usize>,
         caret_color: Option<RenderColor>,
         caret_width: Option<f32>,
+        caret_height: Option<f32>,
+        caret_radius: Option<f32>,
+        paragraph_style: Option<TextParagraphStyle>,
         styles: &[(std::ops::Range<usize>, RenderTextStyle)],
     ) {
-        let paragraph = if caret_index.is_none() {
-            decode_text_paragraph_style(caret_width)
-        } else {
-            None
-        }
-        .unwrap_or_default();
+        let paragraph = paragraph_style
+            .or_else(|| {
+                if caret_index.is_none() {
+                    decode_text_paragraph_style(caret_width)
+                } else {
+                    None
+                }
+            })
+            .unwrap_or_default();
 
         if paragraph != TextParagraphStyle::default() {
             let base_style = Self::paragraph_base_style(base_size, base_color, underline);
@@ -724,6 +1127,11 @@ impl<'a> VelloRenderer<'a> {
                 bounds,
                 paragraph,
                 paragraph_styles,
+                caret_index,
+                caret_color,
+                caret_width,
+                caret_height,
+                caret_radius,
             );
             return;
         }
@@ -808,6 +1216,9 @@ impl<'a> VelloRenderer<'a> {
                     base_size,
                     caret_color.unwrap_or(base_color),
                     caret_width.unwrap_or(2.0),
+                    caret_height,
+                    caret_radius,
+                    paragraph,
                 );
             }
             return;
@@ -934,6 +1345,9 @@ impl<'a> VelloRenderer<'a> {
                 base_size,
                 caret_color.unwrap_or(base_color),
                 caret_width.unwrap_or(2.0),
+                caret_height,
+                caret_radius,
+                paragraph,
             );
         }
     }
@@ -963,6 +1377,9 @@ impl<'a> VelloRenderer<'a> {
         base_size: f32,
         caret_color: RenderColor,
         caret_width: f32,
+        caret_height: Option<f32>,
+        caret_radius: Option<f32>,
+        _paragraph: TextParagraphStyle,
     ) {
         let mut caret_drawn = false;
         let lines_count = layout.lines().count();
@@ -1009,14 +1426,26 @@ impl<'a> VelloRenderer<'a> {
                     .max(metrics.ascent + metrics.descent)
                     .max(1.0);
                 let baseline_y = metrics.baseline;
+                let visual_bounds =
+                    paragraph_line_visual_bounds(&line).unwrap_or(ParagraphLineVisualBounds {
+                        left: metrics.offset,
+                        right: metrics.offset + metrics.advance,
+                    });
+                x_pos += visual_bounds.left - metrics.offset;
 
                 let top_y = baseline_y - metrics.ascent;
+                let caret_draw_height =
+                    caret_height.unwrap_or(line_height).clamp(1.0, line_height.max(1.0));
+                let caret_top = top_y + ((line_height - caret_draw_height) * 0.5);
 
-                let caret_rect = Rect::new(
-                    position.x as f64 + x_pos as f64,
-                    position.y as f64 + top_y as f64,
-                    position.x as f64 + x_pos as f64 + caret_width as f64,
-                    position.y as f64 + top_y as f64 + line_height as f64,
+                let caret_shape = RoundedRect::from_rect(
+                    Rect::new(
+                        position.x as f64 + x_pos as f64,
+                        position.y as f64 + caret_top as f64,
+                        position.x as f64 + x_pos as f64 + caret_width as f64,
+                        position.y as f64 + caret_top as f64 + caret_draw_height as f64,
+                    ),
+                    caret_radius.unwrap_or(0.0).max(0.0) as f64,
                 );
 
                 self.scene.fill(
@@ -1024,7 +1453,7 @@ impl<'a> VelloRenderer<'a> {
                     self.current_transform,
                     Color::from_rgba8(caret_color.r, caret_color.g, caret_color.b, caret_color.a),
                     None,
-                    &caret_rect,
+                    &caret_shape,
                 );
                 caret_drawn = true;
                 break;
@@ -1041,18 +1470,23 @@ impl<'a> VelloRenderer<'a> {
                     .max(metrics.ascent + metrics.descent)
                     .max(1.0) as f64;
             }
-            let caret_rect = Rect::new(
-                position.x as f64,
-                top_y,
-                position.x as f64 + caret_width as f64,
-                top_y + height,
+            let draw_height = caret_height.unwrap_or(height as f32).clamp(1.0, height as f32) as f64;
+            let caret_top = top_y + ((height - draw_height) * 0.5);
+            let caret_shape = RoundedRect::from_rect(
+                Rect::new(
+                    position.x as f64,
+                    caret_top,
+                    position.x as f64 + caret_width as f64,
+                    caret_top + draw_height,
+                ),
+                caret_radius.unwrap_or(0.0).max(0.0) as f64,
             );
             self.scene.fill(
                 Fill::NonZero,
                 self.current_transform,
                 Color::from_rgba8(caret_color.r, caret_color.g, caret_color.b, caret_color.a),
                 None,
-                &caret_rect,
+                &caret_shape,
             );
         }
     }
@@ -1215,6 +1649,9 @@ impl<'a> VelloRenderer<'a> {
                     caret_index,
                     caret_color,
                     caret_width,
+                    caret_height,
+                    caret_radius,
+                    paragraph_style,
                     ..
                 } => {
                     self.render_text(
@@ -1228,6 +1665,9 @@ impl<'a> VelloRenderer<'a> {
                         *caret_index,
                         *caret_color,
                         *caret_width,
+                        *caret_height,
+                        *caret_radius,
+                        *paragraph_style,
                         &[],
                     );
                 }
@@ -1239,6 +1679,9 @@ impl<'a> VelloRenderer<'a> {
                     caret_index,
                     caret_color,
                     caret_width,
+                    caret_height,
+                    caret_radius,
+                    paragraph_style,
                     ..
                 } => {
                     if let Some(first) = runs.first() {
@@ -1260,6 +1703,9 @@ impl<'a> VelloRenderer<'a> {
                                 *caret_index,
                                 *caret_color,
                                 *caret_width,
+                                *caret_height,
+                                *caret_radius,
+                                *paragraph_style,
                                 &[],
                             );
                             continue;
@@ -1300,6 +1746,9 @@ impl<'a> VelloRenderer<'a> {
                         *caret_index,
                         *caret_color,
                         *caret_width,
+                        *caret_height,
+                        *caret_radius,
+                        *paragraph_style,
                         &styles,
                     );
                 }

@@ -6,7 +6,7 @@ use crate::ActionEnvelope;
 use crate::ActionId;
 use fission_ir::FlexDirection;
 use fission_ir::{
-    op::{self, LayoutOp, Op},
+    op::{self, decode_text_paragraph_style, LayoutOp, Op, TextAlign, TextParagraphStyle},
     semantics::{InputFormatter, MaxLengthEnforcement, TextCapitalization, TextInputType},
     NodeId, Semantics,
 };
@@ -1514,22 +1514,32 @@ impl TextInputController {
         local_x: f32,
         local_y: f32,
     ) -> usize {
-        // The renderer calls `layout_rich(…, if bounds.width() > 0 { Some(w) } else { None })`.
-        // The bounds rect for a text node equals the layout geometry rect whose width comes
-        // from the scroll container (or the text node itself).  We replicate this here so
-        // the cache key matches and we reuse the SAME Parley layout the renderer painted.
-        let render_width = if scroll_geom.rect.size.width > 0.0 {
+        let viewport_width = if scroll_geom.rect.size.width > 0.0 {
             Some(scroll_geom.rect.size.width)
         } else {
             None
         };
+        let render_width = viewport_width;
+        let font_size = Self::extract_font_size(ir, focused_id).unwrap_or(13.0);
+        let paragraph = Self::extract_paragraph_style(ir, focused_id).unwrap_or_default();
+
+        if paragraph.text_align != TextAlign::Start {
+            let line_metrics = measurer.get_line_metrics(text, font_size, render_width);
+            if let (Some(width), Some(line)) = (
+                viewport_width,
+                Self::line_metric_for_local_y(&line_metrics, local_y),
+            ) {
+                let aligned_x =
+                    local_x - Self::paragraph_line_x_offset(paragraph, width, line.width, false);
+                return measurer.hit_test(text, font_size, render_width, aligned_x, local_y);
+            }
+        }
 
         if !prefer_plain_text {
             if let Some(runs) = Self::extract_rich_runs(ir, focused_id) {
                 return measurer.hit_test_rich(&runs, render_width, local_x, local_y);
             }
         }
-        let font_size = Self::extract_font_size(ir, focused_id).unwrap_or(13.0);
         measurer.hit_test(text, font_size, render_width, local_x, local_y)
     }
 
@@ -1602,6 +1612,7 @@ impl TextInputController {
                     } else {
                         current_caret_idx
                     };
+                    let paragraph = Self::extract_paragraph_style(ctx.ir, text_root).unwrap_or_default();
                     let measurer_width = if scroll_direction == op::FlexDirection::Column {
                         Some(viewport_size.width)
                     } else {
@@ -1619,7 +1630,18 @@ impl TextInputController {
 
                     if scroll_direction == op::FlexDirection::Row {
                         // Handle horizontal scrolling for single-line text
-                        let caret_left = caret_x;
+                        let line_width = measurer
+                            .get_line_metrics(&metric_text, font_size, None)
+                            .first()
+                            .map(|line| line.width)
+                            .unwrap_or_else(|| measurer.measure(&metric_text, font_size, None).0);
+                        let caret_left = caret_x
+                            + Self::paragraph_line_x_offset(
+                                paragraph,
+                                viewport_size.width,
+                                line_width,
+                                false,
+                            );
                         let caret_width = 2.0f32;
                         let caret_right = caret_left + caret_width;
 
@@ -1829,6 +1851,81 @@ impl TextInputController {
                     }
                 }
             }
+        }
+    }
+
+    fn extract_paragraph_style(
+        ir: &fission_ir::CoreIR,
+        semantics_id: NodeId,
+    ) -> Option<TextParagraphStyle> {
+        fn walk(
+            ir: &fission_ir::CoreIR,
+            node_id: NodeId,
+            depth: usize,
+        ) -> Option<TextParagraphStyle> {
+            if depth > 10 {
+                return None;
+            }
+            let node = ir.nodes.get(&node_id)?;
+            match &node.op {
+                Op::Paint(fission_ir::PaintOp::DrawText {
+                    paragraph_style,
+                    caret_width,
+                    ..
+                }) => paragraph_style.or_else(|| decode_text_paragraph_style(*caret_width)),
+                Op::Paint(fission_ir::PaintOp::DrawRichText {
+                    paragraph_style,
+                    caret_width,
+                    ..
+                }) => paragraph_style.or_else(|| decode_text_paragraph_style(*caret_width)),
+                _ => {
+                    for child_id in &node.children {
+                        if let Some(style) = walk(ir, *child_id, depth + 1) {
+                            return Some(style);
+                        }
+                    }
+                    None
+                }
+            }
+        }
+        walk(ir, semantics_id, 0)
+    }
+
+    fn line_metric_for_local_y<'a>(
+        line_metrics: &'a [fission_layout::LineMetric],
+        local_y: f32,
+    ) -> Option<&'a fission_layout::LineMetric> {
+        if line_metrics.is_empty() {
+            return None;
+        }
+        let mut line_top = 0.0f32;
+        for (index, line) in line_metrics.iter().enumerate() {
+            let line_height = line.height.max(1.0);
+            let line_bottom = line_top + line_height;
+            if local_y < line_bottom || index + 1 == line_metrics.len() {
+                return Some(line);
+            }
+            line_top = line_bottom;
+        }
+        line_metrics.last()
+    }
+
+    fn paragraph_line_x_offset(
+        paragraph: TextParagraphStyle,
+        bounds_width: f32,
+        line_width: f32,
+        is_last_line: bool,
+    ) -> f32 {
+        if bounds_width <= 0.0 {
+            return 0.0;
+        }
+
+        match paragraph.text_align {
+            TextAlign::Start | TextAlign::Left => 0.0,
+            TextAlign::Center => (bounds_width - line_width) * 0.5,
+            TextAlign::End | TextAlign::Right => bounds_width - line_width,
+            TextAlign::Justify if is_last_line => 0.0,
+            TextAlign::Justify => 0.0,
         }
     }
 }

@@ -21,8 +21,8 @@ use fission_core::env::VideoStatus;
 use fission_core::lowering::LoweringContext;
 use fission_core::ui::custom_render::downcast_render_object;
 use fission_core::{
-    ActionId, AppState, BuildCtx, Env, ImeHandler, InputEvent, KeyCode,
-    KeyEvent as FissionKeyEvent, PointerButton, PointerEvent, Runtime, View, Widget,
+    ActionId, AppState, BuildCtx, Env, InputEvent, KeyCode, KeyEvent as FissionKeyEvent,
+    PointerButton, PointerEvent, Runtime, View, Widget,
 };
 use fission_core::{ActionInput, Effect, EffectPayload, SystemEffect};
 use fission_diagnostics::prelude as diag;
@@ -56,7 +56,7 @@ use video_backend::MockVideoBackend;
 mod clipboard;
 use clipboard::DesktopClipboard;
 mod ime;
-use ime::DesktopImeHandler;
+use ime::{DesktopImeHandler, TextInputConfig};
 pub mod test_control;
 
 use fission_core::action::ActionEnvelope;
@@ -680,6 +680,16 @@ fn focused_text_input_id(runtime: &Runtime, ir: Option<&CoreIR>) -> Option<NodeI
         current = node.parent;
     }
     None
+}
+
+fn focused_text_input_config(runtime: &Runtime, ir: Option<&CoreIR>) -> Option<TextInputConfig> {
+    let id = focused_text_input_id(runtime, ir)?;
+    let ir = ir?;
+    let node = ir.nodes.get(&id)?;
+    match &node.op {
+        Op::Semantics(semantics) => Some(TextInputConfig::from_semantics(semantics)),
+        _ => None,
+    }
 }
 
 fn focused_custom_text_input(runtime: &Runtime, ir: Option<&CoreIR>) -> bool {
@@ -1595,8 +1605,8 @@ impl<S: AppState + Default, W: Widget<S> + 'static> DesktopApp<S, W> {
                 .map_err(|e| anyhow::anyhow!("Window build error: {}", e))?,
         );
 
-        let ime_handler: Arc<dyn ImeHandler> = Arc::new(DesktopImeHandler::new(window.clone()));
-        self.runtime = self.runtime.with_ime_handler(ime_handler);
+        let ime_handler = Arc::new(DesktopImeHandler::new(window.clone()));
+        self.runtime = self.runtime.with_ime_handler(ime_handler.clone());
 
         // Vello Context
         let mut render_cx = RenderContext::new();
@@ -2171,7 +2181,12 @@ impl<S: AppState + Default, W: Widget<S> + 'static> DesktopApp<S, W> {
                             min_frame,
                         );
 
-                        let focused_text_input = focused_text_input_id(&runtime, pipeline.prev_ir.as_ref());
+                        ime_handler.set_text_input_config(focused_text_input_config(
+                            &runtime,
+                            pipeline.prev_ir.as_ref(),
+                        ));
+                        let focused_text_input =
+                            focused_text_input_id(&runtime, pipeline.prev_ir.as_ref());
                         if focused_text_input != blink_focus_id {
                             if let Some(prev) = blink_focus_id {
                                 runtime.runtime_state.caret_visible.remove(&prev);

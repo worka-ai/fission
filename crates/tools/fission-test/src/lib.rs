@@ -689,6 +689,9 @@ fn generate_display_list_with_visited(
                     caret_index,
                     caret_color,
                     caret_width,
+                    caret_height,
+                    caret_radius,
+                    paragraph_style,
                 }) => {
                     list.push(DisplayOp::DrawText {
                         text: text.clone(),
@@ -712,6 +715,9 @@ fn generate_display_list_with_visited(
                             a: color.a,
                         }),
                         caret_width: *caret_width,
+                        caret_height: *caret_height,
+                        caret_radius: *caret_radius,
+                        paragraph_style: *paragraph_style,
                     });
                 }
                 fission_ir::Op::Paint(fission_ir::PaintOp::DrawRichText {
@@ -720,6 +726,9 @@ fn generate_display_list_with_visited(
                     caret_index,
                     caret_color,
                     caret_width,
+                    caret_height,
+                    caret_radius,
+                    paragraph_style,
                 }) => {
                     list.push(DisplayOp::DrawRichText {
                         runs: runs
@@ -763,6 +772,9 @@ fn generate_display_list_with_visited(
                             a: color.a,
                         }),
                         caret_width: *caret_width,
+                        caret_height: *caret_height,
+                        caret_radius: *caret_radius,
+                        paragraph_style: *paragraph_style,
                     });
                 }
                 fission_ir::Op::Paint(fission_ir::PaintOp::DrawSvg {

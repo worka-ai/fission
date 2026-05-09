@@ -1,4 +1,5 @@
 use anyhow::Result;
+use fission_ir::op::{TextAlign, TextOverflow, TextParagraphStyle};
 use fission_render::{
     Color, DisplayList, DisplayOp, LayoutPoint, LayoutRect, RenderScene, Renderer, TextRun,
     TextStyle,
@@ -102,7 +103,14 @@ fn test_rich_text_display_ops_preserve_caret_metadata() {
             b: 0,
             a: 255,
         }),
-        caret_width: Some(-137.0),
+        caret_width: Some(2.0),
+        caret_height: Some(18.0),
+        caret_radius: Some(1.5),
+        paragraph_style: Some(TextParagraphStyle {
+            text_align: TextAlign::Center,
+            max_lines: Some(2),
+            overflow: TextOverflow::Ellipsis,
+        }),
     };
 
     let mut list = DisplayList::new(bounds);

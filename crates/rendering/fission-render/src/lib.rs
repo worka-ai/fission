@@ -1,4 +1,5 @@
 use fission_ir::NodeId;
+use fission_ir::op::TextParagraphStyle;
 pub use fission_layout::{LayoutPoint, LayoutRect, LayoutSize, LayoutUnit};
 use serde::{Deserialize, Serialize};
 
@@ -124,6 +125,9 @@ pub enum DisplayOp {
         caret_index: Option<usize>,
         caret_color: Option<Color>,
         caret_width: Option<LayoutUnit>,
+        caret_height: Option<LayoutUnit>,
+        caret_radius: Option<LayoutUnit>,
+        paragraph_style: Option<TextParagraphStyle>,
     },
     DrawRichText {
         runs: Vec<TextRun>,
@@ -134,6 +138,9 @@ pub enum DisplayOp {
         caret_index: Option<usize>,
         caret_color: Option<Color>,
         caret_width: Option<LayoutUnit>,
+        caret_height: Option<LayoutUnit>,
+        caret_radius: Option<LayoutUnit>,
+        paragraph_style: Option<TextParagraphStyle>,
     },
     DrawImage {
         rect: LayoutRect,

@@ -2,8 +2,8 @@ use crate::lowering::{LoweringContext, NodeBuilder};
 use crate::ui::traits::Lower;
 use fission_ir::{
     op::{
-        encode_text_paragraph_style, Color as IrColor, FontStyle as IrFontStyle, LayoutOp, Op,
-        PaintOp, TextAlign as IrTextAlign, TextOverflow as IrTextOverflow,
+        Color as IrColor, FontStyle as IrFontStyle, LayoutOp, Op, PaintOp,
+        TextAlign as IrTextAlign, TextOverflow as IrTextOverflow,
         TextParagraphStyle as IrTextParagraphStyle, TextRun as IrTextRun,
     },
     CompositeStyle, NodeId, Semantics,
@@ -740,16 +740,21 @@ fn cap_max_height(
     }
 }
 
-fn paragraph_style_width(
+fn paragraph_style_metadata(
     text_align: IrTextAlign,
     max_lines: Option<usize>,
     overflow: IrTextOverflow,
-) -> Option<f32> {
-    encode_text_paragraph_style(IrTextParagraphStyle {
+) -> Option<IrTextParagraphStyle> {
+    let style = IrTextParagraphStyle {
         text_align,
         max_lines,
         overflow,
-    })
+    };
+    if style == IrTextParagraphStyle::default() {
+        None
+    } else {
+        Some(style)
+    }
 }
 
 fn should_clip_paragraph(max_lines: Option<usize>, overflow: IrTextOverflow) -> bool {
@@ -783,7 +788,8 @@ impl Lower for Text {
         let layout_node_id = self.id.unwrap_or_else(|| cx.next_node_id());
         let resolved_text = self.resolve_text(cx);
         let style = self.resolved_style(cx);
-        let paragraph_width = paragraph_style_width(self.text_align, self.max_lines, self.overflow);
+        let paragraph_style =
+            paragraph_style_metadata(self.text_align, self.max_lines, self.overflow);
         let max_height = cap_max_height(
             self.max_height,
             self.max_lines,
@@ -802,8 +808,10 @@ impl Lower for Text {
                     wrap: self.wrap,
                     caret_index: None,
                     caret_color: None,
-                    // Static text piggybacks paragraph metadata onto the unused caret width slot.
-                    caret_width: paragraph_width,
+                    caret_width: None,
+                    caret_height: None,
+                    caret_radius: None,
+                    paragraph_style,
                 }),
             )
             .build(cx)
@@ -818,8 +826,10 @@ impl Lower for Text {
                     wrap: self.wrap,
                     caret_index: None,
                     caret_color: None,
-                    // Static text piggybacks paragraph metadata onto the unused caret width slot.
-                    caret_width: paragraph_width,
+                    caret_width: None,
+                    caret_height: None,
+                    caret_radius: None,
+                    paragraph_style,
                 }),
             )
             .build(cx)
@@ -848,7 +858,8 @@ impl Lower for RichText {
     fn lower(&self, cx: &mut LoweringContext) -> NodeId {
         let layout_node_id = self.id.unwrap_or_else(|| cx.next_node_id());
         let runs = self.lower_runs(cx);
-        let paragraph_width = paragraph_style_width(self.text_align, self.max_lines, self.overflow);
+        let paragraph_style =
+            paragraph_style_metadata(self.text_align, self.max_lines, self.overflow);
         let max_height = cap_max_height(
             self.max_height,
             self.max_lines,
@@ -862,8 +873,10 @@ impl Lower for RichText {
                 wrap: self.wrap,
                 caret_index: None,
                 caret_color: None,
-                // Static text piggybacks paragraph metadata onto the unused caret width slot.
-                caret_width: paragraph_width,
+                caret_width: None,
+                caret_height: None,
+                caret_radius: None,
+                paragraph_style,
             }),
         )
         .build(cx);

@@ -1,9 +1,10 @@
 use fission_core::env::{Env, RuntimeState};
 use fission_core::lowering::LoweringContext;
 use fission_core::ui::widgets::text::RichTextSpan;
+use fission_core::ui::widgets::text_input::TextAlignVertical;
 use fission_core::ui::{Button, Container, Node, RichText, RichTextRun, Spacer, Text, TextInput};
 use fission_ir::op::{
-    decode_text_paragraph_style, Color, Fill, LayoutOp, Op, PaintOp, TextAlign, TextOverflow,
+    Color, Fill, LayoutOp, Op, PaintOp, TextAlign, TextOverflow,
 };
 use fission_ir::{CoreIR, FlexDirection};
 
@@ -248,6 +249,10 @@ fn text_input_lowers_cursor_and_semantics_overrides() {
                 a: 255,
             }),
             cursor_width: Some(3.0),
+            cursor_height: Some(18.0),
+            cursor_radius: Some(2.0),
+            text_align: TextAlign::Center,
+            text_align_vertical: TextAlignVertical::Bottom,
             ..Default::default()
         }
         .into_node(),
@@ -299,8 +304,17 @@ fn text_input_lowers_cursor_and_semantics_overrides() {
             PaintOp::DrawRichText {
                 caret_color,
                 caret_width,
+                caret_height,
+                caret_radius,
+                paragraph_style,
                 ..
-            } => Some((caret_color, caret_width)),
+            } => Some((
+                caret_color,
+                caret_width,
+                caret_height,
+                caret_radius,
+                paragraph_style,
+            )),
             _ => None,
         })
         .expect("input paint op");
@@ -315,6 +329,16 @@ fn text_input_lowers_cursor_and_semantics_overrides() {
         })
     );
     assert_eq!(caret.1, &Some(3.0));
+    assert_eq!(caret.2, &Some(18.0));
+    assert_eq!(caret.3, &Some(2.0));
+    assert_eq!(
+        caret.4,
+        &Some(fission_ir::op::TextParagraphStyle {
+            text_align: TextAlign::Center,
+            max_lines: None,
+            overflow: TextOverflow::Visible,
+        })
+    );
 }
 
 #[test]
@@ -330,7 +354,10 @@ fn text_lowers_paragraph_controls_for_alignment_and_ellipsis() {
 
     let paragraph = paint_ops(&ir)
         .find_map(|op| match op {
-            PaintOp::DrawText { caret_width, .. } => decode_text_paragraph_style(*caret_width),
+            PaintOp::DrawText {
+                paragraph_style: Some(paragraph_style),
+                ..
+            } => Some(*paragraph_style),
             _ => None,
         })
         .expect("paragraph metadata");
@@ -372,7 +399,10 @@ fn rich_text_lowers_paragraph_controls_for_line_capping() {
 
     let paragraph = paint_ops(&ir)
         .find_map(|op| match op {
-            PaintOp::DrawRichText { caret_width, .. } => decode_text_paragraph_style(*caret_width),
+            PaintOp::DrawRichText {
+                paragraph_style: Some(paragraph_style),
+                ..
+            } => Some(*paragraph_style),
             _ => None,
         })
         .expect("paragraph metadata");

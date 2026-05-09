@@ -150,6 +150,9 @@ impl Lower for Checkbox {
                     caret_index: None,
                     caret_color: None,
                     caret_width: None,
+                    caret_height: None,
+                    caret_radius: None,
+                    paragraph_style: None,
                 }),
             )
             .build(cx);

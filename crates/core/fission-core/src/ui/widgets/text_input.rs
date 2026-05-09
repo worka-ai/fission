@@ -2,7 +2,10 @@ use crate::lowering::{LoweringContext, NodeBuilder};
 use crate::ui::{traits::Lower, Node, TextContent, TextFontStyle};
 use crate::ActionEnvelope;
 use fission_ir::{
-    op::{Color as IrColor, Fill, LayoutOp, Op, PaintOp, Stroke},
+    op::{
+        Color as IrColor, Fill, LayoutOp, Op, PaintOp, Stroke, TextAlign as IrTextAlign,
+        TextParagraphStyle,
+    },
     semantics::{
         InputFormatter, MaxLengthEnforcement, TextCapitalization, TextInputAction, TextInputType,
     },
@@ -10,6 +13,32 @@ use fission_ir::{
 };
 use serde::{Deserialize, Serialize};
 use unicode_segmentation::UnicodeSegmentation;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+pub enum TextAlignVertical {
+    Top,
+    #[default]
+    Center,
+    Bottom,
+}
+
+impl TextAlignVertical {
+    fn justify_content(self) -> fission_ir::op::JustifyContent {
+        match self {
+            Self::Top => fission_ir::op::JustifyContent::Start,
+            Self::Center => fission_ir::op::JustifyContent::Center,
+            Self::Bottom => fission_ir::op::JustifyContent::End,
+        }
+    }
+
+    fn align_items(self) -> fission_ir::op::AlignItems {
+        match self {
+            Self::Top => fission_ir::op::AlignItems::Start,
+            Self::Center => fission_ir::op::AlignItems::Center,
+            Self::Bottom => fission_ir::op::AlignItems::End,
+        }
+    }
+}
 
 /// An editable text field with support for single-line and multiline input,
 /// syntax highlighting, password masking, and IME composition.
@@ -128,10 +157,20 @@ pub struct TextInput {
     pub selection_color: Option<IrColor>,
     /// Optional selected text color override.
     pub selection_text_color: Option<IrColor>,
+    /// Horizontal text alignment inside the editable region.
+    pub text_align: fission_ir::op::TextAlign,
+    /// Vertical alignment for the editable region when the field is taller than its content.
+    pub text_align_vertical: TextAlignVertical,
+    /// When `true`, expand to fill the available height from the parent.
+    pub expands: bool,
     /// Optional caret color override.
     pub cursor_color: Option<IrColor>,
     /// Optional caret width override.
     pub cursor_width: Option<f32>,
+    /// Optional caret height override.
+    pub cursor_height: Option<f32>,
+    /// Optional caret corner radius override.
+    pub cursor_radius: Option<f32>,
     /// Optional font family override.
     pub font_family: Option<String>,
     /// Optional font weight override.
@@ -208,6 +247,21 @@ impl TextInput {
         self
     }
 
+    pub fn text_align(mut self, text_align: fission_ir::op::TextAlign) -> Self {
+        self.text_align = text_align;
+        self
+    }
+
+    pub fn text_align_vertical(mut self, text_align_vertical: TextAlignVertical) -> Self {
+        self.text_align_vertical = text_align_vertical;
+        self
+    }
+
+    pub fn expands(mut self, expands: bool) -> Self {
+        self.expands = expands;
+        self
+    }
+
     pub fn cursor_color(mut self, color: IrColor) -> Self {
         self.cursor_color = Some(color);
         self
@@ -215,6 +269,16 @@ impl TextInput {
 
     pub fn cursor_width(mut self, width: f32) -> Self {
         self.cursor_width = Some(width);
+        self
+    }
+
+    pub fn cursor_height(mut self, height: f32) -> Self {
+        self.cursor_height = Some(height);
+        self
+    }
+
+    pub fn cursor_radius(mut self, radius: f32) -> Self {
+        self.cursor_radius = Some(radius);
         self
     }
 
@@ -380,8 +444,13 @@ impl Default for TextInput {
             placeholder_color: None,
             selection_color: None,
             selection_text_color: None,
+            text_align: fission_ir::op::TextAlign::Start,
+            text_align_vertical: TextAlignVertical::Center,
+            expands: false,
             cursor_color: None,
             cursor_width: None,
+            cursor_height: None,
+            cursor_radius: None,
             font_family: None,
             font_weight: None,
             font_style: TextFontStyle::Normal,
@@ -696,6 +765,25 @@ impl Lower for TextInput {
             None
         };
 
+        let paragraph_overflow = if self.multiline {
+            fission_ir::op::TextOverflow::Clip
+        } else {
+            fission_ir::op::TextOverflow::Visible
+        };
+        let paragraph_style = Some(TextParagraphStyle {
+            text_align: self.text_align,
+            max_lines: None,
+            overflow: paragraph_overflow,
+        })
+        .filter(|style| {
+            *style
+                != TextParagraphStyle {
+                    text_align: IrTextAlign::Start,
+                    max_lines: None,
+                    overflow: paragraph_overflow,
+                }
+        });
+
         let text_id = NodeBuilder::new(
             cx.next_node_id(),
             Op::Paint(PaintOp::DrawRichText {
@@ -704,6 +792,9 @@ impl Lower for TextInput {
                 caret_index: caret_idx,
                 caret_color: Some(cursor_color),
                 caret_width: Some(cursor_width),
+                caret_height: self.cursor_height,
+                caret_radius: self.cursor_radius,
+                paragraph_style,
             }),
         )
         .build(cx);
@@ -727,9 +818,8 @@ impl Lower for TextInput {
         let text_layout_id = text_box.build(cx);
 
         // 3. Scroll Container
-        let scroll_id = cx.next_node_id();
         let mut scroll = NodeBuilder::new(
-            scroll_id,
+            cx.next_node_id(),
             Op::Layout(LayoutOp::Scroll {
                 direction: if self.multiline {
                     FlexDirection::Column
@@ -751,39 +841,51 @@ impl Lower for TextInput {
         scroll.add_child(text_layout_id);
         let scroll_id = scroll.build(cx);
 
-        // 4. Optional decoration row
-        let content_id = if self.prefix.is_some() || self.suffix.is_some() {
-            let mut content = NodeBuilder::new(
-                cx.next_node_id(),
-                Op::Layout(LayoutOp::Flex {
-                    direction: FlexDirection::Row,
-                    wrap: FlexWrap::NoWrap,
-                    flex_grow: 1.0,
-                    flex_shrink: 1.0,
-                    padding: [0.0; 4],
-                    gap: Some(theme.padding_h * 0.75),
-                    align_items: if self.multiline {
-                        fission_ir::op::AlignItems::Start
-                    } else {
-                        fission_ir::op::AlignItems::Center
-                    },
-                    justify_content: fission_ir::op::JustifyContent::Start,
-                }),
-            );
-            if let Some(prefix) = &self.prefix {
-                content.add_child(prefix.lower(cx));
-            }
-            content.add_child(scroll_id);
-            if let Some(suffix) = &self.suffix {
-                content.add_child(suffix.lower(cx));
-            }
-            content.build(cx)
-        } else {
-            scroll_id
-        };
+        // 4. Editable content row and vertical alignment container.
+        let mut content_row = NodeBuilder::new(
+            cx.next_node_id(),
+            Op::Layout(LayoutOp::Flex {
+                direction: FlexDirection::Row,
+                wrap: FlexWrap::NoWrap,
+                flex_grow: if self.expands { 1.0 } else { 0.0 },
+                flex_shrink: 1.0,
+                padding: [0.0; 4],
+                gap: if self.prefix.is_some() || self.suffix.is_some() {
+                    Some(theme.padding_h * 0.75)
+                } else {
+                    None
+                },
+                align_items: self.text_align_vertical.align_items(),
+                justify_content: fission_ir::op::JustifyContent::Start,
+            }),
+        );
+        if let Some(prefix) = &self.prefix {
+            content_row.add_child(prefix.lower(cx));
+        }
+        content_row.add_child(scroll_id);
+        if let Some(suffix) = &self.suffix {
+            content_row.add_child(suffix.lower(cx));
+        }
+        let content_row_id = content_row.build(cx);
+
+        let mut content_alignment = NodeBuilder::new(
+            cx.next_node_id(),
+            Op::Layout(LayoutOp::Flex {
+                direction: FlexDirection::Column,
+                wrap: FlexWrap::NoWrap,
+                flex_grow: 1.0,
+                flex_shrink: 1.0,
+                padding: [0.0; 4],
+                gap: None,
+                align_items: fission_ir::op::AlignItems::Stretch,
+                justify_content: self.text_align_vertical.justify_content(),
+            }),
+        );
+        content_alignment.add_child(content_row_id);
+        let content_id = content_alignment.build(cx);
 
         let effective_line_height = line_height.unwrap_or((font_size * 1.35).max(font_size + 4.0));
-        let min_height = if self.height.is_some() {
+        let min_height = if self.height.is_some() || self.expands {
             None
         } else if self.multiline {
             Some(
@@ -796,7 +898,7 @@ impl Lower for TextInput {
                 content_padding[2] + content_padding[3] + effective_line_height,
             ))
         };
-        let max_height = if self.height.is_some() || !self.multiline {
+        let max_height = if self.height.is_some() || !self.multiline || self.expands {
             None
         } else {
             self.max_lines.map(|lines| {
@@ -810,7 +912,7 @@ impl Lower for TextInput {
             wrapper_id,
             Op::Layout(LayoutOp::Box {
                 width: self.width,
-                height: self.height.or(if self.multiline {
+                height: self.height.or(if self.multiline || self.expands {
                     None
                 } else {
                     Some(theme.height)
@@ -820,7 +922,11 @@ impl Lower for TextInput {
                 min_height,
                 max_height,
                 padding: content_padding,
-                flex_grow: if self.width.is_none() { 1.0 } else { 0.0 },
+                flex_grow: if self.width.is_none() || self.expands {
+                    1.0
+                } else {
+                    0.0
+                },
                 flex_shrink: 1.0,
                 aspect_ratio: None,
             }),

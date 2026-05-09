@@ -1789,6 +1789,9 @@ fn build_local_paint_list(
             caret_index,
             caret_color,
             caret_width,
+            caret_height,
+            caret_radius,
+            paragraph_style,
         }) => {
             list.push(DisplayOp::DrawText {
                 text: text.clone(),
@@ -1812,6 +1815,9 @@ fn build_local_paint_list(
                     a: color.a,
                 }),
                 caret_width: *caret_width,
+                caret_height: *caret_height,
+                caret_radius: *caret_radius,
+                paragraph_style: *paragraph_style,
             });
         }
         Op::Paint(fission_ir::PaintOp::DrawRichText {
@@ -1820,6 +1826,9 @@ fn build_local_paint_list(
             caret_index,
             caret_color,
             caret_width,
+            caret_height,
+            caret_radius,
+            paragraph_style,
         }) => {
             let render_runs = runs
                 .iter()
@@ -1863,6 +1872,9 @@ fn build_local_paint_list(
                     a: color.a,
                 }),
                 caret_width: *caret_width,
+                caret_height: *caret_height,
+                caret_radius: *caret_radius,
+                paragraph_style: *paragraph_style,
             });
         }
         Op::Paint(fission_ir::PaintOp::DrawPath { path, fill, stroke }) => {

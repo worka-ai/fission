@@ -790,6 +790,12 @@ pub enum PaintOp {
         caret_color: Option<Color>,
         #[serde(default)]
         caret_width: Option<LayoutUnit>,
+        #[serde(default)]
+        caret_height: Option<LayoutUnit>,
+        #[serde(default)]
+        caret_radius: Option<LayoutUnit>,
+        #[serde(default)]
+        paragraph_style: Option<TextParagraphStyle>,
     },
     DrawRichText {
         runs: Vec<TextRun>,
@@ -800,6 +806,12 @@ pub enum PaintOp {
         caret_color: Option<Color>,
         #[serde(default)]
         caret_width: Option<LayoutUnit>,
+        #[serde(default)]
+        caret_height: Option<LayoutUnit>,
+        #[serde(default)]
+        caret_radius: Option<LayoutUnit>,
+        #[serde(default)]
+        paragraph_style: Option<TextParagraphStyle>,
     },
     DrawImage {
         source: String,
@@ -841,6 +853,9 @@ impl std::hash::Hash for PaintOp {
                 caret_index,
                 caret_color,
                 caret_width,
+                caret_height,
+                caret_radius,
+                paragraph_style,
             } => {
                 1.hash(state);
                 text.hash(state);
@@ -851,6 +866,9 @@ impl std::hash::Hash for PaintOp {
                 caret_index.hash(state);
                 caret_color.hash(state);
                 caret_width.map(|w| w.to_bits()).hash(state);
+                caret_height.map(|h| h.to_bits()).hash(state);
+                caret_radius.map(|r| r.to_bits()).hash(state);
+                paragraph_style.hash(state);
             }
             Self::DrawRichText {
                 runs,
@@ -858,6 +876,9 @@ impl std::hash::Hash for PaintOp {
                 caret_index,
                 caret_color,
                 caret_width,
+                caret_height,
+                caret_radius,
+                paragraph_style,
             } => {
                 2.hash(state);
                 runs.hash(state);
@@ -865,6 +886,9 @@ impl std::hash::Hash for PaintOp {
                 caret_index.hash(state);
                 caret_color.hash(state);
                 caret_width.map(|w| w.to_bits()).hash(state);
+                caret_height.map(|h| h.to_bits()).hash(state);
+                caret_radius.map(|r| r.to_bits()).hash(state);
+                paragraph_style.hash(state);
             }
             Self::DrawImage { source, fit } => {
                 3.hash(state);

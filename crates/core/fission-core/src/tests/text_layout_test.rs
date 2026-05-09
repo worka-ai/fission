@@ -65,6 +65,9 @@ fn test_text_wrapping_in_constrained_flex() {
             caret_index: None,
             caret_color: None,
             caret_width: None,
+            caret_height: None,
+            caret_radius: None,
+            paragraph_style: None,
         }),
     );
     let text_final = text_builder.build(&mut cx);
