@@ -84,6 +84,7 @@ fn test_button_widget_lower_with_child_and_semantics() {
         semantics: Some(Semantics {
             role: Role::Button,
             label: Some("My Button".into()),
+            identifier: None,
             value: None,
             actions: ActionSet::default(),
             focusable: true,

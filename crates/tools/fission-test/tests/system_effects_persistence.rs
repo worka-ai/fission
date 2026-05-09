@@ -69,10 +69,12 @@ fn persistent_reducers_survive_clear_reducers_frames() -> Result<()> {
     h.send_event(InputEvent::Pointer(PointerEvent::Down {
         point,
         button: PointerButton::Primary,
+        modifiers: 0,
     }))?;
     h.send_event(InputEvent::Pointer(PointerEvent::Up {
         point,
         button: PointerButton::Primary,
+        modifiers: 0,
     }))?;
     assert_eq!(h.runtime.pending_effects.len(), 1);
 
@@ -83,10 +85,12 @@ fn persistent_reducers_survive_clear_reducers_frames() -> Result<()> {
     h.send_event(InputEvent::Pointer(PointerEvent::Down {
         point,
         button: PointerButton::Primary,
+        modifiers: 0,
     }))?;
     h.send_event(InputEvent::Pointer(PointerEvent::Up {
         point,
         button: PointerButton::Primary,
+        modifiers: 0,
     }))?;
     assert_eq!(h.runtime.pending_effects.len(), 2);
 

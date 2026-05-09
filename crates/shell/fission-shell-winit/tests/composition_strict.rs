@@ -10,7 +10,7 @@ use fission_render::{DisplayList, RenderScene, Renderer};
 use fission_widgets::{Checkbox, Portal};
 use std::sync::{Arc, Mutex};
 
-use fission_shell_desktop::Pipeline;
+use fission_shell_winit::Pipeline;
 
 #[derive(Debug, Default, Clone)]
 struct AppState {
@@ -235,6 +235,7 @@ fn strict_incremental_checkbox_textinput_checkbox_sequence() -> Result<()> {
         InputEvent::Pointer(fission_core::event::PointerEvent::Down {
             point: p,
             button: fission_core::event::PointerButton::Primary,
+            modifiers: 0,
         }),
         &ir,
         &snap,
@@ -244,6 +245,7 @@ fn strict_incremental_checkbox_textinput_checkbox_sequence() -> Result<()> {
         InputEvent::Pointer(fission_core::event::PointerEvent::Up {
             point: p,
             button: fission_core::event::PointerButton::Primary,
+            modifiers: 0,
         }),
         &ir,
         &snap,
@@ -268,6 +270,7 @@ fn strict_incremental_checkbox_textinput_checkbox_sequence() -> Result<()> {
         InputEvent::Pointer(fission_core::event::PointerEvent::Down {
             point: tp,
             button: fission_core::event::PointerButton::Primary,
+            modifiers: 0,
         }),
         &ir4,
         &sn4,
@@ -280,6 +283,7 @@ fn strict_incremental_checkbox_textinput_checkbox_sequence() -> Result<()> {
         InputEvent::Pointer(fission_core::event::PointerEvent::Down {
             point: p,
             button: fission_core::event::PointerButton::Primary,
+            modifiers: 0,
         }),
         &ir6,
         &sn6,
@@ -289,6 +293,7 @@ fn strict_incremental_checkbox_textinput_checkbox_sequence() -> Result<()> {
         InputEvent::Pointer(fission_core::event::PointerEvent::Up {
             point: p,
             button: fission_core::event::PointerButton::Primary,
+            modifiers: 0,
         }),
         &ir6,
         &sn6,

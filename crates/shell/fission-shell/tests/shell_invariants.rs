@@ -56,6 +56,7 @@ fn test_input_event_serialization() {
     let event1 = InputEvent::Pointer(PointerEvent::Down {
         point: LayoutPoint { x: 100.0, y: 50.0 },
         button: PointerButton::Primary,
+        modifiers: 0,
     });
     let event2 = InputEvent::Lifecycle(LifecycleEvent::Resize {
         size: LayoutSize {

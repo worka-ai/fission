@@ -54,6 +54,7 @@ fn test_scroll_input_updates_display_list() {
         .send_event(InputEvent::Pointer(PointerEvent::Scroll {
             point: LayoutPoint::new(5.0, 5.0), // Hit inside 100x10 rect
             delta: LayoutPoint::new(0.0, 50.0),
+            modifiers: 0,
         }))
         .expect("Event dispatch failed");
 

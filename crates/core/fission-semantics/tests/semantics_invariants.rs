@@ -18,6 +18,7 @@ fn test_semantics_serialization() {
     let s = Semantics {
         role: Role::Button,
         label: Some("Submit".into()),
+        identifier: None,
         value: None,
         actions: ActionSet::default(),
         focusable: true,
@@ -54,6 +55,7 @@ fn test_semantics_serialization() {
                         autofill_hints: Vec::new(),
         capture_tab: false,
         auto_indent: false,
+        scroll_padding: None,
     };
 
     // Just verify it compiles and runs; exact serde format isn't critical yet, but capability is.

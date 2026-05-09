@@ -381,10 +381,12 @@ mod tests {
         h.send_event(InputEvent::Pointer(PointerEvent::Down {
             point: subject_center,
             button: PointerButton::Primary,
+            modifiers: 0,
         }))?;
         h.send_event(InputEvent::Pointer(PointerEvent::Up {
             point: subject_center,
             button: PointerButton::Primary,
+            modifiers: 0,
         }))?;
         assert_eq!(
             h.runtime.runtime_state.interaction.focused,
@@ -414,10 +416,12 @@ mod tests {
         h.send_event(InputEvent::Pointer(PointerEvent::Down {
             point: body_center,
             button: PointerButton::Primary,
+            modifiers: 0,
         }))?;
         h.send_event(InputEvent::Pointer(PointerEvent::Up {
             point: body_center,
             button: PointerButton::Primary,
+            modifiers: 0,
         }))?;
         if h.runtime.runtime_state.interaction.focused != Some(body_node_id) {
             let focused = h.runtime.runtime_state.interaction.focused;
@@ -493,10 +497,12 @@ mod tests {
         h.send_event(InputEvent::Pointer(PointerEvent::Down {
             point: center,
             button: PointerButton::Primary,
+            modifiers: 0,
         }))?;
         h.send_event(InputEvent::Pointer(PointerEvent::Up {
             point: center,
             button: PointerButton::Primary,
+            modifiers: 0,
         }))?;
         h.pump()?;
         assert!(
@@ -618,10 +624,12 @@ mod tests {
         h.send_event(InputEvent::Pointer(PointerEvent::Down {
             point: center2,
             button: PointerButton::Primary,
+            modifiers: 0,
         }))?;
         h.send_event(InputEvent::Pointer(PointerEvent::Up {
             point: center2,
             button: PointerButton::Primary,
+            modifiers: 0,
         }))?;
         h.pump()?;
 

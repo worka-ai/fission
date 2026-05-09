@@ -65,11 +65,13 @@ fn drawer_renders_content_and_backdrop_dismisses() -> Result<()> {
     h.send_event(fission_core::InputEvent::Pointer(PointerEvent::Down {
         point: outside,
         button: PointerButton::Primary,
+        modifiers: 0,
     }))?;
     h.pump()?;
     h.send_event(fission_core::InputEvent::Pointer(PointerEvent::Up {
         point: outside,
         button: PointerButton::Primary,
+        modifiers: 0,
     }))?;
     h.pump()?;
 

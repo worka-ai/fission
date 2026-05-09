@@ -9,7 +9,7 @@ use fission_render::{DisplayList, RenderScene, Renderer};
 use fission_widgets::{Checkbox, Portal};
 use std::sync::{Arc, Mutex};
 
-use fission_shell_desktop::Pipeline;
+use fission_shell_winit::Pipeline;
 
 #[derive(Debug, Default, Clone)]
 struct AppState {
