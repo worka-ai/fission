@@ -286,6 +286,10 @@ fn text_input_lowers_cursor_and_semantics_overrides() {
                 id: fission_core::ActionId::from_name("tests::submit"),
                 payload: br#""payload""#.to_vec(),
             }),
+            on_tap_outside: Some(fission_core::ActionEnvelope {
+                id: fission_core::ActionId::from_name("tests::tap_outside"),
+                payload: br#""outside""#.to_vec(),
+            }),
             cursor_color: Some(Color {
                 r: 255,
                 g: 0,
@@ -342,6 +346,9 @@ fn text_input_lowers_cursor_and_semantics_overrides() {
         .entries
         .iter()
         .any(|entry| entry.trigger == fission_ir::semantics::ActionTrigger::Submit));
+    assert!(semantics.actions.entries.iter().any(|entry| {
+        entry.trigger == fission_ir::semantics::ActionTrigger::TapOutside
+    }));
 
     let caret = paint_ops(&ir)
         .find_map(|op| match op {

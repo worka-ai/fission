@@ -224,6 +224,8 @@ pub struct TextInput {
     pub on_submit: Option<ActionEnvelope>,
     /// Action dispatched when editing is explicitly completed.
     pub on_editing_complete: Option<ActionEnvelope>,
+    /// Action dispatched when the user taps/clicks outside the active field.
+    pub on_tap_outside: Option<ActionEnvelope>,
     /// Fixed width in layout points.
     pub width: Option<f32>,
     /// Fixed height in layout points.
@@ -514,6 +516,11 @@ impl TextInput {
         self
     }
 
+    pub fn on_tap_outside(mut self, action: ActionEnvelope) -> Self {
+        self.on_tap_outside = Some(action);
+        self
+    }
+
     pub fn family(mut self, family: impl Into<String>) -> Self {
         self.font_family = Some(family.into());
         self
@@ -572,6 +579,7 @@ impl Default for TextInput {
             on_change: None,
             on_submit: None,
             on_editing_complete: None,
+            on_tap_outside: None,
             width: None,
             height: None,
             padding: None,
@@ -1407,6 +1415,13 @@ impl Lower for TextInput {
         if let Some(env) = &self.on_editing_complete {
             semantics.actions.entries.push(fission_ir::ActionEntry {
                 trigger: fission_ir::semantics::ActionTrigger::EditingComplete,
+                action_id: env.id.as_u128(),
+                payload_data: Some(env.payload.clone()),
+            });
+        }
+        if let Some(env) = &self.on_tap_outside {
+            semantics.actions.entries.push(fission_ir::ActionEntry {
+                trigger: fission_ir::semantics::ActionTrigger::TapOutside,
                 action_id: env.id.as_u128(),
                 payload_data: Some(env.payload.clone()),
             });

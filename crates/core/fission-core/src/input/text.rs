@@ -107,6 +107,20 @@ impl InputController for TextInputController {
                     if belongs_to_focused {
                         Some(focused_id)
                     } else {
+                        if let Some(node) = ctx.ir.nodes.get(&focused_id) {
+                            if let Op::Semantics(sem) = &node.op {
+                                if sem.role == fission_ir::semantics::Role::TextInput {
+                                    let current_value = sem.value.as_deref().unwrap_or("");
+                                    let _ = Self::dispatch_action_for_trigger(
+                                        ctx,
+                                        sem,
+                                        focused_id,
+                                        fission_ir::semantics::ActionTrigger::TapOutside,
+                                        Some(serde_json::to_vec(&current_value.to_string()).unwrap()),
+                                    );
+                                }
+                            }
+                        }
                         Self::clear_text_input_affordances(ctx, focused_id);
                         None
                     }
@@ -1757,22 +1771,39 @@ impl TextInputController {
             fission_ir::semantics::ActionTrigger::EditingComplete,
             fission_ir::semantics::ActionTrigger::Submit,
         ] {
-            if let Some(action_entry) = semantics.actions.entries.iter().find(|e| e.trigger == trigger)
-            {
-                let payload = action_entry
-                    .payload_data
-                    .clone()
-                    .unwrap_or_else(|| serde_json::to_vec(&current_value.to_string()).unwrap());
-                let envelope = ActionEnvelope {
-                    id: ActionId::from_u128(action_entry.action_id),
-                    payload,
-                };
-                ctx.dispatched_actions
-                    .push((node_id, envelope, crate::ActionInput::None));
-                dispatched = true;
-            }
+            dispatched |= Self::dispatch_action_for_trigger(
+                ctx,
+                semantics,
+                node_id,
+                trigger,
+                Some(serde_json::to_vec(&current_value.to_string()).unwrap()),
+            );
         }
         dispatched
+    }
+
+    fn dispatch_action_for_trigger(
+        ctx: &mut ControllerContext,
+        semantics: &fission_ir::Semantics,
+        node_id: NodeId,
+        trigger: fission_ir::semantics::ActionTrigger,
+        fallback_payload: Option<Vec<u8>>,
+    ) -> bool {
+        let Some(action_entry) = semantics.actions.entries.iter().find(|e| e.trigger == trigger) else {
+            return false;
+        };
+        let payload = action_entry
+            .payload_data
+            .clone()
+            .or(fallback_payload)
+            .unwrap_or_else(|| serde_json::to_vec(&()).unwrap());
+        let envelope = ActionEnvelope {
+            id: ActionId::from_u128(action_entry.action_id),
+            payload,
+        };
+        ctx.dispatched_actions
+            .push((node_id, envelope, crate::ActionInput::None));
+        true
     }
 
     fn resolve_editing_value(

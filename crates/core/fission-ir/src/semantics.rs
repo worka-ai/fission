@@ -64,6 +64,8 @@ pub enum ActionTrigger {
     Focus,
     /// The node lost keyboard focus.
     Blur,
+    /// A pointer-down happened outside the active text field.
+    TapOutside,
     /// The node's value changed (sliders, text inputs, etc.).
     Change,
     /// Text editing was explicitly completed by the current input method.

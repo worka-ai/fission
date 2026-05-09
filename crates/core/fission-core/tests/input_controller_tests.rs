@@ -1744,7 +1744,16 @@ fn test_pointer_down_outside_focused_input_clears_text_affordances() {
     let scroll_id = NodeId::derived(34, &[1]);
     let text_id = NodeId::derived(34, &[2]);
     let value = "abcdefghij";
-    let ir = create_rich_text_input_tree(input_id, scroll_id, text_id, value, false);
+    let mut ir = create_rich_text_input_tree(input_id, scroll_id, text_id, value, false);
+    if let Some(node) = ir.nodes.get_mut(&input_id) {
+        if let Op::Semantics(semantics) = &mut node.op {
+            semantics.actions.entries.push(ActionEntry {
+                trigger: ActionTrigger::TapOutside,
+                action_id: 999,
+                payload_data: None,
+            });
+        }
+    }
 
     let mut layout = LayoutSnapshot::new(LayoutSize::new(800.0, 600.0));
     layout.nodes.insert(
@@ -1795,6 +1804,14 @@ fn test_pointer_down_outside_focused_input_clears_text_affordances() {
         modifiers: 0,
     });
     assert!(!controller.handle_event(&mut ctx, &outside_click));
+
+    let payload: String = serde_json::from_slice(&ctx.dispatched_actions[0].1.payload).unwrap();
+    assert_eq!(ctx.dispatched_actions[0].0, input_id);
+    assert_eq!(
+        ctx.dispatched_actions[0].1.id,
+        fission_core::ActionId::from_u128(999)
+    );
+    assert_eq!(payload, value);
 
     let affordances = &ctx.text_edit.get(input_id).expect("text state").affordances;
     assert!(!affordances.toolbar_visible);
