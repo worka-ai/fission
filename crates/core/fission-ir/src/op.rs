@@ -1,4 +1,4 @@
-use super::semantics::Semantics;
+use super::semantics::{ActionEntry, Semantics};
 use super::widget_id::WidgetNodeId;
 use crate::NodeId;
 use serde::{Deserialize, Serialize};
@@ -107,6 +107,14 @@ pub enum TextDirection {
     Auto,
     Ltr,
     Rtl,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Hash, Default)]
+pub enum MouseCursor {
+    #[default]
+    Basic,
+    Pointer,
+    Text,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Hash)]
@@ -829,6 +837,19 @@ const fn text_weight_default() -> u16 {
 pub struct TextRun {
     pub text: String,
     pub style: TextStyle,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Hash)]
+pub struct RichTextAnnotation {
+    pub range: std::ops::Range<usize>,
+    #[serde(default)]
+    pub semantics_label: Option<String>,
+    #[serde(default)]
+    pub semantics_identifier: Option<String>,
+    #[serde(default)]
+    pub mouse_cursor: Option<MouseCursor>,
+    #[serde(default)]
+    pub actions: Vec<ActionEntry>,
 }
 
 pub const INLINE_WIDGET_MARKER_PREFIX: &str = "__fission_inline_widget__:";

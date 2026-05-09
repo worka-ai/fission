@@ -3,6 +3,8 @@ use crate::{
     registry::{AnimationPropertyId, EasingFunction},
 };
 use fission_i18n::{I18nRegistry, Locale};
+use fission_ir::op::RichTextAnnotation;
+use fission_ir::semantics::MouseCursor;
 use fission_ir::{NodeId, WidgetNodeId};
 use fission_layout::{LayoutPoint, LayoutSize};
 use fission_text_engine::{EditTransaction, TextBuffer, TextEdit};
@@ -396,9 +398,18 @@ impl TextEditState {
 #[derive(Clone, Debug, Default)]
 pub struct InteractionStateMap {
     pub hovered: HashMap<NodeId, bool>,
+    pub hover_path: Vec<NodeId>,
+    pub hover_rich_text_annotation: Option<HoveredRichTextAnnotation>,
     pub pressed: HashMap<NodeId, bool>,
     pub focused: Option<NodeId>,
+    pub cursor: MouseCursor,
     pub last_down_point: Option<LayoutPoint>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct HoveredRichTextAnnotation {
+    pub node_id: NodeId,
+    pub annotation: RichTextAnnotation,
 }
 
 impl InteractionStateMap {
@@ -412,12 +423,35 @@ impl InteractionStateMap {
         self.focused == Some(id)
     }
 
+    pub fn hovered_path(&self) -> &[NodeId] {
+        &self.hover_path
+    }
+
+    pub fn hovered_rich_text_annotation(&self) -> Option<&HoveredRichTextAnnotation> {
+        self.hover_rich_text_annotation.as_ref()
+    }
+
+    pub fn cursor(&self) -> MouseCursor {
+        self.cursor
+    }
+
     pub fn set_hovered(&mut self, id: NodeId, value: bool) {
         if value {
             self.hovered.insert(id, true);
         } else {
             self.hovered.remove(&id);
         }
+    }
+
+    pub fn set_hover_path(&mut self, path: Vec<NodeId>) {
+        self.hover_path = path;
+    }
+
+    pub fn set_hovered_rich_text_annotation(
+        &mut self,
+        annotation: Option<HoveredRichTextAnnotation>,
+    ) {
+        self.hover_rich_text_annotation = annotation;
     }
 
     pub fn set_pressed(&mut self, id: NodeId, value: bool) {
@@ -430,6 +464,10 @@ impl InteractionStateMap {
 
     pub fn set_focused(&mut self, id: Option<NodeId>) {
         self.focused = id;
+    }
+
+    pub fn set_cursor(&mut self, cursor: MouseCursor) {
+        self.cursor = cursor;
     }
 }
 

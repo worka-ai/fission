@@ -1,7 +1,9 @@
 use anyhow::Result;
 use fission_ir::op::{
-    TextAlign, TextDirection, TextHeightBehavior, TextOverflow, TextParagraphStyle,
+    MouseCursor, RichTextAnnotation, TextAlign, TextDirection, TextHeightBehavior, TextOverflow,
+    TextParagraphStyle,
 };
+use fission_ir::{semantics::ActionTrigger, ActionEntry};
 use fission_render::{
     Color, DisplayList, DisplayOp, LayoutPoint, LayoutRect, RenderScene, Renderer, TextRun,
     TextStyle,
@@ -120,6 +122,24 @@ fn test_rich_text_display_ops_preserve_caret_metadata() {
                 apply_height_to_last_descent: true,
             },
         }),
+        annotations: vec![RichTextAnnotation {
+            range: 0..8,
+            semantics_label: Some("Paragraph".into()),
+            semantics_identifier: Some("hero-copy".into()),
+            mouse_cursor: Some(MouseCursor::Pointer),
+            actions: vec![
+                ActionEntry {
+                    trigger: ActionTrigger::Default,
+                    action_id: 7,
+                    payload_data: Some(vec![1]),
+                },
+                ActionEntry {
+                    trigger: ActionTrigger::HoverEnter,
+                    action_id: 9,
+                    payload_data: Some(vec![2]),
+                },
+            ],
+        }],
     };
 
     let mut list = DisplayList::new(bounds);
@@ -128,6 +148,8 @@ fn test_rich_text_display_ops_preserve_caret_metadata() {
     let serialized = serde_json::to_string(&list).expect("Failed to serialize rich text list");
     let deserialized: DisplayList =
         serde_json::from_str(&serialized).expect("Failed to deserialize rich text list");
+    let reflattend = RenderScene::from_display_list(list.clone()).flatten();
 
     assert_eq!(deserialized.ops[0], op);
+    assert_eq!(reflattend.ops[0], op);
 }

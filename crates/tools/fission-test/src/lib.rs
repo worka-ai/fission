@@ -730,6 +730,14 @@ fn generate_display_list_with_visited(
                     caret_radius,
                     paragraph_style,
                 }) => {
+                    let annotations = ir
+                        .custom_render_objects
+                        .get(&node_id)
+                        .and_then(|sidecar| {
+                            sidecar.downcast_ref::<Vec<fission_ir::op::RichTextAnnotation>>()
+                        })
+                        .cloned()
+                        .unwrap_or_default();
                     list.push(DisplayOp::DrawRichText {
                         runs: runs
                             .iter()
@@ -776,6 +784,7 @@ fn generate_display_list_with_visited(
                         caret_height: *caret_height,
                         caret_radius: *caret_radius,
                         paragraph_style: *paragraph_style,
+                        annotations,
                     });
                 }
                 fission_ir::Op::Paint(fission_ir::PaintOp::DrawSvg {

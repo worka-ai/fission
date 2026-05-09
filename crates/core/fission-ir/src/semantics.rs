@@ -60,6 +60,10 @@ pub enum ActionTrigger {
     HoverEnter,
     /// The pointer left the node's hit area.
     HoverExit,
+    /// A semantic cursor request applied while the pointer hovers this node.
+    ///
+    /// This is metadata, not a dispatched reducer action.
+    HoverCursor,
     /// The node received keyboard focus.
     Focus,
     /// The node lost keyboard focus.
@@ -87,6 +91,43 @@ pub enum ActionTrigger {
 impl Default for ActionTrigger {
     fn default() -> Self {
         ActionTrigger::Default
+    }
+}
+
+/// Semantic cursor requests that shells map onto platform cursor icons.
+#[repr(u8)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, Default)]
+pub enum MouseCursor {
+    #[default]
+    Default = 0,
+    Pointer = 1,
+    Text = 2,
+    Crosshair = 3,
+    Move = 4,
+    NotAllowed = 5,
+    Grab = 6,
+    Grabbing = 7,
+    Wait = 8,
+    Help = 9,
+    VerticalText = 10,
+}
+
+impl MouseCursor {
+    pub fn from_repr(value: u128) -> Option<Self> {
+        match value {
+            0 => Some(Self::Default),
+            1 => Some(Self::Pointer),
+            2 => Some(Self::Text),
+            3 => Some(Self::Crosshair),
+            4 => Some(Self::Move),
+            5 => Some(Self::NotAllowed),
+            6 => Some(Self::Grab),
+            7 => Some(Self::Grabbing),
+            8 => Some(Self::Wait),
+            9 => Some(Self::Help),
+            10 => Some(Self::VerticalText),
+            _ => None,
+        }
     }
 }
 
@@ -174,6 +215,24 @@ pub struct ActionEntry {
     pub action_id: u128,
     /// Optional serialized payload. `None` for actions with no data.
     pub payload_data: Option<Vec<u8>>,
+}
+
+impl ActionEntry {
+    /// Creates a non-dispatched cursor request consumed by hover handling.
+    pub fn hover_cursor(cursor: MouseCursor) -> Self {
+        Self {
+            trigger: ActionTrigger::HoverCursor,
+            action_id: cursor as u128,
+            payload_data: None,
+        }
+    }
+
+    /// Returns the semantic cursor encoded by this entry, if any.
+    pub fn as_hover_cursor(&self) -> Option<MouseCursor> {
+        (self.trigger == ActionTrigger::HoverCursor)
+            .then(|| MouseCursor::from_repr(self.action_id))
+            .flatten()
+    }
 }
 
 /// Accessibility and interaction metadata for a node.

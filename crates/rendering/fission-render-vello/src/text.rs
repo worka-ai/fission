@@ -1,5 +1,9 @@
 use fission_diagnostics::prelude as diag;
-use fission_ir::op::{decode_inline_widget_marker, FontStyle as IrFontStyle, TextRun};
+use fission_ir::op::{
+    decode_inline_widget_marker, FontStyle as IrFontStyle, RichTextAnnotation,
+    TextParagraphStyle, TextRun,
+};
+use fission_ir::ActionEntry;
 use fission_layout::{LineMetric, RichTextInlineBox, RichTextLayoutInfo, TextMeasurer};
 use fission_render::TextStyle as RenderTextStyle;
 use parley::layout::{Layout, PositionedLayoutItem};
@@ -288,7 +292,12 @@ impl VelloTextMeasurer {
         layout_arc
     }
 
-    fn hit_test_layout_impl(text: &str, layout: &Layout<ParleyBrush>, x: f32, y: f32) -> usize {
+    pub(crate) fn hit_test_layout_impl(
+        text: &str,
+        layout: &Layout<ParleyBrush>,
+        x: f32,
+        y: f32,
+    ) -> usize {
         let mut target_line: Option<(usize, usize)> = None;
         let mut best_distance = f32::INFINITY;
 
@@ -366,6 +375,45 @@ impl VelloTextMeasurer {
         fallback_idx.min(text.len())
     }
 
+    pub(crate) fn hit_test_layout_index_at_point(
+        text: &str,
+        layout: &Layout<ParleyBrush>,
+        x: f32,
+        y: f32,
+    ) -> Option<usize> {
+        for line in layout.lines() {
+            let metrics = line.metrics();
+            let top = metrics.baseline - metrics.ascent;
+            let bottom = metrics.baseline + metrics.descent;
+            if y < top || y > bottom {
+                continue;
+            }
+
+            let mut left = f32::INFINITY;
+            let mut right = f32::NEG_INFINITY;
+            for item in line.items() {
+                match item {
+                    PositionedLayoutItem::GlyphRun(glyph_run) => {
+                        left = left.min(glyph_run.offset());
+                        right = right.max(glyph_run.offset() + glyph_run.advance());
+                    }
+                    PositionedLayoutItem::InlineBox(inline_box) => {
+                        left = left.min(inline_box.x);
+                        right = right.max(inline_box.x + inline_box.width);
+                    }
+                }
+            }
+
+            if !left.is_finite() || x < left || x > right {
+                return None;
+            }
+
+            return Some(Self::hit_test_layout_impl(text, layout, x, y));
+        }
+
+        None
+    }
+
     fn next_char_boundary(text: &str, idx: usize) -> usize {
         if idx >= text.len() {
             return text.len();
@@ -377,6 +425,17 @@ impl VelloTextMeasurer {
         } else {
             text.len()
         }
+    }
+
+    fn prev_char_boundary(text: &str, idx: usize) -> usize {
+        if idx == 0 || idx > text.len() {
+            return 0;
+        }
+        let mut prev = 0usize;
+        for (offset, _) in text[..idx].char_indices() {
+            prev = offset;
+        }
+        prev
     }
 
     pub(crate) fn layout_rich(
@@ -520,6 +579,72 @@ impl VelloTextMeasurer {
 
         layout_arc
     }
+}
+
+fn upsert_resolved_action(actions: &mut Vec<ActionEntry>, action: ActionEntry) {
+    actions.retain(|entry| entry.trigger != action.trigger);
+    actions.push(action);
+}
+
+fn annotation_contains_index(text: &str, annotation: &RichTextAnnotation, idx: usize) -> bool {
+    if annotation.range.start >= annotation.range.end {
+        return false;
+    }
+    if annotation.range.contains(&idx) {
+        return true;
+    }
+    if idx == annotation.range.end {
+        let prev = VelloTextMeasurer::prev_char_boundary(text, idx);
+        return prev >= annotation.range.start && prev < annotation.range.end;
+    }
+    false
+}
+
+pub(crate) fn resolve_rich_text_annotation_at_index(
+    text: &str,
+    annotations: &[RichTextAnnotation],
+    idx: usize,
+) -> Option<RichTextAnnotation> {
+    let mut matches = annotations
+        .iter()
+        .filter(|annotation| annotation_contains_index(text, annotation, idx))
+        .collect::<Vec<_>>();
+    if matches.is_empty() {
+        return None;
+    }
+
+    matches.sort_by(|left, right| {
+        let left_len = left.range.end.saturating_sub(left.range.start);
+        let right_len = right.range.end.saturating_sub(right.range.start);
+        right_len
+            .cmp(&left_len)
+            .then_with(|| left.range.start.cmp(&right.range.start))
+    });
+
+    let mut resolved = RichTextAnnotation {
+        range: matches.last().expect("matched annotation").range.clone(),
+        semantics_label: None,
+        semantics_identifier: None,
+        mouse_cursor: None,
+        actions: Vec::new(),
+    };
+
+    for annotation in matches {
+        if annotation.semantics_label.is_some() {
+            resolved.semantics_label = annotation.semantics_label.clone();
+        }
+        if annotation.semantics_identifier.is_some() {
+            resolved.semantics_identifier = annotation.semantics_identifier.clone();
+        }
+        if annotation.mouse_cursor.is_some() {
+            resolved.mouse_cursor = annotation.mouse_cursor;
+        }
+        for action in &annotation.actions {
+            upsert_resolved_action(&mut resolved.actions, action.clone());
+        }
+    }
+
+    Some(resolved)
 }
 
 impl TextMeasurer for VelloTextMeasurer {
@@ -669,6 +794,32 @@ impl TextMeasurer for VelloTextMeasurer {
 
         // Reuse the same hit-test logic as plain text but on the rich layout
         Self::hit_test_layout_impl(&rich.text, &layout, x, y)
+    }
+
+    fn resolve_rich_text_annotation_at_point(
+        &self,
+        runs: &[TextRun],
+        available_width: Option<f32>,
+        x: f32,
+        y: f32,
+        _paragraph_style: TextParagraphStyle,
+        annotations: &[RichTextAnnotation],
+    ) -> Option<RichTextAnnotation> {
+        if annotations.is_empty() || runs.is_empty() {
+            return None;
+        }
+
+        let rich = Self::rich_layout_input_from_ir_runs(runs);
+        let layout = self.layout_rich(
+            &rich.text,
+            rich.base_size,
+            rich.base_color,
+            &rich.styles,
+            &rich.inline_boxes,
+            available_width,
+        );
+        let idx = Self::hit_test_layout_impl(&rich.text, &layout, x, y);
+        resolve_rich_text_annotation_at_index(&rich.text, annotations, idx)
     }
 
     fn hit_test(

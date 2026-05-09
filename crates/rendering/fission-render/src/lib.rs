@@ -1,5 +1,5 @@
+use fission_ir::op::{RichTextAnnotation, TextParagraphStyle};
 use fission_ir::NodeId;
-use fission_ir::op::TextParagraphStyle;
 pub use fission_layout::{LayoutPoint, LayoutRect, LayoutSize, LayoutUnit};
 use serde::{Deserialize, Serialize};
 
@@ -142,6 +142,8 @@ pub enum DisplayOp {
         caret_height: Option<LayoutUnit>,
         caret_radius: Option<LayoutUnit>,
         paragraph_style: Option<TextParagraphStyle>,
+        #[serde(default)]
+        annotations: Vec<RichTextAnnotation>,
     },
     DrawImage {
         rect: LayoutRect,

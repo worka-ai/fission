@@ -1547,7 +1547,7 @@ fn generate_render_layer_recursive(
             Some(cached_ops.clone())
         } else {
             *miss_count += 1;
-            let ops = build_local_paint_list(node_id, node, rect);
+            let ops = build_local_paint_list(ir, node_id, node, rect);
             if let Some(ops) = ops.clone() {
                 paint_cache.insert(node_id, (local_hash, ops));
             } else {
@@ -1557,7 +1557,7 @@ fn generate_render_layer_recursive(
         }
     } else {
         *miss_count += 1;
-        let ops = build_local_paint_list(node_id, node, rect);
+        let ops = build_local_paint_list(ir, node_id, node, rect);
         if let Some(ops) = ops.clone() {
             paint_cache.insert(node_id, (local_hash, ops));
         }
@@ -1749,6 +1749,7 @@ fn boundary_hash(node: &fission_ir::CoreNode, rect: LayoutRect) -> u64 {
 }
 
 fn build_local_paint_list(
+    ir: &CoreIR,
     node_id: NodeId,
     node: &fission_ir::CoreNode,
     rect: LayoutRect,
@@ -1830,6 +1831,12 @@ fn build_local_paint_list(
             caret_radius,
             paragraph_style,
         }) => {
+            let annotations = ir
+                .custom_render_objects
+                .get(&node_id)
+                .and_then(|sidecar| sidecar.downcast_ref::<Vec<fission_ir::op::RichTextAnnotation>>())
+                .cloned()
+                .unwrap_or_default();
             let render_runs = runs
                 .iter()
                 .map(|r| fission_render::TextRun {
@@ -1876,6 +1883,7 @@ fn build_local_paint_list(
                 caret_height: *caret_height,
                 caret_radius: *caret_radius,
                 paragraph_style: *paragraph_style,
+                annotations,
             });
         }
         Op::Paint(fission_ir::PaintOp::DrawPath { path, fill, stroke }) => {
@@ -2176,17 +2184,20 @@ fn translate_rect(rect: LayoutRect, offset: LayoutPoint) -> LayoutRect {
 
 #[cfg(test)]
 mod tests {
-    use super::{scroll_offsets_changed, InvalidationSet, Pipeline};
+    use super::{build_local_paint_list, scroll_offsets_changed, InvalidationSet, Pipeline};
     use fission_core::env::Env;
     use fission_core::registry::AnimationPropertyId;
     use fission_core::ScrollStateMap;
-    use fission_ir::op::{Color, Fill};
+    use fission_ir::op::{Color, Fill, RichTextAnnotation, TextRun, TextStyle};
+    use fission_ir::semantics::ActionTrigger;
     use fission_ir::{
-        CompositeScalar, CompositeStyle, CoreIR, LayoutOp, NodeId, Op, PaintOp, WidgetNodeId,
+        ActionEntry, CompositeScalar, CompositeStyle, CoreIR, LayoutOp, NodeId, Op, PaintOp,
+        WidgetNodeId,
     };
     use fission_layout::{LayoutEngine, LayoutRect, LayoutSize};
-    use fission_render::{RenderScene, Renderer};
+    use fission_render::{DisplayOp, RenderScene, Renderer};
     use std::collections::HashMap;
+    use std::sync::Arc;
 
     struct NullRenderer;
 
@@ -2214,6 +2225,69 @@ mod tests {
         let mut scroll = ScrollStateMap::default();
         scroll.set_offset(id, 4.0);
         assert!(scroll_offsets_changed(&prev, &scroll));
+    }
+
+    #[test]
+    fn rich_text_annotations_flow_into_display_ops() {
+        let node_id = NodeId::derived(9, &[0]);
+        let mut ir = CoreIR::new();
+        ir.add_node(
+            node_id,
+            Op::Paint(PaintOp::DrawRichText {
+                runs: vec![TextRun {
+                    text: "docs".into(),
+                    style: TextStyle {
+                        font_size: 14.0,
+                        color: Color::BLACK,
+                        underline: false,
+                        font_family: None,
+                        locale: None,
+                        font_weight: 400,
+                        font_style: fission_ir::op::FontStyle::Normal,
+                        line_height: None,
+                        letter_spacing: 0.0,
+                        background_color: None,
+                    },
+                }],
+                wrap: true,
+                caret_index: None,
+                caret_color: None,
+                caret_width: None,
+                caret_height: None,
+                caret_radius: None,
+                paragraph_style: None,
+            }),
+            vec![],
+        );
+        ir.custom_render_objects.insert(
+            node_id,
+            Arc::new(vec![RichTextAnnotation {
+                range: 0..4,
+                semantics_label: Some("Documentation".into()),
+                semantics_identifier: Some("docs-link".into()),
+                mouse_cursor: Some(fission_ir::op::MouseCursor::Pointer),
+                actions: vec![ActionEntry {
+                    trigger: ActionTrigger::Default,
+                    action_id: 7,
+                    payload_data: Some(vec![1, 2, 3]),
+                }],
+            }]),
+        );
+
+        let node = ir.nodes.get(&node_id).expect("paint node");
+        let list = build_local_paint_list(&ir, node_id, node, LayoutRect::new(0.0, 0.0, 160.0, 40.0))
+            .expect("display list");
+        match list.ops.first() {
+            Some(DisplayOp::DrawRichText { annotations, .. }) => {
+                assert_eq!(annotations.len(), 1);
+                assert_eq!(annotations[0].range, 0..4);
+                assert_eq!(
+                    annotations[0].semantics_identifier.as_deref(),
+                    Some("docs-link")
+                );
+            }
+            other => panic!("expected rich text op, got {other:?}"),
+        }
     }
 
     #[test]

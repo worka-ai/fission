@@ -16,7 +16,7 @@ use winit::{
     dpi::PhysicalPosition,
     event::{Event, Ime, MouseButton, MouseScrollDelta, TouchPhase, WindowEvent},
     event_loop::{ControlFlow, EventLoopBuilder, EventLoopProxy, EventLoopWindowTarget},
-    window::{Window, WindowBuilder, WindowId},
+    window::{CursorIcon, Window, WindowBuilder, WindowId},
 };
 
 use fission_core::env::VideoStatus;
@@ -28,6 +28,7 @@ use fission_core::{
 };
 use fission_core::{ActionInput, Effect, EffectPayload, SystemEffect};
 use fission_diagnostics::prelude as diag;
+use fission_ir::semantics::MouseCursor;
 use fission_ir::{CoreIR, NodeId, Op, WidgetNodeId};
 use fission_layout::{LayoutEngine, LayoutSize};
 use fission_render::{LayoutPoint, LayoutRect, Renderer as _};
@@ -1020,6 +1021,26 @@ fn map_test_button(button: u8) -> PointerButton {
     }
 }
 
+fn cursor_icon_for(cursor: MouseCursor) -> CursorIcon {
+    match cursor {
+        MouseCursor::Default => CursorIcon::Default,
+        MouseCursor::Pointer => CursorIcon::Pointer,
+        MouseCursor::Text => CursorIcon::Text,
+        MouseCursor::Crosshair => CursorIcon::Crosshair,
+        MouseCursor::Move => CursorIcon::Move,
+        MouseCursor::NotAllowed => CursorIcon::NotAllowed,
+        MouseCursor::Grab => CursorIcon::Grab,
+        MouseCursor::Grabbing => CursorIcon::Grabbing,
+        MouseCursor::Wait => CursorIcon::Wait,
+        MouseCursor::Help => CursorIcon::Help,
+        MouseCursor::VerticalText => CursorIcon::VerticalText,
+    }
+}
+
+fn sync_window_cursor(window: &Window, runtime: &Runtime) {
+    window.set_cursor_icon(cursor_icon_for(runtime.runtime_state.interaction.cursor()));
+}
+
 /// Handle cursor/mouse move — shared by WindowEvent::CursorMoved and TestEvent::MouseMove.
 fn handle_cursor_moved(
     x: f32,
@@ -1044,6 +1065,7 @@ fn handle_cursor_moved(
         if let Err(e) = runtime.handle_input(event, ir, layout) {
             eprintln!("Input handling error: {:?}", e);
         }
+        sync_window_cursor(window, runtime);
         invalidations.mark_build();
         if process_pending_effects(runtime, effect_result_tx, event_proxy, app_effect_handler) {
             invalidations.mark_build();
@@ -1128,6 +1150,7 @@ fn handle_mouse_button(
         if let Err(e) = runtime.handle_input(input_event, ir, layout) {
             eprintln!("Input handling error: {:?}", e);
         }
+        sync_window_cursor(window, runtime);
         invalidations.mark_build();
 
         mark_text_trace_handled(pending_text_traces, trace_seq);
@@ -1210,6 +1233,7 @@ fn handle_scroll(
         if let Err(e) = runtime.handle_input(event, ir, layout) {
             eprintln!("Scroll error: {:?}", e);
         }
+        sync_window_cursor(window, runtime);
         // Scroll offsets can affect more than a compositor translation. Virtualized
         // lists, scrollbars, and scroll-aware wrappers depend on the updated offset
         // during build/lowering, so treat scroll as a build invalidation.
@@ -1235,6 +1259,69 @@ fn handle_scroll(
             frame_trace,
             "scroll",
         );
+    }
+}
+
+fn handle_cursor_left(
+    last_cursor_position: Option<PhysicalPosition<f64>>,
+    runtime: &mut Runtime,
+    pipeline: &Pipeline,
+    effect_result_tx: &mpsc::Sender<EffectResult>,
+    event_proxy: &EventLoopProxy<TestEvent>,
+    app_effect_handler: Option<&AppEffectHandler>,
+    window: &Window,
+    elwt: &EventLoopWindowTarget<TestEvent>,
+    last_redraw_at: &mut Instant,
+    min_frame: Duration,
+    redraw_pending: &mut bool,
+    frame_trace: &mut FrameTraceState,
+    invalidations: &mut InvalidationSet,
+) {
+    if let Some(ir) = &pipeline.prev_ir {
+        let point = last_cursor_position.map(|position| {
+            let scale_factor = window.scale_factor();
+            LayoutPoint::new(
+                (position.x / scale_factor) as f32,
+                (position.y / scale_factor) as f32,
+            )
+        });
+        match runtime.clear_hover_state(ir, point) {
+            Ok(changed) => {
+                sync_window_cursor(window, runtime);
+                if changed {
+                    invalidations.mark_build();
+                    if process_pending_effects(
+                        runtime,
+                        effect_result_tx,
+                        event_proxy,
+                        app_effect_handler,
+                    ) {
+                        invalidations.mark_build();
+                        request_redraw_logged(
+                            window,
+                            elwt,
+                            last_redraw_at,
+                            min_frame,
+                            redraw_pending,
+                            frame_trace,
+                            "cursor_left:effects",
+                        );
+                    }
+                    request_redraw_logged(
+                        window,
+                        elwt,
+                        last_redraw_at,
+                        min_frame,
+                        redraw_pending,
+                        frame_trace,
+                        "cursor_left",
+                    );
+                }
+            }
+            Err(error) => eprintln!("Cursor-left handling error: {:?}", error),
+        }
+    } else {
+        sync_window_cursor(window, runtime);
     }
 }
 
@@ -2245,6 +2332,7 @@ impl<S: AppState + Default, W: Widget<S> + 'static> WinitApp<S, W> {
                             match build_window(&window_title, background_test_mode, elwt) {
                                 Ok(new_window) => {
                                     ime_handler.set_window(Some(new_window.clone()));
+                                    sync_window_cursor(&new_window, &runtime);
                                     window = Some(new_window);
                                 }
                                 Err(err) => {
@@ -3336,6 +3424,24 @@ impl<S: AppState + Default, W: Widget<S> + 'static> WinitApp<S, W> {
                                     &mut invalidations,
                                 );
                             }
+                            WindowEvent::CursorLeft { .. } => {
+                                handle_cursor_left(
+                                    last_cursor_position,
+                                    &mut runtime,
+                                    &pipeline,
+                                    &effect_result_tx,
+                                    &event_proxy,
+                                    app_effect_handler.as_ref(),
+                                    &window,
+                                    elwt,
+                                    &mut last_redraw_at,
+                                    min_frame,
+                                    &mut redraw_pending,
+                                    &mut frame_trace,
+                                    &mut invalidations,
+                                );
+                                last_cursor_position = None;
+                            }
                             WindowEvent::MouseInput { state, button, .. } => {
                                 if let Some(position) = last_cursor_position {
                                     let scale_factor = window.scale_factor();
@@ -3791,16 +3897,27 @@ fn recreate_target_texture(
 #[cfg(test)]
 mod tests {
     use super::{
-        animation_redraw_interval, layout_size_to_image_dimensions,
+        animation_redraw_interval, cursor_icon_for, layout_size_to_image_dimensions,
         logical_viewport_to_render_target_size, repeating_animation_redraw_interval,
         texture_plans_fit_device_limits, LiveResizeController,
     };
     use crate::pipeline::CompositorTexturePlan;
     use fission_core::env::{ActiveAnimation, AnimationStateMap};
     use fission_core::{AnimationPropertyId, WidgetNodeId};
+    use fission_ir::semantics::MouseCursor;
     use fission_layout::LayoutRect;
     use std::collections::HashMap;
     use std::time::Duration;
+    use winit::window::CursorIcon;
+
+    #[test]
+    fn semantic_cursor_icons_map_to_winit_icons() {
+        assert_eq!(cursor_icon_for(MouseCursor::Default), CursorIcon::Default);
+        assert_eq!(cursor_icon_for(MouseCursor::Pointer), CursorIcon::Pointer);
+        assert_eq!(cursor_icon_for(MouseCursor::Text), CursorIcon::Text);
+        assert_eq!(cursor_icon_for(MouseCursor::NotAllowed), CursorIcon::NotAllowed);
+        assert_eq!(cursor_icon_for(MouseCursor::VerticalText), CursorIcon::VerticalText);
+    }
 
     #[test]
     fn repeating_animation_uses_reduced_frame_rate() {

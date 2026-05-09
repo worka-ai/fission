@@ -30,7 +30,7 @@
 
 use anyhow::Result;
 use fission_diagnostics::prelude as diag;
-use fission_ir::op::TextRun;
+use fission_ir::op::{RichTextAnnotation, TextParagraphStyle, TextRun};
 use fission_ir::{FlexDirection as IrFlexDirection, FlexWrap as IrFlexWrap, NodeId};
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
@@ -643,6 +643,22 @@ pub trait TextMeasurer: Send + Sync {
         let text: String = runs.iter().map(|r| r.text.as_str()).collect();
         let font_size = runs.first().map(|r| r.style.font_size).unwrap_or(13.0);
         self.hit_test(&text, font_size, None, x, y)
+    }
+
+    /// Resolves the rich-text annotation at the given point, if any.
+    ///
+    /// This is used for interactive rich-text spans that need hit testing
+    /// against shaped rich text rather than box nodes.
+    fn resolve_rich_text_annotation_at_point(
+        &self,
+        _runs: &[TextRun],
+        _available_width: Option<f32>,
+        _x: f32,
+        _y: f32,
+        _paragraph_style: TextParagraphStyle,
+        _annotations: &[RichTextAnnotation],
+    ) -> Option<RichTextAnnotation> {
+        None
     }
 }
 

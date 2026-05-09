@@ -7,8 +7,8 @@ use fission_core::ui::widgets::text_input::{
 use fission_core::ui::{Button, Container, Node, RichText, RichTextRun, Spacer, Text, TextInput};
 use fission_core::{ActionEnvelope, ActionId};
 use fission_ir::op::{
-    decode_inline_widget_marker, Color, Fill, LayoutOp, Op, PaintOp, TextAlign, TextDirection,
-    TextHeightBehavior, TextOverflow,
+    decode_inline_widget_marker, Color, Fill, LayoutOp, MouseCursor, Op, PaintOp,
+    RichTextAnnotation, TextAlign, TextDirection, TextHeightBehavior, TextOverflow,
 };
 use fission_ir::semantics::ActionTrigger;
 use fission_ir::{CoreIR, FlexDirection};
@@ -65,6 +65,22 @@ fn paint_ops(ir: &CoreIR) -> impl Iterator<Item = &PaintOp> {
 fn layout_ops(ir: &CoreIR) -> impl Iterator<Item = &LayoutOp> {
     ir.nodes.values().filter_map(|node| match &node.op {
         Op::Layout(op) => Some(op),
+        _ => None,
+    })
+}
+
+fn rich_text_annotations(ir: &CoreIR) -> Option<(fission_ir::NodeId, &Vec<RichTextAnnotation>)> {
+    ir.nodes.iter().find_map(|(id, node)| match &node.op {
+        Op::Paint(PaintOp::DrawRichText { .. }) => {
+            ir.custom_render_objects
+                .get(id)
+                .and_then(|annotation_sidecar| {
+                    annotation_sidecar
+                        .as_ref()
+                        .downcast_ref::<Vec<RichTextAnnotation>>()
+                        .map(|annotations| (*id, annotations))
+                })
+        }
         _ => None,
     })
 }
@@ -632,6 +648,67 @@ fn rich_text_span_semantics_labels_wrap_accessible_text() {
     assert_eq!(semantics.label.as_deref(), Some("For your information!"));
     assert_eq!(semantics.role, fission_ir::Role::Text);
     assert!(semantics.multiline);
+}
+
+#[test]
+fn rich_text_span_interactions_lower_to_annotation_sidecar() {
+    let tap = test_action("tests::span_tap", br#""tap""#);
+    let hover_enter = test_action("tests::span_hover_enter", br#""enter""#);
+    let secondary = test_action("tests::span_secondary", br#""context""#);
+    let ir = lower_node(
+        RichText::from_span(
+            RichTextSpan::new("Read ")
+                .on_tap(tap.clone())
+                .mouse_cursor(MouseCursor::Pointer)
+                .child(
+                    RichTextSpan::new("docs")
+                        .semantics_label("documentation")
+                        .semantics_identifier("docs-link")
+                        .on_hover_enter(hover_enter.clone())
+                        .on_secondary_click(secondary.clone()),
+                ),
+        )
+        .into_node(),
+    );
+
+    let runs = paint_ops(&ir)
+        .find_map(|op| match op {
+            PaintOp::DrawRichText { runs, .. } => Some(runs),
+            _ => None,
+        })
+        .expect("rich text paint op");
+    assert_eq!(
+        runs.len(),
+        1,
+        "interaction metadata should not split shaping runs"
+    );
+    assert_eq!(runs[0].text, "Read docs");
+
+    let (_, annotations) = rich_text_annotations(&ir).expect("annotation sidecar");
+    let parent = annotations
+        .iter()
+        .find(|annotation| annotation.range == (0..9))
+        .expect("parent annotation");
+    let child = annotations
+        .iter()
+        .find(|annotation| annotation.range == (5..9))
+        .expect("child annotation");
+
+    assert_eq!(parent.mouse_cursor, Some(MouseCursor::Pointer));
+    assert!(parent.actions.iter().any(|action| {
+        action.trigger == ActionTrigger::Default && action.action_id == tap.id.as_u128()
+    }));
+
+    assert_eq!(child.semantics_label.as_deref(), Some("documentation"));
+    assert_eq!(child.semantics_identifier.as_deref(), Some("docs-link"));
+    assert_eq!(child.mouse_cursor, None);
+    assert!(child.actions.iter().any(|action| {
+        action.trigger == ActionTrigger::HoverEnter && action.action_id == hover_enter.id.as_u128()
+    }));
+    assert!(child.actions.iter().any(|action| {
+        action.trigger == ActionTrigger::SecondaryClick
+            && action.action_id == secondary.id.as_u128()
+    }));
 }
 
 #[test]

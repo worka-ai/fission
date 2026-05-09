@@ -1,6 +1,7 @@
 use super::{ControllerContext, InputController};
 use crate::event::{InputEvent, PointerEvent};
 use crate::{ActionEnvelope, ActionId, ActionInput};
+use fission_ir::op::RichTextAnnotation;
 use fission_ir::{semantics::ActionTrigger, NodeId, Op};
 use fission_layout::LayoutPoint;
 
@@ -117,13 +118,32 @@ impl InputController for GestureController {
                                         || self.is_descendant(ctx, up_hit, target)
                                         || self.is_descendant(ctx, target, up_hit)
                                     {
-                                        if self.dispatch_trigger(
-                                            ctx,
-                                            target,
-                                            ActionTrigger::SecondaryClick,
-                                            *point,
-                                            None,
-                                        ) {
+                                        let rich_text_path = self.path_from_node(ctx, up_hit);
+                                        if let Some((annotation_node_id, annotation)) =
+                                            crate::input::hover::resolve_rich_text_annotation_at_point(
+                                                ctx,
+                                                &rich_text_path,
+                                                *point,
+                                            )
+                                        {
+                                            handled = self.dispatch_annotation_trigger(
+                                                ctx,
+                                                annotation_node_id,
+                                                &annotation,
+                                                ActionTrigger::SecondaryClick,
+                                                *point,
+                                            );
+                                        }
+
+                                        if !handled
+                                            && self.dispatch_trigger(
+                                                ctx,
+                                                target,
+                                                ActionTrigger::SecondaryClick,
+                                                *point,
+                                                None,
+                                            )
+                                        {
                                             handled = true;
                                         }
                                     }
@@ -139,13 +159,32 @@ impl InputController for GestureController {
                                         || self.is_descendant(ctx, up_hit, target)
                                         || self.is_descendant(ctx, target, up_hit)
                                     {
-                                        if self.dispatch_trigger(
-                                            ctx,
-                                            target,
-                                            ActionTrigger::Default,
-                                            *point,
-                                            None,
-                                        ) {
+                                        let rich_text_path = self.path_from_node(ctx, up_hit);
+                                        if let Some((annotation_node_id, annotation)) =
+                                            crate::input::hover::resolve_rich_text_annotation_at_point(
+                                                ctx,
+                                                &rich_text_path,
+                                                *point,
+                                            )
+                                        {
+                                            handled = self.dispatch_annotation_trigger(
+                                                ctx,
+                                                annotation_node_id,
+                                                &annotation,
+                                                ActionTrigger::Default,
+                                                *point,
+                                            );
+                                        }
+
+                                        if !handled
+                                            && self.dispatch_trigger(
+                                                ctx,
+                                                target,
+                                                ActionTrigger::Default,
+                                                *point,
+                                                None,
+                                            )
+                                        {
                                             handled = true;
                                         }
                                     }
@@ -169,6 +208,16 @@ impl InputController for GestureController {
 }
 
 impl GestureController {
+    fn path_from_node(&self, ctx: &ControllerContext, node_id: NodeId) -> Vec<NodeId> {
+        let mut path = Vec::new();
+        let mut curr = Some(node_id);
+        while let Some(id) = curr {
+            path.push(id);
+            curr = ctx.ir.nodes.get(&id).and_then(|node| node.parent);
+        }
+        path
+    }
+
     fn is_descendant(&self, ctx: &ControllerContext, child: NodeId, ancestor: NodeId) -> bool {
         let mut curr = Some(child);
         while let Some(id) = curr {
@@ -182,6 +231,37 @@ impl GestureController {
             }
         }
         false
+    }
+
+    fn dispatch_annotation_trigger(
+        &self,
+        ctx: &mut ControllerContext,
+        node_id: NodeId,
+        annotation: &RichTextAnnotation,
+        trigger: ActionTrigger,
+        point: LayoutPoint,
+    ) -> bool {
+        let Some(action_entry) = annotation.actions.iter().find(|entry| entry.trigger == trigger) else {
+            return false;
+        };
+        let Some(payload) = &action_entry.payload_data else {
+            return false;
+        };
+
+        ctx.dispatched_actions.push((
+            node_id,
+            ActionEnvelope {
+                id: ActionId::from_u128(action_entry.action_id),
+                payload: payload.clone(),
+            },
+            ActionInput::Pointer {
+                x: point.x,
+                y: point.y,
+                delta_x: 0.0,
+                delta_y: 0.0,
+            },
+        ));
+        true
     }
 
     fn find_drag_payload(&self, ctx: &ControllerContext, start_node: NodeId) -> Option<Vec<u8>> {

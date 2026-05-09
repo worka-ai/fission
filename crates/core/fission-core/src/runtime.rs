@@ -11,7 +11,7 @@ use crate::{
 use anyhow::{anyhow, Result};
 use fission_diagnostics::prelude as diag;
 use fission_ir::{CoreIR, FlexDirection, LayoutOp, NodeId, Op, WidgetNodeId};
-use fission_layout::{LayoutPoint, LayoutRect, LayoutSnapshot, TextMeasurer};
+use fission_layout::{LayoutPoint, LayoutRect, LayoutSize, LayoutSnapshot, TextMeasurer};
 use glam::{Mat4, Vec4};
 use serde_json;
 use std::any::TypeId;
@@ -561,6 +561,7 @@ impl Runtime {
             find_neighbor_focus_node, find_next_focus_node, hit_test_with_scroll, FocusDirection,
         };
         use crate::input::gesture::GestureController;
+        use crate::input::hover::HoverController;
         use crate::input::slider::SliderController;
         use crate::input::text::TextInputController;
         use crate::input::{ControllerContext, InputController};
@@ -583,6 +584,26 @@ impl Runtime {
                     ime_handler.set_ime_allowed(accepts_text);
                 }
             }
+        }
+
+        if matches!(event, InputEvent::Pointer(_)) {
+            let dispatched_actions = {
+                let mut ctx = ControllerContext {
+                    ir,
+                    layout,
+                    text_edit: &mut self.runtime_state.text_edit,
+                    interaction: &mut self.runtime_state.interaction,
+                    scroll: &mut self.runtime_state.scroll,
+                    gesture: &mut self.runtime_state.gesture,
+                    clipboard: self.clipboard_backend.as_ref(),
+                    measurer: self.measurer.as_ref(),
+                    dispatched_actions: Vec::new(),
+                };
+                let mut hover_controller = HoverController;
+                let _ = hover_controller.handle_event(&mut ctx, &event);
+                ctx.dispatched_actions
+            };
+            self.dispatch_input_actions(dispatched_actions)?;
         }
 
         // --- Custom render object event handling (runs first) ----------------
@@ -724,6 +745,9 @@ impl Runtime {
                 dispatched_actions: Vec::new(),
             };
 
+            let mut hover_controller = HoverController;
+            let _ = hover_controller.handle_event(&mut ctx, &event);
+
             let mut gesture_controller = GestureController;
             let handled = if gesture_controller.handle_event(&mut ctx, &event) {
                 true
@@ -739,9 +763,7 @@ impl Runtime {
             (handled, ctx.dispatched_actions)
         };
 
-        for (target, action, input) in dispatched_actions {
-            self.dispatch_with_input(action, target, &input)?;
-        }
+        self.dispatch_input_actions(dispatched_actions)?;
 
         if handled {
             if matches!(event, InputEvent::Pointer(PointerEvent::Up { .. })) {
@@ -1053,6 +1075,40 @@ impl Runtime {
                 }
             }
             _ => {}
+        }
+        Ok(())
+    }
+
+    pub fn clear_hover_state(&mut self, ir: &CoreIR, point: Option<LayoutPoint>) -> Result<bool> {
+        use crate::input::hover::HoverController;
+        use crate::input::ControllerContext;
+
+        let dispatched_actions = {
+            let layout = &LayoutSnapshot::new(LayoutSize::ZERO);
+            let mut ctx = ControllerContext {
+                ir,
+                layout,
+                text_edit: &mut self.runtime_state.text_edit,
+                interaction: &mut self.runtime_state.interaction,
+                scroll: &mut self.runtime_state.scroll,
+                gesture: &mut self.runtime_state.gesture,
+                clipboard: self.clipboard_backend.as_ref(),
+                measurer: self.measurer.as_ref(),
+                dispatched_actions: Vec::new(),
+            };
+            let changed = HoverController::clear(&mut ctx, point);
+            (changed, ctx.dispatched_actions)
+        };
+        self.dispatch_input_actions(dispatched_actions.1)?;
+        Ok(dispatched_actions.0)
+    }
+
+    fn dispatch_input_actions(
+        &mut self,
+        dispatched_actions: Vec<(NodeId, ActionEnvelope, ActionInput)>,
+    ) -> Result<()> {
+        for (target, action, input) in dispatched_actions {
+            self.dispatch_with_input(action, target, &input)?;
         }
         Ok(())
     }

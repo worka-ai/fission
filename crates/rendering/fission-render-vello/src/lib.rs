@@ -125,6 +125,7 @@ struct PreparedParagraphLayout {
     styles: Vec<(std::ops::Range<usize>, RenderTextStyle)>,
     inline_boxes: Vec<crate::text::RichInlineBox>,
     caret_index: Option<usize>,
+    text_byte_offset: usize,
 }
 
 fn paragraph_style_with_strut(
@@ -162,6 +163,7 @@ fn prepare_paragraph_layout(
     let mut inline_boxes = inline_boxes.to_vec();
     let mut text = text.to_string();
     let mut caret_index = caret_index;
+    let mut text_byte_offset = 0usize;
 
     let direction_mark = match paragraph.text_direction {
         TextDirection::Auto => None,
@@ -173,6 +175,7 @@ fn prepare_paragraph_layout(
         direction_mark.filter(|_| !text.is_empty() || !inline_boxes.is_empty())
     {
         let prefix_len = direction_mark.len();
+        text_byte_offset = prefix_len;
         text.insert_str(0, direction_mark);
         for (range, _) in &mut styles {
             range.start += prefix_len;
@@ -191,6 +194,7 @@ fn prepare_paragraph_layout(
         styles,
         inline_boxes,
         caret_index,
+        text_byte_offset,
     }
 }
 
@@ -440,8 +444,11 @@ mod tests {
         VelloRenderer, VelloTextMeasurer,
     };
     use fission_ir::op::{
-        FontStyle, TextAlign, TextDirection, TextHeightBehavior, TextOverflow, TextParagraphStyle,
+        FontStyle, MouseCursor, RichTextAnnotation, TextAlign, TextDirection, TextHeightBehavior,
+        TextOverflow, TextParagraphStyle,
     };
+    use fission_ir::{semantics::ActionTrigger, ActionEntry};
+    use fission_layout::TextMeasurer;
     use fission_render::{
         Color as RenderColor, LayoutPoint, LayoutRect, TextStyle as RenderTextStyle,
     };
@@ -719,6 +726,87 @@ mod tests {
         assert!(top_trim > 0.0);
         assert_eq!(bottom_trim, 0.0);
         assert!(paragraph_y_offset(lines.first(), behavior, true) < 0.0);
+    }
+
+    #[test]
+    fn rich_text_annotation_hit_testing_prefers_nested_span_metadata() {
+        let mut scene = Scene::new();
+        let mut cache = RetainedSceneCache::default();
+        let renderer = test_renderer(&mut scene, &mut cache);
+        let style = test_style();
+        let text = "Read docs now";
+        let styles = vec![(0..text.len(), style.clone())];
+        let bounds = LayoutRect::new(0.0, 0.0, 160.0, 40.0);
+        let annotations = vec![
+            RichTextAnnotation {
+                range: 0..13,
+                semantics_label: None,
+                semantics_identifier: None,
+                mouse_cursor: Some(MouseCursor::Pointer),
+                actions: vec![ActionEntry {
+                    trigger: ActionTrigger::Default,
+                    action_id: 1,
+                    payload_data: Some(vec![1]),
+                }],
+            },
+            RichTextAnnotation {
+                range: 5..9,
+                semantics_label: Some("documentation".into()),
+                semantics_identifier: Some("docs-link".into()),
+                mouse_cursor: None,
+                actions: vec![ActionEntry {
+                    trigger: ActionTrigger::HoverEnter,
+                    action_id: 2,
+                    payload_data: Some(vec![2]),
+                }],
+            },
+        ];
+        let layout = renderer.paragraph_layout(
+            text,
+            &style,
+            false,
+            bounds,
+            TextParagraphStyle::default(),
+            &[],
+            &styles,
+        );
+        let line = layout.lines().next().unwrap();
+        let x_start = renderer
+            .measurer
+            .get_caret_position(text, style.font_size, None, 5)
+            .0;
+        let x_end = renderer
+            .measurer
+            .get_caret_position(text, style.font_size, None, 9)
+            .0;
+        let y = line.metrics().baseline - (line.metrics().ascent * 0.5);
+
+        let resolved = renderer
+            .paragraph_annotation_at_point(
+                text,
+                &style,
+                false,
+                bounds,
+                TextParagraphStyle::default(),
+                &[],
+                &styles,
+                &annotations,
+                (x_start + x_end) * 0.5,
+                y,
+            )
+            .expect("nested annotation hit");
+
+        assert_eq!(resolved.range, 5..9);
+        assert_eq!(resolved.semantics_label.as_deref(), Some("documentation"));
+        assert_eq!(resolved.semantics_identifier.as_deref(), Some("docs-link"));
+        assert_eq!(resolved.mouse_cursor, Some(MouseCursor::Pointer));
+        assert!(resolved
+            .actions
+            .iter()
+            .any(|action| { action.trigger == ActionTrigger::Default && action.action_id == 1 }));
+        assert!(resolved.actions.iter().any(|action| {
+            action.trigger == ActionTrigger::HoverEnter && action.action_id == 2
+        }));
     }
 }
 
@@ -1000,6 +1088,49 @@ impl<'a> VelloRenderer<'a> {
         }
 
         layout
+    }
+
+    #[cfg(test)]
+    fn paragraph_annotation_at_point(
+        &self,
+        text: &str,
+        base_style: &RenderTextStyle,
+        wrap: bool,
+        bounds: fission_render::LayoutRect,
+        paragraph: TextParagraphStyle,
+        inline_boxes: &[crate::text::RichInlineBox],
+        styles: &[(std::ops::Range<usize>, RenderTextStyle)],
+        annotations: &[fission_ir::op::RichTextAnnotation],
+        x: f32,
+        y: f32,
+    ) -> Option<fission_ir::op::RichTextAnnotation> {
+        if annotations.is_empty() {
+            return None;
+        }
+
+        let prepared =
+            prepare_paragraph_layout(text, base_style, paragraph, inline_boxes, styles, None);
+        let layout = self.paragraph_layout_from_prepared(&prepared, wrap, bounds, paragraph);
+        let total_lines = layout.lines().count();
+        let visible_lines = paragraph
+            .max_lines
+            .map(|lines| lines.min(total_lines))
+            .unwrap_or(total_lines);
+        let local_y = y - paragraph_y_offset(
+            layout.lines().next().as_ref(),
+            paragraph.text_height_behavior,
+            visible_lines == 1,
+        );
+        let idx = crate::text::VelloTextMeasurer::hit_test_layout_index_at_point(
+            &prepared.text,
+            &layout,
+            x,
+            local_y,
+        )?;
+        let raw_idx = idx
+            .saturating_sub(prepared.text_byte_offset)
+            .min(text.len());
+        crate::text::resolve_rich_text_annotation_at_index(text, annotations, raw_idx)
     }
 
     fn draw_paragraph_line(

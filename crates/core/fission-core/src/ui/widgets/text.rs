@@ -4,7 +4,8 @@ use crate::ActionEnvelope;
 use fission_ir::{
     op::{
         decode_inline_widget_marker, encode_inline_widget_marker, Color as IrColor,
-        FontStyle as IrFontStyle, LayoutOp, Op, PaintOp, TextAlign as IrTextAlign,
+        FontStyle as IrFontStyle, LayoutOp, MouseCursor as IrMouseCursor, Op, PaintOp,
+        RichTextAnnotation as IrRichTextAnnotation, TextAlign as IrTextAlign,
         TextDirection as IrTextDirection, TextHeightBehavior as IrTextHeightBehavior,
         TextOverflow as IrTextOverflow, TextParagraphStyle as IrTextParagraphStyle,
         TextRun as IrTextRun,
@@ -13,6 +14,7 @@ use fission_ir::{
     ActionEntry, CompositeStyle, NodeId, Role, Semantics,
 };
 use serde::{Deserialize, Serialize};
+use std::sync::Arc;
 
 /// The content source for a [`Text`] widget.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -249,6 +251,10 @@ pub struct RichTextSpan {
     pub children: Vec<RichTextChild>,
     pub semantics_label: Option<String>,
     pub semantics_identifier: Option<String>,
+    #[serde(default)]
+    pub mouse_cursor: Option<IrMouseCursor>,
+    #[serde(default)]
+    pub actions: Vec<ActionEntry>,
 }
 
 pub type TextSpan = RichTextSpan;
@@ -369,6 +375,31 @@ impl RichTextSpan {
         self
     }
 
+    pub fn mouse_cursor(mut self, mouse_cursor: IrMouseCursor) -> Self {
+        self.mouse_cursor = Some(mouse_cursor);
+        self
+    }
+
+    pub fn on_tap(mut self, action: ActionEnvelope) -> Self {
+        upsert_action_entry(&mut self.actions, ActionTrigger::Default, &action);
+        self
+    }
+
+    pub fn on_hover_enter(mut self, action: ActionEnvelope) -> Self {
+        upsert_action_entry(&mut self.actions, ActionTrigger::HoverEnter, &action);
+        self
+    }
+
+    pub fn on_hover_exit(mut self, action: ActionEnvelope) -> Self {
+        upsert_action_entry(&mut self.actions, ActionTrigger::HoverExit, &action);
+        self
+    }
+
+    pub fn on_secondary_click(mut self, action: ActionEnvelope) -> Self {
+        upsert_action_entry(&mut self.actions, ActionTrigger::SecondaryClick, &action);
+        self
+    }
+
     pub fn child<T>(mut self, child: T) -> Self
     where
         T: Into<RichTextChild>,
@@ -391,12 +422,18 @@ impl RichTextSpan {
         inherited: &TextRunStyle,
         runs: &mut Vec<RichTextRun>,
         inline_widgets: &mut Vec<InlineWidgetSpan>,
+        annotations: &mut Vec<IrRichTextAnnotation>,
+        byte_cursor: &mut usize,
     ) {
         let style = self.style.cascade(inherited);
+        let span_start = *byte_cursor;
         push_rich_text_run(runs, &self.text, &style);
+        *byte_cursor += self.text.len();
         for child in &self.children {
             match child {
-                RichTextChild::Span(child) => child.push_runs(&style, runs, inline_widgets),
+                RichTextChild::Span(child) => {
+                    child.push_runs(&style, runs, inline_widgets, annotations, byte_cursor)
+                }
                 RichTextChild::Widget(widget) => {
                     let inline_id = inline_widgets.len() as u64;
                     inline_widgets.push(widget.clone());
@@ -429,6 +466,10 @@ impl RichTextSpan {
                     });
                 }
             }
+        }
+        let span_end = *byte_cursor;
+        if let Some(annotation) = self.annotation(span_start..span_end) {
+            annotations.push(annotation);
         }
     }
 
@@ -469,6 +510,25 @@ impl RichTextSpan {
         }
         None
     }
+
+    fn annotation(&self, range: std::ops::Range<usize>) -> Option<IrRichTextAnnotation> {
+        if range.start >= range.end
+            || (self.semantics_label.is_none()
+                && self.semantics_identifier.is_none()
+                && self.mouse_cursor.is_none()
+                && self.actions.is_empty())
+        {
+            return None;
+        }
+
+        Some(IrRichTextAnnotation {
+            range,
+            semantics_label: self.semantics_label.clone(),
+            semantics_identifier: self.semantics_identifier.clone(),
+            mouse_cursor: self.mouse_cursor,
+            actions: self.actions.clone(),
+        })
+    }
 }
 
 impl From<RichTextRun> for RichTextSpan {
@@ -491,6 +551,8 @@ impl From<RichTextRun> for RichTextSpan {
             children: Vec::new(),
             semantics_label: value.semantics_label,
             semantics_identifier: value.semantics_identifier,
+            mouse_cursor: None,
+            actions: Vec::new(),
         }
     }
 }
@@ -803,6 +865,8 @@ pub struct RichText {
     pub id: Option<NodeId>,
     pub runs: Vec<RichTextRun>,
     pub inline_widgets: Vec<InlineWidgetSpan>,
+    #[serde(default)]
+    pub annotations: Vec<IrRichTextAnnotation>,
     pub semantics: Option<Semantics>,
     pub width: Option<f32>,
     pub height: Option<f32>,
@@ -856,14 +920,22 @@ impl RichText {
         let spans: Vec<_> = spans.into_iter().map(Into::into).collect();
         let mut runs = Vec::new();
         let mut inline_widgets = Vec::new();
+        let mut annotations = Vec::new();
         let mut semantics_text = String::new();
         let mut has_semantics_override = false;
         let mut semantics_identifier = None;
+        let mut byte_cursor = 0usize;
 
         for span in &spans {
             match span {
                 RichTextChild::Span(span) => {
-                    span.push_runs(&TextRunStyle::default(), &mut runs, &mut inline_widgets);
+                    span.push_runs(
+                        &TextRunStyle::default(),
+                        &mut runs,
+                        &mut inline_widgets,
+                        &mut annotations,
+                        &mut byte_cursor,
+                    );
                     has_semantics_override |= span.collect_semantics_text(&mut semantics_text);
                     if semantics_identifier.is_none() {
                         semantics_identifier = span.collect_semantics_identifier();
@@ -910,6 +982,7 @@ impl RichText {
         let mut rich_text = Self {
             runs,
             inline_widgets,
+            annotations,
             wrap: true,
             ..Default::default()
         };
@@ -1183,11 +1256,16 @@ fn upsert_semantics_action(
     trigger: ActionTrigger,
     action: &ActionEnvelope,
 ) {
-    semantics
-        .actions
-        .entries
-        .retain(|entry| entry.trigger != trigger);
-    semantics.actions.entries.push(ActionEntry {
+    upsert_action_entry(&mut semantics.actions.entries, trigger, action);
+}
+
+fn upsert_action_entry(
+    entries: &mut Vec<ActionEntry>,
+    trigger: ActionTrigger,
+    action: &ActionEnvelope,
+) {
+    entries.retain(|entry| entry.trigger != trigger);
+    entries.push(ActionEntry {
         trigger,
         action_id: action.id.as_u128(),
         payload_data: Some(action.payload.clone()),
@@ -1458,6 +1536,11 @@ impl Lower for RichText {
             paint_builder.add_child(child_id);
         }
         let paint_node_id = paint_builder.build(cx);
+        if !self.annotations.is_empty() {
+            cx.ir
+                .custom_render_objects
+                .insert(paint_node_id, Arc::new(self.annotations.clone()));
+        }
 
         let layout_node_id = wrap_paint_in_layout(
             cx,
