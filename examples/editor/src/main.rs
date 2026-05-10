@@ -3,10 +3,14 @@ use fission_core::ui::{
     Align, Button, ButtonContentAlign, ButtonVariant, Column, Container, GestureDetector, Icon,
     Node, Positioned, Row, Text, TextInput, ZStack,
 };
-use fission_core::{ActionEnvelope, BuildCtx, Handler, PortalLayer, View, Widget, WidgetNodeId};
+use fission_core::{
+    ActionEnvelope, BuildCtx, Handler, JobResource, PortalLayer, ReducerContext, ResourceKey,
+    TimerResource, View, Widget, WidgetNodeId,
+};
 use fission_shell_desktop::DesktopApp;
 use fission_widgets::{Spacer, VStack};
 use std::path::PathBuf;
+use std::time::Duration;
 
 mod command_palette;
 mod completion_popup;
@@ -952,7 +956,7 @@ impl Widget<EditorState> for ContextMenu {
                     };
                     match result {
                         Ok(()) => {
-                            s.tree_cache_dirty = true;
+                            s.request_tree_refresh();
                             s.status_message = Some(format!("Deleted '{}'", target));
                         }
                         Err(e) => {
@@ -1121,6 +1125,170 @@ struct EditorApp;
 
 impl Widget<EditorState> for EditorApp {
     fn build(&self, ctx: &mut BuildCtx<EditorState>, view: &View<EditorState>) -> Node {
+        let _start_editor = ctx.bind(
+            EditorStarted {
+                root_path: PathBuf::from("."),
+            },
+            (|state: &mut EditorState, action: EditorStarted, _| {
+                state.root_path = action.root_path;
+                state.request_tree_refresh();
+                state.refresh_git_status();
+                state.ensure_terminal_session();
+                if std::env::var("FISSION_TEST_CONTROL_PORT").is_err() && state.lsp_handle.is_none()
+                {
+                    state.lsp_handle = Some(LspHandle::new(&state.root_path));
+                }
+            }) as Handler<EditorState, EditorStarted>,
+        );
+
+        let tree_scan_loaded = ctx.bind(
+            TreeScanCompleted,
+            (|state: &mut EditorState,
+              _: TreeScanCompleted,
+              reducer: &mut ReducerContext<EditorState>| {
+                if let Some(result) = reducer.input.job_ok(TREE_SCAN_JOB) {
+                    if result.generation == state.tree_scan_generation {
+                        state.cached_tree_entries = result.entries;
+                        state.tree_scan_loaded_generation = result.generation;
+                    }
+                }
+            })
+                as fn(&mut EditorState, TreeScanCompleted, &mut ReducerContext<EditorState>),
+        );
+        let tree_scan_failed = ctx.bind(
+            TreeScanFailed,
+            (|state: &mut EditorState,
+              _: TreeScanFailed,
+              reducer: &mut ReducerContext<EditorState>| {
+                state.tree_scan_loaded_generation = state.tree_scan_generation;
+                if let Some(message) = reducer.input.job_error_message(TREE_SCAN_JOB) {
+                    state.status_message = Some(format!("Tree refresh failed: {}", message));
+                }
+            })
+                as fn(&mut EditorState, TreeScanFailed, &mut ReducerContext<EditorState>),
+        );
+        if view.state.tree_scan_pending() {
+            ctx.resources.job(
+                JobResource::new(
+                    ResourceKey::new("editor-tree-scan"),
+                    TREE_SCAN_JOB,
+                    TreeScanRequest {
+                        root_path: view.state.root_path.clone(),
+                        generation: view.state.tree_scan_generation,
+                    },
+                )
+                .deps((
+                    view.state.root_path.clone(),
+                    view.state.tree_scan_generation,
+                ))
+                .on_ok(tree_scan_loaded)
+                .on_err(tree_scan_failed),
+            );
+        }
+
+        let git_status_loaded = ctx.bind(
+            GitStatusLoaded,
+            (|state: &mut EditorState,
+              _: GitStatusLoaded,
+              reducer: &mut ReducerContext<EditorState>| {
+                if let Some(result) = reducer.input.job_ok(GIT_STATUS_JOB) {
+                    if result.generation == state.git_status_generation {
+                        state.git_status_lines = result.entries;
+                        state.git_status_loaded_generation = result.generation;
+                    }
+                }
+            })
+                as fn(&mut EditorState, GitStatusLoaded, &mut ReducerContext<EditorState>),
+        );
+        let git_status_failed = ctx.bind(
+            GitStatusFailed,
+            (|state: &mut EditorState,
+              _: GitStatusFailed,
+              reducer: &mut ReducerContext<EditorState>| {
+                state.git_status_loaded_generation = state.git_status_generation;
+                if let Some(message) = reducer.input.job_error_message(GIT_STATUS_JOB) {
+                    state.status_message = Some(format!("Git status refresh failed: {}", message));
+                }
+            })
+                as fn(&mut EditorState, GitStatusFailed, &mut ReducerContext<EditorState>),
+        );
+        if view.state.git_status_pending() {
+            ctx.resources.job(
+                JobResource::new(
+                    ResourceKey::new("editor-git-status"),
+                    GIT_STATUS_JOB,
+                    GitStatusRequest {
+                        root_path: view.state.root_path.clone(),
+                        generation: view.state.git_status_generation,
+                    },
+                )
+                .deps((
+                    view.state.root_path.clone(),
+                    view.state.git_status_generation,
+                ))
+                .on_ok(git_status_loaded)
+                .on_err(git_status_failed),
+            );
+        }
+
+        let poll_terminal = ctx.bind(
+            PollTerminal,
+            (|state: &mut EditorState,
+              _: PollTerminal,
+              reducer: &mut ReducerContext<EditorState>| {
+                let _tick: PollTerminalTick = reducer.input.timer_tick().unwrap_or_default();
+                if let Some(session) = state.terminal_session.as_ref() {
+                    if session.take_dirty() {
+                        state.redraw_epoch = state.redraw_epoch.wrapping_add(1);
+                    }
+                }
+            }) as fn(&mut EditorState, PollTerminal, &mut ReducerContext<EditorState>),
+        );
+        if view.state.terminal_visible
+            && view.state.bottom_panel_tab == BottomPanelTab::Terminal
+            && view.state.terminal_session.is_some()
+        {
+            ctx.resources.timer(
+                TimerResource::new(
+                    ResourceKey::new("editor-terminal-poll"),
+                    Duration::from_millis(16),
+                    PollTerminalTick,
+                )
+                .on_tick(poll_terminal),
+            );
+        }
+
+        let poll_lsp = ctx.bind(
+            PollLsp,
+            (|state: &mut EditorState, _: PollLsp, reducer: &mut ReducerContext<EditorState>| {
+                let _tick: PollLspTick = reducer.input.timer_tick().unwrap_or_default();
+                if let Some(handle) = state.lsp_handle.as_ref() {
+                    let (diags, completions) = handle.poll_diagnostics();
+                    if !diags.is_empty() {
+                        for (path, file_diags) in diags {
+                            state.diagnostics.insert(path, file_diags);
+                        }
+                    }
+                    if !completions.is_empty() {
+                        state.completions = completions;
+                        state.show_completions = true;
+                        state.selected_completion = 0;
+                    }
+                }
+            }) as fn(&mut EditorState, PollLsp, &mut ReducerContext<EditorState>),
+        );
+        if view.state.lsp_enabled() {
+            ctx.resources.timer(
+                TimerResource::new(
+                    ResourceKey::new("editor-lsp-poll"),
+                    Duration::from_secs(1),
+                    PollLspTick,
+                )
+                .immediate()
+                .on_tick(poll_lsp),
+            );
+        }
+
         let viewport = view.viewport_size();
         let sidebar_width = view
             .state
@@ -1284,119 +1452,26 @@ fn main() -> anyhow::Result<()> {
         .map(PathBuf::from)
         .unwrap_or_else(|| std::env::current_dir().unwrap_or_else(|_| PathBuf::from(".")));
 
-    let root_for_init = root.clone();
-    let root_for_sync = root.clone();
+    let root_for_startup = root.clone();
     let app = DesktopApp::new(EditorApp)
         .with_title("Fission Editor")
-        .with_state_init(move |state: &mut EditorState| {
-            state.root_path = root_for_init.clone();
-            state.tree_cache_dirty = true;
-            state.refresh_git_status(); // Initial git status scan
+        .with_startup_action(EditorStarted {
+            root_path: root_for_startup,
+        })
+        .with_async(|asyncs| {
+            asyncs.register_job(TREE_SCAN_JOB, |request: TreeScanRequest, _| async move {
+                run_tree_scan(request)
+            });
+            asyncs.register_job(GIT_STATUS_JOB, |request: GitStatusRequest, _| async move {
+                run_git_status(request)
+            });
         })
         .with_sync_env(move |_state: &EditorState, env: &mut fission_core::Env| {
             env.theme = fission_theme::Theme::dark();
         })
-        // Poll LSP for diagnostics/completions on every frame so results
-        // appear even when the user is not typing.
-        .with_frame_hook({
-            let is_test_mode = std::env::var("FISSION_TEST_CONTROL_PORT").is_ok();
-            let last_lsp_poll = std::sync::Mutex::new(std::time::Instant::now());
-            move |state: &mut EditorState| -> bool {
-                let mut changed = false;
-
-                // ── Poll background git-status result ──
-                if let Ok(mut guard) = state.git_status_pending.try_lock() {
-                    if let Some(entries) = guard.take() {
-                        state.git_status_lines = entries;
-                        changed = true;
-                    }
-                }
-
-                // ── Kick off / poll background tree scan ──
-                if state.tree_cache_dirty {
-                    // Only spawn if no scan is already in flight
-                    let can_spawn = state
-                        .tree_scan_pending
-                        .try_lock()
-                        .map(|g| g.is_none())
-                        .unwrap_or(false);
-                    if can_spawn {
-                        state.tree_cache_dirty = false;
-                        let root = state.root_path.clone();
-                        let pending = state.tree_scan_pending.clone();
-                        std::thread::spawn(move || {
-                            let entries = crate::model::scan_directory(&root, 0);
-                            if let Ok(mut guard) = pending.lock() {
-                                *guard = Some(entries);
-                            }
-                        });
-                    }
-                }
-                if let Ok(mut guard) = state.tree_scan_pending.try_lock() {
-                    if let Some(entries) = guard.take() {
-                        state.cached_tree_entries = entries;
-                        changed = true;
-                    }
-                }
-
-                if state.terminal_visible && state.bottom_panel_tab == BottomPanelTab::Terminal {
-                    state.ensure_terminal_session();
-                }
-
-                if state.terminal_visible && state.bottom_panel_tab == BottomPanelTab::Terminal {
-                    if let Some(session) = state.terminal_session.as_ref() {
-                        changed |= session.take_dirty();
-                    }
-                }
-
-                // Skip LSP entirely in test mode
-                if is_test_mode {
-                    return changed;
-                }
-
-                // Lazily initialize LSP on first frame
-                if !state.lsp_initialized {
-                    state.lsp_initialized = true;
-                    state.lsp_handle = Some(LspHandle::new(&state.root_path));
-                }
-
-                // Throttle LSP polling to at most once per second to avoid
-                // hot-looping when rust-analyzer is streaming diagnostics
-                let now = std::time::Instant::now();
-                if let Ok(mut last) = last_lsp_poll.lock() {
-                    if now.duration_since(*last).as_millis() < 1000 {
-                        return changed;
-                    }
-                    *last = now;
-                }
-
-                if let Some(ref handle) = state.lsp_handle {
-                    let (diags, completions) = handle.poll_diagnostics();
-                    if !diags.is_empty() {
-                        for (path, file_diags) in diags {
-                            state.diagnostics.insert(path, file_diags);
-                        }
-                        changed = true;
-                    }
-                    if !completions.is_empty() {
-                        state.completions = completions;
-                        state.show_completions = true;
-                        state.selected_completion = 0;
-                        changed = true;
-                    }
-                }
-                changed
-            }
-        })
         .with_key_handler(
             move |state: &mut EditorState, key: &fission_core::KeyCode, mods: u8| -> bool {
-                // Initialize root path on first call
-                if state.root_path == PathBuf::from(".") {
-                    state.root_path = root_for_sync.clone();
-                }
-
-                // Tree scanning and external-change checking are handled
-                // asynchronously in the frame hook -- no I/O in the key handler.
+                // Async resources handle background scanning and polling.
 
                 let ctrl = (mods & 2) != 0 || (mods & 8) != 0; // Ctrl or Cmd
                 let shift = (mods & 1) != 0;
