@@ -23,8 +23,8 @@ use fission_core::env::VideoStatus;
 use fission_core::lowering::LoweringContext;
 use fission_core::ui::custom_render::downcast_render_object;
 use fission_core::{
-    ActionId, AppState, BuildCtx, Env, InputEvent, KeyCode, KeyEvent as FissionKeyEvent,
-    PointerButton, PointerEvent, Runtime, View, Widget,
+    Action, ActionId, AppState, BuildCtx, Env, InputEvent, KeyCode, KeyEvent as FissionKeyEvent,
+    PointerButton, PointerEvent, Runtime, ServiceBindings, View, Widget,
 };
 use fission_core::{ActionInput, Effect, EffectPayload, SystemEffect};
 use fission_diagnostics::prelude as diag;
@@ -34,6 +34,9 @@ use fission_layout::{LayoutEngine, LayoutSize};
 use fission_render::{LayoutPoint, LayoutRect, Renderer as _};
 use fission_render_vello::parley::FontContext;
 use fission_render_vello::{RetainedSceneCache, VelloRenderer, VelloTextMeasurer};
+use fission_shell::async_host::{
+    AsyncMessage, AsyncRegistry, RunningServiceHandle, ServiceControlMessage,
+};
 use fission_shell::{VideoBackend, VideoEvent, VideoPlayer};
 use fission_theme::fonts;
 use fontique::{Blob, Collection, CollectionOptions, FontInfoOverride, SourceCache};
@@ -70,16 +73,6 @@ pub mod test_control;
 
 use fission_core::action::ActionEnvelope;
 
-/// A single completed background effect result, ready to be dispatched on the main thread.
-///
-/// Fields: `(req_id, result_payload_or_error, on_ok_continuation, on_err_continuation)`
-type EffectResult = (
-    u64,
-    std::result::Result<EffectPayload, String>,
-    Option<ActionEnvelope>,
-    Option<ActionEnvelope>,
-);
-
 /// Callback signature for application-specific effect handlers.
 ///
 /// The handler receives the opaque `Vec<u8>` payload from `Effect::App(...)`,
@@ -92,11 +85,20 @@ pub type AppEffectHandler = Box<
             u64,
             Option<ActionEnvelope>,
             Option<ActionEnvelope>,
-            mpsc::Sender<EffectResult>,
+            mpsc::Sender<AsyncMessage>,
             EventLoopProxy<TestEvent>,
         ) + Send
         + Sync,
 >;
+
+type EffectResult = AsyncMessage;
+
+type ServiceKey = (String, String);
+type ServiceBindingKey = (String, String, u64);
+
+struct ActiveServiceHandle {
+    runtime: RunningServiceHandle,
+}
 
 struct ActivePlayer {
     player: Box<dyn VideoPlayer>,
@@ -494,9 +496,13 @@ impl LiveResizeController {
 /// Returns `true` if any synchronous callback was dispatched (caller should redraw).
 fn process_pending_effects(
     runtime: &mut Runtime,
-    effect_tx: &mpsc::Sender<EffectResult>,
+    effect_tx: &mpsc::Sender<AsyncMessage>,
     event_proxy: &EventLoopProxy<TestEvent>,
     app_effect_handler: Option<&AppEffectHandler>,
+    async_registry: &AsyncRegistry,
+    active_services: &mut HashMap<ServiceKey, ActiveServiceHandle>,
+    service_bindings: &mut HashMap<ServiceBindingKey, ServiceBindings>,
+    next_service_instance_id: &mut u64,
 ) -> bool {
     use std::process::Command;
 
@@ -506,6 +512,14 @@ fn process_pending_effects(
     }
 
     let mut dispatched_callback = false;
+    let wake = {
+        let proxy = Arc::new(Mutex::new(event_proxy.clone()));
+        Arc::new(move || {
+            if let Ok(proxy) = proxy.lock() {
+                let _ = proxy.send_event(TestEvent::Wake);
+            }
+        })
+    };
 
     for env in pending {
         match env.effect {
@@ -621,34 +635,48 @@ fn process_pending_effects(
                     // ── Background: FileRead ─────────────────────────────────
                     SystemEffect::FileRead { path } => {
                         let tx = effect_tx.clone();
-                        let wake_proxy = event_proxy.clone();
+                        let wake_fn = wake.clone();
                         let on_ok = env.on_ok.clone();
                         let on_err = env.on_err.clone();
                         let req_id = env.req_id;
                         let path = path.clone();
+                        let resource = env.resource.clone();
                         std::thread::spawn(move || {
                             match std::fs::read(&path) {
                                 Ok(content) => {
                                     let payload = EffectPayload::InlineBytes(content);
-                                    let _ = tx.send((req_id, Ok(payload), on_ok, on_err));
+                                    let _ = tx.send(AsyncMessage::LegacyResult {
+                                        req_id,
+                                        result: Ok(payload),
+                                        on_ok,
+                                        on_err,
+                                        resource,
+                                    });
                                 }
                                 Err(e) => {
-                                    let _ = tx.send((req_id, Err(e.to_string()), on_ok, on_err));
+                                    let _ = tx.send(AsyncMessage::LegacyResult {
+                                        req_id,
+                                        result: Err(e.to_string()),
+                                        on_ok,
+                                        on_err,
+                                        resource,
+                                    });
                                 }
                             }
-                            let _ = wake_proxy.send_event(TestEvent::Wake);
+                            wake_fn();
                         });
                     }
 
                     // ── Background: HttpGet ───────────────────────────────────
                     SystemEffect::HttpGet { url, headers } => {
                         let tx = effect_tx.clone();
-                        let wake_proxy = event_proxy.clone();
+                        let wake_fn = wake.clone();
                         let on_ok = env.on_ok.clone();
                         let on_err = env.on_err.clone();
                         let req_id = env.req_id;
                         let url = url.clone();
                         let headers = headers.clone();
+                        let resource = env.resource.clone();
                         std::thread::spawn(move || {
                             let curl_result = (|| -> std::result::Result<Vec<u8>, String> {
                                 let mut command = std::process::Command::new("curl");
@@ -737,13 +765,25 @@ fn process_pending_effects(
                             match result {
                                 Ok(bytes) => {
                                     let payload = EffectPayload::InlineBytes(bytes);
-                                    let _ = tx.send((req_id, Ok(payload), on_ok, on_err));
+                                    let _ = tx.send(AsyncMessage::LegacyResult {
+                                        req_id,
+                                        result: Ok(payload),
+                                        on_ok,
+                                        on_err,
+                                        resource,
+                                    });
                                 }
                                 Err(msg) => {
-                                    let _ = tx.send((req_id, Err(msg), on_ok, on_err));
+                                    let _ = tx.send(AsyncMessage::LegacyResult {
+                                        req_id,
+                                        result: Err(msg),
+                                        on_ok,
+                                        on_err,
+                                        resource,
+                                    });
                                 }
                             }
-                            let _ = wake_proxy.send_event(TestEvent::Wake);
+                            wake_fn();
                         });
                     }
 
@@ -785,6 +825,111 @@ fn process_pending_effects(
                     );
                 }
             }
+            Effect::Job(job) => {
+                if !async_registry.spawn_job(
+                    &job.job_name,
+                    env.req_id,
+                    job.payload,
+                    env.on_ok.clone(),
+                    env.on_err.clone(),
+                    env.resource.clone(),
+                    effect_tx,
+                    wake.clone(),
+                ) {
+                    let _ = effect_tx.send(AsyncMessage::JobErr {
+                        job_name: job.job_name,
+                        req_id: env.req_id,
+                        payload: None,
+                        on_err: env.on_err.clone(),
+                        message: Some("no async job handler registered".into()),
+                        resource: env.resource.clone(),
+                    });
+                    (wake)();
+                }
+            }
+            Effect::StartService(start) => {
+                let key = (start.service_name.clone(), start.slot_key.clone());
+                if let Some(previous) = active_services.remove(&key) {
+                    let _ = previous
+                        .runtime
+                        .control_tx
+                        .send(ServiceControlMessage::Stop);
+                }
+
+                let instance_id = *next_service_instance_id;
+                *next_service_instance_id = next_service_instance_id.saturating_add(1);
+                let bindings = env.service_bindings.clone().unwrap_or_default();
+                service_bindings.insert(
+                    (
+                        start.service_name.clone(),
+                        start.slot_key.clone(),
+                        instance_id,
+                    ),
+                    bindings,
+                );
+
+                match async_registry.spawn_service(
+                    &start.service_name,
+                    &start.slot_key,
+                    instance_id,
+                    start.config,
+                    env.resource.clone(),
+                    effect_tx,
+                    wake.clone(),
+                ) {
+                    Some(handle) => {
+                        active_services.insert(key, ActiveServiceHandle { runtime: handle });
+                    }
+                    None => {
+                        let _ = service_bindings.remove(&(
+                            start.service_name.clone(),
+                            start.slot_key.clone(),
+                            instance_id,
+                        ));
+                        let _ = effect_tx.send(AsyncMessage::ServiceStartFailed {
+                            service_name: start.service_name,
+                            slot_key: start.slot_key,
+                            instance_id,
+                            payload: None,
+                            message: Some("no async service handler registered".into()),
+                            resource: env.resource.clone(),
+                        });
+                        (wake)();
+                    }
+                }
+            }
+            Effect::ServiceCommand(command) => {
+                let key = (command.service_name.clone(), command.slot_key.clone());
+                if let Some(handle) = active_services.get(&key) {
+                    let _ = handle
+                        .runtime
+                        .control_tx
+                        .send(ServiceControlMessage::Command {
+                            req_id: env.req_id,
+                            payload: command.payload,
+                            on_ok: env.on_ok.clone(),
+                            on_err: env.on_err.clone(),
+                        });
+                } else {
+                    let _ = effect_tx.send(AsyncMessage::ServiceCommandErr {
+                        service_name: command.service_name,
+                        slot_key: command.slot_key,
+                        instance_id: 0,
+                        req_id: env.req_id,
+                        payload: None,
+                        on_err: env.on_err.clone(),
+                        message: Some("service is not running".into()),
+                        resource: env.resource.clone(),
+                    });
+                    (wake)();
+                }
+            }
+            Effect::StopService(stop) => {
+                let key = (stop.service_name.clone(), stop.slot_key.clone());
+                if let Some(handle) = active_services.remove(&key) {
+                    let _ = handle.runtime.control_tx.send(ServiceControlMessage::Stop);
+                }
+            }
         }
     }
 
@@ -795,29 +940,325 @@ fn process_pending_effects(
 /// their continuations on the main thread.
 ///
 /// Returns `true` if any continuation was dispatched (caller should redraw).
-fn drain_effect_results(runtime: &mut Runtime, effect_rx: &mpsc::Receiver<EffectResult>) -> bool {
+fn drain_effect_results(
+    runtime: &mut Runtime,
+    effect_rx: &mpsc::Receiver<AsyncMessage>,
+    active_services: &mut HashMap<ServiceKey, ActiveServiceHandle>,
+    service_bindings: &mut HashMap<ServiceBindingKey, ServiceBindings>,
+) -> bool {
     let mut dispatched = false;
 
-    while let Ok((req_id, result, on_ok, on_err)) = effect_rx.try_recv() {
-        match result {
-            Ok(payload) => {
+    while let Ok(message) = effect_rx.try_recv() {
+        match message {
+            AsyncMessage::LegacyResult {
+                req_id,
+                result,
+                on_ok,
+                on_err,
+                resource,
+            } => {
+                if let Some(resource) = resource.as_ref() {
+                    if !runtime.is_resource_current(resource) {
+                        continue;
+                    }
+                }
+
+                match result {
+                    Ok(payload) => {
+                        if let Some(action) = on_ok {
+                            let _ = runtime.dispatch_with_input(
+                                action,
+                                NodeId::derived(0, &[0]),
+                                &ActionInput::EffectOk { req_id, payload },
+                            );
+                            dispatched = true;
+                        }
+                    }
+                    Err(msg) => {
+                        if let Some(action) = on_err {
+                            let _ = runtime.dispatch_with_input(
+                                action,
+                                NodeId::derived(0, &[0]),
+                                &ActionInput::EffectErr {
+                                    req_id,
+                                    message: msg,
+                                },
+                            );
+                            dispatched = true;
+                        }
+                    }
+                }
+            }
+            AsyncMessage::JobOk {
+                job_name,
+                req_id,
+                payload,
+                on_ok,
+                resource,
+            } => {
+                if let Some(resource) = resource.as_ref() {
+                    if !runtime.is_resource_current(resource) {
+                        continue;
+                    }
+                }
                 if let Some(action) = on_ok {
                     let _ = runtime.dispatch_with_input(
                         action,
                         NodeId::derived(0, &[0]),
-                        &ActionInput::EffectOk { req_id, payload },
+                        &ActionInput::JobOk {
+                            job_name,
+                            req_id,
+                            payload,
+                        },
                     );
                     dispatched = true;
                 }
             }
-            Err(msg) => {
+            AsyncMessage::JobErr {
+                job_name,
+                req_id,
+                payload,
+                on_err,
+                message,
+                resource,
+            } => {
+                if let Some(resource) = resource.as_ref() {
+                    if !runtime.is_resource_current(resource) {
+                        continue;
+                    }
+                }
                 if let Some(action) = on_err {
                     let _ = runtime.dispatch_with_input(
                         action,
                         NodeId::derived(0, &[0]),
-                        &ActionInput::EffectErr {
+                        &ActionInput::JobErr {
+                            job_name,
                             req_id,
-                            message: msg,
+                            payload,
+                            message,
+                        },
+                    );
+                    dispatched = true;
+                }
+            }
+            AsyncMessage::ServiceStarted {
+                service_name,
+                slot_key,
+                instance_id,
+                resource,
+            } => {
+                if let Some(resource) = resource.as_ref() {
+                    if !runtime.is_resource_current(resource) {
+                        continue;
+                    }
+                }
+                let key = (service_name.clone(), slot_key.clone());
+                let Some(current) = active_services.get(&key) else {
+                    continue;
+                };
+                if current.runtime.instance_id != instance_id {
+                    continue;
+                }
+                if let Some(bindings) =
+                    service_bindings.get(&(service_name.clone(), slot_key.clone(), instance_id))
+                {
+                    if let Some(action) = bindings.on_started.clone() {
+                        let _ = runtime.dispatch_with_input(
+                            action,
+                            NodeId::derived(0, &[0]),
+                            &ActionInput::ServiceStarted {
+                                service_name,
+                                slot_key,
+                                instance_id,
+                            },
+                        );
+                        dispatched = true;
+                    }
+                }
+            }
+            AsyncMessage::ServiceStartFailed {
+                service_name,
+                slot_key,
+                instance_id,
+                payload,
+                message,
+                resource,
+            } => {
+                if let Some(resource) = resource.as_ref() {
+                    if !runtime.is_resource_current(resource) {
+                        service_bindings.remove(&(service_name, slot_key, instance_id));
+                        continue;
+                    }
+                }
+                let key = (service_name.clone(), slot_key.clone());
+                let should_dispatch = active_services
+                    .get(&key)
+                    .map(|current| current.runtime.instance_id == instance_id)
+                    .unwrap_or(true);
+                active_services.remove(&key);
+                let bindings =
+                    service_bindings.remove(&(service_name.clone(), slot_key.clone(), instance_id));
+                if should_dispatch {
+                    if let Some(action) = bindings.and_then(|bindings| bindings.on_start_failed) {
+                        let _ = runtime.dispatch_with_input(
+                            action,
+                            NodeId::derived(0, &[0]),
+                            &ActionInput::ServiceStartFailed {
+                                service_name,
+                                slot_key,
+                                payload,
+                                message,
+                            },
+                        );
+                        dispatched = true;
+                    }
+                }
+            }
+            AsyncMessage::ServiceEvent {
+                service_name,
+                slot_key,
+                instance_id,
+                payload,
+                resource,
+            } => {
+                if let Some(resource) = resource.as_ref() {
+                    if !runtime.is_resource_current(resource) {
+                        continue;
+                    }
+                }
+                let key = (service_name.clone(), slot_key.clone());
+                let Some(current) = active_services.get(&key) else {
+                    continue;
+                };
+                if current.runtime.instance_id != instance_id {
+                    continue;
+                }
+                if let Some(bindings) =
+                    service_bindings.get(&(service_name.clone(), slot_key.clone(), instance_id))
+                {
+                    if let Some(action) = bindings.on_event.clone() {
+                        let _ = runtime.dispatch_with_input(
+                            action,
+                            NodeId::derived(0, &[0]),
+                            &ActionInput::ServiceEvent {
+                                service_name,
+                                slot_key,
+                                instance_id,
+                                payload,
+                            },
+                        );
+                        dispatched = true;
+                    }
+                }
+            }
+            AsyncMessage::ServiceStopped {
+                service_name,
+                slot_key,
+                instance_id,
+                resource,
+            } => {
+                if let Some(resource) = resource.as_ref() {
+                    if !runtime.is_resource_current(resource) {
+                        service_bindings.remove(&(service_name, slot_key, instance_id));
+                        continue;
+                    }
+                }
+                let key = (service_name.clone(), slot_key.clone());
+                let should_dispatch = active_services
+                    .get(&key)
+                    .map(|current| current.runtime.instance_id == instance_id)
+                    .unwrap_or(true);
+                if should_dispatch {
+                    active_services.remove(&key);
+                }
+                let bindings =
+                    service_bindings.remove(&(service_name.clone(), slot_key.clone(), instance_id));
+                if should_dispatch {
+                    if let Some(action) = bindings.and_then(|bindings| bindings.on_stopped) {
+                        let _ = runtime.dispatch_with_input(
+                            action,
+                            NodeId::derived(0, &[0]),
+                            &ActionInput::ServiceStopped {
+                                service_name,
+                                slot_key,
+                                instance_id,
+                            },
+                        );
+                        dispatched = true;
+                    }
+                }
+            }
+            AsyncMessage::ServiceCommandOk {
+                service_name,
+                slot_key,
+                instance_id,
+                req_id,
+                payload,
+                on_ok,
+                resource,
+            } => {
+                if let Some(resource) = resource.as_ref() {
+                    if !runtime.is_resource_current(resource) {
+                        continue;
+                    }
+                }
+                let key = (service_name.clone(), slot_key.clone());
+                let Some(current) = active_services.get(&key) else {
+                    continue;
+                };
+                if current.runtime.instance_id != instance_id {
+                    continue;
+                }
+                if let Some(action) = on_ok {
+                    let _ = runtime.dispatch_with_input(
+                        action,
+                        NodeId::derived(0, &[0]),
+                        &ActionInput::ServiceCommandOk {
+                            service_name,
+                            slot_key,
+                            instance_id,
+                            req_id,
+                            payload,
+                        },
+                    );
+                    dispatched = true;
+                }
+            }
+            AsyncMessage::ServiceCommandErr {
+                service_name,
+                slot_key,
+                instance_id,
+                req_id,
+                payload,
+                on_err,
+                message,
+                resource,
+            } => {
+                if let Some(resource) = resource.as_ref() {
+                    if !runtime.is_resource_current(resource) {
+                        continue;
+                    }
+                }
+                let key = (service_name.clone(), slot_key.clone());
+                if instance_id != 0 {
+                    let Some(current) = active_services.get(&key) else {
+                        continue;
+                    };
+                    if current.runtime.instance_id != instance_id {
+                        continue;
+                    }
+                }
+                if let Some(action) = on_err {
+                    let _ = runtime.dispatch_with_input(
+                        action,
+                        NodeId::derived(0, &[0]),
+                        &ActionInput::ServiceCommandErr {
+                            service_name,
+                            slot_key,
+                            instance_id,
+                            req_id,
+                            payload,
+                            message,
                         },
                     );
                     dispatched = true;
@@ -1051,6 +1492,10 @@ fn handle_cursor_moved(
     effect_result_tx: &mpsc::Sender<EffectResult>,
     event_proxy: &EventLoopProxy<TestEvent>,
     app_effect_handler: Option<&AppEffectHandler>,
+    async_registry: &AsyncRegistry,
+    active_services: &mut HashMap<ServiceKey, ActiveServiceHandle>,
+    service_bindings: &mut HashMap<ServiceBindingKey, ServiceBindings>,
+    next_service_instance_id: &mut u64,
     window: &Window,
     elwt: &EventLoopWindowTarget<TestEvent>,
     last_redraw_at: &mut Instant,
@@ -1067,7 +1512,16 @@ fn handle_cursor_moved(
         }
         sync_window_cursor(window, runtime);
         invalidations.mark_build();
-        if process_pending_effects(runtime, effect_result_tx, event_proxy, app_effect_handler) {
+        if process_pending_effects(
+            runtime,
+            effect_result_tx,
+            event_proxy,
+            app_effect_handler,
+            async_registry,
+            active_services,
+            service_bindings,
+            next_service_instance_id,
+        ) {
             invalidations.mark_build();
             request_redraw_logged(
                 window,
@@ -1104,6 +1558,10 @@ fn handle_mouse_button(
     effect_result_tx: &mpsc::Sender<EffectResult>,
     event_proxy: &EventLoopProxy<TestEvent>,
     app_effect_handler: Option<&AppEffectHandler>,
+    async_registry: &AsyncRegistry,
+    active_services: &mut HashMap<ServiceKey, ActiveServiceHandle>,
+    service_bindings: &mut HashMap<ServiceBindingKey, ServiceBindings>,
+    next_service_instance_id: &mut u64,
     window: &Window,
     elwt: &EventLoopWindowTarget<TestEvent>,
     last_redraw_at: &mut Instant,
@@ -1154,7 +1612,16 @@ fn handle_mouse_button(
         invalidations.mark_build();
 
         mark_text_trace_handled(pending_text_traces, trace_seq);
-        if process_pending_effects(runtime, effect_result_tx, event_proxy, app_effect_handler) {
+        if process_pending_effects(
+            runtime,
+            effect_result_tx,
+            event_proxy,
+            app_effect_handler,
+            async_registry,
+            active_services,
+            service_bindings,
+            next_service_instance_id,
+        ) {
             mark_text_trace_effects(pending_text_traces, trace_seq);
             invalidations.mark_build();
             request_redraw_logged(
@@ -1208,6 +1675,10 @@ fn handle_scroll(
     effect_result_tx: &mpsc::Sender<EffectResult>,
     event_proxy: &EventLoopProxy<TestEvent>,
     app_effect_handler: Option<&AppEffectHandler>,
+    async_registry: &AsyncRegistry,
+    active_services: &mut HashMap<ServiceKey, ActiveServiceHandle>,
+    service_bindings: &mut HashMap<ServiceBindingKey, ServiceBindings>,
+    next_service_instance_id: &mut u64,
     window: &Window,
     elwt: &EventLoopWindowTarget<TestEvent>,
     last_redraw_at: &mut Instant,
@@ -1238,7 +1709,16 @@ fn handle_scroll(
         // lists, scrollbars, and scroll-aware wrappers depend on the updated offset
         // during build/lowering, so treat scroll as a build invalidation.
         invalidations.mark_build();
-        if process_pending_effects(runtime, effect_result_tx, event_proxy, app_effect_handler) {
+        if process_pending_effects(
+            runtime,
+            effect_result_tx,
+            event_proxy,
+            app_effect_handler,
+            async_registry,
+            active_services,
+            service_bindings,
+            next_service_instance_id,
+        ) {
             invalidations.mark_build();
             request_redraw_logged(
                 window,
@@ -1269,6 +1749,10 @@ fn handle_cursor_left(
     effect_result_tx: &mpsc::Sender<EffectResult>,
     event_proxy: &EventLoopProxy<TestEvent>,
     app_effect_handler: Option<&AppEffectHandler>,
+    async_registry: &AsyncRegistry,
+    active_services: &mut HashMap<ServiceKey, ActiveServiceHandle>,
+    service_bindings: &mut HashMap<ServiceBindingKey, ServiceBindings>,
+    next_service_instance_id: &mut u64,
     window: &Window,
     elwt: &EventLoopWindowTarget<TestEvent>,
     last_redraw_at: &mut Instant,
@@ -1295,6 +1779,10 @@ fn handle_cursor_left(
                         effect_result_tx,
                         event_proxy,
                         app_effect_handler,
+                        async_registry,
+                        active_services,
+                        service_bindings,
+                        next_service_instance_id,
                     ) {
                         invalidations.mark_build();
                         request_redraw_logged(
@@ -1359,6 +1847,10 @@ fn handle_key_down<S: AppState>(
     effect_result_tx: &mpsc::Sender<EffectResult>,
     event_proxy: &EventLoopProxy<TestEvent>,
     app_effect_handler: Option<&AppEffectHandler>,
+    async_registry: &AsyncRegistry,
+    active_services: &mut HashMap<ServiceKey, ActiveServiceHandle>,
+    service_bindings: &mut HashMap<ServiceBindingKey, ServiceBindings>,
+    next_service_instance_id: &mut u64,
     window: &Window,
     elwt: &EventLoopWindowTarget<TestEvent>,
     last_redraw_at: &mut Instant,
@@ -1388,6 +1880,10 @@ fn handle_key_down<S: AppState>(
                     effect_result_tx,
                     event_proxy,
                     app_effect_handler,
+                    async_registry,
+                    active_services,
+                    service_bindings,
+                    next_service_instance_id,
                 ) {
                     invalidations.mark_build();
                     request_redraw_logged(
@@ -1434,7 +1930,16 @@ fn handle_key_down<S: AppState>(
         }
         invalidations.mark_build();
         mark_text_trace_handled(pending_text_traces, trace_seq);
-        if process_pending_effects(runtime, effect_result_tx, event_proxy, app_effect_handler) {
+        if process_pending_effects(
+            runtime,
+            effect_result_tx,
+            event_proxy,
+            app_effect_handler,
+            async_registry,
+            active_services,
+            service_bindings,
+            next_service_instance_id,
+        ) {
             mark_text_trace_effects(pending_text_traces, trace_seq);
             invalidations.mark_build();
             request_redraw_logged(
@@ -1657,10 +2162,12 @@ pub struct WinitApp<S: AppState, W: Widget<S>> {
     title: String,
     test_control_port: Option<u16>,
     /// Channel pair for receiving completed background effect results.
-    effect_result_tx: mpsc::Sender<EffectResult>,
-    effect_result_rx: mpsc::Receiver<EffectResult>,
+    effect_result_tx: mpsc::Sender<AsyncMessage>,
+    effect_result_rx: mpsc::Receiver<AsyncMessage>,
     /// Optional handler for `Effect::App(...)` payloads.
     app_effect_handler: Option<AppEffectHandler>,
+    async_registry: AsyncRegistry,
+    startup_action: Option<ActionEnvelope>,
     _phantom: std::marker::PhantomData<S>,
 }
 
@@ -1711,6 +2218,8 @@ impl<S: AppState + Default, W: Widget<S> + 'static> WinitApp<S, W> {
             effect_result_tx,
             effect_result_rx,
             app_effect_handler: None,
+            async_registry: AsyncRegistry::new(),
+            startup_action: None,
             _phantom: std::marker::PhantomData,
         }
     }
@@ -1780,13 +2289,26 @@ impl<S: AppState + Default, W: Widget<S> + 'static> WinitApp<S, W> {
                 u64,
                 Option<ActionEnvelope>,
                 Option<ActionEnvelope>,
-                mpsc::Sender<EffectResult>,
+                mpsc::Sender<AsyncMessage>,
                 EventLoopProxy<TestEvent>,
             ) + Send
             + Sync
             + 'static,
     {
         self.app_effect_handler = Some(Box::new(handler));
+        self
+    }
+
+    pub fn with_async<F>(mut self, configure: F) -> Self
+    where
+        F: FnOnce(&mut AsyncRegistry),
+    {
+        configure(&mut self.async_registry);
+        self
+    }
+
+    pub fn with_startup_action<A: Action>(mut self, action: A) -> Self {
+        self.startup_action = Some(action.into());
         self
     }
 
@@ -1878,6 +2400,12 @@ impl<S: AppState + Default, W: Widget<S> + 'static> WinitApp<S, W> {
         let effect_result_tx = self.effect_result_tx;
         let effect_result_rx = self.effect_result_rx;
         let app_effect_handler = self.app_effect_handler;
+        let async_registry = self.async_registry;
+        let startup_action = self.startup_action;
+        let mut startup_dispatched = false;
+        let mut next_service_instance_id = 1_u64;
+        let mut active_services: HashMap<ServiceKey, ActiveServiceHandle> = HashMap::new();
+        let mut service_bindings: HashMap<ServiceBindingKey, ServiceBindings> = HashMap::new();
 
         #[cfg(target_os = "macos")]
         let video_backend: Arc<dyn VideoBackend> = Arc::new(MacVideoBackend::new(&window));
@@ -2005,6 +2533,7 @@ impl<S: AppState + Default, W: Widget<S> + 'static> WinitApp<S, W> {
                                 x, y, 0,
                                 &mut runtime, &pipeline,
                                 &effect_result_tx, &event_proxy, app_effect_handler.as_ref(),
+                                &async_registry, &mut active_services, &mut service_bindings, &mut next_service_instance_id,
                                 window, elwt,
                                 &mut last_redraw_at, min_frame, &mut redraw_pending,
                                 &mut frame_trace,
@@ -2020,6 +2549,7 @@ impl<S: AppState + Default, W: Widget<S> + 'static> WinitApp<S, W> {
                                 x, y, btn, true, 0,
                                 &mut runtime, &pipeline,
                                 &effect_result_tx, &event_proxy, app_effect_handler.as_ref(),
+                                &async_registry, &mut active_services, &mut service_bindings, &mut next_service_instance_id,
                                 window, elwt,
                                 &mut last_redraw_at, min_frame, &mut redraw_pending,
                                 text_trace_enabled, &mut pending_text_traces,
@@ -2038,6 +2568,7 @@ impl<S: AppState + Default, W: Widget<S> + 'static> WinitApp<S, W> {
                                 x, y, btn, false, 0,
                                 &mut runtime, &pipeline,
                                 &effect_result_tx, &event_proxy, app_effect_handler.as_ref(),
+                                &async_registry, &mut active_services, &mut service_bindings, &mut next_service_instance_id,
                                 window, elwt,
                                 &mut last_redraw_at, min_frame, &mut redraw_pending,
                                 text_trace_enabled, &mut pending_text_traces,
@@ -2056,6 +2587,7 @@ impl<S: AppState + Default, W: Widget<S> + 'static> WinitApp<S, W> {
                                 code, modifiers,
                                 &mut runtime, &pipeline,
                                 &effect_result_tx, &event_proxy, app_effect_handler.as_ref(),
+                                &async_registry, &mut active_services, &mut service_bindings, &mut next_service_instance_id,
                                 window, elwt,
                                 &mut last_redraw_at, min_frame, &mut redraw_pending,
                                 text_trace_enabled, &mut pending_text_traces,
@@ -2124,6 +2656,10 @@ impl<S: AppState + Default, W: Widget<S> + 'static> WinitApp<S, W> {
                                         &effect_result_tx,
                                         &event_proxy,
                                         app_effect_handler.as_ref(),
+                                        &async_registry,
+                                        &mut active_services,
+                                        &mut service_bindings,
+                                        &mut next_service_instance_id,
                                     ) {
                                         mark_text_trace_effects(
                                             &mut pending_text_traces,
@@ -2157,6 +2693,10 @@ impl<S: AppState + Default, W: Widget<S> + 'static> WinitApp<S, W> {
                                             &effect_result_tx,
                                             &event_proxy,
                                             app_effect_handler.as_ref(),
+                                            &async_registry,
+                                            &mut active_services,
+                                            &mut service_bindings,
+                                            &mut next_service_instance_id,
                                             window,
                                             elwt,
                                             &mut last_redraw_at,
@@ -2183,6 +2723,7 @@ impl<S: AppState + Default, W: Widget<S> + 'static> WinitApp<S, W> {
                                 x, y, dx, dy, 0,
                                 &mut runtime, &pipeline,
                                 &effect_result_tx, &event_proxy, app_effect_handler.as_ref(),
+                                &async_registry, &mut active_services, &mut service_bindings, &mut next_service_instance_id,
                                 window, elwt,
                                 &mut last_redraw_at, min_frame, &mut redraw_pending,
                                 &mut frame_trace,
@@ -2226,6 +2767,10 @@ impl<S: AppState + Default, W: Widget<S> + 'static> WinitApp<S, W> {
                                     &effect_result_tx,
                                     &event_proxy,
                                     app_effect_handler.as_ref(),
+                                    &async_registry,
+                                    &mut active_services,
+                                    &mut service_bindings,
+                                    &mut next_service_instance_id,
                                 ) {
                                     invalidations.mark_build();
                                 }
@@ -2592,12 +3137,26 @@ impl<S: AppState + Default, W: Widget<S> + 'static> WinitApp<S, W> {
 
                         // Drain completed background effect results and dispatch
                         // their continuations back into the runtime on the main thread.
-                        let effect_results_dispatched = drain_effect_results(&mut runtime, &effect_result_rx);
+                        let effect_results_dispatched = drain_effect_results(
+                            &mut runtime,
+                            &effect_result_rx,
+                            &mut active_services,
+                            &mut service_bindings,
+                        );
                         if effect_results_dispatched {
                             invalidations.mark_build();
                             // Background work completed — process any new effects
                             // the continuation reducers may have emitted.
-                            if process_pending_effects(&mut runtime, &effect_result_tx, &event_proxy, app_effect_handler.as_ref()) {
+                            if process_pending_effects(
+                                &mut runtime,
+                                &effect_result_tx,
+                                &event_proxy,
+                                app_effect_handler.as_ref(),
+                                &async_registry,
+                                &mut active_services,
+                                &mut service_bindings,
+                                &mut next_service_instance_id,
+                            ) {
                                 invalidations.mark_build();
                                 request_redraw_logged(
                                     &window,
@@ -2902,7 +3461,16 @@ impl<S: AppState + Default, W: Widget<S> + 'static> WinitApp<S, W> {
                                         eprintln!("Runtime tick error: {:?}", e);
                                     }
                                 }
-                                if process_pending_effects(&mut runtime, &effect_result_tx, &event_proxy, app_effect_handler.as_ref()) {
+                                if process_pending_effects(
+                                    &mut runtime,
+                                    &effect_result_tx,
+                                    &event_proxy,
+                                    app_effect_handler.as_ref(),
+                                    &async_registry,
+                                    &mut active_services,
+                                    &mut service_bindings,
+                                    &mut next_service_instance_id,
+                                ) {
                                     invalidations.mark_build();
                                     request_redraw_logged(
                                         &window,
@@ -3041,7 +3609,7 @@ impl<S: AppState + Default, W: Widget<S> + 'static> WinitApp<S, W> {
                                 }
 
                                 if invalidations.build || pipeline.prev_ir.is_none() {
-                                    let (node_tree, registry, anims, videos, web_views, portals) = {
+                                    let (node_tree, registry, resources, anims, videos, web_views, portals) = {
                                         let state = runtime.get_app_state::<S>().unwrap();
                                         let view = View::new(
                                             state,
@@ -3051,6 +3619,7 @@ impl<S: AppState + Default, W: Widget<S> + 'static> WinitApp<S, W> {
                                         );
                                         let mut ctx = BuildCtx::new();
                                         let node = root_widget.build(&mut ctx, &view);
+                                        let resources = ctx.take_resources();
                                         let anims = ctx.take_animation_requests();
                                         let videos = ctx.take_video_registrations();
                                         let web_views = ctx.take_web_registrations();
@@ -3068,11 +3637,24 @@ impl<S: AppState + Default, W: Widget<S> + 'static> WinitApp<S, W> {
                                                 portal_count: portals.len() as u32,
                                             },
                                         );
-                                        (node, ctx.registry, anims, videos, web_views, portals)
+                                        (node, ctx.registry, resources, anims, videos, web_views, portals)
                                     };
 
                                     runtime.clear_reducers();
                                     runtime.absorb_registry(registry);
+                                    if let Err(err) = runtime.reconcile_resources(resources) {
+                                        eprintln!("Runtime resource reconciliation error: {:?}", err);
+                                    }
+                                    if !startup_dispatched {
+                                        if let Some(action) = startup_action.clone() {
+                                            if let Err(err) =
+                                                runtime.dispatch(action, NodeId::derived(0, &[0]))
+                                            {
+                                                eprintln!("Startup action error: {:?}", err);
+                                            }
+                                        }
+                                        startup_dispatched = true;
+                                    }
                                     runtime.sync_animation_requests(&anims);
                                     for (target, req) in anims {
                                         runtime.enqueue_animation(target, req);
@@ -3418,6 +4000,7 @@ impl<S: AppState + Default, W: Widget<S> + 'static> WinitApp<S, W> {
                                     x, y, current_mods,
                                     &mut runtime, &pipeline,
                                     &effect_result_tx, &event_proxy, app_effect_handler.as_ref(),
+                                &async_registry, &mut active_services, &mut service_bindings, &mut next_service_instance_id,
                                     &window, elwt,
                                     &mut last_redraw_at, min_frame, &mut redraw_pending,
                                     &mut frame_trace,
@@ -3432,6 +4015,10 @@ impl<S: AppState + Default, W: Widget<S> + 'static> WinitApp<S, W> {
                                     &effect_result_tx,
                                     &event_proxy,
                                     app_effect_handler.as_ref(),
+                                    &async_registry,
+                                    &mut active_services,
+                                    &mut service_bindings,
+                                    &mut next_service_instance_id,
                                     &window,
                                     elwt,
                                     &mut last_redraw_at,
@@ -3453,6 +4040,7 @@ impl<S: AppState + Default, W: Widget<S> + 'static> WinitApp<S, W> {
                                             x, y, btn, is_pressed, current_mods,
                                             &mut runtime, &pipeline,
                                             &effect_result_tx, &event_proxy, app_effect_handler.as_ref(),
+                                &async_registry, &mut active_services, &mut service_bindings, &mut next_service_instance_id,
                                             &window, elwt,
                                             &mut last_redraw_at, min_frame, &mut redraw_pending,
                                             text_trace_enabled, &mut pending_text_traces,
@@ -3488,6 +4076,7 @@ impl<S: AppState + Default, W: Widget<S> + 'static> WinitApp<S, W> {
                                         point_x, point_y, dx, dy, current_mods,
                                         &mut runtime, &pipeline,
                                         &effect_result_tx, &event_proxy, app_effect_handler.as_ref(),
+                                &async_registry, &mut active_services, &mut service_bindings, &mut next_service_instance_id,
                                         &window, elwt,
                                         &mut last_redraw_at, min_frame, &mut redraw_pending,
                                         &mut frame_trace,
@@ -3514,6 +4103,7 @@ impl<S: AppState + Default, W: Widget<S> + 'static> WinitApp<S, W> {
                                                 x, y, current_mods,
                                                 &mut runtime, &pipeline,
                                                 &effect_result_tx, &event_proxy, app_effect_handler.as_ref(),
+                                &async_registry, &mut active_services, &mut service_bindings, &mut next_service_instance_id,
                                                 &window, elwt,
                                                 &mut last_redraw_at, min_frame, &mut redraw_pending,
                                                 &mut frame_trace,
@@ -3523,6 +4113,7 @@ impl<S: AppState + Default, W: Widget<S> + 'static> WinitApp<S, W> {
                                                 x, y, PointerButton::Primary, true, current_mods,
                                                 &mut runtime, &pipeline,
                                                 &effect_result_tx, &event_proxy, app_effect_handler.as_ref(),
+                                &async_registry, &mut active_services, &mut service_bindings, &mut next_service_instance_id,
                                                 &window, elwt,
                                                 &mut last_redraw_at, min_frame, &mut redraw_pending,
                                                 text_trace_enabled, &mut pending_text_traces,
@@ -3539,6 +4130,7 @@ impl<S: AppState + Default, W: Widget<S> + 'static> WinitApp<S, W> {
                                                 x, y, current_mods,
                                                 &mut runtime, &pipeline,
                                                 &effect_result_tx, &event_proxy, app_effect_handler.as_ref(),
+                                &async_registry, &mut active_services, &mut service_bindings, &mut next_service_instance_id,
                                                 &window, elwt,
                                                 &mut last_redraw_at, min_frame, &mut redraw_pending,
                                                 &mut frame_trace,
@@ -3552,6 +4144,7 @@ impl<S: AppState + Default, W: Widget<S> + 'static> WinitApp<S, W> {
                                                 x, y, current_mods,
                                                 &mut runtime, &pipeline,
                                                 &effect_result_tx, &event_proxy, app_effect_handler.as_ref(),
+                                &async_registry, &mut active_services, &mut service_bindings, &mut next_service_instance_id,
                                                 &window, elwt,
                                                 &mut last_redraw_at, min_frame, &mut redraw_pending,
                                                 &mut frame_trace,
@@ -3561,6 +4154,7 @@ impl<S: AppState + Default, W: Widget<S> + 'static> WinitApp<S, W> {
                                                 x, y, PointerButton::Primary, false, current_mods,
                                                 &mut runtime, &pipeline,
                                                 &effect_result_tx, &event_proxy, app_effect_handler.as_ref(),
+                                &async_registry, &mut active_services, &mut service_bindings, &mut next_service_instance_id,
                                                 &window, elwt,
                                                 &mut last_redraw_at, min_frame, &mut redraw_pending,
                                                 text_trace_enabled, &mut pending_text_traces,
@@ -3614,6 +4208,7 @@ impl<S: AppState + Default, W: Widget<S> + 'static> WinitApp<S, W> {
                                             code, current_mods,
                                             &mut runtime, &pipeline,
                                             &effect_result_tx, &event_proxy, app_effect_handler.as_ref(),
+                                &async_registry, &mut active_services, &mut service_bindings, &mut next_service_instance_id,
                                             &window, elwt,
                                             &mut last_redraw_at, min_frame, &mut redraw_pending,
                                             text_trace_enabled, &mut pending_text_traces,
@@ -3653,7 +4248,16 @@ impl<S: AppState + Default, W: Widget<S> + 'static> WinitApp<S, W> {
                                         runtime.handle_input(e, ir, layout).ok();
                                         invalidations.mark_build();
                                         mark_text_trace_handled(&mut pending_text_traces, trace_seq);
-                                        if process_pending_effects(&mut runtime, &effect_result_tx, &event_proxy, app_effect_handler.as_ref()) {
+                                        if process_pending_effects(
+                                            &mut runtime,
+                                            &effect_result_tx,
+                                            &event_proxy,
+                                            app_effect_handler.as_ref(),
+                                            &async_registry,
+                                            &mut active_services,
+                                            &mut service_bindings,
+                                            &mut next_service_instance_id,
+                                        ) {
                                             mark_text_trace_effects(&mut pending_text_traces, trace_seq);
                                             invalidations.mark_build();
                                             request_redraw_logged(
@@ -3915,8 +4519,14 @@ mod tests {
         assert_eq!(cursor_icon_for(MouseCursor::Default), CursorIcon::Default);
         assert_eq!(cursor_icon_for(MouseCursor::Pointer), CursorIcon::Pointer);
         assert_eq!(cursor_icon_for(MouseCursor::Text), CursorIcon::Text);
-        assert_eq!(cursor_icon_for(MouseCursor::NotAllowed), CursorIcon::NotAllowed);
-        assert_eq!(cursor_icon_for(MouseCursor::VerticalText), CursorIcon::VerticalText);
+        assert_eq!(
+            cursor_icon_for(MouseCursor::NotAllowed),
+            CursorIcon::NotAllowed
+        );
+        assert_eq!(
+            cursor_icon_for(MouseCursor::VerticalText),
+            CursorIcon::VerticalText
+        );
     }
 
     #[test]

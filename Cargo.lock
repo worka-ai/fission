@@ -1295,6 +1295,7 @@ dependencies = [
  "fission-core",
  "fission-ir",
  "fission-render",
+ "pollster",
  "serde",
  "serde_json",
 ]
@@ -1320,6 +1321,7 @@ dependencies = [
  "fission-render-vello",
  "fission-semantics",
  "fission-shell",
+ "fission-shell-winit",
  "fission-test-driver",
  "fission-theme",
  "fission-widgets",
@@ -3858,6 +3860,7 @@ dependencies = [
  "fission-test-driver",
  "fission-theme",
  "fission-widgets",
+ "serde",
 ]
 
 [[package]]

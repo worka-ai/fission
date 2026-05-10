@@ -40,6 +40,7 @@ use std::collections::HashMap;
 extern crate self as fission_core;
 
 pub mod action;
+pub mod async_runtime;
 pub mod context; // New
 pub mod diff;
 pub mod effect; // New
@@ -60,6 +61,10 @@ pub mod view;
 mod tests;
 
 pub use action::{Action, ActionEnvelope, ActionId, AppState};
+pub use async_runtime::{
+    BoxFuture, JobCtx, JobRef, JobSpec, ResourceExecutionContext, ServiceBindings, ServiceCtx,
+    ServiceRunner, ServiceSlot, ServiceSpec, ServiceType,
+};
 pub use context::{Effects, ReducerContext}; // New
 pub use effect::{ActionInput, Effect, EffectEnvelope, EffectPayload, SystemEffect}; // New
 pub use env::{Clipboard, Env, ImeHandler, InteractionStateMap, RuntimeState, ScrollStateMap};
@@ -75,7 +80,9 @@ pub use fission_layout::{
 pub use lowering::{LoweringContext, NodeBuilder};
 pub use registry::{
     ActionRegistry, AnimationPropertyId, AnimationRequest, AnimationStartValue, BuildCtx,
-    EasingFunction, Handler, PortalLayer, VideoRegistration,
+    EasingFunction, Handler, JobResource, PortalLayer, ResourceKey, ResourcePolicy,
+    ResourceRegistry, RuntimeResourceDeclaration, RuntimeResourceKind, ServiceResource,
+    TimerResource, VideoRegistration,
 };
 pub use time::{Clock, CurrentTime};
 pub use ui::{

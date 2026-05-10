@@ -6,6 +6,10 @@
 //! and binding callback actions.
 
 use crate::action::{Action, ActionEnvelope, AppState};
+use crate::async_runtime::{
+    JobRef, JobRequestPayload, JobSpec, ServiceBindings, ServiceCommandPayload, ServiceSlot,
+    ServiceSpec, ServiceStartPayload, ServiceStopPayload,
+};
 use crate::effect::{ActionInput, Effect, EffectEnvelope, SystemEffect};
 use crate::registry::{ActionRegistry, IntoHandler};
 use std::collections::HashMap;
@@ -108,6 +112,8 @@ impl<'a, S: AppState> Effects<'a, S> {
             effect: Effect::System(effect),
             on_ok: None,
             on_err: None,
+            service_bindings: None,
+            resource: None,
         });
         req_id
     }
@@ -122,6 +128,8 @@ impl<'a, S: AppState> Effects<'a, S> {
             effect: Effect::System(effect),
             on_ok: None,
             on_err: None,
+            service_bindings: None,
+            resource: None,
         });
 
         EffectBuilder {
@@ -135,6 +143,112 @@ impl<'a, S: AppState> Effects<'a, S> {
             url: url.into(),
             headers: HashMap::new(),
         })
+    }
+
+    pub fn app<J: JobSpec>(
+        &mut self,
+        job: JobRef<J>,
+        request: J::Request,
+    ) -> EffectBuilder<'_, 'a, S> {
+        let req_id = self.next_req_id;
+        self.next_req_id += 1;
+        let payload = serde_json::to_vec(&request).expect("job request serialization must succeed");
+        let index = self.out.len();
+        self.out.push(EffectEnvelope {
+            req_id,
+            effect: Effect::Job(JobRequestPayload {
+                job_name: job.name.to_string(),
+                payload,
+            }),
+            on_ok: None,
+            on_err: None,
+            service_bindings: None,
+            resource: None,
+        });
+        EffectBuilder {
+            effects: self,
+            index,
+        }
+    }
+
+    pub fn start_service<Svc: ServiceSpec>(
+        &mut self,
+        slot: ServiceSlot<Svc>,
+        config: Svc::Config,
+    ) -> ServiceStartBuilder<'_, 'a, S> {
+        let req_id = self.next_req_id;
+        self.next_req_id += 1;
+        let index = self.out.len();
+        let config =
+            serde_json::to_vec(&config).expect("service config serialization must succeed");
+        self.out.push(EffectEnvelope {
+            req_id,
+            effect: Effect::StartService(ServiceStartPayload {
+                service_name: slot.ty.name.to_string(),
+                slot_key: slot.slot_key().to_string(),
+                config,
+            }),
+            on_ok: None,
+            on_err: None,
+            service_bindings: Some(ServiceBindings::default()),
+            resource: None,
+        });
+        ServiceStartBuilder {
+            effects: self,
+            index,
+        }
+    }
+
+    pub fn command<Svc: ServiceSpec>(
+        &mut self,
+        slot: ServiceSlot<Svc>,
+        command: Svc::Command,
+    ) -> EffectBuilder<'_, 'a, S> {
+        let req_id = self.next_req_id;
+        self.next_req_id += 1;
+        let index = self.out.len();
+        let payload =
+            serde_json::to_vec(&command).expect("service command serialization must succeed");
+        self.out.push(EffectEnvelope {
+            req_id,
+            effect: Effect::ServiceCommand(ServiceCommandPayload {
+                service_name: slot.ty.name.to_string(),
+                slot_key: slot.slot_key().to_string(),
+                payload,
+            }),
+            on_ok: None,
+            on_err: None,
+            service_bindings: None,
+            resource: None,
+        });
+        EffectBuilder {
+            effects: self,
+            index,
+        }
+    }
+
+    pub fn stop_service<Svc: ServiceSpec>(
+        &mut self,
+        slot: ServiceSlot<Svc>,
+    ) -> EffectBuilder<'_, 'a, S> {
+        let req_id = self.next_req_id;
+        self.next_req_id += 1;
+        let index = self.out.len();
+        self.out.push(EffectEnvelope {
+            req_id,
+            effect: Effect::StopService(ServiceStopPayload {
+                service_name: slot.ty.name.to_string(),
+                slot_key: slot.slot_key().to_string(),
+            }),
+            on_ok: None,
+            on_err: None,
+            service_bindings: None,
+            resource: None,
+        });
+        EffectBuilder {
+            effects: self,
+            index,
+        }
     }
 
     pub fn file_read(&mut self, path: impl Into<String>) -> EffectBuilder<'_, 'a, S> {
@@ -182,4 +296,55 @@ impl<'a, 'b, S: AppState> EffectBuilder<'a, 'b, S> {
     pub fn dispatch(self) {
         // Drop
     }
+}
+
+pub struct ServiceStartBuilder<'a, 'b, S: AppState> {
+    effects: &'a mut Effects<'b, S>,
+    index: usize,
+}
+
+impl<'a, 'b, S: AppState> ServiceStartBuilder<'a, 'b, S> {
+    pub fn on_started(self, action: ActionEnvelope) -> Self {
+        if let Some(bindings) = self.effects.out[self.index].service_bindings.as_mut() {
+            bindings.on_started = Some(action);
+        }
+        self
+    }
+
+    pub fn on_start_failed(self, action: ActionEnvelope) -> Self {
+        if let Some(bindings) = self.effects.out[self.index].service_bindings.as_mut() {
+            bindings.on_start_failed = Some(action);
+        }
+        self
+    }
+
+    pub fn on_event(self, action: ActionEnvelope) -> Self {
+        if let Some(bindings) = self.effects.out[self.index].service_bindings.as_mut() {
+            bindings.on_event = Some(action);
+        }
+        self
+    }
+
+    pub fn on_stopped(self, action: ActionEnvelope) -> Self {
+        if let Some(bindings) = self.effects.out[self.index].service_bindings.as_mut() {
+            bindings.on_stopped = Some(action);
+        }
+        self
+    }
+
+    pub fn on_command_ok(self, action: ActionEnvelope) -> Self {
+        if let Some(bindings) = self.effects.out[self.index].service_bindings.as_mut() {
+            bindings.on_command_ok = Some(action);
+        }
+        self
+    }
+
+    pub fn on_command_err(self, action: ActionEnvelope) -> Self {
+        if let Some(bindings) = self.effects.out[self.index].service_bindings.as_mut() {
+            bindings.on_command_err = Some(action);
+        }
+        self
+    }
+
+    pub fn dispatch(self) {}
 }

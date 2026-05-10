@@ -2,6 +2,8 @@ use fission_ir::WidgetNodeId;
 use fission_render::LayoutRect;
 use serde::{Deserialize, Serialize};
 
+pub mod async_host;
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum Platform {
     Desktop,

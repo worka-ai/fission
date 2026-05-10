@@ -2,13 +2,18 @@ use crate::{
     action::video::{
         VideoPause, VideoPlay, VideoSeek, VideoSetMuted, VideoSetRate, VideoSetVolume, VideoStop,
     },
+    async_runtime::{
+        JobRef, JobRequestPayload, JobSpec, ServiceBindings, ServiceSlot, ServiceSpec,
+        ServiceStartPayload,
+    },
     context::{Effects, ReducerContext},
-    effect::{ActionInput, EffectEnvelope},
+    effect::{ActionInput, Effect, EffectEnvelope},
     ui::Node,
     Action, ActionEnvelope, ActionId, AppState, BoxedReducer,
 };
 use anyhow::{anyhow, Result};
 use fission_ir::{NodeId, WidgetNodeId};
+use serde::Serialize;
 use std::any::TypeId;
 use std::collections::{BTreeMap, HashMap};
 use std::sync::Arc;
@@ -320,6 +325,8 @@ pub struct WebRegistration {
 pub struct BuildCtx<S: AppState> {
     /// The action registry that accumulates handlers during the build phase.
     pub registry: ActionRegistry<S>,
+    /// Declarative runtime resources collected during the build phase.
+    pub resources: ResourceRegistry,
     /// Pending animation requests.
     pub animation_requests: Vec<(WidgetNodeId, AnimationRequest)>,
     /// Registered video nodes.
@@ -366,6 +373,7 @@ impl<S: AppState> BuildCtx<S> {
     pub fn new() -> Self {
         Self {
             registry: ActionRegistry::new(),
+            resources: ResourceRegistry::new(),
             animation_requests: Vec::new(),
             video_nodes: Vec::new(),
             web_nodes: Vec::new(),
@@ -384,6 +392,13 @@ impl<S: AppState> BuildCtx<S> {
             id: A::static_id(),
             payload: action.encode(),
         }
+    }
+
+    pub fn register<A: Action, H>(&mut self, handler: H)
+    where
+        H: IntoHandler<S, A> + Send + Sync + 'static,
+    {
+        self.registry.register::<A, H>(handler);
     }
 
     pub fn request_animation_for(&mut self, target: WidgetNodeId, request: AnimationRequest) {
@@ -408,6 +423,10 @@ impl<S: AppState> BuildCtx<S> {
 
     pub fn take_web_registrations(&mut self) -> Vec<WebRegistration> {
         std::mem::take(&mut self.web_nodes)
+    }
+
+    pub fn take_resources(&mut self) -> Vec<RuntimeResourceDeclaration> {
+        self.resources.take()
     }
 
     pub fn register_portal(&mut self, node: Node) {
@@ -542,5 +561,308 @@ impl VideoControlCtx {
             id: VideoSetMuted::static_id(),
             payload: action.encode(),
         }
+    }
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+pub struct ResourceKey(String);
+
+impl ResourceKey {
+    pub fn new(name: impl Into<String>) -> Self {
+        Self(name.into())
+    }
+
+    pub fn widget(name: impl AsRef<str>, id: WidgetNodeId) -> Self {
+        Self(format!("widget:{}:{}", id.as_u128(), name.as_ref()))
+    }
+
+    pub fn as_str(&self) -> &str {
+        &self.0
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ResourcePolicy {
+    PreserveOnChange,
+    RestartOnChange,
+}
+
+impl Default for ResourcePolicy {
+    fn default() -> Self {
+        Self::RestartOnChange
+    }
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct RuntimeResourceDeclaration {
+    pub key: String,
+    pub deps: Option<Vec<u8>>,
+    pub policy: ResourcePolicy,
+    pub kind: RuntimeResourceKind,
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub enum RuntimeResourceKind {
+    Job(JobResource),
+    Service(ServiceResource),
+    Timer(TimerResource),
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct JobResource {
+    pub key: ResourceKey,
+    pub effect: EffectEnvelope,
+    pub deps: Option<Vec<u8>>,
+    pub policy: ResourcePolicy,
+}
+
+impl JobResource {
+    pub fn new<J: JobSpec>(key: ResourceKey, job: JobRef<J>, request: J::Request) -> Self {
+        let payload =
+            serde_json::to_vec(&request).expect("job resource request serialization must succeed");
+        Self {
+            key,
+            effect: EffectEnvelope {
+                req_id: 0,
+                effect: Effect::Job(JobRequestPayload {
+                    job_name: job.name.to_string(),
+                    payload,
+                }),
+                on_ok: None,
+                on_err: None,
+                service_bindings: None,
+                resource: None,
+            },
+            deps: None,
+            policy: ResourcePolicy::RestartOnChange,
+        }
+    }
+
+    pub fn deps<T: Serialize>(mut self, deps: T) -> Self {
+        self.deps =
+            Some(serde_json::to_vec(&deps).expect("resource deps serialization must succeed"));
+        self
+    }
+
+    pub fn preserve_on_change(mut self) -> Self {
+        self.policy = ResourcePolicy::PreserveOnChange;
+        self
+    }
+
+    pub fn restart_on_change(mut self) -> Self {
+        self.policy = ResourcePolicy::RestartOnChange;
+        self
+    }
+
+    pub fn on_ok(mut self, action: ActionEnvelope) -> Self {
+        self.effect.on_ok = Some(action);
+        self
+    }
+
+    pub fn on_err(mut self, action: ActionEnvelope) -> Self {
+        self.effect.on_err = Some(action);
+        self
+    }
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct ServiceResource {
+    pub key: ResourceKey,
+    pub effect: EffectEnvelope,
+    pub deps: Option<Vec<u8>>,
+    pub policy: ResourcePolicy,
+}
+
+impl ServiceResource {
+    pub fn new<Svc: ServiceSpec>(
+        key: ResourceKey,
+        slot: ServiceSlot<Svc>,
+        config: Svc::Config,
+    ) -> Self {
+        let config = serde_json::to_vec(&config)
+            .expect("service resource config serialization must succeed");
+        Self {
+            key,
+            effect: EffectEnvelope {
+                req_id: 0,
+                effect: Effect::StartService(ServiceStartPayload {
+                    service_name: slot.ty.name.to_string(),
+                    slot_key: slot.slot_key().to_string(),
+                    config,
+                }),
+                on_ok: None,
+                on_err: None,
+                service_bindings: Some(ServiceBindings::default()),
+                resource: None,
+            },
+            deps: None,
+            policy: ResourcePolicy::RestartOnChange,
+        }
+    }
+
+    pub fn deps<T: Serialize>(mut self, deps: T) -> Self {
+        self.deps =
+            Some(serde_json::to_vec(&deps).expect("resource deps serialization must succeed"));
+        self
+    }
+
+    pub fn preserve_on_change(mut self) -> Self {
+        self.policy = ResourcePolicy::PreserveOnChange;
+        self
+    }
+
+    pub fn restart_on_change(mut self) -> Self {
+        self.policy = ResourcePolicy::RestartOnChange;
+        self
+    }
+
+    pub fn on_started(mut self, action: ActionEnvelope) -> Self {
+        if let Some(bindings) = self.effect.service_bindings.as_mut() {
+            bindings.on_started = Some(action);
+        }
+        self
+    }
+
+    pub fn on_start_failed(mut self, action: ActionEnvelope) -> Self {
+        if let Some(bindings) = self.effect.service_bindings.as_mut() {
+            bindings.on_start_failed = Some(action);
+        }
+        self
+    }
+
+    pub fn on_event(mut self, action: ActionEnvelope) -> Self {
+        if let Some(bindings) = self.effect.service_bindings.as_mut() {
+            bindings.on_event = Some(action);
+        }
+        self
+    }
+
+    pub fn on_stopped(mut self, action: ActionEnvelope) -> Self {
+        if let Some(bindings) = self.effect.service_bindings.as_mut() {
+            bindings.on_stopped = Some(action);
+        }
+        self
+    }
+
+    pub fn on_command_ok(mut self, action: ActionEnvelope) -> Self {
+        if let Some(bindings) = self.effect.service_bindings.as_mut() {
+            bindings.on_command_ok = Some(action);
+        }
+        self
+    }
+
+    pub fn on_command_err(mut self, action: ActionEnvelope) -> Self {
+        if let Some(bindings) = self.effect.service_bindings.as_mut() {
+            bindings.on_command_err = Some(action);
+        }
+        self
+    }
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct TimerResource {
+    pub key: ResourceKey,
+    pub interval_ms: u64,
+    pub payload: Vec<u8>,
+    pub on_tick: Option<ActionEnvelope>,
+    pub deps: Option<Vec<u8>>,
+    pub immediate: bool,
+    pub policy: ResourcePolicy,
+}
+
+impl TimerResource {
+    pub fn new<T: Serialize>(key: ResourceKey, interval: std::time::Duration, payload: T) -> Self {
+        Self {
+            key,
+            interval_ms: interval.as_millis() as u64,
+            payload: serde_json::to_vec(&payload)
+                .expect("timer resource payload serialization must succeed"),
+            on_tick: None,
+            deps: None,
+            immediate: false,
+            policy: ResourcePolicy::RestartOnChange,
+        }
+    }
+
+    pub fn deps<T: Serialize>(mut self, deps: T) -> Self {
+        self.deps =
+            Some(serde_json::to_vec(&deps).expect("resource deps serialization must succeed"));
+        self
+    }
+
+    pub fn preserve_on_change(mut self) -> Self {
+        self.policy = ResourcePolicy::PreserveOnChange;
+        self
+    }
+
+    pub fn restart_on_change(mut self) -> Self {
+        self.policy = ResourcePolicy::RestartOnChange;
+        self
+    }
+
+    pub fn immediate(mut self) -> Self {
+        self.immediate = true;
+        self
+    }
+
+    pub fn on_tick(mut self, action: ActionEnvelope) -> Self {
+        self.on_tick = Some(action);
+        self
+    }
+}
+
+#[derive(Default)]
+pub struct ResourceRegistry {
+    declarations: Vec<RuntimeResourceDeclaration>,
+    seen_keys: HashMap<String, usize>,
+}
+
+impl ResourceRegistry {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    pub fn job(&mut self, resource: JobResource) {
+        self.push(RuntimeResourceDeclaration {
+            key: resource.key.as_str().to_string(),
+            deps: resource.deps.clone(),
+            policy: resource.policy,
+            kind: RuntimeResourceKind::Job(resource),
+        });
+    }
+
+    pub fn service(&mut self, resource: ServiceResource) {
+        self.push(RuntimeResourceDeclaration {
+            key: resource.key.as_str().to_string(),
+            deps: resource.deps.clone(),
+            policy: resource.policy,
+            kind: RuntimeResourceKind::Service(resource),
+        });
+    }
+
+    pub fn timer(&mut self, resource: TimerResource) {
+        self.push(RuntimeResourceDeclaration {
+            key: resource.key.as_str().to_string(),
+            deps: resource.deps.clone(),
+            policy: resource.policy,
+            kind: RuntimeResourceKind::Timer(resource),
+        });
+    }
+
+    pub fn take(&mut self) -> Vec<RuntimeResourceDeclaration> {
+        self.seen_keys.clear();
+        std::mem::take(&mut self.declarations)
+    }
+
+    fn push(&mut self, declaration: RuntimeResourceDeclaration) {
+        if let Some(index) = self.seen_keys.get(&declaration.key) {
+            panic!(
+                "duplicate runtime resource declaration for key '{}' at index {}",
+                declaration.key, index
+            );
+        }
+        let index = self.declarations.len();
+        self.seen_keys.insert(declaration.key.clone(), index);
+        self.declarations.push(declaration);
     }
 }

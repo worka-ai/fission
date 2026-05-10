@@ -5,6 +5,7 @@ edition = "2021"
 
 [dependencies]
 fission-shell = { path = "../fission-shell" }
+fission-shell-winit = { path = "../fission-shell-winit" }
 fission-render = { path = "../../rendering/fission-render" }
 fission-render-vello = { path = "../../rendering/fission-render-vello" }
 fission-core = { path = "../../core/fission-core" }
