@@ -34,6 +34,10 @@ DesktopApp::new(MyRootWidget)
     .with_state_init(|state| {
         state.counter = 42;
     })
+    .with_startup_action(AppStarted)
+    .with_async(|asyncs| {
+        asyncs.register_job(FETCH_JOB, fetch_job_handler);
+    })
     .with_key_handler(|state, key, mods| {
         // Return true if handled, false to pass to framework
         false
@@ -42,11 +46,12 @@ DesktopApp::new(MyRootWidget)
         env.theme = if state.dark_mode { Theme::dark() } else { Theme::default() };
     })
     .with_frame_hook(|state| {
-        // Runs on every event loop iteration (e.g., poll LSP).
+        // Runs on every AboutToWait event.
+        // Keep this for synchronous polling or platform wakeups only.
         // Return true to request a redraw.
         false
     })
-    .with_app_effect_handler(|payload, req_id, on_ok, on_err, tx| {
+    .with_app_effect_handler(|payload, req_id, on_ok, on_err, tx, proxy| {
         // Handle Effect::App(...) payloads on a background thread.
     })
     .run()
@@ -58,11 +63,13 @@ DesktopApp::new(MyRootWidget)
 | Method | Purpose |
 |--------|---------|
 | `with_title(title)` | Set the window title. |
-| `with_state_init(f)` | Mutate the initial `S` state before the first frame. |
+| `with_state_init(f)` | Mutate the initial `S` state before the first frame. Keep this synchronous and cheap. |
+| `with_startup_action(action)` | Dispatch one action after the runtime is ready. Use this to kick off startup jobs or services without blocking first paint. |
+| `with_async(f)` | Register typed async jobs and services on the shell-owned async host. |
 | `with_key_handler(f)` | Register an app-level key handler that intercepts before the framework. The handler receives `(&mut S, &KeyCode, modifiers)` and returns `true` if consumed. |
 | `with_sync_env(f)` | Synchronize `Env` from app state each frame (e.g., theme switching). |
-| `with_frame_hook(f)` | Register a callback that runs on every `AboutToWait` event. Return `true` to request a redraw. Useful for polling background services. |
-| `with_app_effect_handler(f)` | Handle custom `Effect::App(Vec<u8>)` payloads. The handler should spawn background work and send results through the provided channel. |
+| `with_frame_hook(f)` | Register a callback that runs on every `AboutToWait` event. Return `true` to request a redraw. Prefer startup actions, async jobs, services, or timer resources for app lifecycle work. |
+| `with_app_effect_handler(f)` | Handle custom `Effect::App(Vec<u8>)` payloads. The handler should spawn background work and send results through the provided channel and wake proxy. |
 | `with_env(env)` | Replace the default `Env`. |
 | `register_reducer(id, f)` | Register a single action reducer. |
 | `absorb_registry(registry)` | Absorb an entire `ActionRegistry<S>` for bulk reducer registration. |
