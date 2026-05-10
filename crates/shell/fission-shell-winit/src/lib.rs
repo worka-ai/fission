@@ -4413,6 +4413,14 @@ fn gpu_screenshot(
     let (rgba, width, height) = if texture_width == output_width && texture_height == output_height
     {
         (rgba, texture_width, texture_height)
+    } else if let Some(resized) = downscale_rgba_box(
+        &rgba,
+        texture_width,
+        texture_height,
+        output_width,
+        output_height,
+    ) {
+        (resized, output_width, output_height)
     } else {
         let Some(image) = image::RgbaImage::from_raw(texture_width, texture_height, rgba) else {
             return fission_test_driver::TestResponse::Error {
@@ -4453,6 +4461,59 @@ fn gpu_screenshot(
             height,
         }
     }
+}
+
+fn downscale_rgba_box(
+    rgba: &[u8],
+    input_width: u32,
+    input_height: u32,
+    output_width: u32,
+    output_height: u32,
+) -> Option<Vec<u8>> {
+    if output_width == 0
+        || output_height == 0
+        || input_width % output_width != 0
+        || input_height % output_height != 0
+    {
+        return None;
+    }
+
+    let scale_x = input_width / output_width;
+    let scale_y = input_height / output_height;
+    if scale_x <= 1 && scale_y <= 1 {
+        return None;
+    }
+
+    let samples_per_pixel = scale_x.checked_mul(scale_y)?;
+    let mut out = vec![0u8; (output_width * output_height * 4) as usize];
+
+    for out_y in 0..output_height {
+        let src_y0 = out_y * scale_y;
+        for out_x in 0..output_width {
+            let src_x0 = out_x * scale_x;
+            let mut sum = [0u32; 4];
+            for dy in 0..scale_y {
+                let src_y = src_y0 + dy;
+                let row_offset = ((src_y * input_width) * 4) as usize;
+                for dx in 0..scale_x {
+                    let src_x = src_x0 + dx;
+                    let src_index = row_offset + (src_x * 4) as usize;
+                    sum[0] += rgba[src_index] as u32;
+                    sum[1] += rgba[src_index + 1] as u32;
+                    sum[2] += rgba[src_index + 2] as u32;
+                    sum[3] += rgba[src_index + 3] as u32;
+                }
+            }
+
+            let dst_index = (((out_y * output_width) + out_x) * 4) as usize;
+            out[dst_index] = (sum[0] / samples_per_pixel) as u8;
+            out[dst_index + 1] = (sum[1] / samples_per_pixel) as u8;
+            out[dst_index + 2] = (sum[2] / samples_per_pixel) as u8;
+            out[dst_index + 3] = (sum[3] / samples_per_pixel) as u8;
+        }
+    }
+
+    Some(out)
 }
 
 fn layout_size_to_image_dimensions(size: LayoutSize) -> (u32, u32) {
@@ -4501,8 +4562,9 @@ fn recreate_target_texture(
 #[cfg(test)]
 mod tests {
     use super::{
-        animation_redraw_interval, cursor_icon_for, layout_size_to_image_dimensions,
-        logical_viewport_to_render_target_size, repeating_animation_redraw_interval,
+        animation_redraw_interval, cursor_icon_for, downscale_rgba_box,
+        layout_size_to_image_dimensions, logical_viewport_to_render_target_size,
+        repeating_animation_redraw_interval,
         texture_plans_fit_device_limits, LiveResizeController,
     };
     use crate::pipeline::CompositorTexturePlan;
@@ -4760,5 +4822,14 @@ mod tests {
             1.5,
         );
         assert_eq!(fractional, (645, 1350));
+    }
+
+    #[test]
+    fn integer_downscale_uses_fast_box_path() {
+        let rgba = vec![
+            10, 20, 30, 255, 30, 40, 50, 255, 50, 60, 70, 255, 70, 80, 90, 255,
+        ];
+        let downscaled = downscale_rgba_box(&rgba, 2, 2, 1, 1).expect("downscale");
+        assert_eq!(downscaled, vec![40, 50, 60, 255]);
     }
 }

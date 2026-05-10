@@ -2,10 +2,10 @@ use fission_core::{
     ActionEnvelope, BoxFuture, EffectPayload, JobCtx, JobRef, JobSpec, ResourceExecutionContext,
     ServiceCtx, ServiceRunner, ServiceSpec, ServiceType,
 };
-use pollster::block_on;
 use std::collections::HashMap;
 use std::future::Future;
 use std::sync::{mpsc, Arc};
+use tokio::runtime::{Builder as TokioRuntimeBuilder, Runtime as TokioRuntime};
 
 pub type WakeFn = Arc<dyn Fn() + Send + Sync>;
 
@@ -154,6 +154,21 @@ impl AsyncRegistry {
             Arc::new(move |launch: JobLaunch| {
                 let handler = handler.clone();
                 std::thread::spawn(move || {
+                    let runtime = match new_job_runtime() {
+                        Ok(runtime) => runtime,
+                        Err(err) => {
+                            let _ = launch.tx.send(AsyncMessage::JobErr {
+                                job_name: J::NAME.to_string(),
+                                req_id: launch.req_id,
+                                payload: None,
+                                on_err: launch.on_err,
+                                message: Some(err),
+                                resource: launch.resource,
+                            });
+                            (launch.wake)();
+                            return;
+                        }
+                    };
                     let request = match serde_json::from_slice::<J::Request>(&launch.payload) {
                         Ok(request) => request,
                         Err(err) => {
@@ -170,7 +185,7 @@ impl AsyncRegistry {
                         }
                     };
 
-                    match block_on(handler(
+                    match runtime.block_on(handler(
                         request,
                         JobCtx {
                             req_id: launch.req_id,
@@ -242,6 +257,21 @@ impl AsyncRegistry {
                 let config_bytes = launch.config.clone();
 
                 std::thread::spawn(move || {
+                    let runtime = match new_service_runtime() {
+                        Ok(runtime) => runtime,
+                        Err(err) => {
+                            let _ = tx.send(AsyncMessage::ServiceStartFailed {
+                                service_name,
+                                slot_key,
+                                instance_id,
+                                payload: None,
+                                message: Some(err),
+                                resource,
+                            });
+                            wake();
+                            return;
+                        }
+                    };
                     let tx_for_emit = tx.clone();
                     let wake_for_emit = wake.clone();
                     let service_name_for_emit = service_name.clone();
@@ -290,7 +320,7 @@ impl AsyncRegistry {
                         }
                     };
 
-                    let mut runner = match block_on(starter(config, ctx.clone())) {
+                    let mut runner = match runtime.block_on(starter(config, ctx.clone())) {
                         Ok(runner) => {
                             let _ = tx.send(AsyncMessage::ServiceStarted {
                                 service_name: service_name.clone(),
@@ -342,7 +372,7 @@ impl AsyncRegistry {
                                     }
                                 };
 
-                                match block_on(runner.on_command(command, ctx.clone())) {
+                                match runtime.block_on(runner.on_command(command, ctx.clone())) {
                                     Ok(ok) => {
                                         let payload = serde_json::to_vec(&ok).ok();
                                         let _ = tx.send(AsyncMessage::ServiceCommandOk {
@@ -383,7 +413,7 @@ impl AsyncRegistry {
                                 wake();
                             }
                             ServiceControlMessage::Stop => {
-                                block_on(runner.on_stop(ctx.clone()));
+                                runtime.block_on(runner.on_stop(ctx.clone()));
                                 let _ = tx.send(AsyncMessage::ServiceStopped {
                                     service_name: service_name.clone(),
                                     slot_key: slot_key.clone(),
@@ -396,7 +426,7 @@ impl AsyncRegistry {
                         }
                     }
 
-                    block_on(runner.on_stop(ctx));
+                    runtime.block_on(runner.on_stop(ctx));
                     let _ = tx.send(AsyncMessage::ServiceStopped {
                         service_name,
                         slot_key,
@@ -461,4 +491,19 @@ impl AsyncRegistry {
             wake,
         }))
     }
+}
+
+fn new_job_runtime() -> Result<TokioRuntime, String> {
+    TokioRuntimeBuilder::new_current_thread()
+        .enable_all()
+        .build()
+        .map_err(|err| err.to_string())
+}
+
+fn new_service_runtime() -> Result<TokioRuntime, String> {
+    TokioRuntimeBuilder::new_multi_thread()
+        .worker_threads(1)
+        .enable_all()
+        .build()
+        .map_err(|err| err.to_string())
 }

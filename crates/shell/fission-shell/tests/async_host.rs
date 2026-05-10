@@ -89,6 +89,73 @@ impl ServiceRunner<SyncService> for SyncRunner {
     }
 }
 
+#[derive(Debug)]
+struct StreamingService;
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+struct StreamingConfig;
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+enum StreamingCommand {
+    StopPings,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+struct StreamingCommandOk;
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+struct StreamingCommandErr {
+    message: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+enum StreamingEvent {
+    DelayedReady,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+struct StreamingStartErr {
+    message: String,
+}
+
+impl ServiceSpec for StreamingService {
+    type Config = StreamingConfig;
+    type Command = StreamingCommand;
+    type CommandOk = StreamingCommandOk;
+    type CommandErr = StreamingCommandErr;
+    type Event = StreamingEvent;
+    type StartErr = StreamingStartErr;
+    const NAME: &'static str = "streaming-service";
+}
+
+const STREAMING_TYPE: ServiceType<StreamingService> = ServiceType::new("streaming-service");
+
+struct StreamingRunner {
+    ready_task: Option<tokio::task::JoinHandle<()>>,
+}
+
+impl ServiceRunner<StreamingService> for StreamingRunner {
+    fn on_command(
+        &mut self,
+        command: StreamingCommand,
+        _ctx: ServiceCtx<StreamingService>,
+    ) -> BoxFuture<Result<StreamingCommandOk, StreamingCommandErr>> {
+        if matches!(command, StreamingCommand::StopPings) {
+            if let Some(task) = self.ready_task.take() {
+                task.abort();
+            }
+        }
+        Box::pin(async { Ok(StreamingCommandOk) })
+    }
+
+    fn on_stop(mut self: Box<Self>, _ctx: ServiceCtx<StreamingService>) -> BoxFuture<()> {
+        if let Some(task) = self.ready_task.take() {
+            task.abort();
+        }
+        Box::pin(async {})
+    }
+}
+
 #[test]
 fn registered_jobs_emit_typed_results() {
     let mut registry = AsyncRegistry::new();
@@ -197,4 +264,55 @@ fn registered_services_start_accept_commands_and_stop() {
         stopped,
         AsyncMessage::ServiceStopped { instance_id: 3, .. }
     ));
+}
+
+#[test]
+fn registered_services_can_emit_from_spawned_background_tasks() {
+    let mut registry = AsyncRegistry::new();
+    registry.register_service(
+        STREAMING_TYPE,
+        |_config: StreamingConfig, ctx: ServiceCtx<StreamingService>| async move {
+            let ready_ctx = ctx.clone();
+            let ready_task = tokio::spawn(async move {
+                tokio::time::sleep(Duration::from_millis(25)).await;
+                let _ = ready_ctx.emit(StreamingEvent::DelayedReady).await;
+            });
+            Ok::<_, StreamingStartErr>(Box::new(StreamingRunner {
+                ready_task: Some(ready_task),
+            }) as Box<dyn ServiceRunner<StreamingService>>)
+        },
+    );
+
+    let (tx, rx) = mpsc::channel();
+    let handle = registry
+        .spawn_service(
+            STREAMING_TYPE.name,
+            ServiceSlot::singleton(STREAMING_TYPE).slot_key(),
+            11,
+            serde_json::to_vec(&StreamingConfig).unwrap(),
+            None,
+            &tx,
+            Arc::new(|| {}),
+        )
+        .expect("service handle");
+
+    let first = rx
+        .recv_timeout(Duration::from_secs(1))
+        .expect("service start");
+    assert!(matches!(first, AsyncMessage::ServiceStarted { .. }));
+
+    let second = rx
+        .recv_timeout(Duration::from_secs(1))
+        .expect("delayed service event");
+    match second {
+        AsyncMessage::ServiceEvent { payload, .. } => {
+            let event: StreamingEvent = serde_json::from_slice(&payload).unwrap();
+            assert_eq!(event, StreamingEvent::DelayedReady);
+        }
+        other => panic!("unexpected message: {:?}", other),
+    }
+
+    handle.control_tx.send(ServiceControlMessage::Stop).unwrap();
+    let stopped = rx.recv_timeout(Duration::from_secs(1)).expect("stopped");
+    assert!(matches!(stopped, AsyncMessage::ServiceStopped { .. }));
 }
