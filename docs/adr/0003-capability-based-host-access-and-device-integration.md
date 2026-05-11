@@ -3,7 +3,7 @@
 - Status: Proposed
 - Date: 2026-05-10
 - Related docs:
-  - `docs/effects-and-async-execution-v1.2.md`
+  - `docs/effects-and-async-execution-v1.3.md`
   - `docs/16-platform-integration.md`
   - `docs/11-4-embed-lifecycle-and-platform-responsibilities.md`
   - `docs/16-5-input-and-lifecycle-handling.md`
