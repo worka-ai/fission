@@ -3414,11 +3414,16 @@ impl<S: AppState + Default, W: Widget<S> + 'static> WinitApp<S, W> {
                                 let force_resize_layout = invalidations.build
                                     || pipeline.prev_ir.is_none()
                                     || pipeline.last_snapshot.is_none();
+                                let force_resize_layout_for_test_capture = pending_resize.is_some()
+                                    && test_capture_requests_settled_resize_layout(
+                                        pending_screenshot_path.as_deref(),
+                                    );
                                 let apply_resize_layout = if pending_resize.is_some() {
                                     live_resize.should_apply_layout(
                                         now,
                                         pipeline.last_snapshot.is_some(),
-                                        force_resize_layout,
+                                        force_resize_layout
+                                            || force_resize_layout_for_test_capture,
                                     )
                                 } else {
                                     force_resize_layout
@@ -4459,6 +4464,10 @@ fn sync_tracked_target_texture_size_to_surface(
     *target_texture_size = (surface_size.width.max(1), surface_size.height.max(1));
 }
 
+fn test_capture_requests_settled_resize_layout(pending_screenshot_path: Option<&str>) -> bool {
+    pending_screenshot_path.is_some()
+}
+
 #[cfg(test)]
 mod tests {
     use super::{
@@ -4466,8 +4475,8 @@ mod tests {
         downscale_rgba_box, layout_size_to_image_dimensions, logical_viewport_to_physical_size,
         logical_viewport_to_render_target_size, normalize_scale_factor,
         physical_size_to_layout_size, repeating_animation_redraw_interval,
-        sync_tracked_target_texture_size_to_surface, texture_plans_fit_device_limits,
-        LiveResizeController, WindowViewportState,
+        sync_tracked_target_texture_size_to_surface, test_capture_requests_settled_resize_layout,
+        texture_plans_fit_device_limits, LiveResizeController, WindowViewportState,
     };
     use crate::pipeline::CompositorTexturePlan;
     use fission_core::env::{ActiveAnimation, AnimationStateMap};
@@ -4823,6 +4832,20 @@ mod tests {
                 1.0,
             )
         );
+    }
+
+    #[test]
+    fn screenshot_and_pump_requests_force_settled_resize_layout() {
+        assert!(test_capture_requests_settled_resize_layout(Some(
+            "__capture__"
+        )));
+        assert!(test_capture_requests_settled_resize_layout(Some(
+            "__pump__"
+        )));
+        assert!(test_capture_requests_settled_resize_layout(Some(
+            "/tmp/frame.png"
+        )));
+        assert!(!test_capture_requests_settled_resize_layout(None));
     }
 
     #[test]
