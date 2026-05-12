@@ -13,7 +13,7 @@ use winit::platform::macos::{ActivationPolicy, EventLoopBuilderExtMacOS};
 #[cfg(target_arch = "wasm32")]
 use winit::platform::web::WindowBuilderExtWebSys;
 use winit::{
-    dpi::PhysicalPosition,
+    dpi::{PhysicalPosition, PhysicalSize},
     event::{Event, Ime, MouseButton, MouseScrollDelta, TouchPhase, WindowEvent},
     event_loop::{ControlFlow, EventLoopBuilder, EventLoopProxy, EventLoopWindowTarget},
     window::{CursorIcon, Window, WindowBuilder, WindowId},
@@ -23,9 +23,9 @@ use fission_core::env::VideoStatus;
 use fission_core::lowering::LoweringContext;
 use fission_core::ui::custom_render::downcast_render_object;
 use fission_core::{
-    Action, ActionId, AlertRequest, AppState, AuthenticateRequest, AUTHENTICATE, BuildCtx, Env,
-    InputEvent, KeyCode, KeyEvent as FissionKeyEvent, OPEN_URL, OpenUrlRequest, PointerButton,
-    PointerEvent, Runtime, RuntimeEffect, ServiceBindings, SHOW_ALERT, View, Widget,
+    Action, ActionId, AlertRequest, AppState, AuthenticateRequest, BuildCtx, Env, InputEvent,
+    KeyCode, KeyEvent as FissionKeyEvent, OpenUrlRequest, PointerButton, PointerEvent, Runtime,
+    RuntimeEffect, ServiceBindings, View, Widget, AUTHENTICATE, OPEN_URL, SHOW_ALERT,
 };
 use fission_core::{ActionInput, CapabilityInvocationPayload, Effect};
 use fission_diagnostics::prelude as diag;
@@ -74,7 +74,6 @@ pub mod test_control;
 
 use fission_core::action::ActionEnvelope;
 
-
 type EffectResult = AsyncMessage;
 
 type ServiceKey = (String, String);
@@ -86,7 +85,10 @@ struct ActiveServiceHandle {
 
 fn open_host_url(url: &str) -> std::io::Result<()> {
     if cfg!(target_os = "macos") {
-        std::process::Command::new("open").arg(url).spawn().map(|_| ())
+        std::process::Command::new("open")
+            .arg(url)
+            .spawn()
+            .map(|_| ())
     } else if cfg!(target_os = "windows") {
         std::process::Command::new("cmd")
             .args(["/C", "start", url])
@@ -149,14 +151,50 @@ enum MainRenderer {
     Software,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq)]
+struct WindowViewportState {
+    physical_size: PhysicalSize<u32>,
+    scale_factor: f64,
+}
+
+impl WindowViewportState {
+    fn from_window(window: &Window) -> Self {
+        Self {
+            physical_size: window.inner_size(),
+            scale_factor: normalize_scale_factor(window.scale_factor()),
+        }
+    }
+
+    fn logical_size(self) -> LayoutSize {
+        physical_size_to_layout_size(self.physical_size, self.scale_factor)
+    }
+
+    fn with_physical_size(self, physical_size: PhysicalSize<u32>) -> Self {
+        Self {
+            physical_size,
+            ..self
+        }
+    }
+
+    fn with_scale_factor(self, scale_factor: f64) -> Self {
+        let scale_factor = normalize_scale_factor(scale_factor);
+        let logical_size = self.logical_size();
+        Self {
+            physical_size: logical_viewport_to_physical_size(logical_size, scale_factor),
+            scale_factor,
+        }
+    }
+}
+
 fn create_render_state<'w>(
     render_cx: &mut RenderContext,
     window: Arc<Window>,
+    viewport: WindowViewportState,
 ) -> anyhow::Result<RenderState<'w>> {
     let mut surface = block_on(render_cx.create_surface(
         window.clone(),
-        window.inner_size().width,
-        window.inner_size().height,
+        viewport.physical_size.width,
+        viewport.physical_size.height,
         wgpu::PresentMode::AutoVsync,
     ))
     .map_err(|error| anyhow::anyhow!("failed to create render surface: {error}"))?;
@@ -215,8 +253,8 @@ fn create_render_state<'w>(
 
     let scene3d_renderer = fission_3d::render::Scene3DRenderer::new(
         &device_handle.device,
-        window.inner_size().width,
-        window.inner_size().height,
+        viewport.physical_size.width,
+        viewport.physical_size.height,
         wgpu::TextureFormat::Rgba8Unorm,
     );
 
@@ -1544,7 +1582,7 @@ fn handle_cursor_left(
                         runtime,
                         effect_result_tx,
                         event_proxy,
-                                    async_registry,
+                        async_registry,
                         active_services,
                         service_bindings,
                         next_service_instance_id,
@@ -1643,7 +1681,7 @@ fn handle_key_down<S: AppState>(
                     runtime,
                     effect_result_tx,
                     event_proxy,
-                            async_registry,
+                    async_registry,
                     active_services,
                     service_bindings,
                     next_service_instance_id,
@@ -2038,7 +2076,6 @@ impl<S: AppState + Default, W: Widget<S> + 'static> WinitApp<S, W> {
         self
     }
 
-
     pub fn with_async<F>(mut self, configure: F) -> Self
     where
         F: FnOnce(&mut AsyncRegistry),
@@ -2237,7 +2274,11 @@ impl<S: AppState + Default, W: Widget<S> + 'static> WinitApp<S, W> {
         // When set, layout uses these dimensions instead of window.inner_size().
         let mut simulated_viewport: Option<(u32, u32)> = None;
         #[cfg(not(target_os = "android"))]
-        let mut pending_resize = Some(window.inner_size());
+        let mut window_viewport = WindowViewportState::from_window(&window);
+        #[cfg(target_os = "android")]
+        let mut window_viewport: Option<WindowViewportState> = None;
+        #[cfg(not(target_os = "android"))]
+        let mut pending_resize = Some(window_viewport);
         #[cfg(target_os = "android")]
         let mut pending_resize = None;
         let mut live_resize = LiveResizeController::new(resize_settle_delay);
@@ -2394,7 +2435,7 @@ impl<S: AppState + Default, W: Widget<S> + 'static> WinitApp<S, W> {
                                         &mut runtime,
                                         &effect_result_tx,
                                         &event_proxy,
-                                       
+
                                         &async_registry,
                                         &mut active_services,
                                         &mut service_bindings,
@@ -2431,7 +2472,7 @@ impl<S: AppState + Default, W: Widget<S> + 'static> WinitApp<S, W> {
                                             &pipeline,
                                             &effect_result_tx,
                                             &event_proxy,
-                                           
+
                                             &async_registry,
                                             &mut active_services,
                                             &mut service_bindings,
@@ -2475,7 +2516,16 @@ impl<S: AppState + Default, W: Widget<S> + 'static> WinitApp<S, W> {
                             };
                             if width > 0 && height > 0 {
                                 simulated_viewport = Some((width, height));
-                                pending_resize = Some(window.inner_size());
+                                let current_viewport = WindowViewportState::from_window(window);
+                                #[cfg(not(target_os = "android"))]
+                                {
+                                    window_viewport = current_viewport;
+                                }
+                                #[cfg(target_os = "android")]
+                                {
+                                    window_viewport = Some(current_viewport);
+                                }
+                                pending_resize = Some(current_viewport);
                                 live_resize.note_resize(Instant::now());
                                 invalidations.mark_composite();
                                 request_redraw_logged(
@@ -2505,7 +2555,7 @@ impl<S: AppState + Default, W: Widget<S> + 'static> WinitApp<S, W> {
                                     &mut runtime,
                                     &effect_result_tx,
                                     &event_proxy,
-                                   
+
                                     &async_registry,
                                     &mut active_services,
                                     &mut service_bindings,
@@ -2629,7 +2679,16 @@ impl<S: AppState + Default, W: Widget<S> + 'static> WinitApp<S, W> {
                         let Some(window) = current_window(&window) else {
                             return;
                         };
-                        pending_resize = Some(window.inner_size());
+                        let current_viewport = WindowViewportState::from_window(window);
+                        #[cfg(not(target_os = "android"))]
+                        {
+                            window_viewport = current_viewport;
+                        }
+                        #[cfg(target_os = "android")]
+                        {
+                            window_viewport = Some(current_viewport);
+                        }
+                        pending_resize = Some(current_viewport);
                         invalidations.mark_composite();
                         request_redraw_logged(
                             window,
@@ -2647,6 +2706,7 @@ impl<S: AppState + Default, W: Widget<S> + 'static> WinitApp<S, W> {
                         {
                             ime_handler.set_window(None);
                             window = None;
+                            window_viewport = None;
                             pending_resize = None;
                             last_cursor_position = None;
                             active_primary_touch = None;
@@ -2890,7 +2950,7 @@ impl<S: AppState + Default, W: Widget<S> + 'static> WinitApp<S, W> {
                                 &mut runtime,
                                 &effect_result_tx,
                                 &event_proxy,
-                               
+
                                 &async_registry,
                                 &mut active_services,
                                 &mut service_bindings,
@@ -3125,7 +3185,18 @@ impl<S: AppState + Default, W: Widget<S> + 'static> WinitApp<S, W> {
                         match event {
                             WindowEvent::Resized(size) => {
                                 if size.width > 0 && size.height > 0 {
-                                    pending_resize = Some(size);
+                                    let next_viewport = pending_resize
+                                        .unwrap_or_else(|| WindowViewportState::from_window(&window))
+                                        .with_physical_size(size);
+                                    #[cfg(not(target_os = "android"))]
+                                    {
+                                        window_viewport = next_viewport;
+                                    }
+                                    #[cfg(target_os = "android")]
+                                    {
+                                        window_viewport = Some(next_viewport);
+                                    }
+                                    pending_resize = Some(next_viewport);
                                     live_resize.note_resize(Instant::now());
                                     invalidations.mark_composite();
                                     request_redraw_logged(
@@ -3139,8 +3210,19 @@ impl<S: AppState + Default, W: Widget<S> + 'static> WinitApp<S, W> {
                                     );
                                 }
                             }
-                            WindowEvent::ScaleFactorChanged { .. } => {
-                                pending_resize = Some(window.inner_size());
+                            WindowEvent::ScaleFactorChanged { scale_factor, .. } => {
+                                let next_viewport = pending_resize
+                                    .unwrap_or_else(|| WindowViewportState::from_window(&window))
+                                    .with_scale_factor(scale_factor);
+                                #[cfg(not(target_os = "android"))]
+                                {
+                                    window_viewport = next_viewport;
+                                }
+                                #[cfg(target_os = "android")]
+                                {
+                                    window_viewport = Some(next_viewport);
+                                }
+                                pending_resize = Some(next_viewport);
                                 live_resize.note_resize(Instant::now());
                                 invalidations.mark_composite();
                                 request_redraw_logged(
@@ -3204,7 +3286,7 @@ impl<S: AppState + Default, W: Widget<S> + 'static> WinitApp<S, W> {
                                     &mut runtime,
                                     &effect_result_tx,
                                     &event_proxy,
-                                   
+
                                     &async_registry,
                                     &mut active_services,
                                     &mut service_bindings,
@@ -3221,15 +3303,37 @@ impl<S: AppState + Default, W: Widget<S> + 'static> WinitApp<S, W> {
                                         "redraw:effects",
                                     );
                                 }
-                                let swapchain_size =
-                                    pending_resize.unwrap_or_else(|| window.inner_size());
+                                let viewport_state = pending_resize.unwrap_or_else(|| {
+                                    #[cfg(not(target_os = "android"))]
+                                    {
+                                        window_viewport
+                                    }
+                                    #[cfg(target_os = "android")]
+                                    {
+                                        window_viewport
+                                            .unwrap_or_else(|| WindowViewportState::from_window(&window))
+                                    }
+                                });
+                                #[cfg(not(target_os = "android"))]
+                                {
+                                    window_viewport = viewport_state;
+                                }
+                                #[cfg(target_os = "android")]
+                                {
+                                    window_viewport = Some(viewport_state);
+                                }
+                                let swapchain_size = viewport_state.physical_size;
                                 if swapchain_size.width == 0 || swapchain_size.height == 0 {
                                     diag::end_frame(diag::FrameStats::default());
                                     return;
                                 }
 
                                 if render_state.is_none() {
-                                    match create_render_state(&mut render_cx, window.clone()) {
+                                    match create_render_state(
+                                        &mut render_cx,
+                                        window.clone(),
+                                        viewport_state,
+                                    ) {
                                         Ok(state) => {
                                             render_state = Some(state);
                                         }
@@ -3268,18 +3372,16 @@ impl<S: AppState + Default, W: Widget<S> + 'static> WinitApp<S, W> {
                                         .surface
                                         .configure(&device_handle.device, &render_state.surface.config);
                                 }
+                                let device_handle = &render_cx.devices[render_state.surface.dev_id];
 
-                                let scale_factor = window.scale_factor();
+                                let scale_factor = viewport_state.scale_factor;
                                 let pending_layout_viewport = if let Some((sw, sh)) = simulated_viewport {
                                     LayoutSize {
                                         width: sw as f32,
                                         height: sh as f32,
                                     }
                                 } else {
-                                    LayoutSize {
-                                        width: (swapchain_size.width as f64 / scale_factor) as f32,
-                                        height: (swapchain_size.height as f64 / scale_factor) as f32,
-                                    }
+                                    viewport_state.logical_size()
                                 };
                                 let render_target_size = if simulated_viewport.is_some() {
                                     logical_viewport_to_render_target_size(
@@ -3293,6 +3395,12 @@ impl<S: AppState + Default, W: Widget<S> + 'static> WinitApp<S, W> {
                                     recreate_target_texture(
                                         &mut render_state.surface,
                                         &render_cx,
+                                        render_target_size.0,
+                                        render_target_size.1,
+                                    );
+                                    // Keep the 3D depth target in lockstep with the shared render target.
+                                    render_state.scene3d_renderer.resize(
+                                        &device_handle.device,
                                         render_target_size.0,
                                         render_target_size.1,
                                     );
@@ -3753,7 +3861,7 @@ impl<S: AppState + Default, W: Widget<S> + 'static> WinitApp<S, W> {
                                     &pipeline,
                                     &effect_result_tx,
                                     &event_proxy,
-                                   
+
                                     &async_registry,
                                     &mut active_services,
                                     &mut service_bindings,
@@ -3991,7 +4099,7 @@ impl<S: AppState + Default, W: Widget<S> + 'static> WinitApp<S, W> {
                                             &mut runtime,
                                             &effect_result_tx,
                                             &event_proxy,
-                                           
+
                                             &async_registry,
                                             &mut active_services,
                                             &mut service_bindings,
@@ -4261,10 +4369,32 @@ fn layout_size_to_image_dimensions(size: LayoutSize) -> (u32, u32) {
     (width.max(1), height.max(1))
 }
 
+fn normalize_scale_factor(scale_factor: f64) -> f64 {
+    if scale_factor.is_finite() && scale_factor > 0.0 {
+        scale_factor
+    } else {
+        1.0
+    }
+}
+
+fn physical_size_to_layout_size(size: PhysicalSize<u32>, scale_factor: f64) -> LayoutSize {
+    let scale_factor = normalize_scale_factor(scale_factor);
+    LayoutSize {
+        width: (size.width as f64 / scale_factor) as f32,
+        height: (size.height as f64 / scale_factor) as f32,
+    }
+}
+
 fn logical_viewport_to_render_target_size(size: LayoutSize, scale_factor: f64) -> (u32, u32) {
+    let scale_factor = normalize_scale_factor(scale_factor);
     let width = (size.width.max(1.0) as f64 * scale_factor).ceil() as u32;
     let height = (size.height.max(1.0) as f64 * scale_factor).ceil() as u32;
     (width.max(1), height.max(1))
+}
+
+fn logical_viewport_to_physical_size(size: LayoutSize, scale_factor: f64) -> PhysicalSize<u32> {
+    let (width, height) = logical_viewport_to_render_target_size(size, scale_factor);
+    PhysicalSize::new(width, height)
 }
 
 fn recreate_target_texture(
@@ -4302,8 +4432,11 @@ fn recreate_target_texture(
 mod tests {
     use super::{
         animation_redraw_interval, cursor_icon_for, downscale_rgba_box,
-        layout_size_to_image_dimensions, logical_viewport_to_render_target_size,
+        layout_size_to_image_dimensions, logical_viewport_to_physical_size,
+        logical_viewport_to_render_target_size, normalize_scale_factor,
+        physical_size_to_layout_size,
         repeating_animation_redraw_interval, texture_plans_fit_device_limits, LiveResizeController,
+        WindowViewportState,
     };
     use crate::pipeline::CompositorTexturePlan;
     use fission_core::env::{ActiveAnimation, AnimationStateMap};
@@ -4312,6 +4445,7 @@ mod tests {
     use fission_layout::LayoutRect;
     use std::collections::HashMap;
     use std::time::Duration;
+    use winit::dpi::PhysicalSize;
     use winit::window::CursorIcon;
 
     #[test]
@@ -4560,6 +4694,83 @@ mod tests {
             1.5,
         );
         assert_eq!(fractional, (645, 1350));
+    }
+
+    #[test]
+    fn physical_viewport_maps_to_logical_size_with_scale_factor() {
+        let logical = physical_size_to_layout_size(PhysicalSize::new(1728, 1117), 1.5);
+        assert_eq!(logical.width, 1152.0);
+        assert!((logical.height - 744.6667).abs() < 0.001);
+    }
+
+    #[test]
+    fn scale_factor_change_preserves_logical_viewport_until_resize_arrives() {
+        let viewport = WindowViewportState {
+            physical_size: PhysicalSize::new(1600, 1200),
+            scale_factor: 1.0,
+        }
+        .with_scale_factor(2.0);
+
+        assert_eq!(viewport.physical_size, PhysicalSize::new(3200, 2400));
+        assert_eq!(
+            viewport.logical_size(),
+            fission_layout::LayoutSize::new(1600.0, 1200.0)
+        );
+    }
+
+    #[test]
+    fn resized_event_overrides_scale_factor_prediction_authoritatively() {
+        let viewport = WindowViewportState {
+            physical_size: PhysicalSize::new(1600, 1200),
+            scale_factor: 1.0,
+        }
+        .with_scale_factor(1.5)
+        .with_physical_size(PhysicalSize::new(2412, 1809));
+
+        assert_eq!(viewport.physical_size, PhysicalSize::new(2412, 1809));
+        assert_eq!(
+            viewport.logical_size(),
+            fission_layout::LayoutSize::new(1608.0, 1206.0)
+        );
+    }
+
+    #[test]
+    fn fractional_logical_viewports_round_up_for_render_targets() {
+        let physical =
+            logical_viewport_to_physical_size(fission_layout::LayoutSize::new(430.2, 900.1), 1.5);
+        assert_eq!(physical, PhysicalSize::new(646, 1351));
+    }
+
+    #[test]
+    fn scale_factor_prediction_never_undershoots_fractional_viewports() {
+        let initial = WindowViewportState {
+            physical_size: PhysicalSize::new(1728, 1117),
+            scale_factor: 1.5,
+        };
+        let predicted = initial.with_scale_factor(2.0);
+
+        assert_eq!(predicted.physical_size, PhysicalSize::new(2304, 1490));
+        assert!(predicted.logical_size().width >= initial.logical_size().width);
+        assert!(predicted.logical_size().height >= initial.logical_size().height);
+    }
+
+    #[test]
+    fn invalid_scale_factors_fall_back_to_unit_scale() {
+        assert_eq!(normalize_scale_factor(0.0), 1.0);
+        assert_eq!(normalize_scale_factor(-2.0), 1.0);
+        assert_eq!(normalize_scale_factor(f64::NAN), 1.0);
+        assert_eq!(normalize_scale_factor(f64::INFINITY), 1.0);
+        assert_eq!(normalize_scale_factor(1.5), 1.5);
+    }
+
+    #[test]
+    fn invalid_scale_factor_does_not_shrink_viewport_math() {
+        let logical = physical_size_to_layout_size(PhysicalSize::new(1600, 1200), 0.0);
+        assert_eq!(logical, fission_layout::LayoutSize::new(1600.0, 1200.0));
+
+        let render_target =
+            logical_viewport_to_render_target_size(fission_layout::LayoutSize::new(1600.0, 1200.0), 0.0);
+        assert_eq!(render_target, (1600, 1200));
     }
 
     #[test]
