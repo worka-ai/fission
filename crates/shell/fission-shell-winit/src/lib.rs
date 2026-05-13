@@ -496,6 +496,14 @@ fn pending_work_redraw_interval(
     }
 }
 
+fn resize_is_unsettled(
+    pending_resize: bool,
+    needs_settled_frame: bool,
+    live_resize: bool,
+) -> bool {
+    pending_resize || needs_settled_frame || live_resize
+}
+
 #[derive(Debug)]
 struct LiveResizeController {
     active_until: Option<Instant>,
@@ -2270,9 +2278,6 @@ impl<S: AppState + Default, W: Widget<S> + 'static> WinitApp<S, W> {
             });
         // Pending screenshot/pump: path + whether it needs a screenshot (vs pump).
         let mut pending_screenshot_path: Option<String> = None;
-        // Simulated viewport size override for test resize events.
-        // When set, layout uses these dimensions instead of window.inner_size().
-        let mut simulated_viewport: Option<(u32, u32)> = None;
         #[cfg(not(target_os = "android"))]
         let mut window_viewport = WindowViewportState::from_window(&window);
         #[cfg(target_os = "android")]
@@ -2281,6 +2286,8 @@ impl<S: AppState + Default, W: Widget<S> + 'static> WinitApp<S, W> {
         let mut pending_resize = Some(window_viewport);
         #[cfg(target_os = "android")]
         let mut pending_resize = None;
+        let mut resize_needs_settled_frame = pending_resize.is_some();
+        let mut pending_capture_settle = false;
         let mut last_built_viewport: Option<LayoutSize> = None;
         let mut live_resize = LiveResizeController::new(resize_settle_delay);
         let mut invalidations = InvalidationSet {
@@ -2516,7 +2523,6 @@ impl<S: AppState + Default, W: Widget<S> + 'static> WinitApp<S, W> {
                                 return;
                             };
                             if width > 0 && height > 0 {
-                                simulated_viewport = Some((width, height));
                                 let current_viewport = viewport_state_for_test_resize(
                                     WindowViewportState::from_window(window),
                                     width,
@@ -2537,6 +2543,10 @@ impl<S: AppState + Default, W: Widget<S> + 'static> WinitApp<S, W> {
                                     window_viewport = Some(current_viewport);
                                 }
                                 pending_resize = Some(current_viewport);
+                                resize_needs_settled_frame = true;
+                                if pending_screenshot_path.is_some() {
+                                    pending_capture_settle = true;
+                                }
                                 live_resize.note_resize(Instant::now());
                                 invalidations.mark_composite();
                                 request_redraw_logged(
@@ -2598,6 +2608,11 @@ impl<S: AppState + Default, W: Widget<S> + 'static> WinitApp<S, W> {
                                 return;
                             };
                             pending_screenshot_path = Some(path);
+                            pending_capture_settle = resize_is_unsettled(
+                                pending_resize.is_some(),
+                                resize_needs_settled_frame,
+                                live_resize.is_live(Instant::now()),
+                            );
                             window.request_redraw();
                         }
                         TestEvent::CaptureScreenshot => {
@@ -2610,6 +2625,11 @@ impl<S: AppState + Default, W: Widget<S> + 'static> WinitApp<S, W> {
                                 return;
                             };
                             pending_screenshot_path = Some("__capture__".into());
+                            pending_capture_settle = resize_is_unsettled(
+                                pending_resize.is_some(),
+                                resize_needs_settled_frame,
+                                live_resize.is_live(Instant::now()),
+                            );
                             window.request_redraw();
                         }
                         TestEvent::GetText => {
@@ -2634,6 +2654,11 @@ impl<S: AppState + Default, W: Widget<S> + 'static> WinitApp<S, W> {
                                 return;
                             };
                             pending_screenshot_path = Some("__pump__".into());
+                            pending_capture_settle = resize_is_unsettled(
+                                pending_resize.is_some(),
+                                resize_needs_settled_frame,
+                                live_resize.is_live(Instant::now()),
+                            );
                             window.request_redraw();
                         }
                         TestEvent::Wake => {}
@@ -2700,6 +2725,10 @@ impl<S: AppState + Default, W: Widget<S> + 'static> WinitApp<S, W> {
                             window_viewport = Some(current_viewport);
                         }
                         pending_resize = Some(current_viewport);
+                        resize_needs_settled_frame = true;
+                        if pending_screenshot_path.is_some() {
+                            pending_capture_settle = true;
+                        }
                         invalidations.mark_composite();
                         request_redraw_logged(
                             window,
@@ -2719,6 +2748,8 @@ impl<S: AppState + Default, W: Widget<S> + 'static> WinitApp<S, W> {
                             window = None;
                             window_viewport = None;
                             pending_resize = None;
+                            resize_needs_settled_frame = false;
+                            pending_capture_settle = false;
                             last_built_viewport = None;
                             last_cursor_position = None;
                             active_primary_touch = None;
@@ -2868,7 +2899,12 @@ impl<S: AppState + Default, W: Widget<S> + 'static> WinitApp<S, W> {
                             .active
                             .values()
                             .any(|anim| !anim.repeat);
-                        let repeat_animation_interval = if pending_resize.is_some() {
+                        let resize_unsettled = resize_is_unsettled(
+                            pending_resize.is_some(),
+                            resize_needs_settled_frame,
+                            live_resize.is_live(now),
+                        );
+                        let repeat_animation_interval = if resize_unsettled || pending_capture_settle {
                             None
                         } else {
                             repeating_animation_redraw_interval(
@@ -3028,18 +3064,21 @@ impl<S: AppState + Default, W: Widget<S> + 'static> WinitApp<S, W> {
                             effect_results_dispatched
                                 || frame_hook_wants_redraw
                                 || invalidations.any()
-                                || pending_resize.is_some();
+                                || resize_unsettled
+                                || pending_capture_settle;
                         let active_keys = active_animation_keys(&runtime);
 
                         if has_pending_work {
                             let pending_frame = pending_work_redraw_interval(
                                 invalidations,
-                                pending_resize.is_some(),
+                                resize_unsettled || pending_capture_settle,
                                 min_frame,
                                 resize_frame,
                             );
-                            let redraw_reason = if pending_resize.is_some() {
+                            let redraw_reason = if resize_unsettled {
                                 "pending_resize"
+                            } else if pending_capture_settle {
+                                "pending_capture_settle"
                             } else if invalidations.build {
                                 "pending_work:build"
                             } else if invalidations.layout {
@@ -3074,7 +3113,7 @@ impl<S: AppState + Default, W: Widget<S> + 'static> WinitApp<S, W> {
                                 &format!(
                                     "schedule=pending interval_ms={} pending_resize={} redraw_pending={} highest={}",
                                     pending_frame.as_millis(),
-                                    pending_resize.is_some(),
+                                    resize_unsettled || pending_capture_settle,
                                     redraw_pending,
                                     invalidations.highest_class(),
                                 ),
@@ -3117,7 +3156,7 @@ impl<S: AppState + Default, W: Widget<S> + 'static> WinitApp<S, W> {
                                 &format!(
                                     "schedule=animation interval_ms={} pending_resize={} redraw_pending={} highest={}",
                                     animation_frame.as_millis(),
-                                    pending_resize.is_some(),
+                                    resize_unsettled || pending_capture_settle,
                                     redraw_pending,
                                     invalidations.highest_class(),
                                 ),
@@ -3209,6 +3248,10 @@ impl<S: AppState + Default, W: Widget<S> + 'static> WinitApp<S, W> {
                                         window_viewport = Some(next_viewport);
                                     }
                                     pending_resize = Some(next_viewport);
+                                    resize_needs_settled_frame = true;
+                                    if pending_screenshot_path.is_some() {
+                                        pending_capture_settle = true;
+                                    }
                                     live_resize.note_resize(Instant::now());
                                     invalidations.mark_composite();
                                     request_redraw_logged(
@@ -3235,6 +3278,10 @@ impl<S: AppState + Default, W: Widget<S> + 'static> WinitApp<S, W> {
                                     window_viewport = Some(next_viewport);
                                 }
                                 pending_resize = Some(next_viewport);
+                                resize_needs_settled_frame = true;
+                                if pending_screenshot_path.is_some() {
+                                    pending_capture_settle = true;
+                                }
                                 live_resize.note_resize(Instant::now());
                                 invalidations.mark_composite();
                                 request_redraw_logged(
@@ -3391,22 +3438,8 @@ impl<S: AppState + Default, W: Widget<S> + 'static> WinitApp<S, W> {
                                 let device_handle = &render_cx.devices[render_state.surface.dev_id];
 
                                 let scale_factor = viewport_state.scale_factor;
-                                let pending_layout_viewport = if let Some((sw, sh)) = simulated_viewport {
-                                    LayoutSize {
-                                        width: sw as f32,
-                                        height: sh as f32,
-                                    }
-                                } else {
-                                    viewport_state.logical_size()
-                                };
-                                let render_target_size = if simulated_viewport.is_some() {
-                                    logical_viewport_to_render_target_size(
-                                        pending_layout_viewport,
-                                        scale_factor,
-                                    )
-                                } else {
-                                    (swapchain_size.width, swapchain_size.height)
-                                };
+                                let pending_layout_viewport = viewport_state.logical_size();
+                                let render_target_size = (swapchain_size.width, swapchain_size.height);
                                 if render_target_size != render_state.target_texture_size {
                                     recreate_target_texture(
                                         &mut render_state.surface,
@@ -3426,31 +3459,28 @@ impl<S: AppState + Default, W: Widget<S> + 'static> WinitApp<S, W> {
                                 let force_resize_layout = invalidations.build
                                     || pipeline.prev_ir.is_none()
                                     || pipeline.last_snapshot.is_none();
-                                let force_resize_layout_for_test_capture = pending_resize.is_some()
-                                    && test_capture_requests_settled_resize_layout(
-                                        pending_screenshot_path.as_deref(),
-                                    );
                                 let built_viewport = last_built_viewport
                                     .unwrap_or(pending_layout_viewport);
                                 let viewport_requires_rebuild =
                                     built_viewport != pending_layout_viewport;
-                                let apply_resize_layout = if pending_resize.is_some() {
+                                let resize_unsettled = resize_is_unsettled(
+                                    pending_resize.is_some(),
+                                    resize_needs_settled_frame,
+                                    live_resize.is_live(now),
+                                );
+                                let apply_resize_layout = if resize_unsettled {
                                     live_resize.should_apply_layout(
                                         now,
                                         pipeline.last_snapshot.is_some(),
-                                        force_resize_layout
-                                            || force_resize_layout_for_test_capture,
+                                        force_resize_layout,
                                     )
                                 } else {
                                     force_resize_layout
                                 };
                                 let resize_settled =
-                                    pending_resize.is_some() && !live_resize.is_live(now);
+                                    resize_needs_settled_frame && !live_resize.is_live(now);
                                 let target_viewport = pending_layout_viewport;
-                                if pending_resize.is_some()
-                                    && apply_resize_layout
-                                    && viewport_requires_rebuild
-                                {
+                                if resize_unsettled && apply_resize_layout && viewport_requires_rebuild {
                                     invalidations.mark_build();
                                 }
                                 if resize_settled && viewport_requires_rebuild {
@@ -3802,7 +3832,12 @@ impl<S: AppState + Default, W: Widget<S> + 'static> WinitApp<S, W> {
 
                                         device_handle.queue.submit(Some(encoder.finish()));
 
-                                        if let Some(path) = pending_screenshot_path.take() {
+                                        let capture_ready =
+                                            !pending_capture_settle || resize_settled;
+                                        if capture_ready {
+                                            pending_capture_settle = false;
+                                        }
+                                        if capture_ready && let Some(path) = pending_screenshot_path.take() {
                                             let screenshot_dimensions =
                                                 layout_size_to_image_dimensions(target_viewport);
                                             if let Some(ref tx) = test_response_tx {
@@ -3840,6 +3875,9 @@ impl<S: AppState + Default, W: Widget<S> + 'static> WinitApp<S, W> {
                                         surface_texture.present();
                                         if apply_resize_layout {
                                             pending_resize = None;
+                                        }
+                                        if resize_settled {
+                                            resize_needs_settled_frame = false;
                                         }
                                         invalidations = InvalidationSet::default();
 
@@ -4495,10 +4533,6 @@ fn native_window_size_for_test_resize(width: u32, height: u32) -> LogicalSize<f6
     LogicalSize::new(width as f64, height as f64)
 }
 
-fn test_capture_requests_settled_resize_layout(pending_screenshot_path: Option<&str>) -> bool {
-    pending_screenshot_path.is_some()
-}
-
 #[cfg(test)]
 mod tests {
     use super::{
@@ -4506,9 +4540,10 @@ mod tests {
         downscale_rgba_box, layout_size_to_image_dimensions, logical_viewport_to_physical_size,
         logical_viewport_to_render_target_size, native_window_size_for_test_resize,
         normalize_scale_factor, physical_size_to_layout_size,
+        resize_is_unsettled,
         repeating_animation_redraw_interval, sync_tracked_target_texture_size_to_surface,
-        test_capture_requests_settled_resize_layout, texture_plans_fit_device_limits,
-        viewport_state_for_test_resize, LiveResizeController, WindowViewportState,
+        texture_plans_fit_device_limits, viewport_state_for_test_resize, LiveResizeController,
+        WindowViewportState,
     };
     use crate::pipeline::CompositorTexturePlan;
     use fission_core::env::{ActiveAnimation, AnimationStateMap};
@@ -4890,17 +4925,11 @@ mod tests {
     }
 
     #[test]
-    fn screenshot_and_pump_requests_force_settled_resize_layout() {
-        assert!(test_capture_requests_settled_resize_layout(Some(
-            "__capture__"
-        )));
-        assert!(test_capture_requests_settled_resize_layout(Some(
-            "__pump__"
-        )));
-        assert!(test_capture_requests_settled_resize_layout(Some(
-            "/tmp/frame.png"
-        )));
-        assert!(!test_capture_requests_settled_resize_layout(None));
+    fn resize_settle_signal_tracks_real_resize_state() {
+        assert!(resize_is_unsettled(true, false, false));
+        assert!(resize_is_unsettled(false, true, false));
+        assert!(resize_is_unsettled(false, false, true));
+        assert!(!resize_is_unsettled(false, false, false));
     }
 
     #[test]
