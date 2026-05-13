@@ -3457,6 +3457,7 @@ impl<S: AppState + Default, W: Widget<S> + 'static> WinitApp<S, W> {
                                 }
                                 let render_state = render_state.as_mut().expect("render state");
 
+                                let mut surface_target_replaced = false;
                                 if swapchain_size.width != render_state.surface.config.width
                                     || swapchain_size.height != render_state.surface.config.height
                                 {
@@ -3477,13 +3478,16 @@ impl<S: AppState + Default, W: Widget<S> + 'static> WinitApp<S, W> {
                                         &mut render_state.target_texture_size,
                                         swapchain_size,
                                     );
+                                    surface_target_replaced = true;
                                 }
                                 let device_handle = &render_cx.devices[render_state.surface.dev_id];
 
                                 let scale_factor = viewport_state.scale_factor;
                                 let pending_layout_viewport = viewport_state.logical_size();
                                 let render_target_size = (swapchain_size.width, swapchain_size.height);
-                                if render_target_size != render_state.target_texture_size {
+                                if surface_target_replaced
+                                    || render_target_size != render_state.target_texture_size
+                                {
                                     recreate_target_texture(
                                         &mut render_state.surface,
                                         &render_cx,
