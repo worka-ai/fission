@@ -545,12 +545,29 @@ fn resize_is_unsettled(
     pending_resize || needs_settled_frame || live_resize
 }
 
+fn resolve_build_viewport(
+    last_built_viewport: Option<LayoutSize>,
+    target_viewport: LayoutSize,
+    has_prev_ir: bool,
+    invalidations: &mut InvalidationSet,
+) -> LayoutSize {
+    let built_viewport = last_built_viewport.unwrap_or(target_viewport);
+    if built_viewport != target_viewport {
+        // Viewport-sensitive build output must stay aligned with the layout viewport.
+        invalidations.mark_build();
+    }
+
+    if invalidations.build || !has_prev_ir || last_built_viewport.is_none() {
+        target_viewport
+    } else {
+        built_viewport
+    }
+}
+
 #[derive(Debug)]
 struct LiveResizeController {
     active_until: Option<Instant>,
     settle_delay: Duration,
-    layout_interval: Duration,
-    last_layout_at: Option<Instant>,
 }
 
 impl LiveResizeController {
@@ -558,8 +575,6 @@ impl LiveResizeController {
         Self {
             active_until: None,
             settle_delay,
-            layout_interval: Duration::from_millis(16),
-            last_layout_at: None,
         }
     }
 
@@ -571,34 +586,6 @@ impl LiveResizeController {
         self.active_until
             .map(|deadline| now < deadline)
             .unwrap_or(false)
-    }
-
-    fn should_apply_layout(
-        &mut self,
-        now: Instant,
-        has_layout_snapshot: bool,
-        force: bool,
-    ) -> bool {
-        if !has_layout_snapshot || force {
-            self.last_layout_at = Some(now);
-            return true;
-        }
-
-        let settled = !self.is_live(now);
-        if settled {
-            self.active_until = None;
-            self.last_layout_at = Some(now);
-            true
-        } else {
-            let should_refresh = self
-                .last_layout_at
-                .map(|last| now.saturating_duration_since(last) >= self.layout_interval)
-                .unwrap_or(true);
-            if should_refresh {
-                self.last_layout_at = Some(now);
-            }
-            should_refresh
-        }
     }
 }
 
@@ -3503,47 +3490,15 @@ impl<S: AppState + Default, W: Widget<S> + 'static> WinitApp<S, W> {
                                     render_state.target_texture_size = render_target_size;
                                 }
 
-                                let force_resize_layout = invalidations.build
-                                    || pipeline.prev_ir.is_none()
-                                    || pipeline.last_snapshot.is_none();
-                                let built_viewport = last_built_viewport
-                                    .unwrap_or(pending_layout_viewport);
-                                let viewport_requires_rebuild =
-                                    built_viewport != pending_layout_viewport;
-                                let resize_unsettled = resize_is_unsettled(
-                                    pending_resize.is_some(),
-                                    resize_needs_settled_frame,
-                                    live_resize.is_live(now),
-                                );
-                                let apply_resize_layout = if resize_unsettled {
-                                    live_resize.should_apply_layout(
-                                        now,
-                                        pipeline.last_snapshot.is_some(),
-                                        force_resize_layout,
-                                    )
-                                } else {
-                                    force_resize_layout
-                                };
                                 let resize_settled =
                                     resize_needs_settled_frame && !live_resize.is_live(now);
                                 let target_viewport = pending_layout_viewport;
-                                if resize_unsettled && apply_resize_layout && viewport_requires_rebuild {
-                                    invalidations.mark_build();
-                                }
-                                if resize_settled && viewport_requires_rebuild {
-                                    invalidations.mark_build();
-                                }
-
-                                // Keep relayout/rendering on the latest viewport every frame,
-                                // but defer rebuilds of viewport-sensitive IR until resize policy allows it.
-                                let build_viewport = if invalidations.build
-                                    || pipeline.prev_ir.is_none()
-                                    || last_built_viewport.is_none()
-                                {
-                                    target_viewport
-                                } else {
-                                    built_viewport
-                                };
+                                let build_viewport = resolve_build_viewport(
+                                    last_built_viewport,
+                                    target_viewport,
+                                    pipeline.prev_ir.is_some(),
+                                    &mut invalidations,
+                                );
                                 env.viewport_size = build_viewport;
 
                                 if let Some(sync) = &self.sync_env {
@@ -3923,9 +3878,7 @@ impl<S: AppState + Default, W: Widget<S> + 'static> WinitApp<S, W> {
                                         }
 
                                         surface_texture.present();
-                                        if apply_resize_layout {
-                                            pending_resize = None;
-                                        }
+                                        pending_resize = None;
                                         if resize_settled {
                                             resize_needs_settled_frame = false;
                                         }
@@ -4579,15 +4532,16 @@ mod tests {
         downscale_rgba_box, layout_size_to_image_dimensions, logical_viewport_to_physical_size,
         logical_viewport_to_render_target_size, native_window_size_for_logical_viewport,
         normalize_scale_factor, physical_size_to_layout_size,
-        resize_is_unsettled,
+        resize_is_unsettled, resolve_build_viewport,
         repeating_animation_redraw_interval, sync_tracked_target_texture_size_to_surface,
         texture_plans_fit_device_limits, LiveResizeController, WindowViewportState,
     };
+    use crate::InvalidationSet;
     use crate::pipeline::CompositorTexturePlan;
     use fission_core::env::{ActiveAnimation, AnimationStateMap};
     use fission_core::{AnimationPropertyId, WidgetNodeId};
     use fission_ir::semantics::MouseCursor;
-    use fission_layout::LayoutRect;
+    use fission_layout::{LayoutRect, LayoutSize};
     use std::collections::HashMap;
     use std::time::Duration;
     use winit::dpi::PhysicalSize;
@@ -4723,38 +4677,43 @@ mod tests {
     }
 
     #[test]
-    fn live_resize_defers_layout_until_settled() {
+    fn live_resize_reports_unsettled_until_deadline() {
         let settle = Duration::from_millis(90);
         let mut resize = LiveResizeController::new(settle);
         let now = std::time::Instant::now();
         resize.note_resize(now);
 
         assert!(resize.is_live(now + Duration::from_millis(30)));
-        assert!(resize.should_apply_layout(now + Duration::from_millis(30), true, false));
-        assert!(!resize.should_apply_layout(now + Duration::from_millis(40), true, false));
-        assert!(resize.should_apply_layout(now + Duration::from_millis(95), true, false));
+        assert!(resize_is_unsettled(false, false, resize.is_live(now + Duration::from_millis(30))));
+        assert!(!resize.is_live(now + Duration::from_millis(95)));
     }
 
     #[test]
-    fn live_resize_force_path_bypasses_settle_delay() {
-        let settle = Duration::from_millis(90);
-        let mut resize = LiveResizeController::new(settle);
-        let now = std::time::Instant::now();
-        resize.note_resize(now);
+    fn viewport_resize_forces_build_viewport_refresh() {
+        let target = LayoutSize::new(1440.0, 900.0);
+        let mut invalidations = InvalidationSet::default();
 
-        assert!(resize.should_apply_layout(now + Duration::from_millis(10), true, true));
+        let build_viewport = resolve_build_viewport(
+            Some(LayoutSize::new(1024.0, 768.0)),
+            target,
+            true,
+            &mut invalidations,
+        );
+
+        assert!(invalidations.build);
+        assert_eq!(build_viewport, target);
     }
 
     #[test]
-    fn live_resize_refreshes_layout_periodically_while_dragging() {
-        let settle = Duration::from_millis(90);
-        let mut resize = LiveResizeController::new(settle);
-        let now = std::time::Instant::now();
-        resize.note_resize(now);
+    fn stable_viewport_preserves_existing_build_viewport() {
+        let target = LayoutSize::new(1024.0, 768.0);
+        let mut invalidations = InvalidationSet::default();
 
-        assert!(resize.should_apply_layout(now, true, false));
-        assert!(!resize.should_apply_layout(now + Duration::from_millis(8), true, false));
-        assert!(resize.should_apply_layout(now + Duration::from_millis(20), true, false));
+        let build_viewport =
+            resolve_build_viewport(Some(target), target, true, &mut invalidations);
+
+        assert!(!invalidations.build);
+        assert_eq!(build_viewport, target);
     }
 
     #[test]

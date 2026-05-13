@@ -396,6 +396,12 @@ struct LayoutGraphState {
     validation: LayoutGraphValidationState,
 }
 
+#[derive(Debug, Clone, Default)]
+struct IncrementalLayoutReuseState {
+    previous_snapshot: LayoutSnapshot,
+    dirty_ancestors: HashSet<NodeId>,
+}
+
 impl LayoutGraphState {
     fn is_empty(&self) -> bool {
         self.nodes.is_empty()
@@ -406,14 +412,11 @@ impl LayoutGraphState {
     }
 
     fn matches_input_nodes(&self, input_nodes: &[LayoutInputNode]) -> bool {
-        if self.nodes.len() != input_nodes.len() || self.node_order.len() != input_nodes.len() {
+        if self.nodes.len() != input_nodes.len() {
             return false;
         }
 
-        for (expected_id, node) in self.node_order.iter().zip(input_nodes.iter()) {
-            if *expected_id != node.id {
-                return false;
-            }
+        for node in input_nodes {
             let Some(existing) = self.node_fingerprints.get(&node.id) else {
                 return false;
             };
@@ -453,6 +456,30 @@ impl LayoutGraphState {
             self.nodes.insert(node.id, node.clone());
         }
 
+        self.rebuild_topology(validation);
+    }
+
+    fn update_nodes(&mut self, input_nodes: &[LayoutInputNode]) {
+        let mut validation = LayoutGraphValidationState::default();
+        let mut seen = HashSet::new();
+        let mut next_order = Vec::with_capacity(input_nodes.len());
+        let mut next_fingerprints = HashMap::with_capacity(input_nodes.len());
+        let mut next_nodes = HashMap::with_capacity(input_nodes.len());
+
+        for node in input_nodes {
+            if !seen.insert(node.id) {
+                validation.duplicate_nodes.push(node.id);
+                continue;
+            }
+            next_order.push(node.id);
+            next_fingerprints.insert(node.id, layout_input_fingerprint(node));
+            next_nodes.insert(node.id, node.clone());
+        }
+
+        self.node_order = next_order;
+        self.node_fingerprints = next_fingerprints;
+        self.nodes = next_nodes;
+        self.last_layout_version = None;
         self.rebuild_topology(validation);
     }
 
@@ -926,6 +953,7 @@ pub struct LayoutEngine {
     measurer: Option<Arc<dyn TextMeasurer>>,
     graph_state: LayoutGraphState,
     next_graph_version: u64,
+    incremental_reuse: Option<IncrementalLayoutReuseState>,
 }
 
 impl LayoutEngine {
@@ -940,6 +968,7 @@ impl LayoutEngine {
             measurer: None,
             graph_state: LayoutGraphState::default(),
             next_graph_version: 1,
+            incremental_reuse: None,
         }
     }
 
@@ -992,10 +1021,8 @@ impl LayoutEngine {
 
     /// Refreshes the cached graph state after upstream layout edits.
     ///
-    /// The engine no longer applies per-node incremental updates here.
-    ///
-    /// Callers either reuse the current cached graph as-is or refresh it from the
-    /// latest full node list before a full compute pass.
+    /// Unchanged nodes keep their cached graph entries while edited topology and
+    /// fingerprints are synchronized to the latest flattened node list.
     pub fn update(&mut self, input_nodes: &[LayoutInputNode]) {
         if self.graph_state.is_empty() {
             self.refresh_graph_state(input_nodes);
@@ -1008,7 +1035,7 @@ impl LayoutEngine {
 
         let version = self.allocate_graph_version();
         self.graph_state.graph_version = version;
-        self.graph_state.replace_all_nodes(input_nodes);
+        self.graph_state.update_nodes(input_nodes);
     }
 
     /// Rebuilds internal data structures from the full node list.
@@ -1197,34 +1224,69 @@ impl LayoutEngine {
         }
 
         if !flyout_abs_overrides.is_empty() {
-            fn apply_offset_recursive(
-                id: NodeId,
-                dx: f32,
-                dy: f32,
-                graph_state: &LayoutGraphState,
-                geometries: &mut HashMap<NodeId, LayoutNodeGeometry>,
-            ) {
-                if let Some(g) = geometries.get_mut(&id) {
-                    g.rect.origin.x += dx;
-                    g.rect.origin.y += dy;
-                }
-                for child in graph_state.children_of(id) {
-                    apply_offset_recursive(*child, dx, dy, graph_state, geometries);
-                }
-            }
-
             for (nid, (abs_x, abs_y)) in flyout_abs_overrides {
                 if let Some(current) = snapshot.nodes.get(&nid) {
                     let dx = abs_x - current.rect.origin.x;
                     let dy = abs_y - current.rect.origin.y;
-                    apply_offset_recursive(nid, dx, dy, &self.graph_state, &mut snapshot.nodes);
+                    let mut stack = vec![(nid, 0usize)];
+                    while let Some((current_id, depth)) = stack.pop() {
+                        if depth > Self::MAX_LAYOUT_RECURSION_DEPTH {
+                            return Err(self.layout_depth_overflow(current_id, depth));
+                        }
+                        if let Some(geometry) = snapshot.nodes.get_mut(&current_id) {
+                            geometry.rect.origin.x += dx;
+                            geometry.rect.origin.y += dy;
+                        }
+                        for child_id in self.graph_state.children_of(current_id).iter().rev() {
+                            stack.push((*child_id, depth + 1));
+                        }
+                    }
                 }
             }
         }
 
         self.graph_state.mark_layout_complete();
+        self.incremental_reuse = None;
 
         Ok(snapshot)
+    }
+
+    pub fn compute_layout_incremental(
+        &mut self,
+        input_nodes: &[LayoutInputNode],
+        root_node_id: NodeId,
+        viewport_size: LayoutSize,
+        scroll_source: &impl ScrollDataSource,
+        previous_snapshot: &LayoutSnapshot,
+        dirty_nodes: &HashSet<NodeId>,
+    ) -> Result<LayoutSnapshot> {
+        self.ensure_graph_state(input_nodes);
+        self.validate_graph_state(root_node_id)?;
+
+        let mut dirty_ancestors = HashSet::new();
+        for node_id in dirty_nodes {
+            let mut current = Some(*node_id);
+            while let Some(id) = current {
+                if !dirty_ancestors.insert(id) {
+                    break;
+                }
+                current = self.graph_state.parent_of(id);
+            }
+        }
+        dirty_ancestors.insert(root_node_id);
+
+        self.incremental_reuse = Some(IncrementalLayoutReuseState {
+            previous_snapshot: previous_snapshot.clone(),
+            dirty_ancestors,
+        });
+        let result = self.compute_layout_constraints(
+            input_nodes,
+            root_node_id,
+            viewport_size,
+            scroll_source,
+        );
+        self.incremental_reuse = None;
+        result
     }
 
     fn emit_scroll_diagnostics(&self, snapshot: &LayoutSnapshot) {
@@ -1305,6 +1367,62 @@ impl LayoutEngine {
         anyhow::anyhow!(details)
     }
 
+    fn copy_cached_subtree(
+        &self,
+        node_id: NodeId,
+        origin: LayoutPoint,
+        current_constraints: BoxConstraints,
+        out: &mut HashMap<NodeId, LayoutNodeGeometry>,
+        constraints_out: &mut HashMap<NodeId, BoxConstraints>,
+    ) -> Result<Option<LayoutSize>> {
+        let Some(reuse) = self.incremental_reuse.as_ref() else {
+            return Ok(None);
+        };
+        if reuse.dirty_ancestors.contains(&node_id) {
+            return Ok(None);
+        }
+
+        let Some(previous_geometry) = reuse.previous_snapshot.nodes.get(&node_id) else {
+            return Ok(None);
+        };
+        let Some(previous_constraints) = reuse.previous_snapshot.constraints.get(&node_id).copied() else {
+            return Ok(None);
+        };
+        if previous_constraints != current_constraints {
+            return Ok(None);
+        }
+
+        let dx = origin.x - previous_geometry.rect.origin.x;
+        let dy = origin.y - previous_geometry.rect.origin.y;
+        let mut stack = vec![(node_id, 0usize)];
+        while let Some((current_id, depth)) = stack.pop() {
+            if depth > Self::MAX_LAYOUT_RECURSION_DEPTH {
+                return Err(self.layout_depth_overflow(current_id, depth));
+            }
+            let Some(previous_geometry) = reuse.previous_snapshot.nodes.get(&current_id) else {
+                return Ok(None);
+            };
+            let Some(previous_constraints) =
+                reuse.previous_snapshot.constraints.get(&current_id).copied()
+            else {
+                return Ok(None);
+            };
+
+            let mut geometry = previous_geometry.clone();
+            geometry.rect.origin.x += dx;
+            geometry.rect.origin.y += dy;
+            out.insert(current_id, geometry);
+            constraints_out.insert(current_id, previous_constraints);
+
+            let children = self.graph_state.children_of(current_id);
+            for child_id in children.iter().rev() {
+                stack.push((*child_id, depth + 1));
+            }
+        }
+
+        Ok(Some(previous_geometry.content_size))
+    }
+
     fn layout_node_constraints(
         &self,
         node_id: NodeId,
@@ -1333,6 +1451,14 @@ impl LayoutEngine {
 
         if record {
             constraints_out.insert(node_id, constraints);
+        }
+
+        if record {
+            if let Some(reused) =
+                self.copy_cached_subtree(node_id, origin, constraints, out, constraints_out)?
+            {
+                return Ok(reused);
+            }
         }
 
         let mut flow_children: Vec<NodeId> = Vec::new();
