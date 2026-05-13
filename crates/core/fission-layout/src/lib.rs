@@ -33,7 +33,7 @@ use fission_diagnostics::prelude as diag;
 use fission_ir::op::{RichTextAnnotation, TextParagraphStyle, TextRun};
 use fission_ir::{FlexDirection as IrFlexDirection, FlexWrap as IrFlexWrap, NodeId};
 use serde::{Deserialize, Serialize};
-use std::collections::{HashMap, HashSet, VecDeque};
+use std::collections::{HashMap, HashSet};
 use std::collections::hash_map::DefaultHasher;
 use std::hash::{Hash, Hasher};
 use std::sync::Arc;
@@ -394,10 +394,6 @@ struct LayoutGraphState {
     parents: HashMap<NodeId, Option<NodeId>>,
     children: HashMap<NodeId, Vec<NodeId>>,
     roots: Vec<NodeId>,
-    dirty_nodes: HashSet<NodeId>,
-    dirty_subtrees: HashSet<NodeId>,
-    dirty_ancestors: HashSet<NodeId>,
-    removed_nodes: HashSet<NodeId>,
     validation: LayoutGraphValidationState,
 }
 
@@ -406,16 +402,8 @@ impl LayoutGraphState {
         self.nodes.is_empty()
     }
 
-    fn clear_dirty(&mut self) {
-        self.dirty_nodes.clear();
-        self.dirty_subtrees.clear();
-        self.dirty_ancestors.clear();
-        self.removed_nodes.clear();
-    }
-
     fn mark_layout_complete(&mut self) {
         self.last_layout_version = Some(self.graph_version);
-        self.clear_dirty();
     }
 
     fn matches_input_nodes(&self, input_nodes: &[LayoutInputNode]) -> bool {
@@ -452,7 +440,7 @@ impl LayoutGraphState {
         self.node_order.clear();
         self.node_fingerprints.clear();
         self.nodes.clear();
-        self.removed_nodes.clear();
+        self.last_layout_version = None;
 
         let mut validation = LayoutGraphValidationState::default();
         let mut seen = HashSet::new();
@@ -468,49 +456,10 @@ impl LayoutGraphState {
         }
 
         self.rebuild_topology(validation);
-        self.mark_all_nodes_dirty();
     }
 
-    fn apply_update(&mut self, input_nodes: &[LayoutInputNode], dirty_set: &HashSet<NodeId>) {
-        let incoming_ids = input_nodes.iter().map(|node| node.id).collect::<HashSet<_>>();
-        self.removed_nodes = self
-            .nodes
-            .keys()
-            .copied()
-            .filter(|node_id| !incoming_ids.contains(node_id))
-            .collect();
-
-        let mut changed = dirty_set.clone();
-        for node in input_nodes {
-            let fingerprint = layout_input_fingerprint(node);
-            match self.node_fingerprints.get(&node.id) {
-                Some(existing) if *existing == fingerprint => {}
-                _ => {
-                    changed.insert(node.id);
-                }
-            }
-        }
-        changed.extend(self.removed_nodes.iter().copied());
-
-        self.node_order.clear();
-        self.node_fingerprints.clear();
-        self.nodes.clear();
-
-        let mut validation = LayoutGraphValidationState::default();
-        let mut seen = HashSet::new();
-        for node in input_nodes {
-            if !seen.insert(node.id) {
-                validation.duplicate_nodes.push(node.id);
-            } else {
-                self.node_order.push(node.id);
-            }
-            self.node_fingerprints
-                .insert(node.id, layout_input_fingerprint(node));
-            self.nodes.insert(node.id, node.clone());
-        }
-
-        self.rebuild_topology(validation);
-        self.mark_dirty(&changed);
+    fn apply_update(&mut self, input_nodes: &[LayoutInputNode]) {
+        self.replace_all_nodes(input_nodes);
     }
 
     fn rebuild_topology(&mut self, mut validation: LayoutGraphValidationState) {
@@ -555,33 +504,25 @@ impl LayoutGraphState {
         self.validation = validation;
     }
 
-    fn mark_all_nodes_dirty(&mut self) {
-        let all_nodes = self.nodes.keys().copied().collect::<HashSet<_>>();
-        self.mark_dirty(&all_nodes);
+    fn node(&self, node_id: NodeId) -> Option<&LayoutInputNode> {
+        self.nodes.get(&node_id)
     }
 
-    fn mark_dirty(&mut self, dirty_set: &HashSet<NodeId>) {
-        self.dirty_nodes.extend(dirty_set.iter().copied());
+    fn children_of(&self, node_id: NodeId) -> &[NodeId] {
+        self.children
+            .get(&node_id)
+            .map(Vec::as_slice)
+            .unwrap_or(&[])
+    }
 
-        for node_id in dirty_set {
-            let mut cursor = Some(*node_id);
-            while let Some(current_id) = cursor {
-                if !self.dirty_ancestors.insert(current_id) {
-                    break;
-                }
-                cursor = self.parents.get(&current_id).copied().flatten();
-            }
+    fn parent_of(&self, node_id: NodeId) -> Option<NodeId> {
+        self.parents.get(&node_id).copied().flatten()
+    }
 
-            let mut queue = VecDeque::from([*node_id]);
-            while let Some(current_id) = queue.pop_front() {
-                if !self.dirty_subtrees.insert(current_id) {
-                    continue;
-                }
-                if let Some(children) = self.children.get(&current_id) {
-                    queue.extend(children.iter().copied());
-                }
-            }
-        }
+    fn ordered_nodes(&self) -> impl Iterator<Item = &LayoutInputNode> {
+        self.node_order
+            .iter()
+            .filter_map(|node_id| self.nodes.get(node_id))
     }
 
     fn detect_cycle_nodes(&self) -> Vec<NodeId> {
@@ -1052,7 +993,7 @@ impl LayoutEngine {
         Ok(())
     }
 
-    /// Incrementally updates layout for the given dirty nodes.
+    /// Refreshes the cached graph state after upstream layout edits.
     pub fn update(&mut self, input_nodes: &[LayoutInputNode], dirty_set: &HashSet<NodeId>) {
         let version = self.allocate_graph_version();
         if self.graph_state.is_empty() {
@@ -1061,8 +1002,12 @@ impl LayoutEngine {
         }
 
         self.graph_state.graph_version = version;
+        if dirty_set.is_empty() && self.graph_state.matches_input_nodes(input_nodes) {
+            return;
+        }
+
         self.graph_state.last_rebuild_version = version;
-        self.graph_state.apply_update(input_nodes, dirty_set);
+        self.graph_state.apply_update(input_nodes);
     }
 
     /// Rebuilds internal data structures from the full node list.
@@ -1157,7 +1102,7 @@ impl LayoutEngine {
             viewport_size,
             scroll_source,
         )?;
-        self.emit_scroll_diagnostics(input_nodes, &snapshot);
+        self.emit_scroll_diagnostics(&snapshot);
         Ok(snapshot)
     }
 
@@ -1174,12 +1119,10 @@ impl LayoutEngine {
     ) -> Result<LayoutSnapshot> {
         self.ensure_graph_state(input_nodes);
         self.validate_graph_state(root_node_id)?;
-        let node_map: HashMap<NodeId, &LayoutInputNode> =
-            input_nodes.iter().map(|n| (n.id, n)).collect();
 
         // Root constraints should be tight to the viewport size if no explicit size is given
         let mut constraints = BoxConstraints::tight(viewport_size);
-        if let Some(root) = node_map.get(&root_node_id) {
+        if let Some(root) = self.graph_state.node(root_node_id) {
             // Only loosen if explicit dimensions are provided for the root node
             if root.width.is_some() || root.height.is_some() {
                 constraints = BoxConstraints::loose(viewport_size.width, viewport_size.height)
@@ -1193,7 +1136,6 @@ impl LayoutEngine {
             root_node_id,
             constraints,
             LayoutPoint::ZERO,
-            &node_map,
             &mut snapshot.nodes,
             &mut snapshot.constraints,
             &mut measure_cache,
@@ -1204,9 +1146,9 @@ impl LayoutEngine {
 
         let visual_location = |node_id: NodeId| -> Option<LayoutPoint> {
             let mut pos = snapshot.nodes.get(&node_id)?.rect.origin;
-            let mut current = node_map.get(&node_id).and_then(|n| n.parent_id);
+            let mut current = self.graph_state.parent_of(node_id);
             while let Some(parent_id) = current {
-                if let Some(parent) = node_map.get(&parent_id) {
+                if let Some(parent) = self.graph_state.node(parent_id) {
                     if let LayoutOp::Scroll { direction, .. } = &parent.op {
                         let offset = scroll_source.get_offset(parent_id);
                         match direction {
@@ -1214,7 +1156,7 @@ impl LayoutEngine {
                             FlexDirection::Column => pos.y -= offset,
                         }
                     }
-                    current = parent.parent_id;
+                    current = self.graph_state.parent_of(parent_id);
                 } else {
                     break;
                 }
@@ -1223,7 +1165,7 @@ impl LayoutEngine {
         };
 
         let mut flyout_abs_overrides: HashMap<NodeId, (f32, f32)> = HashMap::new();
-        for node in input_nodes {
+        for node in self.graph_state.ordered_nodes() {
             if let LayoutOp::Flyout { anchor, content } = node.op {
                 if let (Some(anchor_geom), Some(content_geom)) =
                     (snapshot.nodes.get(&anchor), snapshot.nodes.get(&content))
@@ -1258,17 +1200,15 @@ impl LayoutEngine {
                 id: NodeId,
                 dx: f32,
                 dy: f32,
-                node_map: &HashMap<NodeId, &LayoutInputNode>,
+                graph_state: &LayoutGraphState,
                 geometries: &mut HashMap<NodeId, LayoutNodeGeometry>,
             ) {
                 if let Some(g) = geometries.get_mut(&id) {
                     g.rect.origin.x += dx;
                     g.rect.origin.y += dy;
                 }
-                if let Some(n) = node_map.get(&id) {
-                    for child in &n.children_ids {
-                        apply_offset_recursive(*child, dx, dy, node_map, geometries);
-                    }
+                for child in graph_state.children_of(id) {
+                    apply_offset_recursive(*child, dx, dy, graph_state, geometries);
                 }
             }
 
@@ -1276,7 +1216,7 @@ impl LayoutEngine {
                 if let Some(current) = snapshot.nodes.get(&nid) {
                     let dx = abs_x - current.rect.origin.x;
                     let dy = abs_y - current.rect.origin.y;
-                    apply_offset_recursive(nid, dx, dy, &node_map, &mut snapshot.nodes);
+                    apply_offset_recursive(nid, dx, dy, &self.graph_state, &mut snapshot.nodes);
                 }
             }
         }
@@ -1286,18 +1226,16 @@ impl LayoutEngine {
         Ok(snapshot)
     }
 
-    fn emit_scroll_diagnostics(&self, input_nodes: &[LayoutInputNode], snapshot: &LayoutSnapshot) {
+    fn emit_scroll_diagnostics(&self, snapshot: &LayoutSnapshot) {
         use fission_diagnostics::prelude as diag;
         let trace_scroll = std::env::var("FISSION_SCROLL_TRACE").ok().as_deref() == Some("1");
-        let node_map: HashMap<NodeId, &LayoutInputNode> =
-            input_nodes.iter().map(|n| (n.id, n)).collect();
-        for n in input_nodes {
+        for n in self.graph_state.ordered_nodes() {
             if let LayoutOp::Scroll { .. } = n.op {
                 if let Some(g) = snapshot.nodes.get(&n.id) {
                     let note = if g.rect.height() <= 0.0 {
                         let parent_op = n
                             .parent_id
-                            .and_then(|pid| node_map.get(&pid))
+                            .and_then(|pid| self.graph_state.node(pid))
                             .map(|p| format!("{:?}", p.op));
                         let parent_constraints = n
                             .parent_id
@@ -1351,7 +1289,6 @@ impl LayoutEngine {
         node_id: NodeId,
         constraints: BoxConstraints,
         origin: LayoutPoint,
-        node_map: &HashMap<NodeId, &LayoutInputNode>,
         out: &mut HashMap<NodeId, LayoutNodeGeometry>,
         constraints_out: &mut HashMap<NodeId, BoxConstraints>,
         measure_cache: &mut HashMap<MeasureCacheKey, LayoutSize>,
@@ -1371,8 +1308,8 @@ impl LayoutEngine {
                 return cached;
             }
         }
-        let node = match node_map.get(&node_id) {
-            Some(n) => *n,
+        let node = match self.graph_state.node(node_id) {
+            Some(node) => node,
             None => return LayoutSize::ZERO,
         };
 
@@ -1382,9 +1319,9 @@ impl LayoutEngine {
 
         let mut flow_children: Vec<NodeId> = Vec::new();
         let mut abs_children: Vec<NodeId> = Vec::new();
-        for child_id in &node.children_ids {
+        for child_id in self.graph_state.children_of(node_id) {
             let is_absolute = matches!(
-                node_map.get(child_id).map(|n| &n.op),
+                self.graph_state.node(*child_id).map(|n| &n.op),
                 Some(LayoutOp::AbsoluteFill) | Some(LayoutOp::Positioned { .. })
             );
             if is_absolute {
@@ -1452,8 +1389,8 @@ impl LayoutEngine {
                 if !rich_text_inline_children {
                     for child_id in &flow_children {
                         let (child_width, child_height, child_max_width, child_max_height) =
-                            node_map
-                                .get(child_id)
+                            self.graph_state
+                                .node(*child_id)
                                 .map(|child| match &child.op {
                                     LayoutOp::Box {
                                         width,
@@ -1496,7 +1433,6 @@ impl LayoutEngine {
                             *child_id,
                             child_constraints,
                             LayoutPoint::ZERO,
-                            node_map,
                             out,
                             constraints_out,
                             measure_cache,
@@ -1520,7 +1456,6 @@ impl LayoutEngine {
                             child_id,
                             child_constraints,
                             LayoutPoint::new(origin.x + padding[0], origin.y + padding[2]),
-                            node_map,
                             out,
                             constraints_out,
                             measure_cache,
@@ -1536,8 +1471,7 @@ impl LayoutEngine {
                                 child_id,
                                 abs_constraints,
                                 origin,
-                                node_map,
-                                out,
+                            out,
                                 constraints_out,
                                 measure_cache,
                                 scroll_source,
@@ -1608,7 +1542,6 @@ impl LayoutEngine {
                             *child_id,
                             child_constraints,
                             LayoutPoint::ZERO,
-                            node_map,
                             out,
                             constraints_out,
                             measure_cache,
@@ -1775,8 +1708,7 @@ impl LayoutEngine {
                                 child_id,
                                 child_constraints,
                                 child_origin,
-                                node_map,
-                                out,
+                            out,
                                 constraints_out,
                                 measure_cache,
                                 scroll_source,
@@ -1796,8 +1728,7 @@ impl LayoutEngine {
                                 child_id,
                                 abs_constraints,
                                 origin,
-                                node_map,
-                                out,
+                            out,
                                 constraints_out,
                                 measure_cache,
                                 scroll_source,
@@ -1823,8 +1754,8 @@ impl LayoutEngine {
                     let treat_flex_as_nonflex = !main_bounded;
 
                     for child_id in &flow_children {
-                        let child = match node_map.get(child_id) {
-                            Some(c) => *c,
+                        let child = match self.graph_state.node(*child_id) {
+                            Some(child) => child,
                             None => continue,
                         };
                         let flex = child.flex_grow;
@@ -1884,7 +1815,6 @@ impl LayoutEngine {
                             *child_id,
                             child_constraints,
                             LayoutPoint::ZERO,
-                            node_map,
                             out,
                             constraints_out,
                             measure_cache,
@@ -1972,7 +1902,6 @@ impl LayoutEngine {
                             entry.id,
                             child_constraints,
                             LayoutPoint::ZERO,
-                            node_map,
                             out,
                             constraints_out,
                             measure_cache,
@@ -2012,7 +1941,7 @@ impl LayoutEngine {
                         // SHRINK logic
                         let mut total_shrink_scaled = 0.0f32;
                         for entry in &measured {
-                            let child = node_map.get(&entry.id).unwrap();
+                            let child = self.graph_state.node(entry.id).unwrap();
                             let main_size = if is_row {
                                 entry.size.width
                             } else {
@@ -2024,7 +1953,7 @@ impl LayoutEngine {
                         if total_shrink_scaled > 0.0 {
                             let overflow = (final_children_main + gap_total) - max_main;
                             for entry in &mut measured {
-                                let child = node_map.get(&entry.id).unwrap();
+                                let child = self.graph_state.node(entry.id).unwrap();
                                 let main_size = if is_row {
                                     entry.size.width
                                 } else {
@@ -2072,8 +2001,7 @@ impl LayoutEngine {
                                     entry.id,
                                     child_constraints,
                                     LayoutPoint::ZERO,
-                                    node_map,
-                                    out,
+                            out,
                                     constraints_out,
                                     measure_cache,
                                     scroll_source,
@@ -2185,7 +2113,7 @@ impl LayoutEngine {
                         let mut child_constraints = entry.constraints;
                         if matches!(align_items, fission_ir::op::AlignItems::Stretch) {
                             // Only stretch children that don't have an explicit cross-axis size.
-                            let child_node = node_map.get(&entry.id);
+                            let child_node = self.graph_state.node(entry.id);
                             let has_explicit_cross = child_node
                                 .map(|n| match &n.op {
                                     LayoutOp::Box { width, height, .. } => {
@@ -2213,7 +2141,6 @@ impl LayoutEngine {
                             entry.id,
                             child_constraints,
                             child_origin,
-                            node_map,
                             out,
                             constraints_out,
                             measure_cache,
@@ -2231,8 +2158,7 @@ impl LayoutEngine {
                                 child_id,
                                 abs_constraints,
                                 origin,
-                                node_map,
-                                out,
+                            out,
                                 constraints_out,
                                 measure_cache,
                                 scroll_source,
@@ -2345,7 +2271,7 @@ impl LayoutEngine {
                 let mut auto_col = 0;
 
                 for child_id in &flow_children {
-                    let child = node_map.get(child_id).unwrap();
+                    let child = self.graph_state.node(*child_id).unwrap();
                     let (row, col) = if let LayoutOp::GridItem {
                         row_start,
                         col_start,
@@ -2396,8 +2322,7 @@ impl LayoutEngine {
                         *child_id,
                         cell_constraints,
                         LayoutPoint::ZERO,
-                        node_map,
-                        out,
+                            out,
                         constraints_out,
                         measure_cache,
                         scroll_source,
@@ -2447,7 +2372,6 @@ impl LayoutEngine {
                             *child_id,
                             child_constraints,
                             LayoutPoint::new(cell_x, cell_y),
-                            node_map,
                             out,
                             constraints_out,
                             measure_cache,
@@ -2465,7 +2389,6 @@ impl LayoutEngine {
                             child_id,
                             abs_constraints,
                             origin,
-                            node_map,
                             out,
                             constraints_out,
                             measure_cache,
@@ -2485,8 +2408,7 @@ impl LayoutEngine {
                         *child_id,
                         constraints,
                         origin,
-                        node_map,
-                        out,
+                            out,
                         constraints_out,
                         measure_cache,
                         scroll_source,
@@ -2526,8 +2448,7 @@ impl LayoutEngine {
                         *child_id,
                         child_constraints,
                         LayoutPoint::ZERO,
-                        node_map,
-                        out,
+                            out,
                         constraints_out,
                         measure_cache,
                         scroll_source,
@@ -2545,7 +2466,6 @@ impl LayoutEngine {
                             *child_id,
                             child_constraints,
                             LayoutPoint::new(origin.x + padding[0], origin.y + padding[2]),
-                            node_map,
                             out,
                             constraints_out,
                             measure_cache,
@@ -2561,8 +2481,7 @@ impl LayoutEngine {
                                 child_id,
                                 abs_constraints,
                                 origin,
-                                node_map,
-                                out,
+                            out,
                                 constraints_out,
                                 measure_cache,
                                 scroll_source,
@@ -2583,8 +2502,7 @@ impl LayoutEngine {
                         *child_id,
                         child_constraints,
                         LayoutPoint::ZERO,
-                        node_map,
-                        out,
+                            out,
                         constraints_out,
                         measure_cache,
                         scroll_source,
@@ -2615,8 +2533,7 @@ impl LayoutEngine {
                         *child_id,
                         child_constraints,
                         LayoutPoint::new(origin.x + dx, origin.y + dy),
-                        node_map,
-                        out,
+                            out,
                         constraints_out,
                         measure_cache,
                         scroll_source,
@@ -2631,7 +2548,6 @@ impl LayoutEngine {
                             child_id,
                             abs_constraints,
                             origin,
-                            node_map,
                             out,
                             constraints_out,
                             measure_cache,
@@ -2651,8 +2567,7 @@ impl LayoutEngine {
                         *child_id,
                         BoxConstraints::loose(constraints.max_w, constraints.max_h),
                         LayoutPoint::ZERO,
-                        node_map,
-                        out,
+                            out,
                         constraints_out,
                         measure_cache,
                         scroll_source,
@@ -2685,8 +2600,7 @@ impl LayoutEngine {
                         *child_id,
                         child_constraints,
                         child_origin,
-                        node_map,
-                        out,
+                            out,
                         constraints_out,
                         measure_cache,
                         scroll_source,
@@ -2701,7 +2615,6 @@ impl LayoutEngine {
                             child_id,
                             abs_constraints,
                             origin,
-                            node_map,
                             out,
                             constraints_out,
                             measure_cache,
@@ -2740,8 +2653,7 @@ impl LayoutEngine {
                         *child_id,
                         child_constraints,
                         LayoutPoint::ZERO,
-                        node_map,
-                        out,
+                            out,
                         constraints_out,
                         measure_cache,
                         scroll_source,
@@ -2762,8 +2674,7 @@ impl LayoutEngine {
                         *child_id,
                         child_constraints,
                         LayoutPoint::new(origin.x + x, origin.y + y),
-                        node_map,
-                        out,
+                            out,
                         constraints_out,
                         measure_cache,
                         scroll_source,
@@ -2794,13 +2705,12 @@ impl LayoutEngine {
                 let target_w = finite_or(constraints.max_w, finite_or(constraints.min_w, 0.0));
                 let target_h = finite_or(constraints.max_h, finite_or(constraints.min_h, 0.0));
                 let size = constraints.constrain(LayoutSize::new(target_w, target_h));
-                for child_id in &node.children_ids {
+                for child_id in self.graph_state.children_of(node_id) {
                     self.layout_node_constraints(
                         *child_id,
                         BoxConstraints::tight(size),
                         origin,
-                        node_map,
-                        out,
+                            out,
                         constraints_out,
                         measure_cache,
                         scroll_source,
@@ -2818,8 +2728,7 @@ impl LayoutEngine {
                         *child_id,
                         constraints,
                         origin,
-                        node_map,
-                        out,
+                            out,
                         constraints_out,
                         measure_cache,
                         scroll_source,
@@ -2844,13 +2753,12 @@ impl LayoutEngine {
                     },
                 );
                 let mut child_size = LayoutSize::ZERO;
-                for child_id in &node.children_ids {
+                for child_id in self.graph_state.children_of(node_id) {
                     child_size = self.layout_node_constraints(
                         *child_id,
                         loose,
                         origin,
-                        node_map,
-                        out,
+                            out,
                         constraints_out,
                         measure_cache,
                         scroll_source,
@@ -2862,12 +2770,11 @@ impl LayoutEngine {
                     let anchor_rect = out.get(anchor).map(|g| g.rect);
                     let place_x = anchor_rect.map(|r| r.x()).unwrap_or(origin.x);
                     let place_y = anchor_rect.map(|r| r.y() + r.height()).unwrap_or(origin.y);
-                    for child_id in &node.children_ids {
+                    for child_id in self.graph_state.children_of(node_id) {
                         self.layout_node_constraints(
                             *child_id,
                             loose,
                             LayoutPoint::new(place_x, place_y),
-                            node_map,
                             out,
                             constraints_out,
                             measure_cache,
@@ -2921,8 +2828,7 @@ impl LayoutEngine {
                                     inline_box.height,
                                 )),
                                 LayoutPoint::new(origin.x + inline_box.x, origin.y + inline_box.y),
-                                node_map,
-                                out,
+                            out,
                                 constraints_out,
                                 measure_cache,
                                 scroll_source,
