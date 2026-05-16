@@ -11,6 +11,7 @@ Cross-platform, GPU-accelerated UI framework for Rust. Fission uses a Flutter-in
 
 ## Table of contents
 
+- [Documentation and product site](#documentation-and-product-site)
 - [Quick start](#quick-start)
 - [Project scaffolding](#project-scaffolding)
 - [Platform smoke tests](#platform-smoke-tests)
@@ -35,6 +36,31 @@ Cross-platform, GPU-accelerated UI framework for Rust. Fission uses a Flutter-in
 - [License](#license)
 
 ---
+
+## Documentation and product site
+
+The project documentation and marketing site live in Docusaurus:
+
+- Marketing site: `website/` (landing page, examples, playground and showcase)
+- Narrative docs: `/docs`
+- Framework/API reference: `/reference`
+
+Run locally:
+
+```sh
+cd website
+yarn
+yarn start
+```
+
+Build for deployment:
+
+```sh
+cd website
+yarn build
+```
+
+Read the docs site guide in `website/README.md`.
 
 ## Quick start
 

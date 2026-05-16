@@ -1,0 +1,29 @@
+---
+title: Testing and observability
+description: Validate behavior with deterministic transitions and runtime tracing.
+---
+
+# Testing and observability
+
+Treat UI as a behavior system, not just a screenshot.
+
+## What to test first
+
+- reducer outcomes,
+- command output mapping,
+- service interfaces,
+- and user-facing flows for edge cases.
+
+## Observability primitives
+
+- action logs,
+- transition history,
+- command lifecycle traces,
+- and optional target-specific runtime diagnostics.
+
+## Recommended flow
+
+1. write unit tests around action reducers,
+2. exercise commands with mocked services,
+3. run targeted examples through the playground,
+4. add regression tests where UX regressions are expensive.

@@ -1,0 +1,22 @@
+---
+title: Widget tree model
+description: How a widget tree maps to UI state and rendering output.
+---
+
+# Widget tree model
+
+A widget tree is a typed description of what the next frame should represent.
+
+- Each widget receives a **read-only view** into state.
+- Each build pass yields declarative structure.
+- Pure builds make rendering and testing easier.
+
+## Key properties
+
+- deterministic order,
+- stable identity,
+- explicit nesting and composition.
+
+## Practical takeaway
+
+If you treat the tree as data, UI becomes more inspectable, more testable, and easier to reason about.

@@ -1,0 +1,39 @@
+---
+title: Counter tutorial
+description: Product-first tutorial that introduces state, actions, and reactivity.
+---
+
+# Counter tutorial
+
+## What this teaches
+
+- widget tree structure,
+- action binding,
+- reducer semantics,
+- and deterministic updates.
+
+## Add explicit intent
+
+```rust
+#[derive(Action, Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
+struct Increment;
+
+#[derive(Action, Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
+struct Decrement;
+```
+
+Then bind both in your UI:
+
+```rust
+on_press: Some(ctx.bind(Increment, |state: &mut CounterState, _, _| {
+  state.count += 1;
+})),
+```
+
+## Why this matters
+
+The app remains testable because every transition has a typed representation. You can assert state transitions without mocking side-effect-heavy UI behavior.
+
+## Add undo/redo
+
+Since actions are serializable, you can store a history of transitions and replay later for diagnostics.

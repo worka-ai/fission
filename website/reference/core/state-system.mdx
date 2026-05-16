@@ -1,0 +1,28 @@
+---
+title: State system
+description: State model, actions, and reducer conventions.
+---
+
+# State system
+
+## AppState
+
+Your app state type defines source-of-truth for rendering.
+
+## Action
+
+Actions are typed event carriers that describe intent.
+
+## Reducer
+
+Reducers mutate state from one action to next in a deterministic way.
+
+## Context
+
+`ReducerContext` and related helpers provide controlled access to runtime metadata.
+
+## Recommended patterns
+
+- keep state serializable when possible,
+- keep reducers narrowly scoped,
+- model domain behavior via domain actions.

@@ -1,0 +1,61 @@
+.pageShell {
+  padding: 4rem 0;
+}
+
+.section {
+  margin-bottom: 2.5rem;
+}
+
+.heading {
+  margin: 0;
+  font-size: clamp(1.8rem, 3vw, 2.4rem);
+}
+
+.lead {
+  max-width: 72ch;
+  color: var(--ifm-color-emphasis-700);
+}
+
+.grid {
+  margin-top: 1.2rem;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 1rem;
+}
+
+.card {
+  background: rgba(13, 38, 59, 0.72);
+  border: 1px solid rgba(151, 230, 203, 0.2);
+  border-radius: 0.85rem;
+  padding: 1rem;
+}
+
+.card h2 {
+  margin-top: 0;
+  color: #aef7e3;
+  font-size: 1.15rem;
+}
+
+.card p {
+  margin-bottom: 0;
+  color: #d7e7f3;
+}
+
+.link {
+  margin-top: 0.6rem;
+  display: inline-block;
+}
+
+.heroNote {
+  background: rgba(20, 44, 63, 0.6);
+  border: 1px solid rgba(144, 218, 255, 0.3);
+  border-radius: 0.75rem;
+  padding: 0.8rem 1rem;
+  color: #bad8ef;
+}
+
+@media screen and (max-width: 700px) {
+  .pageShell {
+    padding-top: 2.4rem;
+  }
+}

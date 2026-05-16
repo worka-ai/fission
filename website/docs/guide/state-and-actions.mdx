@@ -1,0 +1,48 @@
+---
+title: State and actions
+description: Build predictable state updates with typed action and reducer flows.
+---
+
+# State and actions
+
+Your app state should be the single source of truth for rendering.
+
+## App state contract
+
+- Plain data structures where possible.
+- Serialization-friendly when feasible.
+- Minimal shared mutability.
+
+## Action strategy
+
+Choose action names that describe domain intent (`TodoAdded`, `TodoToggled`, `ThemeChanged`) rather than UI events only.
+
+## Reducer design
+
+- pure transformations,
+- local and scoped logic,
+- no side effects inside reducers.
+
+```rust
+fn reduce_todo_count(state: &mut AppState, action: TodoCounted, _ctx: &mut ReducerContext<AppState>) {
+    state.completed += 1;
+}
+```
+
+## Testing state transitions
+
+Use unit tests on action + state pairs before wiring visual snapshots.
+
+```rust
+#[test]
+fn increments_count() {
+   let mut state = CounterState::default();
+   reduce_count(&mut state, Increment, &mut context());
+   assert_eq!(state.count, 1);
+}
+```
+
+## Related
+
+- [Deterministic rendering](/docs/concepts/pipeline)
+- [Test and observability](/docs/concepts/testing-and-observability)

@@ -1,0 +1,67 @@
+---
+title: Build your first app
+description: A minimal Fission app with state, action, and widget wiring.
+---
+
+# Build your first app
+
+This guide intentionally keeps the first app small and production-minded.
+
+```rust
+use fission::prelude::*;
+
+#[derive(Default, Debug, Clone, PartialEq, Serialize, Deserialize)]
+struct CounterState {
+    count: i32,
+}
+impl AppState for CounterState {}
+
+#[derive(Action, Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
+struct Increment;
+
+struct MyApp;
+
+impl Widget<CounterState> for MyApp {
+    fn build(&self, ctx: &mut BuildCtx<CounterState>, view: &View<CounterState>) -> Node {
+        Column {
+            children: vec![
+                Text {
+                    content: TextContent::Literal(format!("Count: {}", view.state.count)),
+                    font_size: Some(24.0),
+                    ..Default::default()
+                }
+                .into(),
+                Button {
+                    on_press: Some(ctx.bind(Increment, |state, _, _| {
+                        state.count += 1;
+                    })),
+                    child: Some(Box::new(Text::new("Increment").into())),
+                    ..Default::default()
+                }
+                .into(),
+            ],
+            ..Default::default()
+        }
+        .into()
+    }
+}
+
+fn main() -> anyhow::Result<()> {
+    DesktopApp::new(MyApp).run()
+}
+```
+
+## Run and iterate
+
+```bash
+cargo run --example counter
+```
+
+## What to try next
+
+- Add a decrement action.
+- Extract repeated UI into a reusable component.
+- Move the counter logic into a dedicated reducer for testability.
+- Connect an async command to save the value.
+
+Continue with [Counter tutorial](/docs/tutorials/counter).

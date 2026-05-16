@@ -1,0 +1,26 @@
+---
+title: Rendering pipeline
+description: Understand the full pass from widget tree to GPU draw output.
+---
+
+# Rendering pipeline
+
+Fission’s pipeline is explicit:
+
+1. build widget tree,
+2. lower to internal representation,
+3. layout,
+4. paint,
+5. render to GPU.
+
+This separation is intentional: each stage has a single responsibility.
+
+## Benefits
+
+- easier tracing,
+- predictable update cost,
+- and better diagnostics when output differs from expectations.
+
+## Debugging strategy
+
+Track unexpected rendering behavior by checking where structure changed: build, layout, paint command, or render pass.

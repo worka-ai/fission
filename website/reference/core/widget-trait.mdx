@@ -1,0 +1,14 @@
+---
+title: Widget trait
+description: Public widget contract and build entry point.
+---
+
+# Widget trait
+
+The widget trait is the primary render contract.
+
+- `build(&self, ctx, view) -> Node`
+- receives immutable state view,
+- returns a declaration for the next frame.
+
+Keep build methods pure and avoid side effects inside `build`.

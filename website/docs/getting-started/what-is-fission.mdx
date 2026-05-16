@@ -1,0 +1,50 @@
+---
+title: What is Fission
+description: Fission is a Rust-first framework for product-quality cross-platform apps from one codebase.
+---
+
+# What is Fission
+
+Fission is a **Rust-native, production-oriented UI framework** for building desktop, mobile, and web experiences from a single source of truth.
+
+The goal is to help teams ship **real products faster** by combining:
+
+- a Flutter-like declarative widget approach for UI structure,
+- a deterministic state model tuned for testing and reproducibility,
+- and one runtime path across major platforms.
+
+We present Fission as a **complete platform** instead of just a layout engine:
+
+- app architecture and async conventions,
+- widget and rendering systems,
+- command/service/job workflows,
+- a focused CLI toolchain,
+- and an interactive WebAssembly playground for instant iteration.
+
+Fission is built for teams that need **predictable UI systems** and a **single production posture** across app targets.
+
+## Why now?
+
+Modern product teams want:
+
+- consistent behavior across web, desktop, and mobile,
+- high confidence in state transitions,
+- and immediate developer feedback while designing.
+
+Fission helps by keeping the UI tree declarative while preserving strong runtime boundaries for asynchronous work. That makes code easier to reason about and easier to test at scale.
+
+## Core promise
+
+1. **One app model**
+   - Define UI and behavior once, run it with the same mental model everywhere.
+
+2. **Deterministic behavior**
+   - Actions and reducers remain the primary mutation path, which helps with debugging and reproducibility.
+
+3. **Built-in performance direction**
+   - Rendering is optimized for smooth, GPU-backed output while keeping composition explicit.
+
+4. **Developer-first iteration**
+   - Local scaffolding + Worka VM playground keeps the feedback loop short.
+
+We do not frame this as a replacement for one specific ecosystem; we frame it as a production-ready path with a strong architecture for teams shipping multi-platform products.

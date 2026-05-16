@@ -1,0 +1,49 @@
+---
+title: Install and setup
+description: Install Fission and run your first app with the CLI.
+---
+
+# Install and setup
+
+## Install runtime packages
+
+```bash
+cargo add fission
+```
+
+This pulls the core crate into your Rust project.
+
+## Install the CLI
+
+```bash
+cargo install fission-cli
+# or
+cargo install --locked --path crates/cli
+```
+
+## Bootstrap a project
+
+```bash
+fission init my-fission-app
+cd my-fission-app
+```
+
+## Add your first target
+
+```bash
+fission add-target desktop
+fission add-target web
+```
+
+## Verify the generated app runs
+
+```bash
+cd my-fission-app
+fission run desktop
+# optional web host
+fission run web
+```
+
+## Next step
+
+If you want instant visual feedback right away, continue to the [playground workflow](/docs/guide/playground-driven-workflow).

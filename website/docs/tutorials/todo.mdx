@@ -1,0 +1,40 @@
+---
+title: Todo application tutorial
+description: Introduce commands, services, and data flow with a practical workflow.
+---
+
+# Todo application tutorial
+
+## Build a product-like data flow
+
+A todo app combines UI state with asynchronous work:
+
+- local list state,
+- add/remove/toggle actions,
+- optional persistence command.
+
+## Step 1: define domain actions
+
+- `TodoAdded { title: String }`
+- `TodoToggled(usize)`
+- `TodoLoaded(Vec<Todo>)`
+
+## Step 2: command-driven persistence
+
+Use a command to read/write todo state, keeping side effects out of pure build logic.
+
+```rust
+fn hydrate(state: &mut TodoState, action: LoadTodos, _ctx: &mut ReducerContext<TodoState>) {
+    state.loading = true;
+}
+```
+
+## Step 3: service + command separation
+
+- **Service**: long-lived operations (sync, storage, network client wrappers).
+- **Command**: one-shot work requests.
+- **Job**: scheduled, cancellable, or throttled processes tied to app lifecycle.
+
+## Step 4: iterate in the playground
+
+Use the [playground workflow](/docs/guide/playground-driven-workflow) to try interaction changes and layout updates quickly.

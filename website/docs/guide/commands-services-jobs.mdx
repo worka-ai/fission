@@ -1,0 +1,45 @@
+---
+title: Commands, services, and jobs
+description: Use explicit async boundaries for external work and background behavior.
+---
+
+# Commands, services, and jobs
+
+Use separate async abstractions so your UI logic stays deterministic and observable.
+
+## Commands
+
+Commands are explicit unit-of-work requests.
+
+- one-shot
+- bounded
+- easy to test
+
+## Services
+
+Services provide reusable, long-lived collaborators for storage/network/logging.
+
+- life-cycle aware,
+- injectable,
+- easier to mock.
+
+## Jobs
+
+Jobs model scheduled or cancellable work tied to app lifecycle.
+
+- startup initialization,
+- polling,
+- debounced synchronization,
+- cleanup on shutdown.
+
+## Design guideline
+
+If logic can be represented as “state transition + async result,” prefer command-first.
+
+## Example pattern
+
+```text
+UI action -> command request -> service + job -> result action -> reducer
+```
+
+The pattern keeps the UI graph independent from external side effects.
