@@ -1,9 +1,9 @@
 .page {
   background:
-    radial-gradient(circle at 20% 0%, rgba(14, 36, 52, 0.92), transparent 45%),
-    radial-gradient(circle at 82% -8%, rgba(22, 58, 83, 0.9), transparent 48%),
-    linear-gradient(175deg, #05131f 0%, #09273e 40%, #0e2f46 100%);
-  color: #eef5ff;
+    radial-gradient(circle at 20% 0%, rgba(14, 36, 52, 0.2), transparent 45%),
+    radial-gradient(circle at 82% -8%, rgba(22, 58, 83, 0.18), transparent 48%),
+    linear-gradient(175deg, var(--ifm-background-surface-color) 0%, var(--ifm-background-color) 100%);
+  color: var(--ifm-font-color-base);
   min-height: 100vh;
 }
 
@@ -15,7 +15,7 @@
   text-transform: uppercase;
   letter-spacing: 0.12em;
   font-size: 0.78rem;
-  color: #7ff6d4;
+  color: var(--ifm-color-primary);
   font-weight: 700;
   margin-bottom: 0.6rem;
 }
@@ -31,7 +31,7 @@
   margin-top: 1rem;
   max-width: 64ch;
   font-size: 1.08rem;
-  color: #d7e6f5;
+  color: var(--ifm-font-color-secondary);
 }
 
 .ctaRow {
@@ -49,25 +49,18 @@
 }
 
 .primaryCta {
-  background: linear-gradient(180deg, #1de6af, #0fbf97);
-  color: #05212b;
+  background: linear-gradient(180deg, var(--ifm-color-primary-light), var(--ifm-color-primary));
+  color: #07252f;
 }
 
 .secondaryCta {
-  color: #ebf2fa;
-  border: 1px solid rgba(235, 242, 250, 0.45);
+  color: var(--ifm-font-color-base);
+  border: 1px solid var(--ifm-color-emphasis-300);
 }
 
 .tertiaryCta {
-  color: #9ee9d1;
-  border: 1px solid rgba(158, 233, 209, 0.3);
-}
-
-.microNote {
-  margin: 1.2rem 0 0;
-  max-width: 56ch;
-  color: #9bb9cf;
-  font-size: 0.87rem;
+  color: var(--ifm-color-primary-dark);
+  border: 1px solid var(--ifm-color-emphasis-300);
 }
 
 .section {
@@ -77,8 +70,8 @@
 .storyPanel {
   margin: 0 auto;
   max-width: 70ch;
-  background: rgba(6, 27, 44, 0.8);
-  border: 1px solid rgba(132, 207, 233, 0.24);
+  background: var(--ifm-card-background-color, rgba(255, 255, 255, 0.85));
+  border: 1px solid var(--ifm-color-emphasis-300);
   border-radius: 1rem;
   padding: 1.1rem;
 }
@@ -87,18 +80,19 @@
   text-transform: uppercase;
   letter-spacing: 0.09em;
   font-size: 0.74rem;
-  color: #84decc;
+  color: var(--ifm-color-emphasis-700);
   margin: 0;
 }
 
 .storyTitle {
   margin: 0.5rem 0 0.9rem;
   font-size: 1.4rem;
+  color: var(--ifm-font-color-base);
 }
 
 .storyCopy {
   margin: 0 0 0.8rem;
-  color: #d5e4f2;
+  color: var(--ifm-font-color-secondary);
   line-height: 1.7;
 }
 
@@ -112,16 +106,16 @@
 
 .card,
 .proofGrid p {
-  background: rgba(9, 29, 48, 0.84);
-  border: 1px solid rgba(132, 207, 233, 0.25);
+  background: var(--ifm-card-background-color, rgba(255, 255, 255, 0.85));
+  border: 1px solid var(--ifm-color-emphasis-300);
   border-radius: 0.85rem;
   padding: 0.85rem 0.95rem;
-  color: #dceaf7;
+  color: var(--ifm-font-color-base);
 }
 
 .card h2 {
   margin: 0 0 0.52rem;
-  color: #96ecce;
+  color: var(--ifm-font-color-base);
   font-size: 1.06rem;
 }
 
@@ -132,13 +126,17 @@
 }
 
 .proofGrid p strong {
-  color: #b4f3dc;
+  color: var(--ifm-color-emphasis-700);
 }
 
 .sectionLead {
   margin-bottom: 0.6rem;
   font-size: 1.05rem;
-  color: #9dd3e8;
+  color: var(--ifm-font-color-secondary);
+}
+
+:global([data-theme='dark']) .primaryCta {
+  color: #05212b;
 }
 
 @media screen and (max-width: 768px) {

@@ -1,31 +1,25 @@
 ---
 title: Counter tutorial
-description: Product-first tutorial that introduces state, actions, and reactivity.
+description: Step through action, state, and render updates.
 ---
 
 # Counter tutorial
 
-This tutorial extends the first app by reinforcing the typed action loop.
+This tutorial extends the first app and makes the loop explicit:
 
-## Learn by changing one flow
-
-- add increment action,
-- add decrement action,
-- keep both reducers pure,
-- verify both transitions in code and behavior.
+- wire the action contract,
+- map both controls to reducer updates,
+- verify deterministic transitions,
+- add one test path before adding more logic.
 
 ```rust
-#[derive(Action, Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
+#[derive(Action, serde::Serialize, serde::Deserialize, Debug, Clone, PartialEq, Eq)]
 struct Increment;
 
-#[derive(Action, Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
+#[derive(Action, serde::Serialize, serde::Deserialize, Debug, Clone, PartialEq, Eq)]
 struct Decrement;
 ```
 
-Then bind them to controls and verify state changes from interaction. The goal is confidence in a deterministic pair of action paths.
+Keep actions meaningful and small. Build confidence one behavior at a time, then move on to list-style state.
 
-## Optional next improvements
-
-- add range guard logic,
-- extract shared display into reusable widget,
-- write reducer tests before adding command-backed async behavior.
+Next step: [Todo application tutorial](/docs/tutorials/todo).

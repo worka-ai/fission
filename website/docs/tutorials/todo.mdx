@@ -1,27 +1,11 @@
 ---
 title: Todo application tutorial
-description: Introduce commands, services, and data flow with a practical workflow.
+description: Combine local state and command-driven persistence flow.
 ---
 
 # Todo application tutorial
 
-Use this tutorial to combine local state and async work.
-
-## Data model
-
-- list state,
-- action types for add/toggle/load,
-- command lifecycle for persistence.
-
-## Suggested action set
-
-- `TodoAdded { title: String }`
-- `TodoToggled(usize)`
-- `TodosLoaded(Vec<Todo>)`
-
-## Why commands matter
-
-Store interaction state locally and move storage/network effects out of reducer functions. Commands keep the tree and UI logic deterministic.
+A todo flow introduces three useful concepts at once: list state, action-driven updates, and background work.
 
 ```rust
 fn hydrate(state: &mut TodoState, action: LoadTodos, _ctx: &mut ReducerContext<TodoState>) {
@@ -29,4 +13,12 @@ fn hydrate(state: &mut TodoState, action: LoadTodos, _ctx: &mut ReducerContext<T
 }
 ```
 
-When hydrated, the completion action updates local state and UI renders from state.
+Use typed actions for local updates (`TodoAdded`, `TodoToggled`, `TodosLoaded`) and use a command/service boundary for persistence.
+
+A good test order is:
+
+- state transitions,
+- command lifecycle,
+- UI interaction validation.
+
+If you are learning, do not add database and sync details until this loop is stable.

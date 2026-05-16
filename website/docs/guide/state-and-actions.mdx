@@ -1,34 +1,36 @@
 ---
 title: State and actions
-description: Build predictable state updates with typed action and reducer flows.
+description: Move from UI events to explicit state transitions.
 ---
 
 # State and actions
 
-State gives you a stable contract. Actions express intent. Reducers apply state changes.
+For someone new to Fission, the state model is the single best place to start. Your app state is the source of truth.
 
-## Practical model
-
-Use domain-specific action names (`TodoToggled`, `ThemeChanged`, `ItemDeleted`) and keep reducer functions small.
+A good action uses product meaning (`TodoToggled`, `ThemeChanged`) instead of generic names. A reducer takes an action and updates state deterministically.
 
 ```rust
-#[derive(Action, Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
+#[derive(Action, serde::Serialize, serde::Deserialize, Debug, Clone, PartialEq, Eq)]
 struct TodoToggled {
     id: usize,
 }
 
-fn reduce_todo_toggled(state: &mut AppState, action: TodoToggled, _ctx: &mut ReducerContext<AppState>) {
+fn reduce_todo_toggled(
+    state: &mut TodoState,
+    action: TodoToggled,
+    _ctx: &mut ReducerContext<TodoState>,
+) {
     if let Some(todo) = state.todos.get_mut(action.id) {
         todo.done = !todo.done;
     }
 }
 ```
 
-## Team-level guidance
+Keep these habits until your reducer paths are stable:
 
-- reducers are pure,
-- no async calls in reducer bodies,
-- one reducer should do one concept,
-- tests assert both positive and negative transitions.
+- action names should match domain intent,
+- each reducer should do one conceptual update,
+- avoid side effects in reducers,
+- test each transition before adding more behavior.
 
-When action naming is clean, maintenance becomes much cheaper later.
+From here, use [Commands, services, and jobs](/docs/guide/commands-services-jobs) when behavior talks to the outside world.

@@ -1,28 +1,18 @@
 ---
 title: Commands, services, and jobs
-description: Async and platform work contracts.
+description: Async boundaries and external work contracts.
 ---
 
 # Commands, services, and jobs
 
-These primitives define behavior outside synchronous render.
+This page is a quick lookup for async behavior.
 
-## Command
-
-A command is a bounded async request and response.
-
-## Service
-
-A service is a reusable, long-lived integration abstraction.
-
-## Job
-
-A job is lifecycle-aware background work with scheduling/cancellation semantics.
-
-## Recommended structure
+A command is one-shot and bounded. A service is reusable across the app. A job is lifecycle-aware and can run repeatedly or be cancelled.
 
 ```text
-action -> command/service/job -> completion action -> reducer
+action -> command/service/job -> completion action -> reducer -> render
 ```
 
-This keeps async behavior auditable and testable.
+Use the split to prevent side effects from entering build logic.
+
+When debugging production issues, start by tracing this sequence to identify whether work was triggered by user input or timed lifecycle behavior.

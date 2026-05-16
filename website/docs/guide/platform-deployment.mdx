@@ -1,20 +1,20 @@
 ---
 title: Platform and deployment
-description: Target desktop, web, and mobile flows with consistent runtime model.
+description: Keep behavior stable while preparing outputs.
 ---
 
 # Platform and deployment
 
-Start with the architecture, then add target-specific output.
+Use one architecture and one behavior model, then apply platform output steps.
 
-## Recommended sequence
+Recommended path:
 
-1. build and stabilize core behaviors,
-2. validate desktop target,
-3. validate web/WASM output,
-4. add mobile/packaging flow,
-5. lock environment settings outside business logic.
+- implement and stabilize app behavior,
+- validate desktop,
+- validate web/WASM,
+- add native packaging and release settings,
+- confirm the same behavior across environments.
 
-## Deployment guidance
+Keep environment-specific values out of reducer logic. Put them in deployment configuration and target descriptors.
 
-Keep target flags in configuration files and project descriptors. This avoids leaking platform-specific behavior into shared widget code.
+This pattern is what helps behavior remain consistent as your target list grows.

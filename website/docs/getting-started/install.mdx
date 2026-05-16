@@ -1,64 +1,42 @@
 ---
 title: Install and setup
-description: Install Fission and bootstrap a project.
+description: Install the CLI and create your first runnable Fission project.
 ---
 
 # Install and setup
 
-This page shows the minimum commands to get a local Fission project running.
+You can get started from your existing Rust environment.
 
-## 1. Add the core crate
-
-Use your existing Rust project setup:
+First add the core crate to your project.
 
 ```bash
-cargo add fission
+cargo add fission_core
 ```
 
-Optional dependencies may be required by examples (for example error handling helpers).
-
-## 2. Install the CLI
-
-The CLI is required for standard project workflow and target operations.
+Install the CLI so you can scaffold and run targets consistently.
 
 ```bash
 cargo install fission-cli
-# or, while working against the repo:
-cargo install --locked --path crates/cli
+# if you work from source:
+# cargo install --locked --path crates/cli
 ```
 
-## 3. Create a project
-
-Scaffold a new app with a single command sequence:
+Create a new app, then add targets.
 
 ```bash
 fission init my-fission-app
 cd my-fission-app
-```
-
-The generated project includes defaults for workspace layout and target metadata.
-
-## 4. Add targets
-
-Desktop and web are the fastest entry points for feedback. Add them explicitly so behavior can be validated in both environments.
-
-```bash
 fission add-target desktop
 fission add-target web
 ```
 
-## 5. Run
-
-Use desktop first for interactive speed, then web for layout and browser behavior.
+Use desktop first for a fast local loop, then web for browser validation.
 
 ```bash
 fission run desktop
 fission run web
 ```
 
-### Next
+If these run, continue to [Build your first app](/docs/getting-started/first-app) and keep this sequence fixed for your first week.
 
-When this works, continue to your first app and keep commands in the narrative order.
-
-- [Build your first app](/docs/getting-started/first-app)
-- [Playground-first workflow](/docs/guide/playground-driven-workflow)
+If `fission` fails to resolve, confirm your Rust toolchain and PATH before continuing.

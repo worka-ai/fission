@@ -1,19 +1,19 @@
 ---
 title: Layout widgets
-description: Flex/grid/stack style primitives for compositional UIs.
+description: Layout and composition widgets for stable geometry.
 ---
 
 # Layout widgets
 
-Layout primitives control composition and geometry.
+Layout widgets define how children are arranged and sized.
 
-## Common work
+Use container widgets when you need predictable structure:
 
-- container direction (row/column),
-- spacing and alignment,
-- bounds and density behavior,
-- nested composition for reusable screen sections.
+- `Align`, `Column`, `Row`, `Grid`, `GridItem`, `LazyColumn`, `Overlay`, `SafeArea`, `Scroll`,
+  `Spacer`, `ZStack`, `SplitView`, `SplitDirection`, `SimpleGrid`, `Wrap`, `Center`,
+  `Positioned`, `Transform`, `Container`, and `GestureDetector`.
 
-## Practical guidance
+Use authoring helpers (`HStack`, `VStack`) when your team prefers semantic names for row/column
+compositions.
 
-Prefer explicit layout values for spacing and alignment, especially for wide screens and varying viewport widths.
+A stable layout strategy keeps wide screens and narrow screens from feeling like different products.

@@ -13,7 +13,7 @@
 
 .lead {
   max-width: 72ch;
-  color: var(--ifm-color-emphasis-700);
+  color: var(--ifm-font-color-secondary);
 }
 
 .grid {
@@ -24,34 +24,26 @@
 }
 
 .card {
-  background: rgba(13, 38, 59, 0.72);
-  border: 1px solid rgba(151, 230, 203, 0.2);
+  background: var(--ifm-card-background-color, rgba(255, 255, 255, 0.85));
+  border: 1px solid var(--ifm-color-emphasis-300);
   border-radius: 0.85rem;
   padding: 1rem;
 }
 
 .card h2 {
   margin-top: 0;
-  color: #aef7e3;
+  color: var(--ifm-font-color-base);
   font-size: 1.15rem;
 }
 
 .card p {
   margin-bottom: 0;
-  color: #d7e7f3;
+  color: var(--ifm-font-color-secondary);
 }
 
 .link {
   margin-top: 0.6rem;
   display: inline-block;
-}
-
-.heroNote {
-  background: rgba(20, 44, 63, 0.6);
-  border: 1px solid rgba(144, 218, 255, 0.3);
-  border-radius: 0.75rem;
-  padding: 0.8rem 1rem;
-  color: #bad8ef;
 }
 
 @media screen and (max-width: 700px) {

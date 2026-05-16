@@ -1,17 +1,26 @@
 ---
 title: CLI
-description: Fission project and target management commands.
+description: Project and target workflow commands for Fission.
 ---
 
 # CLI overview
 
-Primary commands for Fission workflows.
+Standard commands:
 
-```bash
-fission init <app>
-fission add-target <target>
-fission run <target>
-fission build <target>
-```
+`fission init <app>`
 
-Use CLI workflows to keep target setup consistent and reproducible across machines.
+Creates and configures a new project scaffold.
+
+`fission add-target <target>`
+
+Adds a build/run target.
+
+`fission run <target>`
+
+Runs the project for a specific target.
+
+`fission build <target>`
+
+Generates build artifacts for delivery.
+
+Use these commands consistently in local automation so every team member works from the same workflow.

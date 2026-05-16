@@ -1,14 +1,12 @@
 ---
 title: Targets
-description: Supported targets and current runtime expectations.
+description: Output targets and how to prepare behavior for each.
 ---
 
 # Targets
 
-Target support uses the same app model with different packaging/runtime entry points.
+Targeting is not a separate architecture. It is packaging and runtime-specific output around the same app model.
 
-- desktop runtime,
-- web/WASM host,
-- native mobile integration targets.
+Current focus is desktop and web/WASM output paths. Native targets are integrated through platform setup steps in your deployment flow.
 
-Track target readiness in release notes and avoid assuming parity before verification.
+Use the same state/actions model and keep target-specific differences at the runtime/config boundary.

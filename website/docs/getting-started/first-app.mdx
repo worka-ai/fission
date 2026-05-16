@@ -1,38 +1,32 @@
 ---
 title: Build your first app
-description: A minimal Fission app with state, actions, and widget wiring.
+description: A tiny first app showing state, actions, and rebuild flow.
 ---
 
 # Build your first app
 
-The goal is to show the complete signal path: state, action, and widget rebuild.
-
-## The core pattern
-
-- state is immutable during build,
-- actions describe user intent,
-- reducers update state deterministically,
-- UI reads state and dispatches intent.
+Start by writing a minimal app that increments and decrements a number. Every part is visible.
 
 ```rust
-use fission::prelude::*;
+use fission_core::prelude::*;
+use fission_core::{Button, Column, Text, TextContent};
 
-#[derive(Default, Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Default, Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 struct CounterState {
     count: i32,
 }
 
 impl AppState for CounterState {}
 
-#[derive(Action, Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
+#[derive(Action, serde::Serialize, serde::Deserialize, Debug, Clone, PartialEq, Eq)]
 struct Increment;
 
-#[derive(Action, Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
+#[derive(Action, serde::Serialize, serde::Deserialize, Debug, Clone, PartialEq, Eq)]
 struct Decrement;
 
-struct MyApp;
+struct CounterApp;
 
-impl Widget<CounterState> for MyApp {
+impl Widget<CounterState> for CounterApp {
     fn build(&self, ctx: &mut BuildCtx<CounterState>, view: &View<CounterState>) -> Node {
         Column {
             children: vec![
@@ -42,7 +36,6 @@ impl Widget<CounterState> for MyApp {
                     ..Default::default()
                 }
                 .into(),
-
                 Button {
                     on_press: Some(ctx.bind(Increment, |state, _, _| {
                         state.count += 1;
@@ -51,7 +44,6 @@ impl Widget<CounterState> for MyApp {
                     ..Default::default()
                 }
                 .into(),
-
                 Button {
                     on_press: Some(ctx.bind(Decrement, |state, _, _| {
                         state.count -= 1;
@@ -68,23 +60,20 @@ impl Widget<CounterState> for MyApp {
 }
 
 fn main() -> anyhow::Result<()> {
-    DesktopApp::new(MyApp).run()
+    DesktopApp::new(CounterApp).run()
 }
 ```
 
-## Run the app
+This example shows three core ideas:
+
+1. state is read inside `build` and never mutated there,
+2. UI events map to typed actions,
+3. reducers are where state changes happen.
+
+Run locally to verify the cycle.
 
 ```bash
 cargo run --example counter
 ```
 
-## What to try next
-
-- extract `Text` and `Button` groups into reusable widgets,
-- guard updates (`count` cannot go negative),
-- add a reducer function for reset and undo paths,
-- move side effects into commands before adding persistence.
-
-Next tutorial:
-
-- [Counter tutorial](/docs/tutorials/counter)
+Next: make one small improvement at a time and then move to [Counter tutorial](/docs/tutorials/counter).

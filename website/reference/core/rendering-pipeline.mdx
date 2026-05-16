@@ -1,22 +1,18 @@
 ---
 title: Rendering pipeline
-description: Internal frame flow and lifecycle.
+description: Frame-level stages and observability points.
 ---
 
 # Rendering pipeline
 
-A single rendering pass progresses through staged boundaries:
+The frame follows four major phases after a build result is produced: graph lowering, layout, paint command generation, and render backend output.
 
-1. widget build,
-2. internal graph lowering,
-3. layout,
-4. paint command creation,
-5. render backend output.
+Keep this map in mind for performance and correctness work:
 
-## Why this matters
+- bad geometry usually belongs to layout,
+- wrong stacking usually belongs to paint,
+- unstable behavior usually belongs to state/actions.
 
-Stable pipelines make timing and regression analysis easier. You can isolate cost and bugs by stage and keep performance work actionable.
+Use the pipeline to localize changes quickly during iteration.
 
-## Diagnostics pairing
-
-Use with testing/observability notes when behavior differs by target or interaction sequence.
+For deeper behavior checks, combine this with testing and observability guidance.

@@ -1,40 +1,34 @@
 ---
 title: Widgets and layout
-description: Compose UI with declarative widgets and predictable layout behavior.
+description: Compose your first screens with reusable widgets.
 ---
 
 # Widgets and layout
 
-The most maintainable screens start as small composable widgets.
+A screen is easier to reason about when it is layered from outside to inside.
 
-## Build a screen in layers
-
-1. identify container structure,
-2. build simple child widgets,
-3. encode alignment and spacing explicitly,
-4. keep text and control behavior in domain components.
+Start with containers (`Column`, `Row`, `Grid`, `Scroll`, `SafeArea`, `ZStack`) and make
+structure explicit before adding visual detail.
 
 ```rust
-Root {
-  child: Some(Box::new(
-    Column {
-      children: vec![
-        Header::new("Dashboard").into(),
-        Body::new(...).into(),
-        Footer::new("Status").into(),
-      ],
-    }
-    .into(),
-  )),
-  ..Default::default()
+Column {
+    children: vec![
+        Text::new("Dashboard").into(),
+        Row {
+            children: vec![
+                Text::new("Left rail").into(),
+                Text::new("Main body").into(),
+            ],
+            ..Default::default()
+        }.into(),
+        Text::new("Status").into(),
+    ],
+    ..Default::default()
 }
 ```
 
-## Why this style scales
+If your screen starts to feel deeply nested, split structure into named widgets before you
+add behavior. This keeps wide-screen behavior stable because spacing and bounds remain visible
+in each component.
 
-Because layout complexity is often the first source of platform divergence. Explicit structure and constraints make it easier to tune wide-screen behavior without rewriting logic.
-
-## Next step
-
-- [State and actions](/docs/guide/state-and-actions)
-- [Commands, services, and jobs](/docs/guide/commands-services-jobs)
+After layout patterns are comfortable, move to [State and actions](/docs/guide/state-and-actions).

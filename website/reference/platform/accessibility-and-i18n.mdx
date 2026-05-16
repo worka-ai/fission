@@ -1,22 +1,14 @@
 ---
 title: Accessibility and i18n
-description: Cross-platform a11y and localization contracts.
+description: Baseline accessibility and localization contracts.
 ---
 
 # Accessibility and i18n
 
-This section defines baseline requirements for accessible and localized applications.
+This section is your checklist when preparing your first release candidate.
 
-## Accessibility
+For accessibility, verify labels, role semantics, focus order, and visible keyboard state.
 
-- semantic labels and roles,
-- keyboard and focus order,
-- visible focus states,
-- a11y-friendly structure for dynamic content.
+For internationalization, keep user-facing text keyed, test long strings, and check layout stability for direction-sensitive text.
 
-## i18n
-
-- key-based string management,
-- locale-specific resource bundles,
-- tests for long strings and layout shifts,
-- direction-aware layout checks where applicable.
+Applying these checks in the first iteration avoids large refactors once feature count grows.

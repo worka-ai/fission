@@ -29,12 +29,6 @@ const sidebars: SidebarsConfig = {
       collapsed: false,
       items: ['platform/targets', 'platform/accessibility-and-i18n', 'platform/testing', 'cli/overview'],
     },
-    {
-      type: 'category',
-      label: 'Worka VM',
-      collapsed: false,
-      items: ['worka/overview', 'worka/playground', 'worka/bundles'],
-    },
   ],
 };
 

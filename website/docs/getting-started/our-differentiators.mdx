@@ -1,38 +1,27 @@
 ---
 title: Why Fission
-description: Design decisions that shape what you can build with Fission.
+description: The practical architecture choices behind Fission.
 ---
 
 # Why Fission
 
-Fission is designed around five practical differentiators that show up directly in day-to-day development.
+You do not need to adopt every feature at once. You need a framework shape that makes it easier to scale from first screen to production flow.
 
-## 1) Deterministic state by default
+**Deterministic behavior first**
+Actions, reducers, and state transitions are explicit. That gives you one path from user input to state change and one place to test it.
 
-State changes are explicit and reproducible. Actions describe intent and reducers apply a small, bounded state transition. This improves traceability in code review and debugging.
+**Clear async boundaries**
+Commands, services, and jobs split effectful work from pure rendering. UI code stays readable while integration details remain controlled and testable.
 
-## 2) Explicit async boundaries
+**One app model across targets**
+The same core model is used for desktop and web/WASM targets. You still define target build steps, but your architecture does not fork.
 
-UI builds stay focused on rendering decisions, while asynchronous behavior is represented through commands, services, and jobs. You can keep business logic and external integration paths separate and testable.
+**Global quality in the base model**
+Localization and accessibility are treated as first-order concerns. Keys, labels, focus behavior, and contrast are part of your normal implementation flow.
 
-## 3) One architecture for multiple targets
+**Fast feedback loop for visual and behavior changes**
+A browser-based preview loop keeps edits visible quickly while the app model is still stable.
 
-The same app model is intended to span desktop, web, and mobile builds. You still need target-specific packaging, but behavior and structure remain shared.
+This structure helps teams ship confidently because the same patterns repeat from first button to first release.
 
-## 4) Production-quality baseline concerns
-
-i18n and accessibility are part of the architecture. That means localization keys, semantics, and focus behavior are introduced early, not retrofitted at release time.
-
-## 5) Fast feedback with browser-backed preview
-
-The Worka VM-backed workflow lets teams validate behavior quickly before full packaging. That improves collaboration and reduces time spent iterating on layout, behavior, and async timing.
-
-## What this means in practice
-
-If you are shipping a real product team, the payoff is less context switching and a shorter path from idea → validation → implementation.
-
-Continue to the next steps when this map matches your priorities.
-
-- [Install and setup](/docs/getting-started/install)
-- [Build your first app](/docs/getting-started/first-app)
-- [Playground-first workflow](/docs/guide/playground-driven-workflow)
+If this aligns with your team’s constraints, continue with [Install and setup](/docs/getting-started/install).

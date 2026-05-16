@@ -1,18 +1,20 @@
 ---
 title: Playground-first workflow
-description: Use editable, immediate feedback loops while building your first app.
+description: Use short edit-run-verify cycles during early implementation.
 ---
 
 # Playground-first workflow
 
-The best loop is quick and small:
+The fastest way to reduce uncertainty is not “make a lot of changes,” but “change one thing, validate one result.”
 
-1. change one behavior,
-2. validate in browser preview,
-3. copy stable behavior into local project,
-4. add tests around the validated behavior,
-5. expand to next behavior.
+Use this rhythm:
 
-The loop is useful even for complex projects because it isolates variables; you are validating UI and behavior before platform-specific packaging overhead enters.
+1. edit one behavior,
+2. run the browser preview,
+3. validate UI and action behavior,
+4. copy stable code to local project,
+5. add a test.
 
-Keep a dedicated playground branch for experiments and move only stabilized changes into main app code.
+A small loop like this catches regressions while the feature is still cheap to change.
+
+Keep experimental changes in a separate branch. Move only stable behavior to your main code path.

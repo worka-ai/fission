@@ -1,17 +1,18 @@
 ---
 title: Media widgets
-description: Images and graphics surfaces.
+description: Media surfaces, graphics, and custom drawing entry points.
 ---
 
 # Media widgets
 
-Media widgets must preserve both render quality and accessibility.
+Use media widgets intentionally with constraints. They may impact layout, loading behavior, and startup cost.
 
-## Contract points
+Core entries: `Image`, `Video`, `Icon`, `Code`, and `Kbd`. Build custom drawing with
+`canvas(width, height, painter)` and validate clipping, scaling, and fallback behavior early.
 
-- deterministic loading behavior,
-- fallback behavior when resources are missing,
-- alt text and semantic metadata,
-- clipping and sizing constraints.
+For each media area decide:
 
-When media drives layout, make loading and fallback strategy explicit in the surrounding state model.
+- loading strategy,
+- fallback behavior,
+- accessibility text,
+- container constraints and clipping.

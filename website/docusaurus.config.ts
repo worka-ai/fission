@@ -129,10 +129,6 @@ const config: Config = {
               label: 'Widgets',
               to: '/reference/widgets/catalog',
             },
-            {
-              label: 'Worka VM',
-              to: '/reference/worka/overview',
-            },
           ],
         },
         {
@@ -153,7 +149,7 @@ const config: Config = {
           ],
         },
       ],
-      copyright: `Copyright © ${new Date().getFullYear()} Fission. Built with Docusaurus.`,
+      copyright: `Copyright © ${new Date().getFullYear()} Fission. Built with Docusaurus. Fission is actively being developed; core runtime and docs workflow are in active use while adjacent tooling and ecosystem support continue to improve.`,
       logo: {
         alt: 'Fission',
         src: 'img/logo.svg',

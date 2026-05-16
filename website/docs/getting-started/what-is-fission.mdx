@@ -1,41 +1,31 @@
 ---
 title: What is Fission
-description: Fission is a Rust-first framework for building production-oriented, cross-platform products from one model.
+description: A step-by-step guide to Fission's model for building cross-platform Rust apps.
 ---
 
 # What is Fission
 
-Fission is aimed at teams that need a dependable UI model for multi-platform products. The value is not a bigger widget catalog; it is consistency across the entire engineering path:
+Fission is a Rust-first framework for building product interfaces that can target desktop and web from the same source model. It is useful when teams need predictable behavior and a single architecture rather than multiple platform-specific UI stacks.
 
-- a single runtime model for desktop, web, and mobile targets,
-- deterministic state transitions for predictable behavior,
-- explicit handling of async work, and
-- an iteration loop that starts fast.
+A Fission app has a simple flow.
 
-## Why this matters
+- You define a typed application state.
+- You build a widget tree from that state.
+- The runtime evaluates actions and reducers to update state.
+- The renderer converts that tree into layout, paint, and pixels.
 
-A common product pain point is architectural drift: app behavior looks good on one target but changes unpredictably on another, or “a new feature” adds side effects in UI code that are hard to trace.
+That flow is repeated many times a frame, which is why consistency matters. Teams usually feel the value after a few iterations because every behavior change is represented in one place.
 
-Fission’s model reduces that drift by aligning:
+If you are used to adding platform-specific code for layout and event handling, Fission reduces that split: state, behavior, and rendering contracts stay together.
 
-- **UI definition** through a declarative widget tree,
-- **State updates** through typed actions and reducers,
-- **Side effects** through commands/services/jobs,
-- **Rendering** through a fixed pipeline and predictable diagnostics.
+When reading the docs, stay in this order:
 
-## What Fission is explicitly for
+1. install the toolchain,
+2. build one tiny app,
+3. learn how widgets compose layout,
+4. understand action and reducer flow,
+5. add async behavior with commands, services, and jobs.
 
-Fission is useful when you need:
+This keeps each concept connected to the next.
 
-- a single source-of-truth app model,
-- reusable behavior patterns across targets,
-- a clear contract for async work,
-- and repeatable iteration for teams.
-
-## What to learn next
-
-Start with `Install and setup` to connect your environment, then build your first app to see the architecture in one screen.
-
-- [Install and setup](/docs/getting-started/install)
-- [Build your first app](/docs/getting-started/first-app)
-- [Install command and target setup](/docs/getting-started/install)
+If you want to move on now, continue to [Install and setup](/docs/getting-started/install).

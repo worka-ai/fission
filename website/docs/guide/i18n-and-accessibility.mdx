@@ -1,25 +1,22 @@
 ---
 title: i18n and accessibility
-description: Design localization and accessibility into every app flow.
+description: Add global-ready quality from the first feature.
 ---
 
 # i18n and accessibility
 
-Localization and accessibility are quality gates, not optional enhancements.
+Many teams add localization and accessibility after first build. Fission works best when these are included from the start.
 
-## i18n defaults
+Use externalized text keys for all user-facing copy. Keep labels and roles explicit for controls.
 
-Use stable keys, central resources, and keep copy out of build expressions where possible.
+Use this checklist before marking a screen complete:
 
-## Accessibility defaults
+- every interactive control has a clear label,
+- focus order matches the intended navigation,
+- focus indicators are visible,
+- text passes readability checks for longer strings,
+- keyboard interaction works on non-pointer environments.
 
-Every interactive element should have a clear label and predictable focus behavior. Keyboard navigation should match layout intent.
+If this is your first implementation pass, add at least one a11y and one i18n check before expanding to the next feature.
 
-## Practical checklist
-
-- semantic labels for buttons, fields, and landmarks,
-- visible focus and predictable tab order,
-- contrast checks and spacing for reading comfort,
-- localization tests for longer or right-to-left text.
-
-Make these checks part of your normal development cadence.
+Use it with [Platform and deployment](/docs/guide/platform-deployment) because these checks matter across targets.

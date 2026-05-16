@@ -1,25 +1,21 @@
 ---
 title: Testing and observability
-description: Validate behavior with deterministic transitions and runtime tracing.
+description: How to validate behavior with predictable, high-signal checks.
 ---
 
 # Testing and observability
 
-Quality work starts with behavior-level confidence.
+Fission is most useful when teams can trust behavior after changes. The order matters: validate the smallest unit first, then expand.
 
-## Recommended sequence
+Start with reducer tests because they are closest to your source of truth. Then verify command and service behavior, then run meaningful UI flows.
 
-1. test reducers and state transitions,
-2. mock services and test command pathways,
-3. add product flow tests for high-signal user behavior,
-4. verify through playground runs before broad platform checks,
-5. keep CI aligned to target smoke tests.
+A practical sequence:
 
-## What to observe
+- reducer tests for state transitions,
+- mocked command/service tests,
+- targeted playground checks for interaction,
+- target smoke checks before release.
 
-- action dispatch and completion,
-- command lifecycle,
-- job start/cancel/finish behavior,
-- transition history for reproducible debugging.
+Keep logs and transition data structured. If a behavior regresses, you should be able to answer what action happened, what reducer executed, and what async path produced the result.
 
-If your logs capture these points, reproducibility improves significantly when behavior differs between environments.
+Do not wait for a production bug to add this flow. Add it while features are still small.

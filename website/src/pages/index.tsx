@@ -42,7 +42,6 @@ function Hero() {
             Browse reference
           </Link>
         </div>
-        <p className={styles.microNote}>Work-in-progress note: some targets and tools are evolving; core runtime behavior and docs-first workflow are stable.</p>
       </div>
     </section>
   );

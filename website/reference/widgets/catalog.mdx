@@ -1,16 +1,56 @@
 ---
 title: Widget catalog
-description: Core widget families and typical use cases.
+description: Complete list of Fission widgets and what they are for.
 ---
 
 # Widget catalog
 
-The catalog is grouped by concern to make first contact and lookup predictable.
+This is the full widget and render surface exposed through the standard `fission` setup.
 
-- layout containers,
-- typography and text nodes,
-- input controls,
-- media and image surfaces,
-- utility helpers.
+Start with one category at a time and only expand once the previous layer is clear.
 
-Use consistent wrappers per team domain so design language remains stable even as teams scale.
+**Core primitives from `fission_core`**
+
+- `Align`, `Builder`, `Button`, `ButtonContentAlign`, `ButtonVariant`, `Checkbox`,
+  `Column`, `Composite`, `Container`, `Clip`, `FocusScope`, `GestureDetector`, `Grid`,
+  `GridItem`, `Icon`, `Image`, `LazyColumn`, `LayoutBuilder`, `Overlay`, `Positioned`,
+  `Radio`, `RichText`, `RichTextRun`, `Row`, `SafeArea`, `Scroll`, `Slider`, `Spacer`,
+  `Switch`, `Text`, `TextContent`, `TextFontStyle`, `TextInput`, `TextRunStyle`, `Transform`,
+  `Video`, and `ZStack`.
+
+**Authoring composition and layout widgets from `fission_widgets`**
+
+- `HStack`, `VStack`, `Center`, `Wrap`, `SimpleGrid`, `SplitView`, `SplitDirection`, `Card`,
+  `Divider`, `Transition`, `Drawer`, `DrawerSide`, `Tabs`, `TabItem`, `Accordion`,
+  `AccordionItem`, `Modal`, `ModalAction`, and `Popover`.
+
+**Interaction and input widgets**
+
+- `Toast`, `ToastKind`, `Tooltip`, `Select`, `SelectItem`, `Menu`, `MenuButton`, `MenuItem`,
+  `Combobox`, `SegmentedControl`, `RangeSlider`, `NumberInput`, `Radio`, `Checkbox`, `Slider`,
+  `Switch`, `DatePicker`, `DateRangePicker`, `TimePicker`, `FileUpload`, `Editable`, and
+  `FormControl`.
+
+**Display and product surface widgets**
+
+- `Avatar`, `Badge`, `Tag`, `Stat`, `Calendar`, `Timeline`, `TimelineItem`, `DataTable`,
+  `TableColumn`, `TableRow`, `Breadcrumb`, `BreadcrumbItem`, `Link`, `Code`, `Kbd`,
+  `CircularProgress`, `ProgressBar`, `Spinner`, `Skeleton`, `Alert`, `AlertKind`, `Hero`,
+  `Stepper`, `EmptyState`, `Dropzone`, `TreeView`, `TreeItem`, `Pagination`, `WebView`, and
+  `DropDown`.
+
+**Navigation and app utilities**
+
+- `Route`, `RouteParams`, `Router`, `Portal`, `CanvasLowerer`, `canvas(width, height,
+  painter)`, `flyout(anchor, content)`, and `absolute_fill(child)`.
+
+The render node types are not widgets you build UI with directly, but they are part of
+the exposed surface: `Node` and `CustomNode`.
+
+**Desktop-only rendering helpers**
+
+- `TerminalLaunchConfig`, `TerminalSession`, and `TerminalView` are available where the
+  terminal widget is enabled.
+
+Most teams start with `Align`, `Column`, `Row`, `Text`, `Button`, `Image`, and one stateful
+input (`TextInput`, `Select`, or `Switch`) before moving across the rest of the surface.

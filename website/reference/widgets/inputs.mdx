@@ -1,19 +1,22 @@
 ---
 title: Input widgets
-description: Buttons, text fields, and interaction hooks.
+description: Inputs and controls and where their events should go.
 ---
 
 # Input widgets
 
-Input components are where user intent enters your model.
+Inputs map to explicit actions first. Keep handlers small, then move async work to commands,
+services, or jobs.
 
-## Core expectations
+Core input widgets:
+`Button`, `Checkbox`, `Radio`, `Slider`, `Switch`, `TextInput`, `NumberInput`, `Select`,
+`SelectItem`, `Menu`, `MenuButton`, `MenuItem`, `Combobox`, `RangeSlider`, `DropDown`,
+`DatePicker`, `DateRangePicker`, `TimePicker`, `FileUpload`, and `Editable`.
 
-- events dispatch typed actions,
-- handlers should remain minimal,
-- validation belongs to state transitions,
-- async side effects should flow through command pathways.
+Pattern:
 
-## Pattern
+- user interaction -> action,
+- action -> reducer or async boundary,
+- async response -> completion action -> state update.
 
-`UI event -> action -> reducer` is default; escalate to `command/service/job` when work leaves the synchronous frame.
+If a value comes from validation or persistence, treat that as command/service responsibility.

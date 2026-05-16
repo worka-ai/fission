@@ -24,10 +24,6 @@ export default function Playground() {
             Use the web preview to validate behavior quickly, then move stable work into
             local projects.
           </p>
-          <p className={styles.heroNote}>
-            Fission is under active development, and the embedded runtime preview continues
-            to evolve for broader example support.
-          </p>
         </section>
         <section className={styles.section}>
           <h2>Starter examples</h2>

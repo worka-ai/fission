@@ -1,16 +1,19 @@
 ---
 title: Testing
-description: Runtime and unit testing references for platform-level workflows.
+description: Practical testing order for a Fission application.
 ---
 
 # Testing
 
-Testing expands outward from deterministic cores.
+Testing is strongest when it matches your app architecture.
 
-## Recommended stack
+Use reducer unit tests first, then command/service tests, then UI flow checks and target smoke checks.
 
-- unit tests for reducer/state logic,
-- mocked services for command paths,
-- integration checks for jobs,
-- smoke checks on desktop and web,
-- a small, high-signal regression set for user flows.
+Capture failures by stage:
+
+- action and reducer mismatch,
+- command lifecycle mismatch,
+- job start/stop mismatch,
+- layout or rendering regressions.
+
+This gives repeatable debugging across desktop and web targets.

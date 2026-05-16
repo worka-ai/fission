@@ -1,27 +1,26 @@
 ---
 title: Widget tree model
-description: How the widget tree maps to UI state and rendering output.
+description: Why Fission uses a typed widget tree and how to reason about it.
 ---
 
 # Widget tree model
 
-The widget tree is a typed description of the UI for one frame. For a fixed state input, the tree should be stable and understandable.
+Think of the widget tree as the blueprint for one rendered frame. It is a typed description of what should be shown right now.
 
-## Why the tree is useful
+If you have not seen Fission before, treat the tree like the source of truth. Your app state goes in, and the tree is the framework’s plan for how to draw it.
 
-A stable tree gives you a direct line from behavior to output:
+The main benefit is traceability.
 
-- if state is unexpected, inspect the action path first,
-- if structure is unexpected, inspect branch selection in build,
-- if visuals are wrong, inspect layout and paint boundaries.
+- same state produces a stable tree,
+- every behavior change starts as a tree change,
+- layout and paint problems are easier to isolate because the render path is explicit.
 
-## Principles
+Use this mindset while building:
 
-Keep build functions small and intentional:
+- keep `build` pure,
+- keep branch decisions small,
+- make each widget represent one meaningful screen decision.
 
-- use one top-level composition per concern,
-- keep state reads read-only,
-- avoid side effects during build,
-- keep each widget focused.
+When behavior feels hard to reason about, trace from interaction to action, from action to reducer, then from reducer result to updated tree.
 
-When this pattern is consistent, teams can reason about changes quickly and avoid accidental complexity.
+Next, check how that tree is processed by the rendering pipeline in [Rendering pipeline](/docs/concepts/pipeline).

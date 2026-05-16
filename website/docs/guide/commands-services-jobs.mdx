@@ -1,24 +1,22 @@
 ---
 title: Commands, services, and jobs
-description: Use explicit async boundaries for external work and background behavior.
+description: A practical model for async and background work.
 ---
 
 # Commands, services, and jobs
 
-Use this split whenever behavior reaches outside pure build/update logic.
+Use the three-way split only when work must leave the pure UI/reducer flow.
 
-- **Command**: one-shot request with bounded output.
-- **Service**: shared, reusable integration object.
-- **Job**: repeating, long-lived, or cancellable lifecycle behavior.
+A command handles one-shot async work. A service is reusable and long-lived. A job handles repeating or cancellable work tied to lifecycle events.
 
 ```text
-UI action -> command request -> service/job -> result action -> reducer
+UI action -> command/service/job -> completion action -> reducer -> render
 ```
 
-## Selection guide
+Choose by responsibility:
 
-- Need one response then done? start with **command**.
-- Need persistent behavior (cache, API client, storage)? use a **service**.
-- Need scheduled/cancellable recurring work? use a **job**.
+- one response is needed once: use a command,
+- shared integration surface is needed: use a service,
+- ongoing or cancellable behavior is needed: use a job.
 
-This separation helps with testing and platform behavior consistency.
+This keeps behavior predictable while still allowing rich integrations.
