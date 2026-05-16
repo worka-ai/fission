@@ -1,8 +1,8 @@
 .page {
   background:
-    radial-gradient(circle at 12% -10%, rgba(14, 165, 233, 0.10), transparent 44%),
-    radial-gradient(circle at 88% -8%, rgba(14, 165, 116, 0.09), transparent 50%),
-    linear-gradient(180deg, #f5f9fc 0%, #eef4ff 70%, #f8fbff 100%);
+    radial-gradient(circle at 12% -10%, rgba(14, 165, 116, 0.10), transparent 42%),
+    radial-gradient(circle at 88% -8%, rgba(14, 165, 233, 0.10), transparent 52%),
+    linear-gradient(180deg, #fbfdff 0%, #f8fbff 64%, #ffffff 100%);
   color: var(--ifm-font-color-base);
   min-height: 100vh;
 }
@@ -52,13 +52,13 @@
 }
 
 .primaryCta {
-  background: linear-gradient(180deg, #3fffe6, var(--ifm-color-primary));
+  background: linear-gradient(180deg, #2de5c0, var(--ifm-color-primary));
   color: #022a1f;
 }
 
 .secondaryCta,
 .tertiaryCta {
-  border: 1px solid var(--ifm-color-emphasis-300);
+  border: 1px solid #bcd5d1;
   color: var(--ifm-font-color-base);
 }
 
