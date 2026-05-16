@@ -1,35 +1,45 @@
 ---
 title: TextRunStyle
-description: Reference details for TextRunStyle. Use this widget when you need predictable behavior.
+description: Reference details for TextRunStyle.
 slug: /widgets/text-run-style
 ---
 
 # TextRunStyle
 
-**Who this is for:** teams working with stable UI primitives and lower-level render behavior.
+A public widget/API entrypoint in the Fission surface.
 
-This API is for the foundation layer of the render tree where core geometry, text, and interaction primitives are assembled.
 
-## What this is
-Use it to keep your UI intent explicit: define what the app should render at this level, then let state and actions decide when it appears.
+## What this is for
+`TextRunStyle` is part of Fission's widget API and fits the deterministic, state-driven render model.
 
-## Example
+## Why you use it
+- Keep UI behavior deterministic by composing from explicit nodes.
+- Use it where behavior needs to stay testable and reviewable.
+- Connect it through your existing action/reducer and environment flow.
+
+## Minimal usage
 ```rust
-// In your build function or app composition:
-let widget = /* construct TextRunStyle with the fields for your app */;
-let widget_node = widget.into_node();
-let view = fission_core::ui::Column { children: vec![widget_node], ..Default::default() };
+use fission_core::ui::TextRunStyle;
+
+let node = TextRunStyle {
+    ..Default::default()
+}.into_node();
 ```
 
-## Caveats
-- Keep each widget focused on one responsibility; mix concern boundaries inside higher-level composition nodes instead.
-- For widgets with asynchronous effects, send a command/service/job rather than mutating view state directly.
-- Confirm focus order and keyboard behavior when this widget can appear/disappear quickly.
+## Config surface
+- `font_size`: `Option<f32>`
+- `color`: `Option<IrColor>`
+- `underline`: `bool`
+- `font_family`: `Option<String>`
+- `locale`: `Option<String>`
+- `font_weight`: `Option<u16>`
+- `font_style`: `TextFontStyle`
+- `line_height`: `Option<f32>`
+- `letter_spacing`: `Option<f32>`
+- `text_scale`: `Option<f32>`
+- `background_color`: `Option<IrColor>`
 
-## Accessibility and platform notes
-- Supply accessible text or semantic equivalents wherever the widget outputs user-facing information.
-- Validate rendering at multiple scales and themes; avoid hard-coding assumptions about one display size.
-
-## Next step
+## Learn next
 - [Widget catalog](/reference/widgets/catalog)
-- [Core architecture](/reference/core/widget-trait)
+- [Core widget contract](/reference/core/widget-trait)
+

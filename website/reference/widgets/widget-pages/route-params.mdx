@@ -1,35 +1,36 @@
 ---
 title: RouteParams
-description: Reference details for RouteParams. Use this widget when you need predictable behavior.
+description: Reference details for RouteParams.
 slug: /widgets/route-params
 ---
 
 # RouteParams
 
-**Who this is for:** teams working with app routing, navigation, and host-level composition.
+A navigation utility used to shape app-level flow and compositional patterns.
 
-This API is for managing navigation flow, routing context, and host-level composition helpers.
 
-## What this is
-Use it to keep your UI intent explicit: define what the app should render at this level, then let state and actions decide when it appears.
+## What this is for
+`RouteParams` is part of Fission's widget API and fits the deterministic, state-driven render model.
 
-## Example
+## Why you use it
+- Keep UI behavior deterministic by composing from explicit nodes.
+- Use it where behavior needs to stay testable and reviewable.
+- Connect it through your existing action/reducer and environment flow.
+
+## Minimal usage
 ```rust
-// In your build function or app composition:
-let widget = /* construct RouteParams with the fields for your app */;
-let widget_node = widget.into_node();
-let view = fission_core::ui::Column { children: vec![widget_node], ..Default::default() };
+use fission_widgets::RouteParams;
+
+let node = RouteParams {
+    ..Default::default()
+}.into_node();
 ```
 
-## Caveats
-- Keep each widget focused on one responsibility; mix concern boundaries inside higher-level composition nodes instead.
-- For widgets with asynchronous effects, send a command/service/job rather than mutating view state directly.
-- Confirm focus order and keyboard behavior when this widget can appear/disappear quickly.
+## Config surface
+- Use `Default::default()` to start and set only required properties.
+- Prefer small, explicit updates so diffs stay readable.
 
-## Accessibility and platform notes
-- Supply accessible text or semantic equivalents wherever the widget outputs user-facing information.
-- Validate rendering at multiple scales and themes; avoid hard-coding assumptions about one display size.
-
-## Next step
+## Learn next
 - [Widget catalog](/reference/widgets/catalog)
-- [Core architecture](/reference/platform/targets)
+- [Core widget contract](/reference/core/widget-trait)
+

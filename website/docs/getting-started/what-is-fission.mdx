@@ -1,31 +1,39 @@
 ---
 title: What is Fission
-description: A step-by-step guide to Fission's model for desktop, web, iOS, and Android Rust apps.
+description: A first-app onboarding guide for Fission's desktop-first workflow.
 ---
 
 # What is Fission
 
-Fission is a Rust-first framework for building product interfaces for desktop, web, iOS, and Android from the same source model. It is useful when teams need predictable behavior and a single architecture rather than multiple platform-specific UI stacks.
+Fission is a Rust-first UI framework and command-line workflow for building one typed app model and running it across multiple runtimes.  
+You describe state and actions in Rust, then let Fission render the same widget tree through platform hosts that are added over time.
 
-A Fission app has a simple flow.
+The default scaffold is intentionally desktop-first. `fission init my-fission-app` creates a runnable starter with `src/app.rs`, `src/main.rs`, `src/lib.rs`, `Cargo.toml`, `fission.toml`, and desktop target readmes.  
+That starter is designed so new users can run a real app quickly and focus on behavior before platform expansion.
 
-- You define a typed application state.
-- You build a widget tree from that state.
-- The runtime evaluates actions and reducers to update state.
-- The renderer converts that tree into layout, paint, and pixels.
+From install through first app, the sequence is simple: `fission init`, `cd my-fission-app`, then `cargo run`.  
+That command uses the existing desktop targets (`linux`, `macos`, `windows`) and gives you an immediate visual check like the generated counter scaffold (`Count: 0`).
 
-That flow is repeated many times a frame, which is why consistency matters. Teams usually feel the value after a few iterations because every behavior change is represented in one place.
+Use staging after your first loop is stable: expand from desktop only when the interaction path is predictable, then add extra targets with `cargo fission add-target`:
 
-If you are used to adding platform-specific code for layout and event handling, Fission reduces that split: state, behavior, and rendering contracts stay together.
+- `cargo fission add-target web`
+- `cargo fission add-target ios`
+- `cargo fission add-target android`
 
-When reading the docs, stay in this order:
+Each `add-target` call updates `fission.toml` and writes target-specific files under `platforms/<target>/` (for example `platforms/web/run-browser.sh`).  
+That keeps onboarding boring where it should be boring, and only introduces platform-specific prerequisites when the team is ready for them.
 
-1. install the toolchain,
-2. build one tiny app,
-3. learn how widgets compose layout,
-4. understand action and reducer flow,
-5. add async behavior with commands, services, and jobs.
+Use/Don't use guidance:
 
-This keeps each concept connected to the next.
+- **Use Fission** when you want a single typed interaction model and a predictable path for adding web/mobile targets from one Rust source of truth.
+- **Don't use Fission** when you need full native parity for web/mobile from day one, or when your architecture requires platform-specific UI logic before your state model is stable.
 
-If you want to move on now, continue to [Install and setup](/docs/getting-started/install).
+:::info Evidence and next checks
+- `website/docs/getting-started/install.mdx` (official setup flow and staged target addition)
+- `crates/tools/fission-cli/src/lib.rs` (init defaults, target manifest, and generated scripts)
+- `website/docs/guide/playground-driven-workflow.mdx` (desktop-first verification before widening targets)
+- `docs/cli-and-targets.md` (`fission add-target` behavior and command-level examples)
+- Generated files in your project: `fission.toml`, `platforms/<target>/README.md`, and `platforms/<target>/run-*.sh`
+:::
+
+If this resonates, continue to [Install and setup](/docs/getting-started/install).

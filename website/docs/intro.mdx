@@ -3,21 +3,71 @@ title: Start here
 description: A guided first look at Fission for your first product.
 ---
 
-# Start here
+import Tabs from '@theme/Tabs';
+import TabItem from '@theme/TabItem';
 
-If this is your first time with Fission, use this short path and do not jump ahead.
+# [Start here](/docs/getting-started/what-is-fission)
 
-Begin by understanding what problem Fission solves, then install, then build a tiny app. This is the fastest way to see the same ideas repeatedly instead of learning isolated examples.
+If this is your first time with Fission, follow the shortest reliable path below and avoid skipping.
 
-**Read in this order**
+Fission is desktop-first. Validate local behavior on `cargo run` before you launch generated host targets.
+
+### Recommended flow
 
 1. [What is Fission](/docs/getting-started/what-is-fission)
 2. [Install and setup](/docs/getting-started/install)
 3. [Build your first app](/docs/getting-started/first-app)
-4. [Playground-first workflow](/docs/guide/playground-driven-workflow)
-5. [Counter tutorial](/docs/tutorials/counter)
-6. [Todo tutorial](/docs/tutorials/todo)
+4. [Playground-driven workflow](/docs/guide/playground-driven-workflow)
+5. [Widgets and layout](/docs/guide/widgets-and-layout)
+6. [State and actions](/docs/guide/state-and-actions)
+7. [Commands, services, and jobs](/docs/guide/commands-services-jobs)
+8. [Counter tutorial](/docs/tutorials/counter)
+9. [Todo tutorial](/docs/tutorials/todo)
 
-Every page answers three questions: what this is, why it is useful, and what to do next. Keep the order above, and by the time you open reference pages you will have already met each concept.
+### Platform-first order and caveats
+
+Fission is desktop-first. You should get desktop behavior working first, then add generated host targets for wider coverage.
+
+<Tabs>
+<TabItem value="generated" label="Generated app" default>
+
+Start from a fresh scaffold, verify desktop, then add targets as needed:
+
+```bash
+fission init my-fission-app
+cd my-fission-app
+cargo run
+cargo fission add-target web ios android
+```
+
+Run host scripts from the **generated app root**:
+
+```bash
+./platforms/web/run-browser.sh      # requires wasm32-unknown-unknown + wasm-pack
+./platforms/ios/run-sim.sh          # requires Xcode simulator SDK + platforms/ios/README.md
+./platforms/android/run-emulator.sh  # requires SDK/NDK/toolchain + platforms/android/README.md
+```
+
+Do not assume generated targets behave identically out of the box:
+
+- web requires `wasm32-unknown-unknown` and `wasm-pack`,
+- iOS requires simulator toolchain prerequisites,
+- Android requires a valid Android SDK/NDK and target setup.
+
+</TabItem>
+
+<TabItem value="repo" label="Repo examples">
+Use the checked-in examples when you need deterministic host files from the repository:
+
+```bash
+./examples/web-smoke/platforms/web/run-browser.sh
+./examples/mobile-smoke/platforms/ios/run-sim.sh
+./examples/mobile-smoke/platforms/android/run-emulator.sh
+```
+
+These are useful for baseline verification and smoke checks, but the normal product flow is generated per app.
+When you need host output parity, compare both flows before release verification.
+</TabItem>
+</Tabs>
 
 When you are ready for quick lookup, open [Reference overview](/reference/overview).

@@ -5,75 +5,164 @@ description: A tiny first app showing state, actions, and rebuild flow.
 
 # Build your first app
 
-Start by writing a minimal app that increments and decrements a number. Every part is visible.
+Start with the generated starter from `fission init`. In practice, most files are runtime scaffolding and you only edit `src/app.rs` for your first loop of learning.
+
+- `src/main.rs` creates and runs the application entrypoint.
+- `src/lib.rs` re-exports your app types and wires crate metadata.
+- `src/app.rs` owns your domain state, actions, reducers, and UI bindings.
+
+## Single-increment starter (generated baseline)
+
+Copy a compatible generated default `src/app.rs` shape and confirm it runs with one action:
 
 ```rust
-use fission_core::prelude::*;
-use fission_core::{Button, Column, Text, TextContent};
+use fission::prelude::*;
+use serde::{Deserialize, Serialize};
 
-#[derive(Default, Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-struct CounterState {
+#[derive(Default, Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct CounterState {
     count: i32,
 }
 
 impl AppState for CounterState {}
 
-#[derive(Action, serde::Serialize, serde::Deserialize, Debug, Clone, PartialEq, Eq)]
+#[derive(Action, Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 struct Increment;
 
-#[derive(Action, serde::Serialize, serde::Deserialize, Debug, Clone, PartialEq, Eq)]
-struct Decrement;
+fn on_increment(
+    state: &mut CounterState,
+    _action: Increment,
+    _ctx: &mut ReducerContext<CounterState>,
+) {
+    state.count += 1;
+}
 
-struct CounterApp;
+pub struct CounterApp;
 
 impl Widget<CounterState> for CounterApp {
     fn build(&self, ctx: &mut BuildCtx<CounterState>, view: &View<CounterState>) -> Node {
+        let increment = ctx.bind(Increment, on_increment as Handler<CounterState, Increment>);
+
         Column {
+            gap: Some(16.0),
             children: vec![
-                Text {
-                    content: TextContent::Literal(format!("Count: {}", view.state.count)),
-                    font_size: Some(24.0),
-                    ..Default::default()
-                }
-                .into(),
+                Text::new(format!("Count: {}", view.state.count))
+                    .size(28.0)
+                    .into_node(),
                 Button {
-                    on_press: Some(ctx.bind(Increment, |state, _, _| {
-                        state.count += 1;
-                    })),
-                    child: Some(Box::new(Text::new("Increment").into())),
+                    on_press: Some(increment),
+                    child: Some(Box::new(Text::new("Increment").into_node())),
                     ..Default::default()
                 }
-                .into(),
-                Button {
-                    on_press: Some(ctx.bind(Decrement, |state, _, _| {
-                        state.count -= 1;
-                    })),
-                    child: Some(Box::new(Text::new("Decrement").into())),
-                    ..Default::default()
-                }
-                .into(),
+                .into_node(),
             ],
             ..Default::default()
         }
-        .into()
+        .into_node()
     }
 }
+```
 
-fn main() -> anyhow::Result<()> {
-    DesktopApp::new(CounterApp).run()
+Use this as a first milestone to understand five core parts:
+
+- **State** (`CounterState`): defines what your UI knows (`count`).
+- **Action** (`Increment`): a message type representing a user intent.
+- **Reducer** (`on_increment`): the function that mutates state when an action is handled.
+- **Build** (`impl Widget`): the render function that reads state and builds nodes.
+- **Bindings** (`ctx.bind(...)`): connects `Increment` to its reducer and hands a callback to a button.
+
+Run it with:
+
+```bash
+cargo run
+```
+
+Exact expected output:
+
+- app window opens with title bar and `Count: 0`
+- visible label `Count: 0`
+- one click on **Increment** updates to exactly `Count: 1`
+- no state resets unless you rebuild and rerun
+
+## Beginner milestone: full `src/app.rs` with two actions
+
+Once the single action works, keep this as your target version. It stays tiny but introduces both directions.
+
+```rust
+use fission::prelude::*;
+use serde::{Deserialize, Serialize};
+
+#[derive(Default, Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct CounterState {
+    count: i32,
+}
+
+impl AppState for CounterState {}
+
+#[derive(Action, Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+struct Increment;
+
+#[derive(Action, Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+struct Decrement;
+
+fn on_increment(
+    state: &mut CounterState,
+    _action: Increment,
+    _ctx: &mut ReducerContext<CounterState>,
+) {
+    state.count += 1;
+}
+
+fn on_decrement(
+    state: &mut CounterState,
+    _action: Decrement,
+    _ctx: &mut ReducerContext<CounterState>,
+) {
+    state.count -= 1;
+}
+
+pub struct CounterApp;
+
+impl Widget<CounterState> for CounterApp {
+    fn build(&self, ctx: &mut BuildCtx<CounterState>, view: &View<CounterState>) -> Node {
+        let increment = ctx.bind(Increment, on_increment as Handler<CounterState, Increment>);
+        let decrement = ctx.bind(Decrement, on_decrement as Handler<CounterState, Decrement>);
+
+        Column {
+            gap: Some(16.0),
+            children: vec![
+                Text::new(format!("Count: {}", view.state.count))
+                    .size(28.0)
+                    .into_node(),
+                Button {
+                    on_press: Some(increment),
+                    child: Some(Box::new(Text::new("Increment").into_node())),
+                    ..Default::default()
+                }
+                .into_node(),
+                Button {
+                    on_press: Some(decrement),
+                    child: Some(Box::new(Text::new("Decrement").into_node())),
+                    ..Default::default()
+                }
+                .into_node(),
+            ],
+            ..Default::default()
+        }
+        .into_node()
+    }
 }
 ```
 
-This example shows three core ideas:
+Verification checklist for this milestone:
 
-1. state is read inside `build` and never mutated there,
-2. UI events map to typed actions,
-3. reducers are where state changes happen.
+- command: `cargo run`
+  - starts successfully and opens the window
+  - initial label is `Count: 0`
+  - **Increment** makes `Count: 1`
+  - **Decrement** returns to `Count: 0`
+  - repeated clicks continue `0 -> 1 -> 2 -> 1 -> 0`
+- keyboard check: `Tab` moves focus to each button; `Shift+Tab` reverses focus order
+- repo smoke check: `cargo run -p counter` validates a broader checked-in counter demo. Use it as a UI sanity check that increment behavior is visible, while your generated starter remains the canonical local reference for this tutorial.
 
-Run locally to verify the cycle.
-
-```bash
-cargo run --example counter
-```
-
-Next: make one small improvement at a time and then move to [Counter tutorial](/docs/tutorials/counter).
+If you want deeper behavioral checks (asserting reducer transitions and test scaffolding), continue with the [Counter tutorial](/docs/tutorials/counter).

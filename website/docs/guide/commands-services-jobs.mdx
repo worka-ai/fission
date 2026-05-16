@@ -5,18 +5,509 @@ description: A practical model for async and background work.
 
 # Commands, services, and jobs
 
-Use the three-way split only when work must leave the pure UI/reducer flow.
+The async API is split by responsibility:
 
-A command handles one-shot async work. A service is reusable and long-lived. A job handles repeating or cancellable work tied to lifecycle events.
+- **job** = one-shot request/response work from a reducer (`ctx.effects.app`)
+- **service** = long-lived actor that has a start/stop lifecycle (`ctx.effects.start_service`)
+- **command** = a directed instruction to an already-running service (`ctx.effects.command`)
 
 ```text
-UI action -> command/service/job -> completion action -> reducer -> render
+action -> job/service/command -> completion -> reducer -> render
 ```
 
-Choose by responsibility:
+Use the split to keep reducers deterministic and replayable.
 
-- one response is needed once: use a command,
-- shared integration surface is needed: use a service,
-- ongoing or cancellable behavior is needed: use a job.
+## Pick the right tool
 
-This keeps behavior predictable while still allowing rich integrations.
+- use a **job** for one-shot domain calls,
+- use a **service** for stateful background work that emits repeated events,
+- use **commands** when you need to control an active service.
+
+## Example 1: One-shot job for search
+
+```rust
+use fission::prelude::*;
+use fission_core::{JobRef, JobSpec};
+
+#[derive(Default, Debug, Clone, PartialEq, Serialize, Deserialize)]
+struct SearchState {
+    query: String,
+    loading: bool,
+    results: Vec<String>,
+    error: Option<String>,
+}
+
+impl AppState for SearchState {}
+
+#[derive(Action, Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+struct ExecuteSearch;
+
+#[derive(Action, Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+struct SearchLoaded;
+
+#[derive(Action, Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+struct SearchFailed;
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+struct SearchRequest {
+    query: String,
+}
+
+#[derive(Debug)]
+struct SearchJob;
+
+impl JobSpec for SearchJob {
+    type Request = SearchRequest;
+    type Ok = Vec<String>;
+    type Err = String;
+    const NAME: &'static str = "search-job";
+}
+
+const SEARCH_JOB: JobRef<SearchJob> = JobRef::new("search-job");
+
+fn on_execute_search(
+    state: &mut SearchState,
+    _action: ExecuteSearch,
+    ctx: &mut ReducerContext<SearchState>,
+) {
+    state.loading = true;
+    state.error = None;
+
+    let on_ok = ctx.effects.bind(
+        SearchLoaded,
+        on_search_loaded as fn(&mut SearchState, SearchLoaded, &mut ReducerContext<SearchState>),
+    );
+    let on_err = ctx.effects.bind(
+        SearchFailed,
+        on_search_failed as fn(&mut SearchState, SearchFailed, &mut ReducerContext<SearchState>),
+    );
+
+    ctx.effects
+        .app(
+            SEARCH_JOB,
+            SearchRequest {
+                query: state.query.clone(),
+            },
+        )
+        .on_ok(on_ok)
+        .on_err(on_err);
+}
+
+fn on_search_loaded(
+    state: &mut SearchState,
+    _action: SearchLoaded,
+    ctx: &mut ReducerContext<SearchState>,
+) {
+    state.loading = false;
+    if let Some(results) = ctx.input.job_ok(SEARCH_JOB) {
+        state.results = results;
+    }
+}
+
+fn on_search_failed(
+    state: &mut SearchState,
+    _action: SearchFailed,
+    ctx: &mut ReducerContext<SearchState>,
+) {
+    state.loading = false;
+    state.error =
+        ctx.input
+            .job_err::<SearchJob>(SEARCH_JOB)
+            .or_else(|| ctx.input.job_error_message(SEARCH_JOB).map(ToString::to_string))
+            .or_else(|| Some("search failed".into()));
+}
+
+struct SearchApp;
+
+impl Widget<SearchState> for SearchApp {
+    fn build(&self, ctx: &mut BuildCtx<SearchState>, view: &View<SearchState>) -> Node {
+        let run_search = ctx.bind(
+            ExecuteSearch,
+            on_execute_search as Handler<SearchState, ExecuteSearch>,
+        );
+
+        Scroll {
+            child: Some(Box::new(
+                Column {
+                    gap: Some(12.0),
+                    children: vec![
+                        Text::new(format!("query: {}", view.state.query)).into_node(),
+                        Button {
+                            child: Some(Box::new(Text::new("Search").into_node())),
+                            on_press: Some(run_search),
+                            ..Default::default()
+                        }
+                        .into_node(),
+                        Text::new(format!("results: {}", view.state.results.len())).into_node(),
+                    ],
+                    ..Default::default()
+                }
+                .into_node(),
+            )),
+            ..Default::default()
+        }
+        .into_node()
+    }
+}
+```
+
+## Example 2: Service + command for live sync
+
+```rust
+use fission::prelude::*;
+use fission_core::{
+    BoxFuture, ServiceCtx, ServiceRunner, ServiceSlot, ServiceSpec, ServiceType,
+};
+
+#[derive(Default, Debug, Clone, PartialEq, Serialize, Deserialize)]
+struct SyncState {
+    connected: bool,
+    syncing: bool,
+    values: Vec<String>,
+    error: Option<String>,
+}
+
+impl AppState for SyncState {}
+
+#[derive(Action, Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+struct StartSyncService;
+
+#[derive(Action, Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+struct SendSyncRefresh;
+
+#[derive(Action, Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+struct SyncStarted;
+
+#[derive(Action, Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+struct SyncStartFailed;
+
+#[derive(Action, Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+struct SyncEventReceived;
+
+#[derive(Action, Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+struct SyncCommandDone;
+
+#[derive(Action, Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+struct SyncCommandFailed;
+
+#[derive(Debug, Default, Clone, Serialize, Deserialize, PartialEq, Eq)]
+struct SyncConfig {
+    channel: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+enum SyncCommand {
+    Refresh,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+struct SyncCommandOk;
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+struct SyncCommandErr {
+    message: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+enum SyncEvent {
+    Connected,
+    Values(Vec<String>),
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+struct SyncStartErr {
+    message: String,
+}
+
+#[derive(Debug)]
+struct SyncService;
+
+impl ServiceSpec for SyncService {
+    type Config = SyncConfig;
+    type Command = SyncCommand;
+    type CommandOk = SyncCommandOk;
+    type CommandErr = SyncCommandErr;
+    type Event = SyncEvent;
+    type StartErr = SyncStartErr;
+    const NAME: &'static str = "sync-service";
+}
+
+const SYNC_SERVICE: ServiceType<SyncService> = ServiceType::new("sync-service");
+
+struct SyncServiceRunner;
+
+impl ServiceRunner<SyncService> for SyncServiceRunner {
+    fn on_command(
+        &mut self,
+        command: SyncCommand,
+        ctx: ServiceCtx<SyncService>,
+    ) -> BoxFuture<Result<SyncCommandOk, SyncCommandErr>> {
+        match command {
+            SyncCommand::Refresh => Box::pin(async move {
+                let _ = ctx
+                    .emit(SyncEvent::Values(vec!["fresh item from command".into()]))
+                    .await;
+                Ok(SyncCommandOk)
+            }),
+        }
+    }
+
+    fn on_stop(self: Box<Self>, _ctx: ServiceCtx<SyncService>) -> BoxFuture<()> {
+        Box::pin(async {})
+    }
+}
+
+fn on_start_sync(
+    state: &mut SyncState,
+    _action: StartSyncService,
+    ctx: &mut ReducerContext<SyncState>,
+) {
+    state.error = None;
+
+    let on_started = ctx.effects.bind(
+        SyncStarted,
+        on_sync_started as fn(&mut SyncState, SyncStarted, &mut ReducerContext<SyncState>),
+    );
+    let on_start_failed = ctx.effects.bind(
+        SyncStartFailed,
+        on_sync_start_failed as fn(&mut SyncState, SyncStartFailed, &mut ReducerContext<SyncState>),
+    );
+    let on_event = ctx.effects.bind(
+        SyncEventReceived,
+        on_sync_event as fn(&mut SyncState, SyncEventReceived, &mut ReducerContext<SyncState>),
+    );
+
+    ctx.effects
+        .start_service(
+            ServiceSlot::singleton(SYNC_SERVICE),
+            SyncConfig {
+                channel: "default".into(),
+            },
+        )
+        .on_started(on_started)
+        .on_start_failed(on_start_failed)
+        .on_event(on_event);
+}
+
+fn on_sync_started(
+    state: &mut SyncState,
+    _action: SyncStarted,
+    _ctx: &mut ReducerContext<SyncState>,
+) {
+    state.connected = true;
+}
+
+fn on_sync_start_failed(
+    state: &mut SyncState,
+    _action: SyncStartFailed,
+    ctx: &mut ReducerContext<SyncState>,
+) {
+    state.connected = false;
+    state.error = ctx
+        .input
+        .service_start_err(SYNC_SERVICE)
+        .map(|err| err.message)
+        .or_else(|| ctx.input.service_start_error_message(SYNC_SERVICE).map(|m| m.to_string()))
+        .or_else(|| Some("sync service could not start".into()));
+}
+
+fn on_sync_event(
+    state: &mut SyncState,
+    _action: SyncEventReceived,
+    ctx: &mut ReducerContext<SyncState>,
+) {
+    if let Some(event) = ctx.input.service_event(SYNC_SERVICE) {
+        match event {
+            SyncEvent::Connected => state.connected = true,
+            SyncEvent::Values(values) => state.values.extend(values),
+        }
+    }
+}
+
+fn on_send_sync_refresh(
+    state: &mut SyncState,
+    _action: SendSyncRefresh,
+    ctx: &mut ReducerContext<SyncState>,
+) {
+    state.syncing = true;
+
+    let on_ok = ctx.effects.bind(
+        SyncCommandDone,
+        on_sync_command_done as fn(&mut SyncState, SyncCommandDone, &mut ReducerContext<SyncState>),
+    );
+    let on_err = ctx.effects.bind(
+        SyncCommandFailed,
+        on_sync_command_failed as fn(&mut SyncState, SyncCommandFailed, &mut ReducerContext<SyncState>),
+    );
+
+    ctx.effects
+        .command(ServiceSlot::singleton(SYNC_SERVICE), SyncCommand::Refresh)
+        .on_ok(on_ok)
+        .on_err(on_err);
+}
+
+fn on_sync_command_done(
+    state: &mut SyncState,
+    _action: SyncCommandDone,
+    ctx: &mut ReducerContext<SyncState>,
+) {
+    state.syncing = false;
+    let _ = ctx.input.service_command_ok(SYNC_SERVICE);
+    state.error = None;
+}
+
+fn on_sync_command_failed(
+    state: &mut SyncState,
+    _action: SyncCommandFailed,
+    ctx: &mut ReducerContext<SyncState>,
+) {
+    state.syncing = false;
+    state.error = ctx
+        .input
+        .service_command_err(SYNC_SERVICE)
+        .map(|err| err.message)
+        .or_else(|| Some("command failed".into()));
+}
+
+struct SyncApp;
+
+impl Widget<SyncState> for SyncApp {
+    fn build(&self, ctx: &mut BuildCtx<SyncState>, _view: &View<SyncState>) -> Node {
+        let start_sync = ctx.bind(StartSyncService, on_start_sync as Handler<SyncState, StartSyncService>);
+        let refresh = ctx.bind(SendSyncRefresh, on_send_sync_refresh as Handler<SyncState, SendSyncRefresh>);
+
+        Row {
+            gap: Some(12.0),
+            children: vec![
+                Button {
+                    child: Some(Box::new(Text::new("Start sync").into_node())),
+                    on_press: Some(start_sync),
+                    ..Default::default()
+                }
+                .into_node(),
+                Button {
+                    child: Some(Box::new(Text::new("Refresh now").into_node())),
+                    on_press: Some(refresh),
+                    ..Default::default()
+                }
+                .into_node(),
+            ],
+            ..Default::default()
+        }
+        .into_node()
+    }
+}
+```
+
+## Register async implementations with the shell
+
+```rust
+use fission::prelude::*;
+use fission_core::{BoxFuture, JobRef, JobSpec, ServiceCtx, ServiceRunner, ServiceSpec, ServiceType};
+use serde::{Deserialize, Serialize};
+
+#[derive(Default, Debug, Clone, PartialEq, Serialize, Deserialize)]
+struct DemoState;
+
+impl AppState for DemoState {}
+
+#[derive(Default, Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+struct SearchRequest {
+    query: String,
+}
+
+#[derive(Debug)]
+struct SearchJob;
+
+impl JobSpec for SearchJob {
+    type Request = SearchRequest;
+    type Ok = Vec<String>;
+    type Err = String;
+    const NAME: &'static str = "search-job";
+}
+
+const SEARCH_JOB: JobRef<SearchJob> = JobRef::new("search-job");
+
+#[derive(Default, Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+struct SyncConfig {
+    channel: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+enum SyncCommand {
+    Refresh,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+struct SyncCommandOk;
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+struct SyncCommandErr {
+    message: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct SyncStartErr;
+
+#[derive(Debug)]
+struct SyncService;
+
+impl ServiceSpec for SyncService {
+    type Config = SyncConfig;
+    type Command = SyncCommand;
+    type CommandOk = SyncCommandOk;
+    type CommandErr = SyncCommandErr;
+    type Event = ();
+    type StartErr = SyncStartErr;
+    const NAME: &'static str = "sync-service";
+}
+
+const SYNC_SERVICE: ServiceType<SyncService> = ServiceType::new("sync-service");
+
+#[derive(Debug)]
+struct SyncServiceRunner;
+
+impl ServiceRunner<SyncService> for SyncServiceRunner {
+    fn on_command(
+        &mut self,
+        _command: SyncCommand,
+        ctx: ServiceCtx<SyncService>,
+    ) -> BoxFuture<Result<SyncCommandOk, SyncCommandErr>> {
+        let _ = ctx;
+        Box::pin(async move { Ok(SyncCommandOk) })
+    }
+
+    fn on_stop(self: Box<Self>, _ctx: ServiceCtx<SyncService>) -> BoxFuture<()> {
+        Box::pin(async {})
+    }
+}
+
+struct SyncDemoApp;
+
+impl Widget<DemoState> for SyncDemoApp {
+    fn build(&self, _ctx: &mut BuildCtx<DemoState>, _view: &View<DemoState>) -> Node {
+        Text::new("Sync and job registration example").into_node()
+    }
+}
+
+fn main() -> anyhow::Result<()> {
+    DesktopApp::new(SyncDemoApp)
+        .with_async(|asyncs| {
+            asyncs.register_job(SEARCH_JOB, |request: SearchRequest, _ctx| async move {
+                // Replace with real backend/client call in your app.
+                Ok::<_, String>(vec![format!("results for {}", request.query)])
+            });
+
+            asyncs.register_service(
+                SYNC_SERVICE,
+                |config: SyncConfig, ctx: ServiceCtx<SyncService>| async move {
+                    let _ = config.channel;
+                    let _ = ctx;
+                    Ok::<_, SyncStartErr>(Box::new(SyncServiceRunner)
+                        as Box<dyn ServiceRunner<SyncService>>)
+                },
+            );
+        })
+        .run()
+}
+```

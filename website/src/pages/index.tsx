@@ -1,23 +1,39 @@
 import Link from '@docusaurus/Link';
 import Layout from '@theme/Layout';
 import styles from './index.module.css';
+import type { ReactNode } from 'react';
 
-const principles = [
+type Principle = {
+  title: string;
+  body: ReactNode;
+};
+
+const principles: Principle[] = [
   {
-    title: 'Deterministic behavior',
-    body: 'State transitions are explicit, typed, and replayable. Teams can reason about behavior the way they reason about business logic.',
+    title: 'Desktop-first baseline',
+    body: (
+      <>
+        Run <code>cargo run</code> from the generated app first, then expand behavior once desktop
+        interactions are stable.
+      </>
+    ),
   },
   {
-    title: 'One model, many targets',
-    body: 'The same widget and state model powers desktop, web, iOS, and Android targets so teams avoid divergent platform codepaths.',
+    title: 'Generated host expansion',
+    body: (
+      <>
+        Add <code>web</code>, <code>ios</code>, and <code>android</code> targets after app logic is stable,
+        then launch through <code>platforms/&lt;target&gt;/run-*.sh</code>.
+      </>
+    ),
   },
   {
     title: 'Production-first workflows',
-    body: 'Commands, services, and jobs keep async work separate from rendering, making behavior auditable and testable.',
+    body: 'Keep async work in jobs, services, and commands while reducers stay pure and deterministic.',
   },
   {
-    title: 'Built for wide screens',
-    body: 'The layout pipeline and widget model are tuned to keep product UI stable across monitor sizes and device classes.',
+    title: 'Wide-screen layout first',
+    body: 'Start from explicit containers (SafeArea/Container/Column/Row), then add actions and polish in a stable visual skeleton.',
   },
 ];
 
@@ -25,21 +41,22 @@ function Hero() {
   return (
     <section className={styles.hero}>
       <div className='container'>
-        <p className={styles.kicker}>Rust-powered UI for shipping product teams</p>
-        <h1 className={styles.title}>Build one app once and ship it where users already are.</h1>
+        <p className={styles.kicker}>Rust-powered UI for product teams</p>
+        <h1 className={styles.title}>Build one app model, validate quickly, then ship to every runtime.</h1>
         <p className={styles.subtitle}>
-          Fission gives you a single, deterministic UI model with first-class async boundaries and
-          one runtime discipline across desktop, web, iOS, and Android.
+          Fission gives you a single state-driven model in Rust and generated host projects for desktop,
+          web, iOS, and Android. Learn the flow once in one place, then move it to more platforms
+          without re-architecting your state or interaction layer.
         </p>
         <div className={styles.ctaRow}>
           <Link className={styles.primaryCta} to='/docs/getting-started/first-app'>
             Build your first app
           </Link>
-          <Link className={styles.secondaryCta} to='/playground'>
-            Open the playground
+          <Link className={styles.secondaryCta} to='/docs/getting-started/install'>
+            Install the CLI
           </Link>
-          <Link className={styles.tertiaryCta} to='/reference/overview/'>
-            Browse reference
+          <Link className={styles.tertiaryCta} to='/docs/guide/commands-services-jobs'>
+            Add async behavior
           </Link>
         </div>
       </div>
@@ -53,15 +70,15 @@ function ProblemSolution() {
       <div className='container'>
         <div className={styles.storyPanel}>
           <p className={styles.storyLabel}>When products scale</p>
-          <p className={styles.storyTitle}>Teams need velocity without sacrificing reliability.</p>
+          <p className={styles.storyTitle}>You get speed without losing control.</p>
           <p className={styles.storyCopy}>
-            You want fast interface changes, predictable releases, and confidence that complex
-            interactions stay stable across targets. Fission addresses this by treating UI state,
-            rendering, and async behavior as one coherent system, not separate stacks connected by hacks.
+            Fission keeps UI state, behavior, and rendering in one deterministic loop.
+            For teams shipping production apps, this creates a stable loop:
+            edit state logic, rebuild, verify behavior, then add the next target.
           </p>
           <p className={styles.storyCopy}>
-            The result is fewer context switches between “frontend” and “runtime plumbing” work, and a shorter
-            path from idea to validated behavior.
+            Platform output is generated as needed. Read each target readme and run its script when you
+            are ready to expand from desktop confidence to web or mobile confidence.
           </p>
         </div>
 
@@ -82,19 +99,22 @@ function ProofStrip() {
   return (
     <section className={styles.section}>
       <div className='container'>
-        <p className={styles.sectionLead}>Start with the workflow that gets results fastest.</p>
+        <p className={styles.sectionLead}>Use this validation order for fewer platform surprises:</p>
         <div className={styles.proofGrid}>
           <p>
-            <strong>Read</strong> a guided path: <Link to='/docs/guide/widgets-and-layout'>widgets + layout</Link>, then
-            <Link to='/docs/guide/playground-driven-workflow'> try it in the browser</Link>.
+            <strong>Start</strong> with a desktop-first workflow: <Link to='/docs/guide/widgets-and-layout'>widgets + layout</Link>,
+            <Link to='/docs/guide/state-and-actions'> state + actions</Link>, then
+            <Link to='/docs/guide/commands-services-jobs'> async boundaries</Link>.
           </p>
           <p>
-            <strong>Validate</strong> behavior: run through reducer-focused checks, then test async boundaries with
-            <Link to='/reference/core/commands-services-jobs'> commands, services, and jobs</Link>.
+            <strong>Validate</strong> each interaction in the running app first with <code>cargo run</code>.
+            Confirm reducer outputs and focus order before adding commands, services, or jobs.
           </p>
           <p>
-            <strong>Publish</strong> once behavior is stable: reuse the same model for desktop, web,
-            iOS, and Android while keeping platform details isolated.
+            <strong>Expand</strong> with generated targets only after parity: run
+            <code>./platforms/web/run-browser.sh</code>,
+            <code>./platforms/ios/run-sim.sh</code>,
+            <code>./platforms/android/run-emulator.sh</code> as applicable, while honoring toolchain prerequisites.
           </p>
         </div>
       </div>
@@ -104,7 +124,7 @@ function ProofStrip() {
 
 export default function Home() {
   return (
-      <Layout
+    <Layout
       title='Fission'
       description='Rust UI framework for desktop, web, iOS, and Android with deterministic state and production-focused workflows.'>
       <div className={styles.page}>

@@ -5,22 +5,41 @@ description: Why Fission uses a typed widget tree and how to reason about it.
 
 # Widget tree model
 
-Think of the widget tree as the blueprint for one rendered frame. It is a typed description of what should be shown right now.
+Think of the widget tree as the deterministic UI projection of current state.
+For first-time users, this keeps debug work practical: your state changes, then `build` renders those changes.
 
-If you have not seen Fission before, treat the tree like the source of truth. Your app state goes in, and the tree is the framework’s plan for how to draw it.
+Use this exact source flow whenever behavior is unclear:
 
-The main benefit is traceability.
+- `state -> action -> reducer -> state -> Widget::build -> Node -> CoreIR -> layout -> paint -> backend`
 
-- same state produces a stable tree,
-- every behavior change starts as a tree change,
-- layout and paint problems are easier to isolate because the render path is explicit.
+One compact diagram-like list:
 
-Use this mindset while building:
+- state
+- action dispatch
+- reducer
+- new state
+- `Widget::build`
+- `Node`
+- `CoreIR`
+- `LayoutSnapshot`
+- `DisplayList` / `RenderScene`
+- active backend
 
-- keep `build` pure,
-- keep branch decisions small,
-- make each widget represent one meaningful screen decision.
+For first-time users, this is the first place to look:
 
-When behavior feels hard to reason about, trace from interaction to action, from action to reducer, then from reducer result to updated tree.
+- `Widget::build` is a pure projection from state.
+- `CoreIR` is what the runtime diffs frame-to-frame, using `diff_ir(prev_ir, next_ir)`.
+- `CoreIR` is the typed intermediate structure used by layout and paint.
+- if visuals diverge, isolate the first stage where expectation changes.
 
-Next, check how that tree is processed by the rendering pipeline in [Rendering pipeline](/docs/concepts/pipeline).
+If your first build is getting stuck, use this quick checklist:
+
+- start from initial state defaults
+- dispatch one action (one interaction)
+- confirm reducer output before looking at UI
+- inspect `CoreIR` shape before checking paint
+- then inspect `LayoutSnapshot` and display-list output
+
+This keeps you anchored to a small, testable flow instead of overfitting on one render detail.
+
+Next, check how that flow advances in [Rendering pipeline](/docs/concepts/pipeline).

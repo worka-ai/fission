@@ -1,35 +1,31 @@
 ---
-title: flyout(anchor, content)
-description: Reference details for flyout(anchor, content). Use this widget when you need predictable behavior.
+title: flyout
+description: Reference details for flyout.
 slug: /widgets/flyout
 ---
 
-# flyout(anchor, content)
+# flyout
 
-**Who this is for:** teams working with app routing, navigation, and host-level composition.
+A low-level composition utility for precise layout and rendering placement.
 
-This API is for managing navigation flow, routing context, and host-level composition helpers.
 
-## What this is
-Use it to keep your UI intent explicit: define what the app should render at this level, then let state and actions decide when it appears.
+## What this is for
+Positions `content` relative to an `anchor` node using the flyout layout system. The layout engine places the content adjacent to the anchor's computed rect. This is the foundation for [`Popover`], [`Tooltip`], [`Menu`], and [`Select`] popups.
 
-## Example
+## Why you use it
+- Keep UI behavior deterministic by composing from explicit nodes.
+- Use it where behavior needs to stay testable and reviewable.
+- Connect it through your existing action/reducer and environment flow.
+
+## Minimal usage
 ```rust
-// In your build function or app composition:
-let widget = /* construct flyout(anchor, content) with the fields for your app */;
-let widget_node = widget.into_node();
-let view = fission_core::ui::Column { children: vec![widget_node], ..Default::default() };
+use fission_core::NodeId;
+use fission_widgets::flyout;
+let flyout_node = flyout(NodeId::from_u64(0), fission_core::ui::Text::new("menu").into_node());
 ```
 
-## Caveats
-- Keep each widget focused on one responsibility; mix concern boundaries inside higher-level composition nodes instead.
-- For widgets with asynchronous effects, send a command/service/job rather than mutating view state directly.
-- Confirm focus order and keyboard behavior when this widget can appear/disappear quickly.
 
-## Accessibility and platform notes
-- Supply accessible text or semantic equivalents wherever the widget outputs user-facing information.
-- Validate rendering at multiple scales and themes; avoid hard-coding assumptions about one display size.
-
-## Next step
+## Learn next
 - [Widget catalog](/reference/widgets/catalog)
-- [Core architecture](/reference/platform/targets)
+- [Core widget contract](/reference/core/widget-trait)
+

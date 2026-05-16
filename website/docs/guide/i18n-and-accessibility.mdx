@@ -1,22 +1,128 @@
 ---
-title: i18n and accessibility
+title: I18n and accessibility
 description: Add global-ready quality from the first feature.
 ---
 
-# i18n and accessibility
+# I18n and accessibility
 
-Many teams add localization and accessibility after first build. Fission works best when these are included from the start.
+For first-time apps, add copy and semantics together from the start so both text and interaction paths are testable.
 
-Use externalized text keys for all user-facing copy. Keep labels and roles explicit for controls.
+## 1) First-time setup path
 
-Use this checklist before marking a screen complete:
+1. Keep locale in app state.
+2. Seed `Env.i18n` with `TranslationBundle` values.
+3. Sync runtime locale in `with_sync_env`.
+4. Use `TextContent::Key` for stable labels.
+5. Set `Semantics { role, label, focusable }` where behavior should be accessible.
 
-- every interactive control has a clear label,
-- focus order matches the intended navigation,
-- focus indicators are visible,
-- text passes readability checks for longer strings,
-- keyboard interaction works on non-pointer environments.
+```rust
+use fission::prelude::*;
+use fission::i18n::{Locale, TranslationBundle};
+use fission::shell::DesktopApp;
+use fission::ir::{Role, Semantics};
+use std::collections::HashMap;
 
-If this is your first implementation pass, add at least one a11y and one i18n check before expanding to the next feature.
+#[derive(Default, Debug, Clone, Serialize, Deserialize)]
+struct LocalizationState {
+    locale: Locale,
+}
 
-Use it with [Platform and deployment](/docs/guide/platform-deployment) because these checks matter across targets.
+impl AppState for LocalizationState {}
+
+struct HomeScreen;
+
+impl Widget<LocalizationState> for HomeScreen {
+    fn build(&self, _ctx: &mut BuildCtx<LocalizationState>, _view: &View<LocalizationState>) -> Node {
+        Column {
+            children: vec![
+                Text::new(TextContent::Key("home.title".into())).into_node(),
+                Button {
+                    on_press: None,
+                    child: Some(Box::new(Text::new(TextContent::Key("home.open".into())).into_node())),
+                    semantics: Some(Semantics {
+                        role: Role::Button,
+                        label: Some("Open panel".into()),
+                        focusable: true,
+                        ..Default::default()
+                    }),
+                    ..Default::default()
+                }
+                .into_node(),
+            ],
+            ..Default::default()
+        }
+        .into_node()
+    }
+}
+
+fn base_env() -> Env {
+    let mut env = Env::default();
+    let mut en = HashMap::new();
+    en.insert("home.title".into(), "Welcome".into());
+    en.insert("home.open".into(), "Open panel".into());
+    let mut es = HashMap::new();
+    es.insert("home.title".into(), "Bienvenido".into());
+    es.insert("home.open".into(), "Abrir panel".into());
+
+    env.i18n.add_bundle(TranslationBundle {
+        locale: Locale::from("en-US"),
+        messages: en,
+    });
+    env.i18n.add_bundle(TranslationBundle {
+        locale: Locale::from("es-ES"),
+        messages: es,
+    });
+    env
+}
+
+fn main() -> anyhow::Result<()> {
+    DesktopApp::new(HomeScreen)
+        .with_env(base_env())
+        .with_sync_env(|state: &LocalizationState, env: &mut Env| {
+            env.locale = state.locale.clone();
+        })
+        .run()
+}
+```
+
+## 2) Concrete checks after the first feature lands
+
+- Verify text by key with `TextContent::Key(...)`.
+- Verify interactable nodes with `Semantics` by setting role, label, and focusability.
+- In headless tests, query with `TestDriver::find_role(role)`.
+- In integration smoke tests, query with `LiveTestClient::get_tree()`.
+
+```rust
+use fission::prelude::*;
+use fission::ir::Role;
+use fission_test::prelude::{TestDriver, TestHarness};
+use fission_test_driver::LiveTestClient;
+
+fn headless_accessibility_check() {
+    let mut harness = TestHarness::new(LocalizationState::default()).with_root_widget(HomeScreen);
+    harness.pump().unwrap();
+    let driver = TestDriver::new(harness);
+
+    let buttons = driver.find_role(Role::Button);
+    assert!(!buttons.is_empty());
+}
+
+fn integration_tree_smoke() -> anyhow::Result<()> {
+    let client = LiveTestClient::connect(4_8761);
+    let nodes = client.get_tree()?;
+    assert!(nodes
+        .iter()
+        .any(|n| n.role == "Button" && n.label == Some("Open panel".into())));
+    Ok(())
+}
+```
+
+## 3) Native accessibility bridge caveat
+
+Core semantics are wired through the IR and can be validated by tests (`find_role`, `get_tree`), including role/label/focus metadata.
+Current status is **not fully parity-complete on every native reader path**:
+
+- some screen-reader bridges are still maturing,
+- so validate each target on real devices/simulators before advertising full accessibility parity.
+
+The safe assumption for production releases is: semantics-first behavior is in place, but platform-native parity can still be target-dependent.

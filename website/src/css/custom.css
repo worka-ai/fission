@@ -8,6 +8,7 @@
   --ifm-font-color-base: #111827;
   --ifm-heading-color: #0f172a;
   --ifm-link-color: #0b8f7a;
+  --ifm-font-color-secondary: #334155;
 
   --ifm-color-primary: #0f8f75;
   --ifm-color-primary-dark: #0d775f;
@@ -20,6 +21,8 @@
   --ifm-navbar-background-color: rgba(255, 255, 255, 0.96);
   --ifm-footer-background-color: #0f172a;
   --ifm-footer-color: #e2e8f0;
+  --ifm-card-background-color: #ffffff;
+  --ifm-background-surface-color: #f3f6fb;
 
   --ifm-code-font-size: 95%;
 }
@@ -58,6 +61,12 @@ body {
 p,
 li {
   color: var(--ifm-font-color-base);
+}
+
+code {
+  background: rgba(15, 23, 42, 0.08);
+  border-radius: 0.25rem;
+  padding: 0.05rem 0.28rem;
 }
 
 a,

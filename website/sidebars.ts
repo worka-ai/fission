@@ -11,8 +11,8 @@ const sidebars: SidebarsConfig = {
       label: 'Get Started',
       collapsed: false,
       items: [
-        'getting-started/our-differentiators',
         'getting-started/install',
+        'getting-started/our-differentiators',
         'getting-started/first-app',
       ],
     },

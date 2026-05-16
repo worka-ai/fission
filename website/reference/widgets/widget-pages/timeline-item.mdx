@@ -1,35 +1,37 @@
 ---
 title: TimelineItem
-description: Reference details for TimelineItem. Use this widget when you need predictable behavior.
+description: Reference details for TimelineItem.
 slug: /widgets/timeline-item
 ---
 
 # TimelineItem
 
-**Who this is for:** teams working with product surfaces, content sections, and feedback states.
+A product-surface widget for status, content grouping, and communication.
 
-This API is for communicating product content, status, and visual feedback with readable structure.
 
-## What this is
-Use it to keep your UI intent explicit: define what the app should render at this level, then let state and actions decide when it appears.
+## What this is for
+`TimelineItem` is part of Fission's widget API and fits the deterministic, state-driven render model.
 
-## Example
+## Why you use it
+- Keep UI behavior deterministic by composing from explicit nodes.
+- Use it where behavior needs to stay testable and reviewable.
+- Connect it through your existing action/reducer and environment flow.
+
+## Minimal usage
 ```rust
-// In your build function or app composition:
-let widget = /* construct TimelineItem with the fields for your app */;
-let widget_node = widget.into_node();
-let view = fission_core::ui::Column { children: vec![widget_node], ..Default::default() };
+use fission_widgets::TimelineItem;
+
+let node = TimelineItem {
+    ..Default::default()
+}.into_node();
 ```
 
-## Caveats
-- Keep each widget focused on one responsibility; mix concern boundaries inside higher-level composition nodes instead.
-- For widgets with asynchronous effects, send a command/service/job rather than mutating view state directly.
-- Confirm focus order and keyboard behavior when this widget can appear/disappear quickly.
+## Config surface
+- `title`: `String`
+- `description`: `Option<String>`
+- `timestamp`: `Option<String>`
 
-## Accessibility and platform notes
-- Supply accessible text or semantic equivalents wherever the widget outputs user-facing information.
-- Validate rendering at multiple scales and themes; avoid hard-coding assumptions about one display size.
-
-## Next step
+## Learn next
 - [Widget catalog](/reference/widgets/catalog)
-- [Core architecture](/reference/core/widget-trait)
+- [Core widget contract](/reference/core/widget-trait)
+

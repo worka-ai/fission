@@ -1,35 +1,43 @@
 ---
 title: Column
-description: Reference details for Column. Use this widget when you need predictable behavior.
+description: Reference details for Column.
 slug: /widgets/column
 ---
 
 # Column
 
-**Who this is for:** teams working with stable UI primitives and lower-level render behavior.
+A layout and composition primitive for predictable structure and spacing.
 
-This API is for the foundation layer of the render tree where core geometry, text, and interaction primitives are assembled.
 
-## What this is
-Use it to keep your UI intent explicit: define what the app should render at this level, then let state and actions decide when it appears.
+## What this is for
+`Column` is part of Fission's widget API and fits the deterministic, state-driven render model.
 
-## Example
+## Why you use it
+- Keep UI behavior deterministic by composing from explicit nodes.
+- Use it where behavior needs to stay testable and reviewable.
+- Connect it through your existing action/reducer and environment flow.
+
+## Minimal usage
 ```rust
-// In your build function or app composition:
-let widget = /* construct Column with the fields for your app */;
-let widget_node = widget.into_node();
-let view = fission_core::ui::Column { children: vec![widget_node], ..Default::default() };
+use fission_core::ui::Column;
+
+let node = Column {
+    ..Default::default()
+}.into_node();
 ```
 
-## Caveats
-- Keep each widget focused on one responsibility; mix concern boundaries inside higher-level composition nodes instead.
-- For widgets with asynchronous effects, send a command/service/job rather than mutating view state directly.
-- Confirm focus order and keyboard behavior when this widget can appear/disappear quickly.
+## Config surface
+- `id`: `Option<NodeId>`
+- `children`: `Vec<Node>`
+- `semantics`: `Option<Semantics>`
+- `flex_grow`: `f32`
+- `flex_shrink`: `f32`
+- `gap`: `Option<f32>`
+- `wrap`: `FlexWrap`
+- `align_items`: `AlignItems`
+- `justify_content`: `JustifyContent`
 
-## Accessibility and platform notes
-- Supply accessible text or semantic equivalents wherever the widget outputs user-facing information.
-- Validate rendering at multiple scales and themes; avoid hard-coding assumptions about one display size.
-
-## Next step
+## Learn next
 - [Widget catalog](/reference/widgets/catalog)
-- [Core architecture](/reference/core/widget-trait)
+- [Core widget contract](/reference/core/widget-trait)
+

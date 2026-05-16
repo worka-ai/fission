@@ -1,20 +1,55 @@
 ---
-title: Playground-first workflow
-description: Use short edit-run-verify cycles during early implementation.
+title: Playground-driven workflow
+description: Short preview cycles for desktop, web, and mobile using generated targets.
 ---
 
-# Playground-first workflow
+# Playground-driven workflow
 
-The fastest way to reduce uncertainty is not “make a lot of changes,” but “change one thing, validate one result.”
+`playground` workflow for practical quality checks.
+This section shows the practical flow you use to validate behavior before expanding to more output targets.
 
-Use this rhythm:
+Edit your generated app locally, then run a target script for the platform you need to verify.
+This gives real feedback from:
 
-1. edit one behavior,
-2. run the browser preview,
-3. validate UI and action behavior,
-4. copy stable code to local project,
-5. add a test.
+- desktop (`cargo run`)
+- web (`./platforms/web/run-browser.sh`)
+- iOS/Android (`./platforms/ios/run-sim.sh`, `./platforms/android/run-emulator.sh`)
 
-A small loop like this catches regressions while the feature is still cheap to change.
+Use one small behavior change, then re-run one target.
 
-Keep experimental changes in a separate branch. Move only stable behavior to your main code path.
+From a generated app directory:
+
+- Desktop loop (builds dependencies and launches the app):
+
+```bash
+cargo run
+```
+
+- Browser loop (requires `cargo fission add-target web`, then `wasm32` toolchain + wasm-pack):
+  - `rustup target add wasm32-unknown-unknown`
+  - `cargo install wasm-pack`
+
+```bash
+cargo fission add-target web && ./platforms/web/run-browser.sh
+```
+
+This command only works from the generated app directory with the generated `platforms/web` scripts present.
+
+- iOS and Android loops use generated run scripts from the same pattern.
+
+From repo root (checked-in smoke app):
+
+```bash
+./examples/web-smoke/platforms/web/run-browser.sh
+```
+
+This prints the same localhost host and serves `examples/web-smoke`.
+
+Use this as your quality checkpoint for every run:
+
+- visible state transition in the UI,
+- action behavior matches your expected state change,
+- keyboard focus lands on controls in expected order,
+- button and action labels remain readable and meaningful.
+
+When you are ready for deeper mobile smoke verification, use the scripts and target notes in the [CLI-and-targets guide](https://github.com/worka-ai/fission/blob/main/docs/cli-and-targets.md), [platform smoke tests](https://github.com/worka-ai/fission/blob/main/docs/platform-smoke-tests.md), and generated platform notes under [fission-cli](https://github.com/worka-ai/fission/blob/main/crates/tools/fission-cli/README.md).

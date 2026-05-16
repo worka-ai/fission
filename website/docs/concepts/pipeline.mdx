@@ -5,18 +5,30 @@ description: What happens after a widget tree is built.
 
 # Rendering pipeline
 
-The frame pipeline is split into clear stages so debugging stays practical.
+Use this exact sequence while debugging:
 
-Your tree is built from state, then lowered into an internal representation, then laid out, then painted, and finally rendered.
+- build Node tree
+- lower Node tree to `CoreIR`
+- compute `LayoutSnapshot`
+- build/cache `DisplayList` or `RenderScene`
+- render through the active backend
 
-A stable mental model:
+That sequence is what most regressions follow. If visuals are wrong, inspect each stage in order and stop when the mismatch first appears:
 
-1. build widget structure,
-2. lower to render graph,
-3. compute layout,
-4. generate paint commands,
-5. render output.
+- Node tree content changed unexpectedly -> check state, reducer, and build logic
+- CoreIR or semantics changed unexpectedly -> check branching and `Semantics`
+- `LayoutSnapshot` changed unexpectedly -> check constraints and layout inputs
+- `DisplayList`/`RenderScene` output changed unexpectedly -> check style changes and cache invalidation
+- backend output changed unexpectedly -> check runtime/backend flags and host config
 
-You do not need to memorize internals yet. You need to know where a change belongs. If visuals are wrong, check each stage in order and stop as soon as the mismatch disappears.
+## Where diagnostics hook in
 
-This is why the docs introduce state and layout before platform tooling: once your mental model is stable, pipeline issues become mechanical rather than mysterious.
+Diagnostics are enabled through the `FISSION_DIAG` environment variable (for example `FISSION_DIAG=input,layout`).
+Use `FISSION_DIAG_LEVEL=debug` to enable the debug-level events described below.
+That gives per-stage tracing at these pipeline hooks:
+
+- `input`: action dispatch, reducer input, and pointer/gesture events
+- `layout`: snapshot generation, incremental diffs, and paint-cache summaries (`PaintSummary`)
+- `frame`: frame start/end lifecycle events around the render loop
+
+The `test` category is defined but currently has no emitters.

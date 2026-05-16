@@ -5,23 +5,35 @@ description: The practical architecture choices behind Fission.
 
 # Why Fission
 
-You do not need to adopt every feature at once. You need a framework shape that makes it easier to scale from first screen to production flow.
+The best way to evaluate these differentiators is against the first generated app: if each one helps you ship and debug that tiny counter confidently, it will scale with the same discipline to the rest of your product.
 
-**Deterministic behavior first**
-Actions, reducers, and state transitions are explicit. That gives you one path from user input to state change and one place to test it.
+- **Deterministic action flow**
+  - In your first app, the increment path should produce one obvious state transition, so `Count` changes match the reducer and are easy to reproduce in tests.
+  - Tradeoff: you lose "quick-and-dirty" state mutation style; all behavior must go through explicit handlers, which can feel strict at the beginning.
 
-**Clear async boundaries**
-Commands, services, and jobs split effectful work from pure rendering. UI code stays readable while integration details remain controlled and testable.
+- **Desktop-first onboarding before platform spread**
+  - In your first app, `cargo run` from the scaffold root is the first stable loop and validates the default model before you add any web/mobile target.
+  - Tradeoff: additional targets are not ready on day one; each one (`web`, `ios`, `android`) needs a dedicated `cargo fission add-target` step plus host prerequisites.
 
-**One app model across targets**
-The same core model is used for desktop, web, and native mobile targets. You still define target build steps for each output, but your architecture does not fork.
+- **Separation of interaction model from platform shell**
+- In your first app, `src/app.rs` stays focused on state and widgets, while platform differences are handled by generated shell code under `platforms/<target>`.
+- Tradeoff: platform-specific issues remain possible (for example, iOS simulator rendering can run with software fallback depending on backend capabilities), so you still need per-target verification.
 
-**Global quality in the base model**
-Localization and accessibility are treated as first-order concerns. Keys, labels, focus behavior, and contrast are part of your normal implementation flow.
+- **Built-in quality pressure from day one**
+  - In your first app, accessible labels, readable text, and focus order can be checked early, then carried forward when you add localization and deeper tests.
+  - Tradeoff: the starter provides the shape, but not a complete localization/accessibility finish; you own the translation keys and any native bridge parity gaps.
 
-**Fast feedback loop for visual and behavior changes**
-A browser-based preview loop keeps edits visible quickly while the app model is still stable.
+- **Fast local confidence, then scoped expansion**
+  - In your first app, you can iterate quickly (`edit`, `cargo run`, `confirm behavior`) before deciding which host to generate and stabilize next.
+  - Tradeoff: desktop confidence does not automatically equal web/mobile confidence; each host still needs its own smoke check and environment setup.
 
-This structure helps teams ship confidently because the same patterns repeat from first button to first release.
+:::info Evidence and next checks
+- `crates/tools/fission-cli/src/lib.rs` (target generation and runtime boundaries)
+- `crates/tools/fission-cli/README.md` (scaffold outputs and target status)
+- `docs/cli-and-targets.md` (supported targets and command examples)
+- `docs/platform-smoke-tests.md` (end-to-end check strategy for generated and example smoke paths)
+- `website/docs/guide/platform-deployment.mdx` (host launch expectations for generated targets)
+- `website/docs/guide/i18n-and-accessibility.mdx` (first-app accessibility and localization follow-up)
+:::
 
-If this aligns with your team’s constraints, continue with [Install and setup](/docs/getting-started/install).
+If these tradeoffs fit your onboarding goal, continue to [Install and setup](/docs/getting-started/install) before [Build your first app](/docs/getting-started/first-app).

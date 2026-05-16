@@ -1,7 +1,7 @@
 .page {
   background:
-    radial-gradient(circle at 20% 0%, rgba(14, 36, 52, 0.2), transparent 45%),
-    radial-gradient(circle at 82% -8%, rgba(22, 58, 83, 0.18), transparent 48%),
+    radial-gradient(circle at 20% 0%, rgba(15, 143, 117, 0.08), transparent 45%),
+    radial-gradient(circle at 82% -8%, rgba(17, 24, 39, 0.08), transparent 48%),
     linear-gradient(175deg, var(--ifm-background-surface-color) 0%, var(--ifm-background-color) 100%);
   color: var(--ifm-font-color-base);
   min-height: 100vh;
@@ -70,7 +70,7 @@
 .storyPanel {
   margin: 0 auto;
   max-width: 70ch;
-  background: var(--ifm-card-background-color, rgba(255, 255, 255, 0.85));
+  background: var(--ifm-card-background-color);
   border: 1px solid var(--ifm-color-emphasis-300);
   border-radius: 1rem;
   padding: 1.1rem;
@@ -106,7 +106,7 @@
 
 .card,
 .proofGrid p {
-  background: var(--ifm-card-background-color, rgba(255, 255, 255, 0.85));
+  background: var(--ifm-card-background-color);
   border: 1px solid var(--ifm-color-emphasis-300);
   border-radius: 0.85rem;
   padding: 0.85rem 0.95rem;
