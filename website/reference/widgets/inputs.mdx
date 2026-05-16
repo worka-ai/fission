@@ -5,11 +5,15 @@ description: Buttons, text fields, and interaction hooks.
 
 # Input widgets
 
-Common input widgets provide focused event binding points:
+Input components are where user intent enters your model.
 
-- press callbacks,
-- text change events,
-- focus state,
-- and validation messaging.
+## Core expectations
 
-Keep handlers minimal and pass intent through reducers/commands.
+- events dispatch typed actions,
+- handlers should remain minimal,
+- validation belongs to state transitions,
+- async side effects should flow through command pathways.
+
+## Pattern
+
+`UI event -> action -> reducer` is default; escalate to `command/service/job` when work leaves the synchronous frame.

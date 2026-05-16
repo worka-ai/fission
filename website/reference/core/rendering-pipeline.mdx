@@ -5,10 +5,18 @@ description: Internal frame flow and lifecycle.
 
 # Rendering pipeline
 
-1. widget build,
-2. lower to node graph,
-3. layout,
-4. paint,
-5. render to GPU backend.
+A single rendering pass progresses through staged boundaries:
 
-See diagnostic tools in [testing and observability](/docs/concepts/testing-and-observability).
+1. widget build,
+2. internal graph lowering,
+3. layout,
+4. paint command creation,
+5. render backend output.
+
+## Why this matters
+
+Stable pipelines make timing and regression analysis easier. You can isolate cost and bugs by stage and keep performance work actionable.
+
+## Diagnostics pairing
+
+Use with testing/observability notes when behavior differs by target or interaction sequence.

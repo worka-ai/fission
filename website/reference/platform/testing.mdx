@@ -5,11 +5,12 @@ description: Runtime and unit testing references for platform-level workflows.
 
 # Testing
 
-Use deterministic tests for reducer behavior first, then add integration-level checks around command and service boundaries.
+Testing expands outward from deterministic cores.
 
 ## Recommended stack
 
-- unit tests for state transitions,
-- mock services for async calls,
-- visual checks for high-signal product flows,
-- and CI gates on platform smoke tests.
+- unit tests for reducer/state logic,
+- mocked services for command paths,
+- integration checks for jobs,
+- smoke checks on desktop and web,
+- a small, high-signal regression set for user flows.

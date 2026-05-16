@@ -5,23 +5,16 @@ description: Target desktop, web, and mobile flows with consistent runtime model
 
 # Platform and deployment
 
-Start with desktop for fast iteration, then expand with the same app model to web and mobile targets.
+Start with the architecture, then add target-specific output.
 
-## Target matrix
+## Recommended sequence
 
-- Desktop (`DesktopApp`) today.
-- Web/WASM via browser host.
-- Native iOS and Android flows through CLI-generated projects.
+1. build and stabilize core behaviors,
+2. validate desktop target,
+3. validate web/WASM output,
+4. add mobile/packaging flow,
+5. lock environment settings outside business logic.
 
-## Typical build flow
+## Deployment guidance
 
-1. `fission init my-app`
-2. implement core app and reference-state transitions,
-3. add platform configuration,
-4. run desktop smoke,
-5. run `web` target to validate UI behavior in browser,
-6. package native targets.
-
-## Deployment note
-
-Use environment variables and command/service hooks for platform-specific settings. Keep secrets out of app sources and pass credentials through CI tooling.
+Keep target flags in configuration files and project descriptors. This avoids leaking platform-specific behavior into shared widget code.

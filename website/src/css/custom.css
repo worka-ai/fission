@@ -1,23 +1,38 @@
 /**
- * Fission design tokens.
+ * Fission visual system.
  */
 :root {
-  --ifm-font-family-base: 'Nunito Sans', 'Avenir Next', 'Segoe UI', Arial, sans-serif;
+  --ifm-font-family-base: 'Inter', 'Avenir Next', 'Segoe UI', Arial, sans-serif;
   --ifm-font-family-monospace: 'SFMono-Regular', Menlo, Monaco, Consolas, 'Liberation Mono', 'Courier New', monospace;
-  --ifm-color-primary: #16c79a;
-  --ifm-color-primary-dark: #11af86;
-  --ifm-color-primary-darker: #0f9d77;
-  --ifm-color-primary-darkest: #0a6c52;
-  --ifm-color-primary-light: #42d7b0;
-  --ifm-color-primary-lighter: #5ee1c0;
-  --ifm-color-primary-lightest: #8ef0d7;
+  --ifm-color-primary: #18d6ae;
+  --ifm-color-primary-dark: #12b892;
+  --ifm-color-primary-darker: #11a280;
+  --ifm-color-primary-darkest: #0b6d56;
+  --ifm-color-primary-light: #4ce0bd;
+  --ifm-color-primary-lightest: #92efd3;
+  --ifm-link-color: #88e7cb;
+  --ifm-heading-color: #ecf4ff;
+  --ifm-font-color-base: #e8f2fb;
   --ifm-code-font-size: 95%;
-  --docusaurus-highlighted-code-line-bg: rgba(20, 255, 200, 0.13);
+}
+
+html,
+body {
+  scroll-behavior: smooth;
 }
 
 .hero__title,
 .hero__subtitle {
-  color: #f4f7fb;
+  color: #f3f8ff;
+}
+
+.markdown {
+  color: #e7f1fb;
+}
+
+p,
+li {
+  color: #d9e8f4;
 }
 
 a,
@@ -32,12 +47,15 @@ a:hover,
 }
 
 .footer {
-  border-top: 1px solid rgba(255, 255, 255, 0.1);
+  border-top: 1px solid rgba(255, 255, 255, 0.12);
 }
 
 [data-theme='dark'] {
-  --ifm-font-color-base: #f3f7fb;
-  --ifm-background-color: #071a2d;
-  --ifm-navbar-background-color: rgba(8, 23, 38, 0.88);
-  --ifm-footer-background-color: #051525;
+  --ifm-background-color: #050f17;
+  --ifm-navbar-background-color: rgba(8, 21, 33, 0.92);
+  --ifm-footer-background-color: #040c15;
+}
+
+.table-of-contents__link {
+  color: #d7ecfb;
 }

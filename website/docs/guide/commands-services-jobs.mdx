@@ -5,41 +5,20 @@ description: Use explicit async boundaries for external work and background beha
 
 # Commands, services, and jobs
 
-Use separate async abstractions so your UI logic stays deterministic and observable.
+Use this split whenever behavior reaches outside pure build/update logic.
 
-## Commands
-
-Commands are explicit unit-of-work requests.
-
-- one-shot
-- bounded
-- easy to test
-
-## Services
-
-Services provide reusable, long-lived collaborators for storage/network/logging.
-
-- life-cycle aware,
-- injectable,
-- easier to mock.
-
-## Jobs
-
-Jobs model scheduled or cancellable work tied to app lifecycle.
-
-- startup initialization,
-- polling,
-- debounced synchronization,
-- cleanup on shutdown.
-
-## Design guideline
-
-If logic can be represented as “state transition + async result,” prefer command-first.
-
-## Example pattern
+- **Command**: one-shot request with bounded output.
+- **Service**: shared, reusable integration object.
+- **Job**: repeating, long-lived, or cancellable lifecycle behavior.
 
 ```text
-UI action -> command request -> service + job -> result action -> reducer
+UI action -> command request -> service/job -> result action -> reducer
 ```
 
-The pattern keeps the UI graph independent from external side effects.
+## Selection guide
+
+- Need one response then done? start with **command**.
+- Need persistent behavior (cache, API client, storage)? use a **service**.
+- Need scheduled/cancellable recurring work? use a **job**.
+
+This separation helps with testing and platform behavior consistency.

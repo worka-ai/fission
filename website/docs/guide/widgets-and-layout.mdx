@@ -5,26 +5,23 @@ description: Compose UI with declarative widgets and predictable layout behavior
 
 # Widgets and layout
 
-Fission apps are built with **widgets** that expose a clear build contract. A widget tree is pure data that the renderer turns into paint operations.
+The most maintainable screens start as small composable widgets.
 
-## Layout fundamentals
+## Build a screen in layers
 
-- `Column` and `Row` for axis-based composition.
-- spacing and alignment through explicit properties.
-- explicit bounds for predictable geometry.
-
-## Composition pattern
-
-Define small reusable widgets instead of deeply nesting anonymous closures. Build one tree level at a time:
+1. identify container structure,
+2. build simple child widgets,
+3. encode alignment and spacing explicitly,
+4. keep text and control behavior in domain components.
 
 ```rust
 Root {
   child: Some(Box::new(
     Column {
       children: vec![
-        Header::new(...).into(),
+        Header::new("Dashboard").into(),
         Body::new(...).into(),
-        Footer::new(...).into(),
+        Footer::new("Status").into(),
       ],
     }
     .into(),
@@ -33,13 +30,11 @@ Root {
 }
 ```
 
-## Keep widget boundaries intentional
+## Why this style scales
 
-- Separate “container” logic (state usage) from “presentational” children.
-- Keep render-affecting logic in view functions.
-- Keep behavior in reducers and command handlers.
+Because layout complexity is often the first source of platform divergence. Explicit structure and constraints make it easier to tune wide-screen behavior without rewriting logic.
 
-## Next
+## Next step
 
 - [State and actions](/docs/guide/state-and-actions)
-- [Commands and services](/docs/guide/commands-services-jobs)
+- [Commands, services, and jobs](/docs/guide/commands-services-jobs)

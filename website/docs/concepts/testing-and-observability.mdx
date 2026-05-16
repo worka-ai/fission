@@ -5,25 +5,21 @@ description: Validate behavior with deterministic transitions and runtime tracin
 
 # Testing and observability
 
-Treat UI as a behavior system, not just a screenshot.
+Quality work starts with behavior-level confidence.
 
-## What to test first
+## Recommended sequence
 
-- reducer outcomes,
-- command output mapping,
-- service interfaces,
-- and user-facing flows for edge cases.
+1. test reducers and state transitions,
+2. mock services and test command pathways,
+3. add product flow tests for high-signal user behavior,
+4. verify through playground runs before broad platform checks,
+5. keep CI aligned to target smoke tests.
 
-## Observability primitives
+## What to observe
 
-- action logs,
-- transition history,
-- command lifecycle traces,
-- and optional target-specific runtime diagnostics.
+- action dispatch and completion,
+- command lifecycle,
+- job start/cancel/finish behavior,
+- transition history for reproducible debugging.
 
-## Recommended flow
-
-1. write unit tests around action reducers,
-2. exercise commands with mocked services,
-3. run targeted examples through the playground,
-4. add regression tests where UX regressions are expensive.
+If your logs capture these points, reproducibility improves significantly when behavior differs between environments.

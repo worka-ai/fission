@@ -5,22 +5,23 @@ description: Understand the full pass from widget tree to GPU draw output.
 
 # Rendering pipeline
 
-Fission’s pipeline is explicit:
+Rendering in Fission is explicit by stage. The frame path is:
 
-1. build widget tree,
-2. lower to internal representation,
-3. layout,
-4. paint,
-5. render to GPU.
+1. widget build
+2. internal node graph lowering
+3. layout
+4. paint command generation
+5. backend render (today GPU-based output paths)
 
-This separation is intentional: each stage has a single responsibility.
+## Why the staged pipeline helps
 
-## Benefits
+Each stage has one responsibility. That reduces the “everything changed” debugging problem and gives a precise point of measurement.
 
-- easier tracing,
-- predictable update cost,
-- and better diagnostics when output differs from expectations.
+## Debugging order
 
-## Debugging strategy
+- first confirm state and build output,
+- then inspect constraints and layout metrics,
+- then paint ordering,
+- and finally render target output.
 
-Track unexpected rendering behavior by checking where structure changed: build, layout, paint command, or render pass.
+Move one stage at a time, and keep assumptions documented so regressions are easier to isolate.

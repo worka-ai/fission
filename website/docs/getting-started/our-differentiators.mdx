@@ -1,34 +1,38 @@
 ---
 title: Why Fission
-description: The design choices that shape what you can build with Fission.
+description: Design decisions that shape what you can build with Fission.
 ---
 
 # Why Fission
 
-Fission is shaped by five design choices:
+Fission is designed around five practical differentiators that show up directly in day-to-day development.
 
-## Deterministic state by default
+## 1) Deterministic state by default
 
-State updates are driven through explicit action/reducer flow. That makes behavior reproducible and debugging straightforward.
+State changes are explicit and reproducible. Actions describe intent and reducers apply a small, bounded state transition. This improves traceability in code review and debugging.
 
-## Clear async boundaries
+## 2) Explicit async boundaries
 
-Long-running work is intentionally separated from rendering via commands, services, and jobs. Background processing can be tested without coupling it directly to UI render steps.
+UI builds stay focused on rendering decisions, while asynchronous behavior is represented through commands, services, and jobs. You can keep business logic and external integration paths separate and testable.
 
-## Cross-platform from one architecture
+## 3) One architecture for multiple targets
 
-Whether your target is desktop, web (WASM), iOS, or Android, the model stays consistent. Platform setup is still evolving, but the application model stays stable.
+The same app model is intended to span desktop, web, and mobile builds. You still need target-specific packaging, but behavior and structure remain shared.
 
-## i18n and accessibility as first-class
+## 4) Production-quality baseline concerns
 
-Localization and accessibility concerns are included in the core narrative, not left for later. You can add semantic labels, keyboard behavior, and localization early in the first application iterations.
+i18n and accessibility are part of the architecture. That means localization keys, semantics, and focus behavior are introduced early, not retrofitted at release time.
 
-## Worka VM-driven feedback
+## 5) Fast feedback with browser-backed preview
 
-The same framework logic can be evaluated and iterated inside the browser through a Worka workflow, reducing “edit, compile, switch-target” friction during prototyping and review.
+The Worka VM-backed workflow lets teams validate behavior quickly before full packaging. That improves collaboration and reduces time spent iterating on layout, behavior, and async timing.
 
-## What to read next
+## What this means in practice
 
-- [Install Fission](/docs/getting-started/install)
+If you are shipping a real product team, the payoff is less context switching and a shorter path from idea → validation → implementation.
+
+Continue to the next steps when this map matches your priorities.
+
+- [Install and setup](/docs/getting-started/install)
 - [Build your first app](/docs/getting-started/first-app)
-- [Explore the first differentiators in tutorials](/docs/guide/widgets-and-layout)
+- [Playground-first workflow](/docs/guide/playground-driven-workflow)

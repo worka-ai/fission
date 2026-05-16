@@ -1,69 +1,76 @@
 import Link from '@docusaurus/Link';
 import Layout from '@theme/Layout';
-import clsx from 'clsx';
 import styles from './index.module.css';
 
-function HeroCta() {
+const principles = [
+  {
+    title: 'Deterministic behavior',
+    body: 'State transitions are explicit, typed, and replayable. Teams can reason about behavior the way they reason about business logic.',
+  },
+  {
+    title: 'One model, many targets',
+    body: 'The same widget and state model powers desktop, web, and mobile targets so teams avoid divergent platform codepaths.',
+  },
+  {
+    title: 'Production-first workflows',
+    body: 'Commands, services, and jobs keep async work separate from rendering, making behavior auditable and testable.',
+  },
+  {
+    title: 'Built for wide screens',
+    body: 'The layout pipeline and widget model are tuned to keep product UI stable across monitor sizes and device classes.',
+  },
+];
+
+function Hero() {
   return (
     <section className={styles.hero}>
-      <div className="container">
-        <p className={styles.pretitle}>One Rust app, every device, one workflow</p>
-        <h1 className={styles.title}>Build native-quality products with Fission</h1>
+      <div className='container'>
+        <p className={styles.kicker}>Rust-powered UI for shipping product teams</p>
+        <h1 className={styles.title}>Build one app once and ship it where users already are.</h1>
         <p className={styles.subtitle}>
-          Fission gives you a Flutter-style widget model with deterministic state,
-          first-class async contracts, and one runtime path across desktop, mobile,
-          and WebAssembly.
+          Fission gives you a single, deterministic UI model with first-class async boundaries and
+          one runtime discipline across desktop, web, and mobile workflows.
         </p>
         <div className={styles.ctaRow}>
-          <Link className={styles.primaryCta} to="/docs/getting-started/first-app">
+          <Link className={styles.primaryCta} to='/docs/getting-started/first-app'>
             Build your first app
           </Link>
-          <Link className={styles.secondaryCta} to="/playground">
-            Open interactive playground
+          <Link className={styles.secondaryCta} to='/playground'>
+            Open the playground
+          </Link>
+          <Link className={styles.tertiaryCta} to='/reference/overview/'>
+            Browse reference
           </Link>
         </div>
-        <p className={styles.microNote}>
-          Fission is under active development. Some platform integrations and tooling
-          are still evolving.
-        </p>
+        <p className={styles.microNote}>Work-in-progress note: some targets and tools are evolving; core runtime behavior and docs-first workflow are stable.</p>
       </div>
     </section>
   );
 }
 
-function Differentiators() {
-  const cards = [
-    {
-      title: 'Deterministic by default',
-      body: 'Actions, reducers, and effects are serializable and replayable. State changes stay predictable, testable, and inspectable.',
-    },
-    {
-      title: 'High-performance rendering',
-      body: 'GPU-native scene pipeline with stable snapshots and deterministic layout behavior for polished desktop and app experiences.',
-    },
-    {
-      title: 'Commands, services, and jobs',
-      body: 'Explicit runtime boundaries for async work and background behavior, with clear lifecycle contracts from app startup to shutdown.',
-    },
-    {
-      title: 'i18n and accessibility from first use',
-      body: 'Localization, semantic role/label surfaces, keyboard and focus behavior are treated as integral platform features.',
-    },
-    {
-      title: 'Playground-ready delivery',
-      body: 'Worka VM-backed, web-first preview loop lets users edit, run, and validate changes quickly.',
-    },
-  ];
-
+function ProblemSolution() {
   return (
     <section className={styles.section}>
-      <div className="container">
-        <h2 className={styles.sectionTitle}>What matters most at the start</h2>
+      <div className='container'>
+        <div className={styles.storyPanel}>
+          <p className={styles.storyLabel}>When products scale</p>
+          <p className={styles.storyTitle}>Teams need velocity without sacrificing reliability.</p>
+          <p className={styles.storyCopy}>
+            You want fast interface changes, predictable releases, and confidence that complex
+            interactions stay stable across targets. Fission addresses this by treating UI state,
+            rendering, and async behavior as one coherent system, not separate stacks connected by hacks.
+          </p>
+          <p className={styles.storyCopy}>
+            The result is fewer context switches between “frontend” and “runtime plumbing” work, and a shorter
+            path from idea to validated behavior.
+          </p>
+        </div>
+
         <div className={styles.cardGrid}>
-          {cards.map((card) => (
-            <article className={styles.card} key={card.title}>
-              <h3>{card.title}</h3>
-              <p>{card.body}</p>
+          {principles.map((principle) => (
+            <article className={styles.card} key={principle.title}>
+              <h2>{principle.title}</h2>
+              <p>{principle.body}</p>
             </article>
           ))}
         </div>
@@ -72,19 +79,23 @@ function Differentiators() {
   );
 }
 
-function PlaygroundTeaser() {
+function ProofStrip() {
   return (
     <section className={styles.section}>
-      <div className="container">
-        <h2 className={styles.sectionTitle}>Try it in the browser first</h2>
-        <p className={styles.sectionCopy}>
-          Open a runnable example, change one line, see the result immediately.
-          The playground path is intentionally the first step after learning the
-          foundations.
-        </p>
-        <div className={styles.playgroundFrame}>
-          <p className={styles.playgroundFallback}>
-            Interactive playground embed is booting at runtime from our Worka VM services.
+      <div className='container'>
+        <p className={styles.sectionLead}>Start with the workflow that gets results fastest.</p>
+        <div className={styles.proofGrid}>
+          <p>
+            <strong>Read</strong> a guided path: <Link to='/docs/guide/widgets-and-layout'>widgets + layout</Link>, then
+            <Link to='/docs/guide/playground-driven-workflow'> try it in the browser</Link>.
+          </p>
+          <p>
+            <strong>Validate</strong> behavior: run through reducer-focused checks, then test async boundaries with
+            <Link to='/reference/core/commands-services-jobs'> commands, services, and jobs</Link>.
+          </p>
+          <p>
+            <strong>Publish</strong> once behavior is stable: reuse the same model for desktop, web,
+            and mobile targets and keep platform details isolated.
           </p>
         </div>
       </div>
@@ -95,12 +106,12 @@ function PlaygroundTeaser() {
 export default function Home() {
   return (
     <Layout
-      title="Fission"
-      description="Fission is a Rust UI framework for building production-ready, cross-platform applications from one codebase.">
+      title='Fission'
+      description='Cross-platform Rust UI framework with deterministic state and production-focused workflows.'>
       <div className={styles.page}>
-        <HeroCta />
-        <Differentiators />
-        <PlaygroundTeaser />
+        <Hero />
+        <ProblemSolution />
+        <ProofStrip />
       </div>
     </Layout>
   );

@@ -1,49 +1,64 @@
 ---
 title: Install and setup
-description: Install Fission and run your first app with the CLI.
+description: Install Fission and bootstrap a project.
 ---
 
 # Install and setup
 
-## Install runtime packages
+This page shows the minimum commands to get a local Fission project running.
+
+## 1. Add the core crate
+
+Use your existing Rust project setup:
 
 ```bash
 cargo add fission
 ```
 
-This pulls the core crate into your Rust project.
+Optional dependencies may be required by examples (for example error handling helpers).
 
-## Install the CLI
+## 2. Install the CLI
+
+The CLI is required for standard project workflow and target operations.
 
 ```bash
 cargo install fission-cli
-# or
+# or, while working against the repo:
 cargo install --locked --path crates/cli
 ```
 
-## Bootstrap a project
+## 3. Create a project
+
+Scaffold a new app with a single command sequence:
 
 ```bash
 fission init my-fission-app
 cd my-fission-app
 ```
 
-## Add your first target
+The generated project includes defaults for workspace layout and target metadata.
+
+## 4. Add targets
+
+Desktop and web are the fastest entry points for feedback. Add them explicitly so behavior can be validated in both environments.
 
 ```bash
 fission add-target desktop
 fission add-target web
 ```
 
-## Verify the generated app runs
+## 5. Run
+
+Use desktop first for interactive speed, then web for layout and browser behavior.
 
 ```bash
-cd my-fission-app
 fission run desktop
-# optional web host
 fission run web
 ```
 
-## Next step
+### Next
 
-If you want instant visual feedback right away, continue to the [playground workflow](/docs/guide/playground-driven-workflow).
+When this works, continue to your first app and keep commands in the narrative order.
+
+- [Build your first app](/docs/getting-started/first-app)
+- [Playground-first workflow](/docs/guide/playground-driven-workflow)

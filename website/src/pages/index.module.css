@@ -1,129 +1,152 @@
 .page {
-  background: radial-gradient(circle at 15% -10%, #d8f6ff 0%, transparent 50%),
-    radial-gradient(circle at 80% 0%, #eef8df 0%, transparent 45%),
-    linear-gradient(150deg, #071f31 0%, #0f2d46 60%, #1a2131 100%);
-  color: #f4f7fb;
+  background:
+    radial-gradient(circle at 20% 0%, rgba(14, 36, 52, 0.92), transparent 45%),
+    radial-gradient(circle at 82% -8%, rgba(22, 58, 83, 0.9), transparent 48%),
+    linear-gradient(175deg, #05131f 0%, #09273e 40%, #0e2f46 100%);
+  color: #eef5ff;
   min-height: 100vh;
 }
 
 .hero {
-  padding: 7rem 0 5rem;
+  padding: 6rem 0 4.8rem;
 }
 
-.pretitle {
+.kicker {
   text-transform: uppercase;
   letter-spacing: 0.12em;
   font-size: 0.78rem;
+  color: #7ff6d4;
   font-weight: 700;
-  margin-bottom: 0.8rem;
-  color: #8bf7de;
+  margin-bottom: 0.6rem;
 }
 
 .title {
-  font-size: clamp(2rem, 4.5vw, 4rem);
+  max-width: 18ch;
   margin: 0;
-  max-width: 12ch;
-  line-height: 1.04;
+  line-height: 1.08;
+  font-size: clamp(2.2rem, 5vw, 3.8rem);
 }
 
 .subtitle {
-  max-width: 58ch;
-  color: #dce7f1;
-  font-size: 1.08rem;
   margin-top: 1rem;
+  max-width: 64ch;
+  font-size: 1.08rem;
+  color: #d7e6f5;
 }
 
 .ctaRow {
+  margin-top: 2rem;
   display: flex;
   flex-wrap: wrap;
-  gap: 0.8rem;
-  margin-top: 2rem;
+  gap: 0.7rem;
 }
 
-.primaryCta,
-.secondaryCta {
+.ctaRow a {
+  border-radius: 0.8rem;
+  padding: 0.68rem 1rem;
+  font-weight: 650;
   display: inline-block;
-  padding: 0.72rem 1.05rem;
-  border-radius: 0.75rem;
-  font-weight: 600;
 }
 
 .primaryCta {
-  background: #25d6a8;
-  color: #072230;
+  background: linear-gradient(180deg, #1de6af, #0fbf97);
+  color: #05212b;
 }
 
 .secondaryCta {
-  color: #f4f7fb;
-  border: 1px solid rgba(244, 247, 251, 0.45);
+  color: #ebf2fa;
+  border: 1px solid rgba(235, 242, 250, 0.45);
+}
+
+.tertiaryCta {
+  color: #9ee9d1;
+  border: 1px solid rgba(158, 233, 209, 0.3);
 }
 
 .microNote {
-  margin-top: 1.3rem;
-  color: #aac9e1;
-  font-size: 0.84rem;
+  margin: 1.2rem 0 0;
+  max-width: 56ch;
+  color: #9bb9cf;
+  font-size: 0.87rem;
 }
 
 .section {
-  margin: 0;
-  padding: 4.5rem 0;
+  padding: 3.5rem 0;
 }
 
-.sectionTitle {
-  font-size: clamp(1.45rem, 3vw, 2rem);
-  margin: 0 0 1rem;
-}
-
-.sectionCopy {
+.storyPanel {
+  margin: 0 auto;
   max-width: 70ch;
-  color: #d5dfea;
-}
-
-.cardGrid {
-  margin-top: 1.6rem;
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
-  gap: 1rem;
-}
-
-.card {
-  background: rgba(9, 24, 42, 0.7);
-  border: 1px solid rgba(148, 191, 255, 0.2);
+  background: rgba(6, 27, 44, 0.8);
+  border: 1px solid rgba(132, 207, 233, 0.24);
   border-radius: 1rem;
-  padding: 1rem 1rem;
+  padding: 1.1rem;
 }
 
-.card h3 {
-  margin: 0 0 0.7rem;
-  color: #9de6ff;
-}
-
-.card p {
+.storyLabel {
+  text-transform: uppercase;
+  letter-spacing: 0.09em;
+  font-size: 0.74rem;
+  color: #84decc;
   margin: 0;
-  color: #dbe8f2;
 }
 
-.playgroundFrame {
-  margin-top: 1.2rem;
-  min-height: 420px;
-  border-radius: 0.95rem;
-  border: 1px dashed rgba(155, 201, 255, 0.5);
-  background: linear-gradient(180deg, rgba(8, 24, 44, 0.8), rgba(9, 27, 49, 0.45));
+.storyTitle {
+  margin: 0.5rem 0 0.9rem;
+  font-size: 1.4rem;
 }
 
-.playgroundFallback {
-  text-align: center;
+.storyCopy {
+  margin: 0 0 0.8rem;
+  color: #d5e4f2;
+  line-height: 1.7;
+}
+
+.cardGrid,
+.proofGrid {
+  margin-top: 1.1rem;
+  display: grid;
+  gap: 0.9rem;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+}
+
+.card,
+.proofGrid p {
+  background: rgba(9, 29, 48, 0.84);
+  border: 1px solid rgba(132, 207, 233, 0.25);
+  border-radius: 0.85rem;
+  padding: 0.85rem 0.95rem;
+  color: #dceaf7;
+}
+
+.card h2 {
+  margin: 0 0 0.52rem;
+  color: #96ecce;
+  font-size: 1.06rem;
+}
+
+.card p,
+.proofGrid p {
   margin: 0;
-  padding: 10rem 1.5rem;
-  color: #b4d5eb;
+  line-height: 1.55;
+}
+
+.proofGrid p strong {
+  color: #b4f3dc;
+}
+
+.sectionLead {
+  margin-bottom: 0.6rem;
+  font-size: 1.05rem;
+  color: #9dd3e8;
 }
 
 @media screen and (max-width: 768px) {
   .hero {
-    padding-top: 5rem;
+    padding-top: 4.6rem;
   }
 
-  .card {
-    border-color: rgba(148, 191, 255, 0.35);
+  .title {
+    max-width: 100%;
   }
 }

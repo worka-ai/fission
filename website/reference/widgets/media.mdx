@@ -5,8 +5,13 @@ description: Images and graphics surfaces.
 
 # Media widgets
 
-Media widgets render images and rich content while preserving layout and accessibility contracts.
+Media widgets must preserve both render quality and accessibility.
 
-- asynchronous loading support,
-- fallback behavior,
-- and accessible alternative text.
+## Contract points
+
+- deterministic loading behavior,
+- fallback behavior when resources are missing,
+- alt text and semantic metadata,
+- clipping and sizing constraints.
+
+When media drives layout, make loading and fallback strategy explicit in the surrounding state model.

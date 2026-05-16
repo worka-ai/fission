@@ -1,50 +1,41 @@
 ---
 title: What is Fission
-description: Fission is a Rust-first framework for product-quality cross-platform apps from one codebase.
+description: Fission is a Rust-first framework for building production-oriented, cross-platform products from one model.
 ---
 
 # What is Fission
 
-Fission is a **Rust-native, production-oriented UI framework** for building desktop, mobile, and web experiences from a single source of truth.
+Fission is aimed at teams that need a dependable UI model for multi-platform products. The value is not a bigger widget catalog; it is consistency across the entire engineering path:
 
-The goal is to help teams ship **real products faster** by combining:
+- a single runtime model for desktop, web, and mobile targets,
+- deterministic state transitions for predictable behavior,
+- explicit handling of async work, and
+- an iteration loop that starts fast.
 
-- a Flutter-like declarative widget approach for UI structure,
-- a deterministic state model tuned for testing and reproducibility,
-- and one runtime path across major platforms.
+## Why this matters
 
-We present Fission as a **complete platform** instead of just a layout engine:
+A common product pain point is architectural drift: app behavior looks good on one target but changes unpredictably on another, or “a new feature” adds side effects in UI code that are hard to trace.
 
-- app architecture and async conventions,
-- widget and rendering systems,
-- command/service/job workflows,
-- a focused CLI toolchain,
-- and an interactive WebAssembly playground for instant iteration.
+Fission’s model reduces that drift by aligning:
 
-Fission is built for teams that need **predictable UI systems** and a **single production posture** across app targets.
+- **UI definition** through a declarative widget tree,
+- **State updates** through typed actions and reducers,
+- **Side effects** through commands/services/jobs,
+- **Rendering** through a fixed pipeline and predictable diagnostics.
 
-## Why now?
+## What Fission is explicitly for
 
-Modern product teams want:
+Fission is useful when you need:
 
-- consistent behavior across web, desktop, and mobile,
-- high confidence in state transitions,
-- and immediate developer feedback while designing.
+- a single source-of-truth app model,
+- reusable behavior patterns across targets,
+- a clear contract for async work,
+- and repeatable iteration for teams.
 
-Fission helps by keeping the UI tree declarative while preserving strong runtime boundaries for asynchronous work. That makes code easier to reason about and easier to test at scale.
+## What to learn next
 
-## Core promise
+Start with `Install and setup` to connect your environment, then build your first app to see the architecture in one screen.
 
-1. **One app model**
-   - Define UI and behavior once, run it with the same mental model everywhere.
-
-2. **Deterministic behavior**
-   - Actions and reducers remain the primary mutation path, which helps with debugging and reproducibility.
-
-3. **Built-in performance direction**
-   - Rendering is optimized for smooth, GPU-backed output while keeping composition explicit.
-
-4. **Developer-first iteration**
-   - Local scaffolding + Worka VM playground keeps the feedback loop short.
-
-We do not frame this as a replacement for one specific ecosystem; we frame it as a production-ready path with a strong architecture for teams shipping multi-platform products.
+- [Install and setup](/docs/getting-started/install)
+- [Build your first app](/docs/getting-started/first-app)
+- [Install command and target setup](/docs/getting-started/install)

@@ -5,14 +5,14 @@ description: Product-first tutorial that introduces state, actions, and reactivi
 
 # Counter tutorial
 
-## What this teaches
+This tutorial extends the first app by reinforcing the typed action loop.
 
-- widget tree structure,
-- action binding,
-- reducer semantics,
-- and deterministic updates.
+## Learn by changing one flow
 
-## Add explicit intent
+- add increment action,
+- add decrement action,
+- keep both reducers pure,
+- verify both transitions in code and behavior.
 
 ```rust
 #[derive(Action, Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
@@ -22,18 +22,10 @@ struct Increment;
 struct Decrement;
 ```
 
-Then bind both in your UI:
+Then bind them to controls and verify state changes from interaction. The goal is confidence in a deterministic pair of action paths.
 
-```rust
-on_press: Some(ctx.bind(Increment, |state: &mut CounterState, _, _| {
-  state.count += 1;
-})),
-```
+## Optional next improvements
 
-## Why this matters
-
-The app remains testable because every transition has a typed representation. You can assert state transitions without mocking side-effect-heavy UI behavior.
-
-## Add undo/redo
-
-Since actions are serializable, you can store a history of transitions and replay later for diagnostics.
+- add range guard logic,
+- extract shared display into reusable widget,
+- write reducer tests before adding command-backed async behavior.

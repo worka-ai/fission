@@ -5,24 +5,25 @@ description: State model, actions, and reducer conventions.
 
 # State system
 
-## AppState
+The state system is the backbone of Fission behavior.
 
-Your app state type defines source-of-truth for rendering.
+## Core concepts
 
-## Action
+- `AppState`: typed state root used for snapshotting and rebuilds,
+- `Action`: typed intent that enters mutation flow,
+- `Reducer`: deterministic mutation function,
+- `ReducerContext`: runtime metadata and helper APIs.
 
-Actions are typed event carriers that describe intent.
+## Flow
 
-## Reducer
+1. action arrives,
+2. reducer receives `&mut state`,
+3. reducer updates state,
+4. next build derives output.
 
-Reducers mutate state from one action to next in a deterministic way.
+## Best practices
 
-## Context
-
-`ReducerContext` and related helpers provide controlled access to runtime metadata.
-
-## Recommended patterns
-
-- keep state serializable when possible,
-- keep reducers narrowly scoped,
-- model domain behavior via domain actions.
+- keep state serializable when practical,
+- isolate small reducer concerns,
+- avoid implicit updates outside action flow,
+- test transitions in unit tests before expanding integration paths.

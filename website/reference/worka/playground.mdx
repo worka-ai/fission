@@ -5,15 +5,13 @@ description: How the runtime-backed in-browser editor is structured.
 
 # Worka playground
 
-The playground combines editor input and Worka execution with a fast runtime feedback loop.
-
-- instant compile preview,
-- logs and diagnostics available to users,
-- reproducible snippet sharing.
+The playground combines code editing and execution inside a browser-hosted runtime.
 
 ## Workflow
 
-1. edit sample,
-2. run through Worka runtime,
-3. validate UI and async behavior,
-4. move stable work into the local codebase.
+- edit example,
+- run against Worka VM,
+- read logs/diagnostics,
+- promote stable behavior into local project.
+
+It is intended to compress validation cycles for layout and behavior changes.

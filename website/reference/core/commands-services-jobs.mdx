@@ -1,22 +1,28 @@
 ---
-title: Commands, services, jobs
+title: Commands, services, and jobs
 description: Async and platform work contracts.
 ---
 
-# Commands, services, jobs
+# Commands, services, and jobs
+
+These primitives define behavior outside synchronous render.
 
 ## Command
 
-Single async request with defined request and completion path.
+A command is a bounded async request and response.
 
 ## Service
 
-Reusable long-lived collaboration with external systems.
+A service is a reusable, long-lived integration abstraction.
 
 ## Job
 
-Scheduled/managed background work with cancellation and restart semantics.
+A job is lifecycle-aware background work with scheduling/cancellation semantics.
 
-## API shape
+## Recommended structure
 
-Keep handlers explicit and return transition-friendly result values whenever possible.
+```text
+action -> command/service/job -> completion action -> reducer
+```
+
+This keeps async behavior auditable and testable.

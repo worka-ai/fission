@@ -5,10 +5,22 @@ description: Public widget contract and build entry point.
 
 # Widget trait
 
-The widget trait is the primary render contract.
+All renderables implement the widget contract.
 
-- `build(&self, ctx, view) -> Node`
-- receives immutable state view,
-- returns a declaration for the next frame.
+## Contract signature
 
-Keep build methods pure and avoid side effects inside `build`.
+```rust
+fn build(&self, ctx: &mut BuildCtx<S>, view: &View<S>) -> Node
+```
+
+where `S` is the app state type.
+
+## Responsibilities
+
+- read-only access to current state via `view`,
+- bind UI interactions through `ctx`,
+- return a `Node` representing the next render tree.
+
+## Rules of use
+
+Keep build logic deterministic and side-effect free. If build does not stay predictable, diagnostics and replay become difficult.

@@ -1,11 +1,18 @@
 ---
 title: Build your first app
-description: A minimal Fission app with state, action, and widget wiring.
+description: A minimal Fission app with state, actions, and widget wiring.
 ---
 
 # Build your first app
 
-This guide intentionally keeps the first app small and production-minded.
+The goal is to show the complete signal path: state, action, and widget rebuild.
+
+## The core pattern
+
+- state is immutable during build,
+- actions describe user intent,
+- reducers update state deterministically,
+- UI reads state and dispatches intent.
 
 ```rust
 use fission::prelude::*;
@@ -14,10 +21,14 @@ use fission::prelude::*;
 struct CounterState {
     count: i32,
 }
+
 impl AppState for CounterState {}
 
 #[derive(Action, Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
 struct Increment;
+
+#[derive(Action, Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
+struct Decrement;
 
 struct MyApp;
 
@@ -31,11 +42,21 @@ impl Widget<CounterState> for MyApp {
                     ..Default::default()
                 }
                 .into(),
+
                 Button {
                     on_press: Some(ctx.bind(Increment, |state, _, _| {
                         state.count += 1;
                     })),
                     child: Some(Box::new(Text::new("Increment").into())),
+                    ..Default::default()
+                }
+                .into(),
+
+                Button {
+                    on_press: Some(ctx.bind(Decrement, |state, _, _| {
+                        state.count -= 1;
+                    })),
+                    child: Some(Box::new(Text::new("Decrement").into())),
                     ..Default::default()
                 }
                 .into(),
@@ -51,7 +72,7 @@ fn main() -> anyhow::Result<()> {
 }
 ```
 
-## Run and iterate
+## Run the app
 
 ```bash
 cargo run --example counter
@@ -59,9 +80,11 @@ cargo run --example counter
 
 ## What to try next
 
-- Add a decrement action.
-- Extract repeated UI into a reusable component.
-- Move the counter logic into a dedicated reducer for testability.
-- Connect an async command to save the value.
+- extract `Text` and `Button` groups into reusable widgets,
+- guard updates (`count` cannot go negative),
+- add a reducer function for reset and undo paths,
+- move side effects into commands before adding persistence.
 
-Continue with [Counter tutorial](/docs/tutorials/counter).
+Next tutorial:
+
+- [Counter tutorial](/docs/tutorials/counter)

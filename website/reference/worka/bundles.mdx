@@ -5,11 +5,11 @@ description: Units loaded by Worka VM.
 
 # Bundle format
 
-Worka bundles include app metadata, compiled payload, and runtime boot info used by web previews.
+Worka bundles include the data needed for preview execution.
 
-Keep bundles production-oriented by validating:
+- target metadata,
+- app entry definition,
+- deterministic build identifiers,
+- reproducible generation information.
 
-- expected target,
-- entry metadata,
-- deterministic generation path,
-- and reproducible output signatures.
+Validate bundle output when sharing examples or reproducing bugs.

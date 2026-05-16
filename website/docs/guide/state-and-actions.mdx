@@ -5,44 +5,30 @@ description: Build predictable state updates with typed action and reducer flows
 
 # State and actions
 
-Your app state should be the single source of truth for rendering.
+State gives you a stable contract. Actions express intent. Reducers apply state changes.
 
-## App state contract
+## Practical model
 
-- Plain data structures where possible.
-- Serialization-friendly when feasible.
-- Minimal shared mutability.
-
-## Action strategy
-
-Choose action names that describe domain intent (`TodoAdded`, `TodoToggled`, `ThemeChanged`) rather than UI events only.
-
-## Reducer design
-
-- pure transformations,
-- local and scoped logic,
-- no side effects inside reducers.
+Use domain-specific action names (`TodoToggled`, `ThemeChanged`, `ItemDeleted`) and keep reducer functions small.
 
 ```rust
-fn reduce_todo_count(state: &mut AppState, action: TodoCounted, _ctx: &mut ReducerContext<AppState>) {
-    state.completed += 1;
+#[derive(Action, Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
+struct TodoToggled {
+    id: usize,
+}
+
+fn reduce_todo_toggled(state: &mut AppState, action: TodoToggled, _ctx: &mut ReducerContext<AppState>) {
+    if let Some(todo) = state.todos.get_mut(action.id) {
+        todo.done = !todo.done;
+    }
 }
 ```
 
-## Testing state transitions
+## Team-level guidance
 
-Use unit tests on action + state pairs before wiring visual snapshots.
+- reducers are pure,
+- no async calls in reducer bodies,
+- one reducer should do one concept,
+- tests assert both positive and negative transitions.
 
-```rust
-#[test]
-fn increments_count() {
-   let mut state = CounterState::default();
-   reduce_count(&mut state, Increment, &mut context());
-   assert_eq!(state.count, 1);
-}
-```
-
-## Related
-
-- [Deterministic rendering](/docs/concepts/pipeline)
-- [Test and observability](/docs/concepts/testing-and-observability)
+When action naming is clean, maintenance becomes much cheaper later.
