@@ -1,0 +1,190 @@
+/**
+ * Fission visual system.
+ */
+:root {
+  --ifm-font-family-base: 'Inter', 'Avenir Next', 'Segoe UI', Arial, sans-serif;
+  --ifm-font-family-monospace: 'SFMono-Regular', Menlo, Monaco, Consolas, 'Liberation Mono', 'Courier New', monospace;
+
+  --ifm-font-color-base: #0f172a;
+  --ifm-heading-color: #0b1220;
+  --ifm-link-color: #0d9488;
+  --ifm-font-color-secondary: #334155;
+
+  --ifm-color-primary: #0f766e;
+  --ifm-color-primary-dark: #0b5e59;
+  --ifm-color-primary-darker: #0a5149;
+  --ifm-color-primary-darkest: #073a34;
+  --ifm-color-primary-light: #14a79b;
+  --ifm-color-primary-lightest: #5dcfc4;
+  --ifm-color-emphasis-0: #ffffff;
+  --ifm-color-emphasis-100: #f8fafc;
+  --ifm-color-emphasis-200: #e2e8f0;
+  --ifm-color-emphasis-300: #cbd5e1;
+  --ifm-color-emphasis-700: #334155;
+
+  --ifm-background-color: #ffffff;
+  --ifm-navbar-background-color: #ffffff;
+  --ifm-footer-background-color: #0f172a;
+  --ifm-footer-color: #e2e8f0;
+  --ifm-card-background-color: #ffffff;
+  --ifm-background-surface-color: #f8fafc;
+
+  --ifm-code-font-size: 95%;
+  --ifm-code-background: #f8fafc;
+  --ifm-code-color: #0f172a;
+}
+
+[data-theme='dark'] {
+  --ifm-font-color-base: #e2e8f0;
+  --ifm-heading-color: #f8fafc;
+  --ifm-link-color: #6ee7b7;
+  --ifm-font-color-secondary: #cbd5e1;
+  --ifm-font-color-black: #020617;
+  --ifm-font-color-light: #020617;
+
+  --ifm-color-primary: #2dd4bf;
+  --ifm-color-primary-dark: #14b8a6;
+  --ifm-color-primary-darker: #0d9488;
+  --ifm-color-primary-darkest: #0f766e;
+  --ifm-color-primary-light: #4fe3cd;
+  --ifm-color-primary-lightest: #7de6cf;
+  --ifm-color-emphasis-0: #020617;
+  --ifm-color-emphasis-100: #0b1220;
+  --ifm-color-emphasis-200: #1e293b;
+  --ifm-color-emphasis-300: #334155;
+  --ifm-color-emphasis-700: #cbd5e1;
+  --ifm-menu-color: #cbd5e1;
+  --ifm-menu-color-active: #f8fafc;
+  --ifm-menu-color-sublist: #e2e8f0;
+
+  --ifm-background-color: #020617;
+  --ifm-navbar-background-color: #0a1324;
+  --ifm-background-surface-color: #0b1220;
+  --ifm-card-background-color: #0f172a;
+  --ifm-footer-background-color: #020617;
+  --ifm-code-background: #1e293b;
+  --ifm-code-color: #f8fafc;
+  --ifm-hero-background-color: #020617;
+  --ifm-navbar-link-color: #e2e8f0;
+  --ifm-navbar-item-hover-color: #ffffff;
+}
+
+pre,
+code,
+pre code {
+  color: var(--ifm-font-color-base);
+  background: var(--ifm-code-background);
+}
+
+.navbar__title {
+  font-size: 0.96rem;
+  letter-spacing: 0.01em;
+}
+
+html,
+body {
+  scroll-behavior: smooth;
+}
+
+.hero__title,
+.hero__subtitle {
+  color: inherit;
+}
+
+.markdown {
+  color: var(--ifm-font-color-base);
+}
+
+p,
+li {
+  color: var(--ifm-font-color-base);
+}
+
+.markdown a {
+  color: var(--ifm-link-color);
+  text-decoration-color: color-mix(in srgb, var(--ifm-link-color) 56%, transparent);
+  text-underline-offset: 2px;
+}
+
+.markdown a:hover {
+  opacity: 0.88;
+}
+
+.markdown h1,
+.markdown h2,
+.markdown h3,
+.markdown h4,
+.markdown h5,
+.markdown h6 {
+  color: var(--ifm-heading-color);
+}
+
+.alert--info,
+.alert--success,
+.alert--warning,
+.alert--danger,
+.alert {
+  border-radius: 0.45rem;
+}
+
+.tabs,
+.tabs__item {
+  color: var(--ifm-font-color-base);
+}
+
+.theme-doc-sidebar-item-link,
+.menu__link {
+  color: var(--ifm-font-color-base);
+}
+
+.menu__link--sublist {
+  color: var(--ifm-heading-color);
+}
+
+.navbar {
+  border-bottom: 1px solid var(--ifm-color-emphasis-200);
+  box-shadow: 0 1px 0 rgba(15, 23, 42, 0.08);
+}
+
+code {
+  background: var(--ifm-code-background);
+  border-radius: 0.25rem;
+  padding: 0.05rem 0.28rem;
+  color: var(--ifm-code-color);
+}
+
+.theme-code-block {
+  box-shadow: none;
+}
+
+.admonition {
+  border-width: 1px;
+}
+
+a,
+.button {
+  transition: transform 160ms ease, opacity 160ms ease;
+}
+
+a:hover,
+.button:hover {
+  transform: translateY(-1px);
+  opacity: 0.96;
+}
+
+.footer {
+  border-top: 1px solid rgba(255, 255, 255, 0.12);
+}
+
+.table-of-contents__link {
+  color: inherit;
+}
+
+.table-of-contents__link:hover,
+.table-of-contents__link:hover code {
+  color: var(--ifm-link-color);
+}
+
+.hash-link {
+  color: var(--ifm-font-color-secondary);
+}

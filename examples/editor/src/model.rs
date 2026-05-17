@@ -1,4 +1,4 @@
-use fission_core::AppState;
+use fission_core::{AppState, JobRef, JobSpec};
 use fission_macros::Action;
 use fission_widgets::{TerminalLaunchConfig, TerminalSession};
 use serde::{Deserialize, Serialize};
@@ -249,7 +249,6 @@ pub struct EditorState {
 
     // LSP client handle
     pub lsp_handle: Option<LspHandle>,
-    pub lsp_initialized: bool,
 
     // Clipboard (in-app)
     pub clipboard: String,
@@ -258,14 +257,16 @@ pub struct EditorState {
     pub file_mtimes: HashMap<String, std::time::SystemTime>,
     #[allow(dead_code)]
     pub key_event_count: u64,
+    pub redraw_epoch: u64,
 
     // Cached file tree (avoids re-scanning on every build)
     pub cached_tree_entries: Vec<FileEntry>,
-    pub tree_cache_dirty: bool,
+    pub tree_scan_generation: u64,
+    pub tree_scan_loaded_generation: u64,
 
-    // Background I/O: pending results from spawned threads
-    pub git_status_pending: Arc<Mutex<Option<Vec<GitStatusEntry>>>>,
-    pub tree_scan_pending: Arc<Mutex<Option<Vec<FileEntry>>>>,
+    // Async resource generations
+    pub git_status_generation: u64,
+    pub git_status_loaded_generation: u64,
 
     // Counter for generating unique untitled file names
     pub untitled_counter: u32,
@@ -323,14 +324,15 @@ impl Default for EditorState {
             breadcrumb_path: Vec::new(),
             scroll_offset_y: 0.0,
             lsp_handle: None,
-            lsp_initialized: false,
             clipboard: String::new(),
             file_mtimes: HashMap::new(),
             key_event_count: 0,
+            redraw_epoch: 0,
             cached_tree_entries: Vec::new(),
-            tree_cache_dirty: true,
-            git_status_pending: Arc::new(Mutex::new(None)),
-            tree_scan_pending: Arc::new(Mutex::new(None)),
+            tree_scan_generation: 0,
+            tree_scan_loaded_generation: 0,
+            git_status_generation: 0,
+            git_status_loaded_generation: 0,
             untitled_counter: 0,
             renaming_path: None,
             rename_input: String::new(),
@@ -1371,6 +1373,35 @@ pub struct ShiftActiveFileWindow {
     pub forward: bool,
 }
 
+#[derive(Action, Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
+pub struct EditorStarted {
+    pub root_path: PathBuf,
+}
+
+#[derive(Action, Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
+pub struct TreeScanCompleted;
+
+#[derive(Action, Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
+pub struct TreeScanFailed;
+
+#[derive(Action, Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
+pub struct GitStatusLoaded;
+
+#[derive(Action, Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
+pub struct GitStatusFailed;
+
+#[derive(Action, Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
+pub struct PollTerminal;
+
+#[derive(Debug, Default, Serialize, Deserialize, Clone, PartialEq, Eq)]
+pub struct PollTerminalTick;
+
+#[derive(Action, Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
+pub struct PollLsp;
+
+#[derive(Debug, Default, Serialize, Deserialize, Clone, PartialEq, Eq)]
+pub struct PollLspTick;
+
 // --- Additional types ---
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -1381,15 +1412,75 @@ pub struct SearchResult {
     pub context: String,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct GitStatusEntry {
     pub status: String,
     pub path: String,
 }
 
+#[derive(Debug)]
+pub struct TreeScanJob;
+
+impl JobSpec for TreeScanJob {
+    type Request = TreeScanRequest;
+    type Ok = TreeScanResult;
+    type Err = String;
+    const NAME: &'static str = "examples::editor::tree-scan";
+}
+
+pub const TREE_SCAN_JOB: JobRef<TreeScanJob> = JobRef::new(TreeScanJob::NAME);
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct TreeScanRequest {
+    pub root_path: PathBuf,
+    pub generation: u64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct TreeScanResult {
+    pub generation: u64,
+    pub entries: Vec<FileEntry>,
+}
+
+#[derive(Debug)]
+pub struct GitStatusJob;
+
+impl JobSpec for GitStatusJob {
+    type Request = GitStatusRequest;
+    type Ok = GitStatusResult;
+    type Err = String;
+    const NAME: &'static str = "examples::editor::git-status";
+}
+
+pub const GIT_STATUS_JOB: JobRef<GitStatusJob> = JobRef::new(GitStatusJob::NAME);
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct GitStatusRequest {
+    pub root_path: PathBuf,
+    pub generation: u64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct GitStatusResult {
+    pub generation: u64,
+    pub entries: Vec<GitStatusEntry>,
+}
+
 // --- Helpers ---
 
 impl EditorState {
+    pub fn request_tree_refresh(&mut self) {
+        self.tree_scan_generation = self.tree_scan_generation.wrapping_add(1);
+    }
+
+    pub fn tree_scan_pending(&self) -> bool {
+        self.tree_scan_generation != self.tree_scan_loaded_generation
+    }
+
+    pub fn lsp_enabled(&self) -> bool {
+        self.lsp_handle.is_some()
+    }
+
     pub fn ensure_terminal_session(&mut self) {
         if self.terminal_session.is_some() {
             return;
@@ -1508,7 +1599,7 @@ impl EditorState {
         });
         self.active_tab = self.open_tabs.len() - 1;
         self.scroll_offset_y = 0.0;
-        self.tree_cache_dirty = true;
+        self.request_tree_refresh();
         self.update_breadcrumb();
         self.status_message = match document_mode {
             DocumentMode::Normal => Some(format!("Opened {}", path)),
@@ -1753,40 +1844,12 @@ impl EditorState {
         self.search_results = results;
     }
 
-    /// Kick off a background thread to fetch `git status --porcelain`.
-    /// The result is deposited into `git_status_pending` and polled in
-    /// the frame hook so the UI thread never blocks on the git process.
     pub fn refresh_git_status(&mut self) {
-        let root = self.root_path.clone();
-        let pending = self.git_status_pending.clone();
-        std::thread::spawn(move || {
-            let entries = match std::process::Command::new("git")
-                .args(["status", "--porcelain"])
-                .current_dir(&root)
-                .output()
-            {
-                Ok(output) => {
-                    let stdout = String::from_utf8_lossy(&output.stdout);
-                    stdout
-                        .lines()
-                        .filter_map(|line| {
-                            if line.len() >= 3 {
-                                Some(GitStatusEntry {
-                                    status: line[..2].trim().to_string(),
-                                    path: line[3..].to_string(),
-                                })
-                            } else {
-                                None
-                            }
-                        })
-                        .collect()
-                }
-                Err(_) => Vec::new(),
-            };
-            if let Ok(mut guard) = pending.lock() {
-                *guard = Some(entries);
-            }
-        });
+        self.git_status_generation = self.git_status_generation.wrapping_add(1);
+    }
+
+    pub fn git_status_pending(&self) -> bool {
+        self.git_status_generation != self.git_status_loaded_generation
     }
 
     // --- Find / Replace helpers ---
@@ -1946,7 +2009,7 @@ impl EditorState {
         match std::fs::write(&path, "") {
             Ok(_) => {
                 self.status_message = Some(format!("Created {}", path));
-                self.tree_cache_dirty = true;
+                self.request_tree_refresh();
                 self.tree_selected = Some(path.clone());
                 self.open_file(path);
             }
@@ -1962,7 +2025,7 @@ impl EditorState {
         match std::fs::create_dir_all(&path) {
             Ok(_) => {
                 self.status_message = Some(format!("Created folder {}", path));
-                self.tree_cache_dirty = true;
+                self.request_tree_refresh();
                 self.tree_selected = Some(path.clone());
                 if let Some(parent) = Path::new(&path).parent() {
                     self.tree_expanded
@@ -1992,7 +2055,7 @@ impl EditorState {
                     self.close_tab(idx);
                 }
                 self.file_contents.remove(&path);
-                self.tree_cache_dirty = true;
+                self.request_tree_refresh();
                 self.status_message = Some(format!("Deleted {}", path));
             }
             Err(e) => {
@@ -2025,7 +2088,7 @@ impl EditorState {
                 if let Some(buf) = self.file_contents.remove(&old) {
                     self.file_contents.insert(new_path_str.clone(), buf);
                 }
-                self.tree_cache_dirty = true;
+                self.request_tree_refresh();
                 self.status_message = Some(format!("Renamed to {}", new_name));
                 self.update_breadcrumb();
             }
@@ -2103,7 +2166,7 @@ impl EditorState {
                     if self.tree_selected.as_deref() == Some(&old_path) {
                         self.tree_selected = Some(new_path_str.clone());
                     }
-                    self.tree_cache_dirty = true;
+                    self.request_tree_refresh();
                     self.update_breadcrumb();
                     self.status_message = Some(format!("Renamed to '{}'", new_name));
                 }
@@ -2276,7 +2339,7 @@ impl EditorState {
 
 // --- File tree scanning ---
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct FileEntry {
     pub name: String,
     pub path: String,
@@ -2324,6 +2387,43 @@ pub fn scan_directory(path: &Path, depth: usize) -> Vec<FileEntry> {
         });
     }
     entries
+}
+
+pub fn run_tree_scan(request: TreeScanRequest) -> Result<TreeScanResult, String> {
+    Ok(TreeScanResult {
+        generation: request.generation,
+        entries: scan_directory(&request.root_path, 0),
+    })
+}
+
+pub fn collect_git_status(root: &Path) -> Result<Vec<GitStatusEntry>, String> {
+    let output = std::process::Command::new("git")
+        .args(["status", "--porcelain"])
+        .current_dir(root)
+        .output()
+        .map_err(|err| err.to_string())?;
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    Ok(stdout
+        .lines()
+        .filter_map(|line| {
+            if line.len() >= 3 {
+                Some(GitStatusEntry {
+                    status: line[..2].trim().to_string(),
+                    path: line[3..].to_string(),
+                })
+            } else {
+                None
+            }
+        })
+        .collect())
+}
+
+pub fn run_git_status(request: GitStatusRequest) -> Result<GitStatusResult, String> {
+    Ok(GitStatusResult {
+        generation: request.generation,
+        entries: collect_git_status(&request.root_path)?,
+    })
 }
 
 #[allow(dead_code)]
@@ -3165,13 +3265,13 @@ mod tests {
         // Use the repo root so git status works
         state.root_path = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../..");
 
-        state.refresh_git_status();
+        let entries = collect_git_status(&state.root_path).expect("git status entries");
 
         // In a git repo with changes, we should get entries.
         // Even if there are no changes, the call should not panic.
         // Just verify the function runs and entries is a Vec.
-        println!("Git status entries: {}", state.git_status_lines.len());
-        for entry in &state.git_status_lines {
+        println!("Git status entries: {}", entries.len());
+        for entry in &entries {
             assert!(!entry.path.is_empty(), "git entry path should not be empty");
             // Status should be one of the standard git status codes
             assert!(
@@ -4564,7 +4664,7 @@ mod tests {
         assert_eq!(state.bottom_panel_tab, BottomPanelTab::Terminal);
         assert!(state.terminal_session.is_none());
         assert!(state.lsp_handle.is_none());
-        assert!(!state.lsp_initialized);
+        assert!(!state.lsp_enabled());
     }
 
     // -----------------------------------------------------------------------

@@ -13,7 +13,7 @@ use winit::platform::macos::{ActivationPolicy, EventLoopBuilderExtMacOS};
 #[cfg(target_arch = "wasm32")]
 use winit::platform::web::WindowBuilderExtWebSys;
 use winit::{
-    dpi::PhysicalPosition,
+    dpi::{LogicalSize, PhysicalPosition, PhysicalSize},
     event::{Event, Ime, MouseButton, MouseScrollDelta, TouchPhase, WindowEvent},
     event_loop::{ControlFlow, EventLoopBuilder, EventLoopProxy, EventLoopWindowTarget},
     window::{CursorIcon, Window, WindowBuilder, WindowId},
@@ -23,10 +23,11 @@ use fission_core::env::VideoStatus;
 use fission_core::lowering::LoweringContext;
 use fission_core::ui::custom_render::downcast_render_object;
 use fission_core::{
-    ActionId, AppState, BuildCtx, Env, InputEvent, KeyCode, KeyEvent as FissionKeyEvent,
-    PointerButton, PointerEvent, Runtime, View, Widget,
+    Action, ActionId, AlertRequest, AppState, AuthenticateRequest, BuildCtx, Env, InputEvent,
+    KeyCode, KeyEvent as FissionKeyEvent, OpenUrlRequest, PointerButton, PointerEvent, Runtime,
+    RuntimeEffect, ServiceBindings, View, Widget, AUTHENTICATE, OPEN_URL, SHOW_ALERT,
 };
-use fission_core::{ActionInput, Effect, EffectPayload, SystemEffect};
+use fission_core::{ActionInput, CapabilityInvocationPayload, Effect};
 use fission_diagnostics::prelude as diag;
 use fission_ir::semantics::MouseCursor;
 use fission_ir::{CoreIR, NodeId, Op, WidgetNodeId};
@@ -34,6 +35,9 @@ use fission_layout::{LayoutEngine, LayoutSize};
 use fission_render::{LayoutPoint, LayoutRect, Renderer as _};
 use fission_render_vello::parley::FontContext;
 use fission_render_vello::{RetainedSceneCache, VelloRenderer, VelloTextMeasurer};
+use fission_shell::async_host::{
+    AsyncMessage, AsyncRegistry, RunningServiceHandle, ServiceControlMessage,
+};
 use fission_shell::{VideoBackend, VideoEvent, VideoPlayer};
 use fission_theme::fonts;
 use fontique::{Blob, Collection, CollectionOptions, FontInfoOverride, SourceCache};
@@ -70,33 +74,59 @@ pub mod test_control;
 
 use fission_core::action::ActionEnvelope;
 
-/// A single completed background effect result, ready to be dispatched on the main thread.
-///
-/// Fields: `(req_id, result_payload_or_error, on_ok_continuation, on_err_continuation)`
-type EffectResult = (
-    u64,
-    std::result::Result<EffectPayload, String>,
-    Option<ActionEnvelope>,
-    Option<ActionEnvelope>,
-);
+type EffectResult = AsyncMessage;
 
-/// Callback signature for application-specific effect handlers.
-///
-/// The handler receives the opaque `Vec<u8>` payload from `Effect::App(...)`,
-/// plus the envelope metadata needed to send a result back on the channel and
-/// an event-loop proxy it can use to wake the shell after background work
-/// completes.
-pub type AppEffectHandler = Box<
-    dyn Fn(
-            Vec<u8>,
-            u64,
-            Option<ActionEnvelope>,
-            Option<ActionEnvelope>,
-            mpsc::Sender<EffectResult>,
-            EventLoopProxy<TestEvent>,
-        ) + Send
-        + Sync,
->;
+type ServiceKey = (String, String);
+type ServiceBindingKey = (String, String, u64);
+
+struct ActiveServiceHandle {
+    runtime: RunningServiceHandle,
+}
+
+fn open_host_url(url: &str) -> std::io::Result<()> {
+    if cfg!(target_os = "macos") {
+        std::process::Command::new("open")
+            .arg(url)
+            .spawn()
+            .map(|_| ())
+    } else if cfg!(target_os = "windows") {
+        std::process::Command::new("cmd")
+            .args(["/C", "start", url])
+            .spawn()
+            .map(|_| ())
+    } else {
+        std::process::Command::new("xdg-open")
+            .arg(url)
+            .spawn()
+            .map(|_| ())
+    }
+}
+
+fn register_builtin_operation_capabilities(async_registry: &mut AsyncRegistry) {
+    async_registry.register_operation_capability(
+        OPEN_URL,
+        |request: OpenUrlRequest, _| async move {
+            let _ = request.in_app;
+            open_host_url(&request.url).map_err(|error| error.to_string())?;
+            Ok(())
+        },
+    );
+    async_registry.register_operation_capability(
+        AUTHENTICATE,
+        |request: AuthenticateRequest, _| async move {
+            let _ = request.callback_scheme;
+            open_host_url(&request.url).map_err(|error| error.to_string())?;
+            Ok(())
+        },
+    );
+    async_registry.register_operation_capability(
+        SHOW_ALERT,
+        |request: AlertRequest, _| async move {
+            eprintln!("[alert] {}: {}", request.title, request.message);
+            Ok(())
+        },
+    );
+}
 
 struct ActivePlayer {
     player: Box<dyn VideoPlayer>,
@@ -121,14 +151,57 @@ enum MainRenderer {
     Software,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq)]
+struct WindowViewportState {
+    physical_size: PhysicalSize<u32>,
+    scale_factor: f64,
+}
+
+impl WindowViewportState {
+    fn from_window(window: &Window) -> Self {
+        Self {
+            physical_size: window.inner_size(),
+            scale_factor: normalize_scale_factor(window.scale_factor()),
+        }
+    }
+
+    fn logical_size(self) -> LayoutSize {
+        physical_size_to_layout_size(self.physical_size, self.scale_factor)
+    }
+
+    fn with_physical_size(self, physical_size: PhysicalSize<u32>) -> Self {
+        Self {
+            physical_size,
+            ..self
+        }
+    }
+
+    fn with_logical_size(self, logical_size: LayoutSize) -> Self {
+        self.with_physical_size(logical_viewport_to_physical_size(
+            logical_size,
+            self.scale_factor,
+        ))
+    }
+
+    fn with_scale_factor(self, scale_factor: f64) -> Self {
+        let scale_factor = normalize_scale_factor(scale_factor);
+        let logical_size = self.logical_size();
+        Self {
+            physical_size: logical_viewport_to_physical_size(logical_size, scale_factor),
+            scale_factor,
+        }
+    }
+}
+
 fn create_render_state<'w>(
     render_cx: &mut RenderContext,
     window: Arc<Window>,
+    viewport: WindowViewportState,
 ) -> anyhow::Result<RenderState<'w>> {
     let mut surface = block_on(render_cx.create_surface(
         window.clone(),
-        window.inner_size().width,
-        window.inner_size().height,
+        viewport.physical_size.width,
+        viewport.physical_size.height,
         wgpu::PresentMode::AutoVsync,
     ))
     .map_err(|error| anyhow::anyhow!("failed to create render surface: {error}"))?;
@@ -187,8 +260,8 @@ fn create_render_state<'w>(
 
     let scene3d_renderer = fission_3d::render::Scene3DRenderer::new(
         &device_handle.device,
-        window.inner_size().width,
-        window.inner_size().height,
+        viewport.physical_size.width,
+        viewport.physical_size.height,
         wgpu::TextureFormat::Rgba8Unorm,
     );
 
@@ -370,6 +443,40 @@ fn request_redraw_logged(
     request_redraw_throttled(window, elwt, last_redraw_at, min_frame, redraw_pending);
 }
 
+fn apply_authoritative_resize(
+    window: &Window,
+    elwt: &EventLoopWindowTarget<TestEvent>,
+    next_viewport: WindowViewportState,
+    pending_resize: &mut Option<WindowViewportState>,
+    resize_needs_settled_frame: &mut bool,
+    pending_capture_settle: &mut bool,
+    pending_screenshot_path: Option<&str>,
+    live_resize: &mut LiveResizeController,
+    invalidations: &mut InvalidationSet,
+    last_redraw_at: &mut Instant,
+    resize_frame: Duration,
+    redraw_pending: &mut bool,
+    frame_trace: &mut FrameTraceState,
+    reason: &str,
+) {
+    *pending_resize = Some(next_viewport);
+    *resize_needs_settled_frame = true;
+    if pending_screenshot_path.is_some() {
+        *pending_capture_settle = true;
+    }
+    live_resize.note_resize(Instant::now());
+    invalidations.mark_composite();
+    request_redraw_logged(
+        window,
+        elwt,
+        last_redraw_at,
+        resize_frame,
+        redraw_pending,
+        frame_trace,
+        reason,
+    );
+}
+
 fn active_animation_keys(runtime: &Runtime) -> Vec<String> {
     let mut keys = runtime
         .runtime_state
@@ -430,12 +537,37 @@ fn pending_work_redraw_interval(
     }
 }
 
+fn resize_is_unsettled(
+    pending_resize: bool,
+    needs_settled_frame: bool,
+    live_resize: bool,
+) -> bool {
+    pending_resize || needs_settled_frame || live_resize
+}
+
+fn resolve_build_viewport(
+    last_built_viewport: Option<LayoutSize>,
+    target_viewport: LayoutSize,
+    has_prev_ir: bool,
+    invalidations: &mut InvalidationSet,
+) -> LayoutSize {
+    let built_viewport = last_built_viewport.unwrap_or(target_viewport);
+    if built_viewport != target_viewport {
+        // Viewport-sensitive build output must stay aligned with the layout viewport.
+        invalidations.mark_build();
+    }
+
+    if invalidations.build || !has_prev_ir || last_built_viewport.is_none() {
+        target_viewport
+    } else {
+        built_viewport
+    }
+}
+
 #[derive(Debug)]
 struct LiveResizeController {
     active_until: Option<Instant>,
     settle_delay: Duration,
-    layout_interval: Duration,
-    last_layout_at: Option<Instant>,
 }
 
 impl LiveResizeController {
@@ -443,8 +575,6 @@ impl LiveResizeController {
         Self {
             active_until: None,
             settle_delay,
-            layout_interval: Duration::from_millis(16),
-            last_layout_at: None,
         }
     }
 
@@ -457,332 +587,181 @@ impl LiveResizeController {
             .map(|deadline| now < deadline)
             .unwrap_or(false)
     }
-
-    fn should_apply_layout(
-        &mut self,
-        now: Instant,
-        has_layout_snapshot: bool,
-        force: bool,
-    ) -> bool {
-        if !has_layout_snapshot || force {
-            self.last_layout_at = Some(now);
-            return true;
-        }
-
-        let settled = !self.is_live(now);
-        if settled {
-            self.active_until = None;
-            self.last_layout_at = Some(now);
-            true
-        } else {
-            let should_refresh = self
-                .last_layout_at
-                .map(|last| now.saturating_duration_since(last) >= self.layout_interval)
-                .unwrap_or(true);
-            if should_refresh {
-                self.last_layout_at = Some(now);
-            }
-            should_refresh
-        }
-    }
 }
 
-/// Drain pending effects from the runtime and either execute them synchronously
-/// (fire-and-forget effects like `OpenUrl`) or spawn background threads for I/O
-/// effects (`FileRead`, `HttpGet`) and send results back through `effect_tx`.
+/// Drain pending effects from the runtime, delegating capability work to the
+/// async registry and runtime-control effects to the shell/runtime boundary.
 ///
 /// Returns `true` if any synchronous callback was dispatched (caller should redraw).
 fn process_pending_effects(
     runtime: &mut Runtime,
-    effect_tx: &mpsc::Sender<EffectResult>,
+    effect_tx: &mpsc::Sender<AsyncMessage>,
     event_proxy: &EventLoopProxy<TestEvent>,
-    app_effect_handler: Option<&AppEffectHandler>,
+    async_registry: &AsyncRegistry,
+    active_services: &mut HashMap<ServiceKey, ActiveServiceHandle>,
+    service_bindings: &mut HashMap<ServiceBindingKey, ServiceBindings>,
+    next_service_instance_id: &mut u64,
 ) -> bool {
-    use std::process::Command;
-
     let pending = std::mem::take(&mut runtime.pending_effects);
     if pending.is_empty() {
         return false;
     }
 
-    let mut dispatched_callback = false;
+    let dispatched_callback = false;
+    let wake = {
+        let proxy = Arc::new(Mutex::new(event_proxy.clone()));
+        Arc::new(move || {
+            if let Ok(proxy) = proxy.lock() {
+                let _ = proxy.send_event(TestEvent::Wake);
+            }
+        })
+    };
 
     for env in pending {
         match env.effect {
-            Effect::System(ref system) => {
-                match system {
-                    // ── Fire-and-forget: OpenUrl ─────────────────────────────
-                    SystemEffect::OpenUrl { url, in_app } => {
-                        diag::emit(
-                            diag::DiagCategory::Input,
-                            diag::DiagLevel::Info,
-                            diag::DiagEventKind::InputEvent {
-                                kind: format!("system_effect:OpenUrl in_app={}", in_app),
-                                target: None,
-                                position: None,
-                            },
-                        );
-
-                        let result = if cfg!(target_os = "macos") {
-                            Command::new("open").arg(url).spawn().map(|_| ())
-                        } else if cfg!(target_os = "windows") {
-                            Command::new("cmd")
-                                .args(["/C", "start", url])
-                                .spawn()
-                                .map(|_| ())
-                        } else {
-                            Command::new("xdg-open").arg(url).spawn().map(|_| ())
-                        };
-
-                        if let Err(e) = result {
-                            diag::emit(
-                                diag::DiagCategory::Input,
-                                diag::DiagLevel::Error,
-                                diag::DiagEventKind::InputEvent {
-                                    kind: format!("system_effect:OpenUrl failed: {}", e),
-                                    target: None,
-                                    position: None,
-                                },
-                            );
-                        }
-
-                        // Dispatch immediate callback (fire-and-forget success).
-                        if let Some(on_ok) = env.on_ok {
-                            let _ = runtime.dispatch_with_input(
-                                on_ok,
-                                NodeId::derived(0, &[0]),
-                                &ActionInput::EffectOk {
-                                    req_id: env.req_id,
-                                    payload: EffectPayload::Empty,
-                                },
-                            );
-                            dispatched_callback = true;
-                        }
-                    }
-
-                    // ── Fire-and-forget: Authenticate ────────────────────────
-                    SystemEffect::Authenticate { url, .. } => {
-                        diag::emit(
-                            diag::DiagCategory::Input,
-                            diag::DiagLevel::Info,
-                            diag::DiagEventKind::InputEvent {
-                                kind: "system_effect:Authenticate".into(),
-                                target: None,
-                                position: None,
-                            },
-                        );
-                        let _ = if cfg!(target_os = "macos") {
-                            Command::new("open").arg(url).spawn()
-                        } else if cfg!(target_os = "windows") {
-                            Command::new("cmd").args(["/C", "start", url]).spawn()
-                        } else {
-                            Command::new("xdg-open").arg(url).spawn()
-                        };
-
-                        if let Some(on_ok) = env.on_ok {
-                            let _ = runtime.dispatch_with_input(
-                                on_ok,
-                                NodeId::derived(0, &[0]),
-                                &ActionInput::EffectOk {
-                                    req_id: env.req_id,
-                                    payload: EffectPayload::Empty,
-                                },
-                            );
-                            dispatched_callback = true;
-                        }
-                    }
-
-                    // ── Fire-and-forget: Alert (log only) ────────────────────
-                    SystemEffect::Alert { title, message } => {
-                        diag::emit(
-                            diag::DiagCategory::Input,
-                            diag::DiagLevel::Info,
-                            diag::DiagEventKind::InputEvent {
-                                kind: format!("system_effect:Alert title={}", title),
-                                target: None,
-                                position: None,
-                            },
-                        );
-                        eprintln!("[alert] {}: {}", title, message);
-
-                        if let Some(on_ok) = env.on_ok {
-                            let _ = runtime.dispatch_with_input(
-                                on_ok,
-                                NodeId::derived(0, &[0]),
-                                &ActionInput::EffectOk {
-                                    req_id: env.req_id,
-                                    payload: EffectPayload::Empty,
-                                },
-                            );
-                            dispatched_callback = true;
-                        }
-                    }
-
-                    // ── Background: FileRead ─────────────────────────────────
-                    SystemEffect::FileRead { path } => {
-                        let tx = effect_tx.clone();
-                        let wake_proxy = event_proxy.clone();
-                        let on_ok = env.on_ok.clone();
-                        let on_err = env.on_err.clone();
-                        let req_id = env.req_id;
-                        let path = path.clone();
-                        std::thread::spawn(move || {
-                            match std::fs::read(&path) {
-                                Ok(content) => {
-                                    let payload = EffectPayload::InlineBytes(content);
-                                    let _ = tx.send((req_id, Ok(payload), on_ok, on_err));
-                                }
-                                Err(e) => {
-                                    let _ = tx.send((req_id, Err(e.to_string()), on_ok, on_err));
-                                }
-                            }
-                            let _ = wake_proxy.send_event(TestEvent::Wake);
+            Effect::Runtime(ref runtime_effect) => {
+                diag::emit(
+                    diag::DiagCategory::Input,
+                    diag::DiagLevel::Debug,
+                    diag::DiagEventKind::InputEvent {
+                        kind: format!("runtime_effect:{:?}", runtime_effect),
+                        target: None,
+                        position: None,
+                    },
+                );
+                match runtime_effect {
+                    RuntimeEffect::Cancel { .. } | RuntimeEffect::ReleaseResource { .. } => {}
+                }
+            }
+            Effect::Capability(capability) => match capability {
+                CapabilityInvocationPayload::Operation(op) => {
+                    if !async_registry.spawn_capability(
+                        &op.capability_name,
+                        env.req_id,
+                        op.request,
+                        env.on_ok.clone(),
+                        env.on_err.clone(),
+                        env.resource.clone(),
+                        effect_tx,
+                        wake.clone(),
+                    ) {
+                        let _ = effect_tx.send(AsyncMessage::CapabilityErr {
+                            capability_name: op.capability_name,
+                            req_id: env.req_id,
+                            payload: None,
+                            on_err: env.on_err.clone(),
+                            message: Some(
+                                "no async operation capability handler registered".into(),
+                            ),
+                            resource: env.resource.clone(),
                         });
+                        (wake)();
                     }
+                }
+            },
+            Effect::Job(job) => {
+                if !async_registry.spawn_job(
+                    &job.job_name,
+                    env.req_id,
+                    job.payload,
+                    env.on_ok.clone(),
+                    env.on_err.clone(),
+                    env.resource.clone(),
+                    effect_tx,
+                    wake.clone(),
+                ) {
+                    let _ = effect_tx.send(AsyncMessage::JobErr {
+                        job_name: job.job_name,
+                        req_id: env.req_id,
+                        payload: None,
+                        on_err: env.on_err.clone(),
+                        message: Some("no async job handler registered".into()),
+                        resource: env.resource.clone(),
+                    });
+                    (wake)();
+                }
+            }
+            Effect::StartService(start) => {
+                let key = (start.service_name.clone(), start.slot_key.clone());
+                if let Some(previous) = active_services.remove(&key) {
+                    let _ = previous
+                        .runtime
+                        .control_tx
+                        .send(ServiceControlMessage::Stop);
+                }
 
-                    // ── Background: HttpGet ───────────────────────────────────
-                    SystemEffect::HttpGet { url, headers } => {
-                        let tx = effect_tx.clone();
-                        let wake_proxy = event_proxy.clone();
-                        let on_ok = env.on_ok.clone();
-                        let on_err = env.on_err.clone();
-                        let req_id = env.req_id;
-                        let url = url.clone();
-                        let headers = headers.clone();
-                        std::thread::spawn(move || {
-                            let curl_result = (|| -> std::result::Result<Vec<u8>, String> {
-                                let mut command = std::process::Command::new("curl");
-                                command.arg("-fsSL").arg(&url);
-                                for (k, v) in &headers {
-                                    command.arg("-H").arg(format!("{}: {}", k, v));
-                                }
-                                let output =
-                                    command.output().map_err(|e| format!("curl spawn: {}", e))?;
-                                if output.status.success() {
-                                    Ok(output.stdout)
-                                } else {
-                                    Err(String::from_utf8_lossy(&output.stderr).trim().to_string())
-                                }
-                            })();
+                let instance_id = *next_service_instance_id;
+                *next_service_instance_id = next_service_instance_id.saturating_add(1);
+                let bindings = env.service_bindings.clone().unwrap_or_default();
+                service_bindings.insert(
+                    (
+                        start.service_name.clone(),
+                        start.slot_key.clone(),
+                        instance_id,
+                    ),
+                    bindings,
+                );
 
-                            // Minimal blocking HTTP GET using std only (no external crate).
-                            // This parses the URL, opens a TCP stream, and reads the response.
-                            let result = curl_result.or_else(|_| (|| -> std::result::Result<Vec<u8>, String> {
-                                use std::io::{Read, Write};
-                                use std::net::TcpStream;
-
-                                // Parse URL (very basic: http://host[:port]/path)
-                                let url_trimmed = url.trim();
-                                let (scheme, rest) = if let Some(r) = url_trimmed.strip_prefix("https://") {
-                                    ("https", r)
-                                } else if let Some(r) = url_trimmed.strip_prefix("http://") {
-                                    ("http", r)
-                                } else {
-                                    return Err(format!("unsupported URL scheme: {}", url_trimmed));
-                                };
-
-                                let (host_port, path) = match rest.find('/') {
-                                    Some(i) => (&rest[..i], &rest[i..]),
-                                    None => (rest, "/"),
-                                };
-
-                                let default_port: u16 = if scheme == "https" { 443 } else { 80 };
-                                let (host, port) = match host_port.rfind(':') {
-                                    Some(i) => {
-                                        let p = host_port[i + 1..].parse::<u16>().unwrap_or(default_port);
-                                        (&host_port[..i], p)
-                                    }
-                                    None => (host_port, default_port),
-                                };
-
-                                if scheme == "https" {
-                                    return Err("HTTPS not supported in minimal HttpGet executor; use a custom app effect handler for TLS".into());
-                                }
-
-                                let addr = format!("{}:{}", host, port);
-                                let mut stream = TcpStream::connect(&addr)
-                                    .map_err(|e| format!("connect {}: {}", addr, e))?;
-                                stream
-                                    .set_read_timeout(Some(std::time::Duration::from_secs(30)))
-                                    .ok();
-
-                                let mut request = format!(
-                                    "GET {} HTTP/1.1\r\nHost: {}\r\nConnection: close\r\n",
-                                    path, host
-                                );
-                                for (k, v) in &headers {
-                                    request.push_str(&format!("{}: {}\r\n", k, v));
-                                }
-                                request.push_str("\r\n");
-
-                                stream
-                                    .write_all(request.as_bytes())
-                                    .map_err(|e| format!("write: {}", e))?;
-
-                                let mut buf = Vec::new();
-                                stream
-                                    .read_to_end(&mut buf)
-                                    .map_err(|e| format!("read: {}", e))?;
-
-                                // Strip HTTP headers (find \r\n\r\n)
-                                let body_start = buf
-                                    .windows(4)
-                                    .position(|w| w == b"\r\n\r\n")
-                                    .map(|i| i + 4)
-                                    .unwrap_or(0);
-
-                                Ok(buf[body_start..].to_vec())
-                            })());
-
-                            match result {
-                                Ok(bytes) => {
-                                    let payload = EffectPayload::InlineBytes(bytes);
-                                    let _ = tx.send((req_id, Ok(payload), on_ok, on_err));
-                                }
-                                Err(msg) => {
-                                    let _ = tx.send((req_id, Err(msg), on_ok, on_err));
-                                }
-                            }
-                            let _ = wake_proxy.send_event(TestEvent::Wake);
+                match async_registry.spawn_service(
+                    &start.service_name,
+                    &start.slot_key,
+                    instance_id,
+                    start.config,
+                    env.resource.clone(),
+                    effect_tx,
+                    wake.clone(),
+                ) {
+                    Some(handle) => {
+                        active_services.insert(key, ActiveServiceHandle { runtime: handle });
+                    }
+                    None => {
+                        let _ = service_bindings.remove(&(
+                            start.service_name.clone(),
+                            start.slot_key.clone(),
+                            instance_id,
+                        ));
+                        let _ = effect_tx.send(AsyncMessage::ServiceStartFailed {
+                            service_name: start.service_name,
+                            slot_key: start.slot_key,
+                            instance_id,
+                            payload: None,
+                            message: Some("no async service handler registered".into()),
+                            resource: env.resource.clone(),
                         });
-                    }
-
-                    // ── Cancel / ReleaseResource: no-op at shell level ───────
-                    SystemEffect::Cancel { .. } | SystemEffect::ReleaseResource { .. } => {
-                        diag::emit(
-                            diag::DiagCategory::Input,
-                            diag::DiagLevel::Debug,
-                            diag::DiagEventKind::InputEvent {
-                                kind: format!("system_effect:{:?} (no-op)", system),
-                                target: None,
-                                position: None,
-                            },
-                        );
+                        (wake)();
                     }
                 }
             }
-
-            // ── App-specific effects ─────────────────────────────────────
-            Effect::App(payload) => {
-                if let Some(handler) = app_effect_handler {
-                    handler(
-                        payload,
-                        env.req_id,
-                        env.on_ok.clone(),
-                        env.on_err.clone(),
-                        effect_tx.clone(),
-                        event_proxy.clone(),
-                    );
+            Effect::ServiceCommand(command) => {
+                let key = (command.service_name.clone(), command.slot_key.clone());
+                if let Some(handle) = active_services.get(&key) {
+                    let _ = handle
+                        .runtime
+                        .control_tx
+                        .send(ServiceControlMessage::Command {
+                            req_id: env.req_id,
+                            payload: command.payload,
+                            on_ok: env.on_ok.clone(),
+                            on_err: env.on_err.clone(),
+                        });
                 } else {
-                    diag::emit(
-                        diag::DiagCategory::Input,
-                        diag::DiagLevel::Warn,
-                        diag::DiagEventKind::InputEvent {
-                            kind: "app_effect:unhandled (no handler registered)".into(),
-                            target: None,
-                            position: None,
-                        },
-                    );
+                    let _ = effect_tx.send(AsyncMessage::ServiceCommandErr {
+                        service_name: command.service_name,
+                        slot_key: command.slot_key,
+                        instance_id: 0,
+                        req_id: env.req_id,
+                        payload: None,
+                        on_err: env.on_err.clone(),
+                        message: Some("service is not running".into()),
+                        resource: env.resource.clone(),
+                    });
+                    (wake)();
+                }
+            }
+            Effect::StopService(stop) => {
+                let key = (stop.service_name.clone(), stop.slot_key.clone());
+                if let Some(handle) = active_services.remove(&key) {
+                    let _ = handle.runtime.control_tx.send(ServiceControlMessage::Stop);
                 }
             }
         }
@@ -795,29 +774,338 @@ fn process_pending_effects(
 /// their continuations on the main thread.
 ///
 /// Returns `true` if any continuation was dispatched (caller should redraw).
-fn drain_effect_results(runtime: &mut Runtime, effect_rx: &mpsc::Receiver<EffectResult>) -> bool {
+fn drain_effect_results(
+    runtime: &mut Runtime,
+    effect_rx: &mpsc::Receiver<AsyncMessage>,
+    active_services: &mut HashMap<ServiceKey, ActiveServiceHandle>,
+    service_bindings: &mut HashMap<ServiceBindingKey, ServiceBindings>,
+) -> bool {
     let mut dispatched = false;
 
-    while let Ok((req_id, result, on_ok, on_err)) = effect_rx.try_recv() {
-        match result {
-            Ok(payload) => {
+    while let Ok(message) = effect_rx.try_recv() {
+        match message {
+            AsyncMessage::JobOk {
+                job_name,
+                req_id,
+                payload,
+                on_ok,
+                resource,
+            } => {
+                if let Some(resource) = resource.as_ref() {
+                    if !runtime.is_resource_current(resource) {
+                        continue;
+                    }
+                }
                 if let Some(action) = on_ok {
                     let _ = runtime.dispatch_with_input(
                         action,
                         NodeId::derived(0, &[0]),
-                        &ActionInput::EffectOk { req_id, payload },
+                        &ActionInput::JobOk {
+                            job_name,
+                            req_id,
+                            payload,
+                        },
                     );
                     dispatched = true;
                 }
             }
-            Err(msg) => {
+            AsyncMessage::JobErr {
+                job_name,
+                req_id,
+                payload,
+                on_err,
+                message,
+                resource,
+            } => {
+                if let Some(resource) = resource.as_ref() {
+                    if !runtime.is_resource_current(resource) {
+                        continue;
+                    }
+                }
                 if let Some(action) = on_err {
                     let _ = runtime.dispatch_with_input(
                         action,
                         NodeId::derived(0, &[0]),
-                        &ActionInput::EffectErr {
+                        &ActionInput::JobErr {
+                            job_name,
                             req_id,
-                            message: msg,
+                            payload,
+                            message,
+                        },
+                    );
+                    dispatched = true;
+                }
+            }
+            AsyncMessage::ServiceStarted {
+                service_name,
+                slot_key,
+                instance_id,
+                resource,
+            } => {
+                if let Some(resource) = resource.as_ref() {
+                    if !runtime.is_resource_current(resource) {
+                        continue;
+                    }
+                }
+                let key = (service_name.clone(), slot_key.clone());
+                let Some(current) = active_services.get(&key) else {
+                    continue;
+                };
+                if current.runtime.instance_id != instance_id {
+                    continue;
+                }
+                if let Some(bindings) =
+                    service_bindings.get(&(service_name.clone(), slot_key.clone(), instance_id))
+                {
+                    if let Some(action) = bindings.on_started.clone() {
+                        let _ = runtime.dispatch_with_input(
+                            action,
+                            NodeId::derived(0, &[0]),
+                            &ActionInput::ServiceStarted {
+                                service_name,
+                                slot_key,
+                                instance_id,
+                            },
+                        );
+                        dispatched = true;
+                    }
+                }
+            }
+            AsyncMessage::ServiceStartFailed {
+                service_name,
+                slot_key,
+                instance_id,
+                payload,
+                message,
+                resource,
+            } => {
+                if let Some(resource) = resource.as_ref() {
+                    if !runtime.is_resource_current(resource) {
+                        service_bindings.remove(&(service_name, slot_key, instance_id));
+                        continue;
+                    }
+                }
+                let key = (service_name.clone(), slot_key.clone());
+                let should_dispatch = active_services
+                    .get(&key)
+                    .map(|current| current.runtime.instance_id == instance_id)
+                    .unwrap_or(true);
+                active_services.remove(&key);
+                let bindings =
+                    service_bindings.remove(&(service_name.clone(), slot_key.clone(), instance_id));
+                if should_dispatch {
+                    if let Some(action) = bindings.and_then(|bindings| bindings.on_start_failed) {
+                        let _ = runtime.dispatch_with_input(
+                            action,
+                            NodeId::derived(0, &[0]),
+                            &ActionInput::ServiceStartFailed {
+                                service_name,
+                                slot_key,
+                                payload,
+                                message,
+                            },
+                        );
+                        dispatched = true;
+                    }
+                }
+            }
+            AsyncMessage::ServiceEvent {
+                service_name,
+                slot_key,
+                instance_id,
+                payload,
+                resource,
+            } => {
+                if let Some(resource) = resource.as_ref() {
+                    if !runtime.is_resource_current(resource) {
+                        continue;
+                    }
+                }
+                let key = (service_name.clone(), slot_key.clone());
+                let Some(current) = active_services.get(&key) else {
+                    continue;
+                };
+                if current.runtime.instance_id != instance_id {
+                    continue;
+                }
+                if let Some(bindings) =
+                    service_bindings.get(&(service_name.clone(), slot_key.clone(), instance_id))
+                {
+                    if let Some(action) = bindings.on_event.clone() {
+                        let _ = runtime.dispatch_with_input(
+                            action,
+                            NodeId::derived(0, &[0]),
+                            &ActionInput::ServiceEvent {
+                                service_name,
+                                slot_key,
+                                instance_id,
+                                payload,
+                            },
+                        );
+                        dispatched = true;
+                    }
+                }
+            }
+            AsyncMessage::ServiceStopped {
+                service_name,
+                slot_key,
+                instance_id,
+                resource,
+            } => {
+                if let Some(resource) = resource.as_ref() {
+                    if !runtime.is_resource_current(resource) {
+                        service_bindings.remove(&(service_name, slot_key, instance_id));
+                        continue;
+                    }
+                }
+                let key = (service_name.clone(), slot_key.clone());
+                let should_dispatch = active_services
+                    .get(&key)
+                    .map(|current| current.runtime.instance_id == instance_id)
+                    .unwrap_or(true);
+                if should_dispatch {
+                    active_services.remove(&key);
+                }
+                let bindings =
+                    service_bindings.remove(&(service_name.clone(), slot_key.clone(), instance_id));
+                if should_dispatch {
+                    if let Some(action) = bindings.and_then(|bindings| bindings.on_stopped) {
+                        let _ = runtime.dispatch_with_input(
+                            action,
+                            NodeId::derived(0, &[0]),
+                            &ActionInput::ServiceStopped {
+                                service_name,
+                                slot_key,
+                                instance_id,
+                            },
+                        );
+                        dispatched = true;
+                    }
+                }
+            }
+            AsyncMessage::ServiceCommandOk {
+                service_name,
+                slot_key,
+                instance_id,
+                req_id,
+                payload,
+                on_ok,
+                resource,
+            } => {
+                if let Some(resource) = resource.as_ref() {
+                    if !runtime.is_resource_current(resource) {
+                        continue;
+                    }
+                }
+                let key = (service_name.clone(), slot_key.clone());
+                let Some(current) = active_services.get(&key) else {
+                    continue;
+                };
+                if current.runtime.instance_id != instance_id {
+                    continue;
+                }
+                if let Some(action) = on_ok {
+                    let _ = runtime.dispatch_with_input(
+                        action,
+                        NodeId::derived(0, &[0]),
+                        &ActionInput::ServiceCommandOk {
+                            service_name,
+                            slot_key,
+                            instance_id,
+                            req_id,
+                            payload,
+                        },
+                    );
+                    dispatched = true;
+                }
+            }
+            AsyncMessage::ServiceCommandErr {
+                service_name,
+                slot_key,
+                instance_id,
+                req_id,
+                payload,
+                on_err,
+                message,
+                resource,
+            } => {
+                if let Some(resource) = resource.as_ref() {
+                    if !runtime.is_resource_current(resource) {
+                        continue;
+                    }
+                }
+                let key = (service_name.clone(), slot_key.clone());
+                if instance_id != 0 {
+                    let Some(current) = active_services.get(&key) else {
+                        continue;
+                    };
+                    if current.runtime.instance_id != instance_id {
+                        continue;
+                    }
+                }
+                if let Some(action) = on_err {
+                    let _ = runtime.dispatch_with_input(
+                        action,
+                        NodeId::derived(0, &[0]),
+                        &ActionInput::ServiceCommandErr {
+                            service_name,
+                            slot_key,
+                            instance_id,
+                            req_id,
+                            payload,
+                            message,
+                        },
+                    );
+                    dispatched = true;
+                }
+            }
+            AsyncMessage::CapabilityOk {
+                capability_name,
+                req_id,
+                payload,
+                on_ok,
+                resource,
+            } => {
+                if let Some(resource) = resource.as_ref() {
+                    if !runtime.is_resource_current(resource) {
+                        continue;
+                    }
+                }
+                if let Some(action) = on_ok {
+                    let _ = runtime.dispatch_with_input(
+                        action,
+                        NodeId::derived(0, &[0]),
+                        &ActionInput::CapabilityOk {
+                            capability: capability_name,
+                            req_id,
+                            payload,
+                        },
+                    );
+                    dispatched = true;
+                }
+            }
+            AsyncMessage::CapabilityErr {
+                capability_name,
+                req_id,
+                payload,
+                on_err,
+                message,
+                resource,
+            } => {
+                if let Some(resource) = resource.as_ref() {
+                    if !runtime.is_resource_current(resource) {
+                        continue;
+                    }
+                }
+                if let Some(action) = on_err {
+                    let _ = runtime.dispatch_with_input(
+                        action,
+                        NodeId::derived(0, &[0]),
+                        &ActionInput::CapabilityErr {
+                            capability: capability_name,
+                            req_id,
+                            payload,
+                            message,
                         },
                     );
                     dispatched = true;
@@ -1050,7 +1338,10 @@ fn handle_cursor_moved(
     pipeline: &Pipeline,
     effect_result_tx: &mpsc::Sender<EffectResult>,
     event_proxy: &EventLoopProxy<TestEvent>,
-    app_effect_handler: Option<&AppEffectHandler>,
+    async_registry: &AsyncRegistry,
+    active_services: &mut HashMap<ServiceKey, ActiveServiceHandle>,
+    service_bindings: &mut HashMap<ServiceBindingKey, ServiceBindings>,
+    next_service_instance_id: &mut u64,
     window: &Window,
     elwt: &EventLoopWindowTarget<TestEvent>,
     last_redraw_at: &mut Instant,
@@ -1067,7 +1358,15 @@ fn handle_cursor_moved(
         }
         sync_window_cursor(window, runtime);
         invalidations.mark_build();
-        if process_pending_effects(runtime, effect_result_tx, event_proxy, app_effect_handler) {
+        if process_pending_effects(
+            runtime,
+            effect_result_tx,
+            event_proxy,
+            async_registry,
+            active_services,
+            service_bindings,
+            next_service_instance_id,
+        ) {
             invalidations.mark_build();
             request_redraw_logged(
                 window,
@@ -1103,7 +1402,10 @@ fn handle_mouse_button(
     pipeline: &Pipeline,
     effect_result_tx: &mpsc::Sender<EffectResult>,
     event_proxy: &EventLoopProxy<TestEvent>,
-    app_effect_handler: Option<&AppEffectHandler>,
+    async_registry: &AsyncRegistry,
+    active_services: &mut HashMap<ServiceKey, ActiveServiceHandle>,
+    service_bindings: &mut HashMap<ServiceBindingKey, ServiceBindings>,
+    next_service_instance_id: &mut u64,
     window: &Window,
     elwt: &EventLoopWindowTarget<TestEvent>,
     last_redraw_at: &mut Instant,
@@ -1154,7 +1456,15 @@ fn handle_mouse_button(
         invalidations.mark_build();
 
         mark_text_trace_handled(pending_text_traces, trace_seq);
-        if process_pending_effects(runtime, effect_result_tx, event_proxy, app_effect_handler) {
+        if process_pending_effects(
+            runtime,
+            effect_result_tx,
+            event_proxy,
+            async_registry,
+            active_services,
+            service_bindings,
+            next_service_instance_id,
+        ) {
             mark_text_trace_effects(pending_text_traces, trace_seq);
             invalidations.mark_build();
             request_redraw_logged(
@@ -1207,7 +1517,10 @@ fn handle_scroll(
     pipeline: &Pipeline,
     effect_result_tx: &mpsc::Sender<EffectResult>,
     event_proxy: &EventLoopProxy<TestEvent>,
-    app_effect_handler: Option<&AppEffectHandler>,
+    async_registry: &AsyncRegistry,
+    active_services: &mut HashMap<ServiceKey, ActiveServiceHandle>,
+    service_bindings: &mut HashMap<ServiceBindingKey, ServiceBindings>,
+    next_service_instance_id: &mut u64,
     window: &Window,
     elwt: &EventLoopWindowTarget<TestEvent>,
     last_redraw_at: &mut Instant,
@@ -1238,7 +1551,15 @@ fn handle_scroll(
         // lists, scrollbars, and scroll-aware wrappers depend on the updated offset
         // during build/lowering, so treat scroll as a build invalidation.
         invalidations.mark_build();
-        if process_pending_effects(runtime, effect_result_tx, event_proxy, app_effect_handler) {
+        if process_pending_effects(
+            runtime,
+            effect_result_tx,
+            event_proxy,
+            async_registry,
+            active_services,
+            service_bindings,
+            next_service_instance_id,
+        ) {
             invalidations.mark_build();
             request_redraw_logged(
                 window,
@@ -1268,7 +1589,10 @@ fn handle_cursor_left(
     pipeline: &Pipeline,
     effect_result_tx: &mpsc::Sender<EffectResult>,
     event_proxy: &EventLoopProxy<TestEvent>,
-    app_effect_handler: Option<&AppEffectHandler>,
+    async_registry: &AsyncRegistry,
+    active_services: &mut HashMap<ServiceKey, ActiveServiceHandle>,
+    service_bindings: &mut HashMap<ServiceBindingKey, ServiceBindings>,
+    next_service_instance_id: &mut u64,
     window: &Window,
     elwt: &EventLoopWindowTarget<TestEvent>,
     last_redraw_at: &mut Instant,
@@ -1294,7 +1618,10 @@ fn handle_cursor_left(
                         runtime,
                         effect_result_tx,
                         event_proxy,
-                        app_effect_handler,
+                        async_registry,
+                        active_services,
+                        service_bindings,
+                        next_service_instance_id,
                     ) {
                         invalidations.mark_build();
                         request_redraw_logged(
@@ -1358,7 +1685,10 @@ fn handle_key_down<S: AppState>(
     pipeline: &Pipeline,
     effect_result_tx: &mpsc::Sender<EffectResult>,
     event_proxy: &EventLoopProxy<TestEvent>,
-    app_effect_handler: Option<&AppEffectHandler>,
+    async_registry: &AsyncRegistry,
+    active_services: &mut HashMap<ServiceKey, ActiveServiceHandle>,
+    service_bindings: &mut HashMap<ServiceBindingKey, ServiceBindings>,
+    next_service_instance_id: &mut u64,
     window: &Window,
     elwt: &EventLoopWindowTarget<TestEvent>,
     last_redraw_at: &mut Instant,
@@ -1387,7 +1717,10 @@ fn handle_key_down<S: AppState>(
                     runtime,
                     effect_result_tx,
                     event_proxy,
-                    app_effect_handler,
+                    async_registry,
+                    active_services,
+                    service_bindings,
+                    next_service_instance_id,
                 ) {
                     invalidations.mark_build();
                     request_redraw_logged(
@@ -1434,7 +1767,15 @@ fn handle_key_down<S: AppState>(
         }
         invalidations.mark_build();
         mark_text_trace_handled(pending_text_traces, trace_seq);
-        if process_pending_effects(runtime, effect_result_tx, event_proxy, app_effect_handler) {
+        if process_pending_effects(
+            runtime,
+            effect_result_tx,
+            event_proxy,
+            async_registry,
+            active_services,
+            service_bindings,
+            next_service_instance_id,
+        ) {
             mark_text_trace_effects(pending_text_traces, trace_seq);
             invalidations.mark_build();
             request_redraw_logged(
@@ -1657,10 +1998,10 @@ pub struct WinitApp<S: AppState, W: Widget<S>> {
     title: String,
     test_control_port: Option<u16>,
     /// Channel pair for receiving completed background effect results.
-    effect_result_tx: mpsc::Sender<EffectResult>,
-    effect_result_rx: mpsc::Receiver<EffectResult>,
-    /// Optional handler for `Effect::App(...)` payloads.
-    app_effect_handler: Option<AppEffectHandler>,
+    effect_result_tx: mpsc::Sender<AsyncMessage>,
+    effect_result_rx: mpsc::Receiver<AsyncMessage>,
+    async_registry: AsyncRegistry,
+    startup_action: Option<ActionEnvelope>,
     _phantom: std::marker::PhantomData<S>,
 }
 
@@ -1695,6 +2036,8 @@ impl<S: AppState + Default, W: Widget<S> + 'static> WinitApp<S, W> {
             .with_clipboard(clipboard);
 
         let (effect_result_tx, effect_result_rx) = mpsc::channel();
+        let mut async_registry = AsyncRegistry::new();
+        register_builtin_operation_capabilities(&mut async_registry);
 
         Self {
             runtime,
@@ -1710,7 +2053,8 @@ impl<S: AppState + Default, W: Widget<S> + 'static> WinitApp<S, W> {
             test_control_port: None,
             effect_result_tx,
             effect_result_rx,
-            app_effect_handler: None,
+            async_registry,
+            startup_action: None,
             _phantom: std::marker::PhantomData,
         }
     }
@@ -1768,25 +2112,16 @@ impl<S: AppState + Default, W: Widget<S> + 'static> WinitApp<S, W> {
         self
     }
 
-    /// Register a handler for `Effect::App(payload)` effects.
-    ///
-    /// The handler runs on the calling thread and should spawn its own
-    /// background work if needed, sending results through the provided
-    /// `mpsc::Sender<EffectResult>`.
-    pub fn with_app_effect_handler<F>(mut self, handler: F) -> Self
+    pub fn with_async<F>(mut self, configure: F) -> Self
     where
-        F: Fn(
-                Vec<u8>,
-                u64,
-                Option<ActionEnvelope>,
-                Option<ActionEnvelope>,
-                mpsc::Sender<EffectResult>,
-                EventLoopProxy<TestEvent>,
-            ) + Send
-            + Sync
-            + 'static,
+        F: FnOnce(&mut AsyncRegistry),
     {
-        self.app_effect_handler = Some(Box::new(handler));
+        configure(&mut self.async_registry);
+        self
+    }
+
+    pub fn with_startup_action<A: Action>(mut self, action: A) -> Self {
+        self.startup_action = Some(action.into());
         self
     }
 
@@ -1877,7 +2212,12 @@ impl<S: AppState + Default, W: Widget<S> + 'static> WinitApp<S, W> {
         let measurer = self.measurer;
         let effect_result_tx = self.effect_result_tx;
         let effect_result_rx = self.effect_result_rx;
-        let app_effect_handler = self.app_effect_handler;
+        let async_registry = self.async_registry;
+        let startup_action = self.startup_action;
+        let mut startup_dispatched = false;
+        let mut next_service_instance_id = 1_u64;
+        let mut active_services: HashMap<ServiceKey, ActiveServiceHandle> = HashMap::new();
+        let mut service_bindings: HashMap<ServiceBindingKey, ServiceBindings> = HashMap::new();
 
         #[cfg(target_os = "macos")]
         let video_backend: Arc<dyn VideoBackend> = Arc::new(MacVideoBackend::new(&window));
@@ -1966,13 +2306,17 @@ impl<S: AppState + Default, W: Widget<S> + 'static> WinitApp<S, W> {
             });
         // Pending screenshot/pump: path + whether it needs a screenshot (vs pump).
         let mut pending_screenshot_path: Option<String> = None;
-        // Simulated viewport size override for test resize events.
-        // When set, layout uses these dimensions instead of window.inner_size().
-        let mut simulated_viewport: Option<(u32, u32)> = None;
         #[cfg(not(target_os = "android"))]
-        let mut pending_resize = Some(window.inner_size());
+        let mut window_viewport = WindowViewportState::from_window(&window);
+        #[cfg(target_os = "android")]
+        let mut window_viewport: Option<WindowViewportState> = None;
+        #[cfg(not(target_os = "android"))]
+        let mut pending_resize = Some(window_viewport);
         #[cfg(target_os = "android")]
         let mut pending_resize = None;
+        let mut resize_needs_settled_frame = pending_resize.is_some();
+        let mut pending_capture_settle = false;
+        let mut last_built_viewport: Option<LayoutSize> = None;
         let mut live_resize = LiveResizeController::new(resize_settle_delay);
         let mut invalidations = InvalidationSet {
             build: true,
@@ -2004,7 +2348,8 @@ impl<S: AppState + Default, W: Widget<S> + 'static> WinitApp<S, W> {
                             handle_cursor_moved(
                                 x, y, 0,
                                 &mut runtime, &pipeline,
-                                &effect_result_tx, &event_proxy, app_effect_handler.as_ref(),
+                                &effect_result_tx, &event_proxy,
+                                &async_registry, &mut active_services, &mut service_bindings, &mut next_service_instance_id,
                                 window, elwt,
                                 &mut last_redraw_at, min_frame, &mut redraw_pending,
                                 &mut frame_trace,
@@ -2019,7 +2364,8 @@ impl<S: AppState + Default, W: Widget<S> + 'static> WinitApp<S, W> {
                             handle_mouse_button(
                                 x, y, btn, true, 0,
                                 &mut runtime, &pipeline,
-                                &effect_result_tx, &event_proxy, app_effect_handler.as_ref(),
+                                &effect_result_tx, &event_proxy,
+                                &async_registry, &mut active_services, &mut service_bindings, &mut next_service_instance_id,
                                 window, elwt,
                                 &mut last_redraw_at, min_frame, &mut redraw_pending,
                                 text_trace_enabled, &mut pending_text_traces,
@@ -2037,7 +2383,8 @@ impl<S: AppState + Default, W: Widget<S> + 'static> WinitApp<S, W> {
                             handle_mouse_button(
                                 x, y, btn, false, 0,
                                 &mut runtime, &pipeline,
-                                &effect_result_tx, &event_proxy, app_effect_handler.as_ref(),
+                                &effect_result_tx, &event_proxy,
+                                &async_registry, &mut active_services, &mut service_bindings, &mut next_service_instance_id,
                                 window, elwt,
                                 &mut last_redraw_at, min_frame, &mut redraw_pending,
                                 text_trace_enabled, &mut pending_text_traces,
@@ -2055,7 +2402,8 @@ impl<S: AppState + Default, W: Widget<S> + 'static> WinitApp<S, W> {
                             handle_key_down::<S>(
                                 code, modifiers,
                                 &mut runtime, &pipeline,
-                                &effect_result_tx, &event_proxy, app_effect_handler.as_ref(),
+                                &effect_result_tx, &event_proxy,
+                                &async_registry, &mut active_services, &mut service_bindings, &mut next_service_instance_id,
                                 window, elwt,
                                 &mut last_redraw_at, min_frame, &mut redraw_pending,
                                 text_trace_enabled, &mut pending_text_traces,
@@ -2123,7 +2471,11 @@ impl<S: AppState + Default, W: Widget<S> + 'static> WinitApp<S, W> {
                                         &mut runtime,
                                         &effect_result_tx,
                                         &event_proxy,
-                                        app_effect_handler.as_ref(),
+
+                                        &async_registry,
+                                        &mut active_services,
+                                        &mut service_bindings,
+                                        &mut next_service_instance_id,
                                     ) {
                                         mark_text_trace_effects(
                                             &mut pending_text_traces,
@@ -2156,7 +2508,11 @@ impl<S: AppState + Default, W: Widget<S> + 'static> WinitApp<S, W> {
                                             &pipeline,
                                             &effect_result_tx,
                                             &event_proxy,
-                                            app_effect_handler.as_ref(),
+
+                                            &async_registry,
+                                            &mut active_services,
+                                            &mut service_bindings,
+                                            &mut next_service_instance_id,
                                             window,
                                             elwt,
                                             &mut last_redraw_at,
@@ -2182,7 +2538,8 @@ impl<S: AppState + Default, W: Widget<S> + 'static> WinitApp<S, W> {
                             handle_scroll(
                                 x, y, dx, dy, 0,
                                 &mut runtime, &pipeline,
-                                &effect_result_tx, &event_proxy, app_effect_handler.as_ref(),
+                                &effect_result_tx, &event_proxy,
+                                &async_registry, &mut active_services, &mut service_bindings, &mut next_service_instance_id,
                                 window, elwt,
                                 &mut last_redraw_at, min_frame, &mut redraw_pending,
                                 &mut frame_trace,
@@ -2194,13 +2551,37 @@ impl<S: AppState + Default, W: Widget<S> + 'static> WinitApp<S, W> {
                                 return;
                             };
                             if width > 0 && height > 0 {
-                                simulated_viewport = Some((width, height));
-                                pending_resize = Some(window.inner_size());
-                                live_resize.note_resize(Instant::now());
-                                invalidations.mark_composite();
-                                request_redraw_logged(
+                                let requested_logical_size =
+                                    LayoutSize::new(width as f32, height as f32);
+                                let current_viewport = pending_resize
+                                    .unwrap_or_else(|| WindowViewportState::from_window(window))
+                                    .with_logical_size(requested_logical_size);
+                                #[cfg(not(any(target_os = "android", target_os = "ios")))]
+                                {
+                                    let _ = window.request_inner_size(
+                                        native_window_size_for_logical_viewport(
+                                            requested_logical_size,
+                                        ),
+                                    );
+                                }
+                                #[cfg(not(target_os = "android"))]
+                                {
+                                    window_viewport = current_viewport;
+                                }
+                                #[cfg(target_os = "android")]
+                                {
+                                    window_viewport = Some(current_viewport);
+                                }
+                                apply_authoritative_resize(
                                     window,
                                     elwt,
+                                    current_viewport,
+                                    &mut pending_resize,
+                                    &mut resize_needs_settled_frame,
+                                    &mut pending_capture_settle,
+                                    pending_screenshot_path.as_deref(),
+                                    &mut live_resize,
+                                    &mut invalidations,
                                     &mut last_redraw_at,
                                     resize_frame,
                                     &mut redraw_pending,
@@ -2225,7 +2606,11 @@ impl<S: AppState + Default, W: Widget<S> + 'static> WinitApp<S, W> {
                                     &mut runtime,
                                     &effect_result_tx,
                                     &event_proxy,
-                                    app_effect_handler.as_ref(),
+
+                                    &async_registry,
+                                    &mut active_services,
+                                    &mut service_bindings,
+                                    &mut next_service_instance_id,
                                 ) {
                                     invalidations.mark_build();
                                 }
@@ -2253,6 +2638,11 @@ impl<S: AppState + Default, W: Widget<S> + 'static> WinitApp<S, W> {
                                 return;
                             };
                             pending_screenshot_path = Some(path);
+                            pending_capture_settle = resize_is_unsettled(
+                                pending_resize.is_some(),
+                                resize_needs_settled_frame,
+                                live_resize.is_live(Instant::now()),
+                            );
                             window.request_redraw();
                         }
                         TestEvent::CaptureScreenshot => {
@@ -2265,6 +2655,11 @@ impl<S: AppState + Default, W: Widget<S> + 'static> WinitApp<S, W> {
                                 return;
                             };
                             pending_screenshot_path = Some("__capture__".into());
+                            pending_capture_settle = resize_is_unsettled(
+                                pending_resize.is_some(),
+                                resize_needs_settled_frame,
+                                live_resize.is_live(Instant::now()),
+                            );
                             window.request_redraw();
                         }
                         TestEvent::GetText => {
@@ -2289,6 +2684,11 @@ impl<S: AppState + Default, W: Widget<S> + 'static> WinitApp<S, W> {
                                 return;
                             };
                             pending_screenshot_path = Some("__pump__".into());
+                            pending_capture_settle = resize_is_unsettled(
+                                pending_resize.is_some(),
+                                resize_needs_settled_frame,
+                                live_resize.is_live(Instant::now()),
+                            );
                             window.request_redraw();
                         }
                         TestEvent::Wake => {}
@@ -2345,7 +2745,20 @@ impl<S: AppState + Default, W: Widget<S> + 'static> WinitApp<S, W> {
                         let Some(window) = current_window(&window) else {
                             return;
                         };
-                        pending_resize = Some(window.inner_size());
+                        let current_viewport = WindowViewportState::from_window(window);
+                        #[cfg(not(target_os = "android"))]
+                        {
+                            window_viewport = current_viewport;
+                        }
+                        #[cfg(target_os = "android")]
+                        {
+                            window_viewport = Some(current_viewport);
+                        }
+                        pending_resize = Some(current_viewport);
+                        resize_needs_settled_frame = true;
+                        if pending_screenshot_path.is_some() {
+                            pending_capture_settle = true;
+                        }
                         invalidations.mark_composite();
                         request_redraw_logged(
                             window,
@@ -2363,7 +2776,11 @@ impl<S: AppState + Default, W: Widget<S> + 'static> WinitApp<S, W> {
                         {
                             ime_handler.set_window(None);
                             window = None;
+                            window_viewport = None;
                             pending_resize = None;
+                            resize_needs_settled_frame = false;
+                            pending_capture_settle = false;
+                            last_built_viewport = None;
                             last_cursor_position = None;
                             active_primary_touch = None;
                             touch_positions.clear();
@@ -2512,7 +2929,12 @@ impl<S: AppState + Default, W: Widget<S> + 'static> WinitApp<S, W> {
                             .active
                             .values()
                             .any(|anim| !anim.repeat);
-                        let repeat_animation_interval = if pending_resize.is_some() {
+                        let resize_unsettled = resize_is_unsettled(
+                            pending_resize.is_some(),
+                            resize_needs_settled_frame,
+                            live_resize.is_live(now),
+                        );
+                        let repeat_animation_interval = if resize_unsettled || pending_capture_settle {
                             None
                         } else {
                             repeating_animation_redraw_interval(
@@ -2592,12 +3014,26 @@ impl<S: AppState + Default, W: Widget<S> + 'static> WinitApp<S, W> {
 
                         // Drain completed background effect results and dispatch
                         // their continuations back into the runtime on the main thread.
-                        let effect_results_dispatched = drain_effect_results(&mut runtime, &effect_result_rx);
+                        let effect_results_dispatched = drain_effect_results(
+                            &mut runtime,
+                            &effect_result_rx,
+                            &mut active_services,
+                            &mut service_bindings,
+                        );
                         if effect_results_dispatched {
                             invalidations.mark_build();
                             // Background work completed — process any new effects
                             // the continuation reducers may have emitted.
-                            if process_pending_effects(&mut runtime, &effect_result_tx, &event_proxy, app_effect_handler.as_ref()) {
+                            if process_pending_effects(
+                                &mut runtime,
+                                &effect_result_tx,
+                                &event_proxy,
+
+                                &async_registry,
+                                &mut active_services,
+                                &mut service_bindings,
+                                &mut next_service_instance_id,
+                            ) {
                                 invalidations.mark_build();
                                 request_redraw_logged(
                                     &window,
@@ -2658,18 +3094,21 @@ impl<S: AppState + Default, W: Widget<S> + 'static> WinitApp<S, W> {
                             effect_results_dispatched
                                 || frame_hook_wants_redraw
                                 || invalidations.any()
-                                || pending_resize.is_some();
+                                || resize_unsettled
+                                || pending_capture_settle;
                         let active_keys = active_animation_keys(&runtime);
 
                         if has_pending_work {
                             let pending_frame = pending_work_redraw_interval(
                                 invalidations,
-                                pending_resize.is_some(),
+                                resize_unsettled || pending_capture_settle,
                                 min_frame,
                                 resize_frame,
                             );
-                            let redraw_reason = if pending_resize.is_some() {
+                            let redraw_reason = if resize_unsettled {
                                 "pending_resize"
+                            } else if pending_capture_settle {
+                                "pending_capture_settle"
                             } else if invalidations.build {
                                 "pending_work:build"
                             } else if invalidations.layout {
@@ -2704,7 +3143,7 @@ impl<S: AppState + Default, W: Widget<S> + 'static> WinitApp<S, W> {
                                 &format!(
                                     "schedule=pending interval_ms={} pending_resize={} redraw_pending={} highest={}",
                                     pending_frame.as_millis(),
-                                    pending_resize.is_some(),
+                                    resize_unsettled || pending_capture_settle,
                                     redraw_pending,
                                     invalidations.highest_class(),
                                 ),
@@ -2747,7 +3186,7 @@ impl<S: AppState + Default, W: Widget<S> + 'static> WinitApp<S, W> {
                                 &format!(
                                     "schedule=animation interval_ms={} pending_resize={} redraw_pending={} highest={}",
                                     animation_frame.as_millis(),
-                                    pending_resize.is_some(),
+                                    resize_unsettled || pending_capture_settle,
                                     redraw_pending,
                                     invalidations.highest_class(),
                                 ),
@@ -2827,12 +3266,27 @@ impl<S: AppState + Default, W: Widget<S> + 'static> WinitApp<S, W> {
                         match event {
                             WindowEvent::Resized(size) => {
                                 if size.width > 0 && size.height > 0 {
-                                    pending_resize = Some(size);
-                                    live_resize.note_resize(Instant::now());
-                                    invalidations.mark_composite();
-                                    request_redraw_logged(
+                                    let next_viewport = pending_resize
+                                        .unwrap_or_else(|| WindowViewportState::from_window(&window))
+                                        .with_physical_size(size);
+                                    #[cfg(not(target_os = "android"))]
+                                    {
+                                        window_viewport = next_viewport;
+                                    }
+                                    #[cfg(target_os = "android")]
+                                    {
+                                        window_viewport = Some(next_viewport);
+                                    }
+                                    apply_authoritative_resize(
                                         &window,
                                         elwt,
+                                        next_viewport,
+                                        &mut pending_resize,
+                                        &mut resize_needs_settled_frame,
+                                        &mut pending_capture_settle,
+                                        pending_screenshot_path.as_deref(),
+                                        &mut live_resize,
+                                        &mut invalidations,
                                         &mut last_redraw_at,
                                         resize_frame,
                                         &mut redraw_pending,
@@ -2841,13 +3295,28 @@ impl<S: AppState + Default, W: Widget<S> + 'static> WinitApp<S, W> {
                                     );
                                 }
                             }
-                            WindowEvent::ScaleFactorChanged { .. } => {
-                                pending_resize = Some(window.inner_size());
-                                live_resize.note_resize(Instant::now());
-                                invalidations.mark_composite();
-                                request_redraw_logged(
+                            WindowEvent::ScaleFactorChanged { scale_factor, .. } => {
+                                let next_viewport = pending_resize
+                                    .unwrap_or_else(|| WindowViewportState::from_window(&window))
+                                    .with_scale_factor(scale_factor);
+                                #[cfg(not(target_os = "android"))]
+                                {
+                                    window_viewport = next_viewport;
+                                }
+                                #[cfg(target_os = "android")]
+                                {
+                                    window_viewport = Some(next_viewport);
+                                }
+                                apply_authoritative_resize(
                                     &window,
                                     elwt,
+                                    next_viewport,
+                                    &mut pending_resize,
+                                    &mut resize_needs_settled_frame,
+                                    &mut pending_capture_settle,
+                                    pending_screenshot_path.as_deref(),
+                                    &mut live_resize,
+                                    &mut invalidations,
                                     &mut last_redraw_at,
                                     resize_frame,
                                     &mut redraw_pending,
@@ -2902,7 +3371,16 @@ impl<S: AppState + Default, W: Widget<S> + 'static> WinitApp<S, W> {
                                         eprintln!("Runtime tick error: {:?}", e);
                                     }
                                 }
-                                if process_pending_effects(&mut runtime, &effect_result_tx, &event_proxy, app_effect_handler.as_ref()) {
+                                if process_pending_effects(
+                                    &mut runtime,
+                                    &effect_result_tx,
+                                    &event_proxy,
+
+                                    &async_registry,
+                                    &mut active_services,
+                                    &mut service_bindings,
+                                    &mut next_service_instance_id,
+                                ) {
                                     invalidations.mark_build();
                                     request_redraw_logged(
                                         &window,
@@ -2914,15 +3392,37 @@ impl<S: AppState + Default, W: Widget<S> + 'static> WinitApp<S, W> {
                                         "redraw:effects",
                                     );
                                 }
-                                let swapchain_size =
-                                    pending_resize.unwrap_or_else(|| window.inner_size());
+                                let viewport_state = pending_resize.unwrap_or_else(|| {
+                                    #[cfg(not(target_os = "android"))]
+                                    {
+                                        window_viewport
+                                    }
+                                    #[cfg(target_os = "android")]
+                                    {
+                                        window_viewport
+                                            .unwrap_or_else(|| WindowViewportState::from_window(&window))
+                                    }
+                                });
+                                #[cfg(not(target_os = "android"))]
+                                {
+                                    window_viewport = viewport_state;
+                                }
+                                #[cfg(target_os = "android")]
+                                {
+                                    window_viewport = Some(viewport_state);
+                                }
+                                let swapchain_size = viewport_state.physical_size;
                                 if swapchain_size.width == 0 || swapchain_size.height == 0 {
                                     diag::end_frame(diag::FrameStats::default());
                                     return;
                                 }
 
                                 if render_state.is_none() {
-                                    match create_render_state(&mut render_cx, window.clone()) {
+                                    match create_render_state(
+                                        &mut render_cx,
+                                        window.clone(),
+                                        viewport_state,
+                                    ) {
                                         Ok(state) => {
                                             render_state = Some(state);
                                         }
@@ -2944,6 +3444,7 @@ impl<S: AppState + Default, W: Widget<S> + 'static> WinitApp<S, W> {
                                 }
                                 let render_state = render_state.as_mut().expect("render state");
 
+                                let mut surface_target_replaced = false;
                                 if swapchain_size.width != render_state.surface.config.width
                                     || swapchain_size.height != render_state.surface.config.height
                                 {
@@ -2960,80 +3461,45 @@ impl<S: AppState + Default, W: Widget<S> + 'static> WinitApp<S, W> {
                                         .surface
                                         .surface
                                         .configure(&device_handle.device, &render_state.surface.config);
+                                    sync_tracked_target_texture_size_to_surface(
+                                        &mut render_state.target_texture_size,
+                                        swapchain_size,
+                                    );
+                                    surface_target_replaced = true;
                                 }
+                                let device_handle = &render_cx.devices[render_state.surface.dev_id];
 
-                                let scale_factor = window.scale_factor();
-                                let pending_layout_viewport = if let Some((sw, sh)) = simulated_viewport {
-                                    LayoutSize {
-                                        width: sw as f32,
-                                        height: sh as f32,
-                                    }
-                                } else {
-                                    LayoutSize {
-                                        width: (swapchain_size.width as f64 / scale_factor) as f32,
-                                        height: (swapchain_size.height as f64 / scale_factor) as f32,
-                                    }
-                                };
-                                let render_target_size = if simulated_viewport.is_some() {
-                                    logical_viewport_to_render_target_size(
-                                        pending_layout_viewport,
-                                        scale_factor,
-                                    )
-                                } else {
-                                    (swapchain_size.width, swapchain_size.height)
-                                };
-                                if render_target_size != render_state.target_texture_size {
+                                let scale_factor = viewport_state.scale_factor;
+                                let pending_layout_viewport = viewport_state.logical_size();
+                                let render_target_size = (swapchain_size.width, swapchain_size.height);
+                                if surface_target_replaced
+                                    || render_target_size != render_state.target_texture_size
+                                {
                                     recreate_target_texture(
                                         &mut render_state.surface,
                                         &render_cx,
                                         render_target_size.0,
                                         render_target_size.1,
                                     );
+                                    // Keep the 3D depth target in lockstep with the shared render target.
+                                    render_state.scene3d_renderer.resize(
+                                        &device_handle.device,
+                                        render_target_size.0,
+                                        render_target_size.1,
+                                    );
                                     render_state.target_texture_size = render_target_size;
                                 }
 
-                                let force_resize_layout = invalidations.build
-                                    || pipeline.prev_ir.is_none()
-                                    || pipeline.last_snapshot.is_none();
-                                let apply_resize_layout = if pending_resize.is_some() {
-                                    live_resize.should_apply_layout(
-                                        now,
-                                        pipeline.last_snapshot.is_some(),
-                                        force_resize_layout,
-                                    )
-                                } else {
-                                    force_resize_layout
-                                };
                                 let resize_settled =
-                                    pending_resize.is_some() && !live_resize.is_live(now);
-                                let target_viewport = LayoutSize {
-                                    width: pending_layout_viewport.width,
-                                    height: pending_layout_viewport.height,
-                                };
-                                let viewport_changed = pipeline
-                                    .last_viewport
-                                    .map(|viewport| viewport.size != target_viewport)
-                                    .unwrap_or(true);
-                                if pending_resize.is_some()
-                                    && apply_resize_layout
-                                    && viewport_changed
-                                {
-                                    invalidations.mark_build();
-                                }
-                                if resize_settled && apply_resize_layout {
-                                    invalidations.mark_build();
-                                }
-
-                                let retained_viewport = pipeline
-                                    .last_viewport
-                                    .map(|viewport| viewport.size)
-                                    .unwrap_or(target_viewport);
-                                let viewport = if apply_resize_layout {
-                                    target_viewport
-                                } else {
-                                    retained_viewport
-                                };
-                                env.viewport_size = viewport;
+                                    resize_needs_settled_frame && !live_resize.is_live(now);
+                                let target_viewport = pending_layout_viewport;
+                                let build_viewport = resolve_build_viewport(
+                                    last_built_viewport,
+                                    target_viewport,
+                                    pipeline.prev_ir.is_some(),
+                                    &mut invalidations,
+                                );
+                                env.viewport_size = build_viewport;
 
                                 if let Some(sync) = &self.sync_env {
                                     let state = runtime.get_app_state::<S>().unwrap();
@@ -3041,7 +3507,7 @@ impl<S: AppState + Default, W: Widget<S> + 'static> WinitApp<S, W> {
                                 }
 
                                 if invalidations.build || pipeline.prev_ir.is_none() {
-                                    let (node_tree, registry, anims, videos, web_views, portals) = {
+                                    let (node_tree, registry, resources, anims, videos, web_views, portals) = {
                                         let state = runtime.get_app_state::<S>().unwrap();
                                         let view = View::new(
                                             state,
@@ -3051,6 +3517,7 @@ impl<S: AppState + Default, W: Widget<S> + 'static> WinitApp<S, W> {
                                         );
                                         let mut ctx = BuildCtx::new();
                                         let node = root_widget.build(&mut ctx, &view);
+                                        let resources = ctx.take_resources();
                                         let anims = ctx.take_animation_requests();
                                         let videos = ctx.take_video_registrations();
                                         let web_views = ctx.take_web_registrations();
@@ -3068,11 +3535,24 @@ impl<S: AppState + Default, W: Widget<S> + 'static> WinitApp<S, W> {
                                                 portal_count: portals.len() as u32,
                                             },
                                         );
-                                        (node, ctx.registry, anims, videos, web_views, portals)
+                                        (node, ctx.registry, resources, anims, videos, web_views, portals)
                                     };
 
                                     runtime.clear_reducers();
                                     runtime.absorb_registry(registry);
+                                    if let Err(err) = runtime.reconcile_resources(resources) {
+                                        eprintln!("Runtime resource reconciliation error: {:?}", err);
+                                    }
+                                    if !startup_dispatched {
+                                        if let Some(action) = startup_action.clone() {
+                                            if let Err(err) =
+                                                runtime.dispatch(action, NodeId::derived(0, &[0]))
+                                            {
+                                                eprintln!("Startup action error: {:?}", err);
+                                            }
+                                        }
+                                        startup_dispatched = true;
+                                    }
                                     runtime.sync_animation_requests(&anims);
                                     for (target, req) in anims {
                                         runtime.enqueue_animation(target, req);
@@ -3105,10 +3585,16 @@ impl<S: AppState + Default, W: Widget<S> + 'static> WinitApp<S, W> {
                                     let pipeline_invalidations =
                                         pipeline.replace_ir(lower_cx.ir, &env);
                                     invalidations.merge(pipeline_invalidations);
+                                    last_built_viewport = Some(build_viewport);
                                 }
 
                                 let layout_updates = match pipeline.ensure_layout(
-                                    LayoutRect::new(0.0, 0.0, viewport.width, viewport.height),
+                                    LayoutRect::new(
+                                        0.0,
+                                        0.0,
+                                        target_viewport.width,
+                                        target_viewport.height,
+                                    ),
                                     &mut layout_engine,
                                     &runtime.runtime_state.scroll,
                                 ) {
@@ -3129,9 +3615,9 @@ impl<S: AppState + Default, W: Widget<S> + 'static> WinitApp<S, W> {
                                 }
 
                                 match pipeline.prepare_current(
-                                    pending_layout_viewport,
-                                    viewport,
-                                    pending_resize.is_some() && !apply_resize_layout,
+                                    target_viewport,
+                                    target_viewport,
+                                    false,
                                     &runtime.runtime_state.scroll,
                                     &runtime.runtime_state.animation,
                                     &runtime.runtime_state.video,
@@ -3348,44 +3834,53 @@ impl<S: AppState + Default, W: Widget<S> + 'static> WinitApp<S, W> {
 
                                         device_handle.queue.submit(Some(encoder.finish()));
 
-                                        if let Some(path) = pending_screenshot_path.take() {
-                                            let screenshot_dimensions =
-                                                layout_size_to_image_dimensions(viewport);
-                                            if let Some(ref tx) = test_response_tx {
-                                                if path == "__pump__" {
-                                                    let _ =
-                                                        tx.send(fission_test_driver::TestResponse::Ok {});
-                                                } else if path == "__capture__" {
-                                                    let resp = gpu_screenshot(
-                                                        &device_handle.device,
-                                                        &device_handle.queue,
-                                                        &render_state.surface.target_texture,
-                                                        render_target_size.0,
-                                                        render_target_size.1,
-                                                        screenshot_dimensions.0,
-                                                        screenshot_dimensions.1,
-                                                        None,
-                                                    );
-                                                    let _ = tx.send(resp);
-                                                } else {
-                                                    let resp = gpu_screenshot(
-                                                        &device_handle.device,
-                                                        &device_handle.queue,
-                                                        &render_state.surface.target_texture,
-                                                        render_target_size.0,
-                                                        render_target_size.1,
-                                                        screenshot_dimensions.0,
-                                                        screenshot_dimensions.1,
-                                                        Some(&path),
-                                                    );
-                                                    let _ = tx.send(resp);
+                                        let capture_ready =
+                                            !pending_capture_settle || resize_settled;
+                                        if capture_ready {
+                                            pending_capture_settle = false;
+                                        }
+                                        if capture_ready {
+                                            if let Some(path) = pending_screenshot_path.take() {
+                                                let screenshot_dimensions =
+                                                    layout_size_to_image_dimensions(target_viewport);
+                                                if let Some(ref tx) = test_response_tx {
+                                                    if path == "__pump__" {
+                                                        let _ = tx.send(
+                                                            fission_test_driver::TestResponse::Ok {},
+                                                        );
+                                                    } else if path == "__capture__" {
+                                                        let resp = gpu_screenshot(
+                                                            &device_handle.device,
+                                                            &device_handle.queue,
+                                                            &render_state.surface.target_texture,
+                                                            render_target_size.0,
+                                                            render_target_size.1,
+                                                            screenshot_dimensions.0,
+                                                            screenshot_dimensions.1,
+                                                            None,
+                                                        );
+                                                        let _ = tx.send(resp);
+                                                    } else {
+                                                        let resp = gpu_screenshot(
+                                                            &device_handle.device,
+                                                            &device_handle.queue,
+                                                            &render_state.surface.target_texture,
+                                                            render_target_size.0,
+                                                            render_target_size.1,
+                                                            screenshot_dimensions.0,
+                                                            screenshot_dimensions.1,
+                                                            Some(&path),
+                                                        );
+                                                        let _ = tx.send(resp);
+                                                    }
                                                 }
                                             }
                                         }
 
                                         surface_texture.present();
-                                        if apply_resize_layout {
-                                            pending_resize = None;
+                                        pending_resize = None;
+                                        if resize_settled {
+                                            resize_needs_settled_frame = false;
                                         }
                                         invalidations = InvalidationSet::default();
 
@@ -3417,7 +3912,8 @@ impl<S: AppState + Default, W: Widget<S> + 'static> WinitApp<S, W> {
                                 handle_cursor_moved(
                                     x, y, current_mods,
                                     &mut runtime, &pipeline,
-                                    &effect_result_tx, &event_proxy, app_effect_handler.as_ref(),
+                                    &effect_result_tx, &event_proxy,
+                                &async_registry, &mut active_services, &mut service_bindings, &mut next_service_instance_id,
                                     &window, elwt,
                                     &mut last_redraw_at, min_frame, &mut redraw_pending,
                                     &mut frame_trace,
@@ -3431,7 +3927,11 @@ impl<S: AppState + Default, W: Widget<S> + 'static> WinitApp<S, W> {
                                     &pipeline,
                                     &effect_result_tx,
                                     &event_proxy,
-                                    app_effect_handler.as_ref(),
+
+                                    &async_registry,
+                                    &mut active_services,
+                                    &mut service_bindings,
+                                    &mut next_service_instance_id,
                                     &window,
                                     elwt,
                                     &mut last_redraw_at,
@@ -3452,7 +3952,8 @@ impl<S: AppState + Default, W: Widget<S> + 'static> WinitApp<S, W> {
                                         handle_mouse_button(
                                             x, y, btn, is_pressed, current_mods,
                                             &mut runtime, &pipeline,
-                                            &effect_result_tx, &event_proxy, app_effect_handler.as_ref(),
+                                            &effect_result_tx, &event_proxy,
+                                &async_registry, &mut active_services, &mut service_bindings, &mut next_service_instance_id,
                                             &window, elwt,
                                             &mut last_redraw_at, min_frame, &mut redraw_pending,
                                             text_trace_enabled, &mut pending_text_traces,
@@ -3487,7 +3988,8 @@ impl<S: AppState + Default, W: Widget<S> + 'static> WinitApp<S, W> {
                                     handle_scroll(
                                         point_x, point_y, dx, dy, current_mods,
                                         &mut runtime, &pipeline,
-                                        &effect_result_tx, &event_proxy, app_effect_handler.as_ref(),
+                                        &effect_result_tx, &event_proxy,
+                                &async_registry, &mut active_services, &mut service_bindings, &mut next_service_instance_id,
                                         &window, elwt,
                                         &mut last_redraw_at, min_frame, &mut redraw_pending,
                                         &mut frame_trace,
@@ -3513,7 +4015,8 @@ impl<S: AppState + Default, W: Widget<S> + 'static> WinitApp<S, W> {
                                             handle_cursor_moved(
                                                 x, y, current_mods,
                                                 &mut runtime, &pipeline,
-                                                &effect_result_tx, &event_proxy, app_effect_handler.as_ref(),
+                                                &effect_result_tx, &event_proxy,
+                                &async_registry, &mut active_services, &mut service_bindings, &mut next_service_instance_id,
                                                 &window, elwt,
                                                 &mut last_redraw_at, min_frame, &mut redraw_pending,
                                                 &mut frame_trace,
@@ -3522,7 +4025,8 @@ impl<S: AppState + Default, W: Widget<S> + 'static> WinitApp<S, W> {
                                             handle_mouse_button(
                                                 x, y, PointerButton::Primary, true, current_mods,
                                                 &mut runtime, &pipeline,
-                                                &effect_result_tx, &event_proxy, app_effect_handler.as_ref(),
+                                                &effect_result_tx, &event_proxy,
+                                &async_registry, &mut active_services, &mut service_bindings, &mut next_service_instance_id,
                                                 &window, elwt,
                                                 &mut last_redraw_at, min_frame, &mut redraw_pending,
                                                 text_trace_enabled, &mut pending_text_traces,
@@ -3538,7 +4042,8 @@ impl<S: AppState + Default, W: Widget<S> + 'static> WinitApp<S, W> {
                                             handle_cursor_moved(
                                                 x, y, current_mods,
                                                 &mut runtime, &pipeline,
-                                                &effect_result_tx, &event_proxy, app_effect_handler.as_ref(),
+                                                &effect_result_tx, &event_proxy,
+                                &async_registry, &mut active_services, &mut service_bindings, &mut next_service_instance_id,
                                                 &window, elwt,
                                                 &mut last_redraw_at, min_frame, &mut redraw_pending,
                                                 &mut frame_trace,
@@ -3551,7 +4056,8 @@ impl<S: AppState + Default, W: Widget<S> + 'static> WinitApp<S, W> {
                                             handle_cursor_moved(
                                                 x, y, current_mods,
                                                 &mut runtime, &pipeline,
-                                                &effect_result_tx, &event_proxy, app_effect_handler.as_ref(),
+                                                &effect_result_tx, &event_proxy,
+                                &async_registry, &mut active_services, &mut service_bindings, &mut next_service_instance_id,
                                                 &window, elwt,
                                                 &mut last_redraw_at, min_frame, &mut redraw_pending,
                                                 &mut frame_trace,
@@ -3560,7 +4066,8 @@ impl<S: AppState + Default, W: Widget<S> + 'static> WinitApp<S, W> {
                                             handle_mouse_button(
                                                 x, y, PointerButton::Primary, false, current_mods,
                                                 &mut runtime, &pipeline,
-                                                &effect_result_tx, &event_proxy, app_effect_handler.as_ref(),
+                                                &effect_result_tx, &event_proxy,
+                                &async_registry, &mut active_services, &mut service_bindings, &mut next_service_instance_id,
                                                 &window, elwt,
                                                 &mut last_redraw_at, min_frame, &mut redraw_pending,
                                                 text_trace_enabled, &mut pending_text_traces,
@@ -3613,7 +4120,8 @@ impl<S: AppState + Default, W: Widget<S> + 'static> WinitApp<S, W> {
                                         handle_key_down::<S>(
                                             code, current_mods,
                                             &mut runtime, &pipeline,
-                                            &effect_result_tx, &event_proxy, app_effect_handler.as_ref(),
+                                            &effect_result_tx, &event_proxy,
+                                &async_registry, &mut active_services, &mut service_bindings, &mut next_service_instance_id,
                                             &window, elwt,
                                             &mut last_redraw_at, min_frame, &mut redraw_pending,
                                             text_trace_enabled, &mut pending_text_traces,
@@ -3653,7 +4161,16 @@ impl<S: AppState + Default, W: Widget<S> + 'static> WinitApp<S, W> {
                                         runtime.handle_input(e, ir, layout).ok();
                                         invalidations.mark_build();
                                         mark_text_trace_handled(&mut pending_text_traces, trace_seq);
-                                        if process_pending_effects(&mut runtime, &effect_result_tx, &event_proxy, app_effect_handler.as_ref()) {
+                                        if process_pending_effects(
+                                            &mut runtime,
+                                            &effect_result_tx,
+                                            &event_proxy,
+
+                                            &async_registry,
+                                            &mut active_services,
+                                            &mut service_bindings,
+                                            &mut next_service_instance_id,
+                                        ) {
                                             mark_text_trace_effects(&mut pending_text_traces, trace_seq);
                                             invalidations.mark_build();
                                             request_redraw_logged(
@@ -3714,6 +4231,18 @@ fn map_mouse_button(button: MouseButton) -> Option<PointerButton> {
     }
 }
 
+fn clamp_copy_extent_to_texture(
+    requested_width: u32,
+    requested_height: u32,
+    actual_width: u32,
+    actual_height: u32,
+) -> (u32, u32) {
+    (
+        requested_width.min(actual_width).max(1),
+        requested_height.min(actual_height).max(1),
+    )
+}
+
 fn gpu_screenshot(
     device: &wgpu::Device,
     queue: &wgpu::Queue,
@@ -3724,7 +4253,15 @@ fn gpu_screenshot(
     output_height: u32,
     path: Option<&str>,
 ) -> fission_test_driver::TestResponse {
-    if texture_width == 0 || texture_height == 0 || output_width == 0 || output_height == 0 {
+    let actual_texture_width = texture.width();
+    let actual_texture_height = texture.height();
+    let (texture_width, texture_height) = clamp_copy_extent_to_texture(
+        texture_width,
+        texture_height,
+        actual_texture_width,
+        actual_texture_height,
+    );
+    if output_width == 0 || output_height == 0 {
         return fission_test_driver::TestResponse::Error {
             message: "zero-size viewport".into(),
         };
@@ -3809,6 +4346,14 @@ fn gpu_screenshot(
     let (rgba, width, height) = if texture_width == output_width && texture_height == output_height
     {
         (rgba, texture_width, texture_height)
+    } else if let Some(resized) = downscale_rgba_box(
+        &rgba,
+        texture_width,
+        texture_height,
+        output_width,
+        output_height,
+    ) {
+        (resized, output_width, output_height)
     } else {
         let Some(image) = image::RgbaImage::from_raw(texture_width, texture_height, rgba) else {
             return fission_test_driver::TestResponse::Error {
@@ -3851,16 +4396,91 @@ fn gpu_screenshot(
     }
 }
 
+fn downscale_rgba_box(
+    rgba: &[u8],
+    input_width: u32,
+    input_height: u32,
+    output_width: u32,
+    output_height: u32,
+) -> Option<Vec<u8>> {
+    if output_width == 0
+        || output_height == 0
+        || input_width % output_width != 0
+        || input_height % output_height != 0
+    {
+        return None;
+    }
+
+    let scale_x = input_width / output_width;
+    let scale_y = input_height / output_height;
+    if scale_x <= 1 && scale_y <= 1 {
+        return None;
+    }
+
+    let samples_per_pixel = scale_x.checked_mul(scale_y)?;
+    let mut out = vec![0u8; (output_width * output_height * 4) as usize];
+
+    for out_y in 0..output_height {
+        let src_y0 = out_y * scale_y;
+        for out_x in 0..output_width {
+            let src_x0 = out_x * scale_x;
+            let mut sum = [0u32; 4];
+            for dy in 0..scale_y {
+                let src_y = src_y0 + dy;
+                let row_offset = ((src_y * input_width) * 4) as usize;
+                for dx in 0..scale_x {
+                    let src_x = src_x0 + dx;
+                    let src_index = row_offset + (src_x * 4) as usize;
+                    sum[0] += rgba[src_index] as u32;
+                    sum[1] += rgba[src_index + 1] as u32;
+                    sum[2] += rgba[src_index + 2] as u32;
+                    sum[3] += rgba[src_index + 3] as u32;
+                }
+            }
+
+            let dst_index = (((out_y * output_width) + out_x) * 4) as usize;
+            out[dst_index] = (sum[0] / samples_per_pixel) as u8;
+            out[dst_index + 1] = (sum[1] / samples_per_pixel) as u8;
+            out[dst_index + 2] = (sum[2] / samples_per_pixel) as u8;
+            out[dst_index + 3] = (sum[3] / samples_per_pixel) as u8;
+        }
+    }
+
+    Some(out)
+}
+
 fn layout_size_to_image_dimensions(size: LayoutSize) -> (u32, u32) {
     let width = size.width.max(1.0).round() as u32;
     let height = size.height.max(1.0).round() as u32;
     (width.max(1), height.max(1))
 }
 
+fn normalize_scale_factor(scale_factor: f64) -> f64 {
+    if scale_factor.is_finite() && scale_factor > 0.0 {
+        scale_factor
+    } else {
+        1.0
+    }
+}
+
+fn physical_size_to_layout_size(size: PhysicalSize<u32>, scale_factor: f64) -> LayoutSize {
+    let scale_factor = normalize_scale_factor(scale_factor);
+    LayoutSize {
+        width: (size.width as f64 / scale_factor) as f32,
+        height: (size.height as f64 / scale_factor) as f32,
+    }
+}
+
 fn logical_viewport_to_render_target_size(size: LayoutSize, scale_factor: f64) -> (u32, u32) {
+    let scale_factor = normalize_scale_factor(scale_factor);
     let width = (size.width.max(1.0) as f64 * scale_factor).ceil() as u32;
     let height = (size.height.max(1.0) as f64 * scale_factor).ceil() as u32;
     (width.max(1), height.max(1))
+}
+
+fn logical_viewport_to_physical_size(size: LayoutSize, scale_factor: f64) -> PhysicalSize<u32> {
+    let (width, height) = logical_viewport_to_render_target_size(size, scale_factor);
+    PhysicalSize::new(width, height)
 }
 
 fn recreate_target_texture(
@@ -3894,20 +4514,37 @@ fn recreate_target_texture(
     surface.target_view = new_view;
 }
 
+fn sync_tracked_target_texture_size_to_surface(
+    target_texture_size: &mut (u32, u32),
+    surface_size: PhysicalSize<u32>,
+) {
+    *target_texture_size = (surface_size.width.max(1), surface_size.height.max(1));
+}
+
+fn native_window_size_for_logical_viewport(size: LayoutSize) -> LogicalSize<f64> {
+    LogicalSize::new(size.width as f64, size.height as f64)
+}
+
 #[cfg(test)]
 mod tests {
     use super::{
-        animation_redraw_interval, cursor_icon_for, layout_size_to_image_dimensions,
-        logical_viewport_to_render_target_size, repeating_animation_redraw_interval,
-        texture_plans_fit_device_limits, LiveResizeController,
+        animation_redraw_interval, clamp_copy_extent_to_texture, cursor_icon_for,
+        downscale_rgba_box, layout_size_to_image_dimensions, logical_viewport_to_physical_size,
+        logical_viewport_to_render_target_size, native_window_size_for_logical_viewport,
+        normalize_scale_factor, physical_size_to_layout_size,
+        resize_is_unsettled, resolve_build_viewport,
+        repeating_animation_redraw_interval, sync_tracked_target_texture_size_to_surface,
+        texture_plans_fit_device_limits, LiveResizeController, WindowViewportState,
     };
+    use crate::InvalidationSet;
     use crate::pipeline::CompositorTexturePlan;
     use fission_core::env::{ActiveAnimation, AnimationStateMap};
     use fission_core::{AnimationPropertyId, WidgetNodeId};
     use fission_ir::semantics::MouseCursor;
-    use fission_layout::LayoutRect;
+    use fission_layout::{LayoutRect, LayoutSize};
     use std::collections::HashMap;
     use std::time::Duration;
+    use winit::dpi::PhysicalSize;
     use winit::window::CursorIcon;
 
     #[test]
@@ -3915,8 +4552,14 @@ mod tests {
         assert_eq!(cursor_icon_for(MouseCursor::Default), CursorIcon::Default);
         assert_eq!(cursor_icon_for(MouseCursor::Pointer), CursorIcon::Pointer);
         assert_eq!(cursor_icon_for(MouseCursor::Text), CursorIcon::Text);
-        assert_eq!(cursor_icon_for(MouseCursor::NotAllowed), CursorIcon::NotAllowed);
-        assert_eq!(cursor_icon_for(MouseCursor::VerticalText), CursorIcon::VerticalText);
+        assert_eq!(
+            cursor_icon_for(MouseCursor::NotAllowed),
+            CursorIcon::NotAllowed
+        );
+        assert_eq!(
+            cursor_icon_for(MouseCursor::VerticalText),
+            CursorIcon::VerticalText
+        );
     }
 
     #[test]
@@ -4034,38 +4677,43 @@ mod tests {
     }
 
     #[test]
-    fn live_resize_defers_layout_until_settled() {
+    fn live_resize_reports_unsettled_until_deadline() {
         let settle = Duration::from_millis(90);
         let mut resize = LiveResizeController::new(settle);
         let now = std::time::Instant::now();
         resize.note_resize(now);
 
         assert!(resize.is_live(now + Duration::from_millis(30)));
-        assert!(resize.should_apply_layout(now + Duration::from_millis(30), true, false));
-        assert!(!resize.should_apply_layout(now + Duration::from_millis(40), true, false));
-        assert!(resize.should_apply_layout(now + Duration::from_millis(95), true, false));
+        assert!(resize_is_unsettled(false, false, resize.is_live(now + Duration::from_millis(30))));
+        assert!(!resize.is_live(now + Duration::from_millis(95)));
     }
 
     #[test]
-    fn live_resize_force_path_bypasses_settle_delay() {
-        let settle = Duration::from_millis(90);
-        let mut resize = LiveResizeController::new(settle);
-        let now = std::time::Instant::now();
-        resize.note_resize(now);
+    fn viewport_resize_forces_build_viewport_refresh() {
+        let target = LayoutSize::new(1440.0, 900.0);
+        let mut invalidations = InvalidationSet::default();
 
-        assert!(resize.should_apply_layout(now + Duration::from_millis(10), true, true));
+        let build_viewport = resolve_build_viewport(
+            Some(LayoutSize::new(1024.0, 768.0)),
+            target,
+            true,
+            &mut invalidations,
+        );
+
+        assert!(invalidations.build);
+        assert_eq!(build_viewport, target);
     }
 
     #[test]
-    fn live_resize_refreshes_layout_periodically_while_dragging() {
-        let settle = Duration::from_millis(90);
-        let mut resize = LiveResizeController::new(settle);
-        let now = std::time::Instant::now();
-        resize.note_resize(now);
+    fn stable_viewport_preserves_existing_build_viewport() {
+        let target = LayoutSize::new(1024.0, 768.0);
+        let mut invalidations = InvalidationSet::default();
 
-        assert!(resize.should_apply_layout(now, true, false));
-        assert!(!resize.should_apply_layout(now + Duration::from_millis(8), true, false));
-        assert!(resize.should_apply_layout(now + Duration::from_millis(20), true, false));
+        let build_viewport =
+            resolve_build_viewport(Some(target), target, true, &mut invalidations);
+
+        assert!(!invalidations.build);
+        assert_eq!(build_viewport, target);
     }
 
     #[test]
@@ -4150,5 +4798,157 @@ mod tests {
             1.5,
         );
         assert_eq!(fractional, (645, 1350));
+    }
+
+    #[test]
+    fn physical_viewport_maps_to_logical_size_with_scale_factor() {
+        let logical = physical_size_to_layout_size(PhysicalSize::new(1728, 1117), 1.5);
+        assert_eq!(logical.width, 1152.0);
+        assert!((logical.height - 744.6667).abs() < 0.001);
+    }
+
+    #[test]
+    fn scale_factor_change_preserves_logical_viewport_until_resize_arrives() {
+        let viewport = WindowViewportState {
+            physical_size: PhysicalSize::new(1600, 1200),
+            scale_factor: 1.0,
+        }
+        .with_scale_factor(2.0);
+
+        assert_eq!(viewport.physical_size, PhysicalSize::new(3200, 2400));
+        assert_eq!(
+            viewport.logical_size(),
+            fission_layout::LayoutSize::new(1600.0, 1200.0)
+        );
+    }
+
+    #[test]
+    fn resized_event_overrides_scale_factor_prediction_authoritatively() {
+        let viewport = WindowViewportState {
+            physical_size: PhysicalSize::new(1600, 1200),
+            scale_factor: 1.0,
+        }
+        .with_scale_factor(1.5)
+        .with_physical_size(PhysicalSize::new(2412, 1809));
+
+        assert_eq!(viewport.physical_size, PhysicalSize::new(2412, 1809));
+        assert_eq!(
+            viewport.logical_size(),
+            fission_layout::LayoutSize::new(1608.0, 1206.0)
+        );
+    }
+
+    #[test]
+    fn fractional_logical_viewports_round_up_for_render_targets() {
+        let physical =
+            logical_viewport_to_physical_size(fission_layout::LayoutSize::new(430.2, 900.1), 1.5);
+        assert_eq!(physical, PhysicalSize::new(646, 1351));
+    }
+
+    #[test]
+    fn scale_factor_prediction_never_undershoots_fractional_viewports() {
+        let initial = WindowViewportState {
+            physical_size: PhysicalSize::new(1728, 1117),
+            scale_factor: 1.5,
+        };
+        let predicted = initial.with_scale_factor(2.0);
+
+        assert_eq!(predicted.physical_size, PhysicalSize::new(2304, 1490));
+        assert!(predicted.logical_size().width >= initial.logical_size().width);
+        assert!(predicted.logical_size().height >= initial.logical_size().height);
+    }
+
+    #[test]
+    fn logical_resize_updates_native_viewport_prediction() {
+        let initial = WindowViewportState {
+            physical_size: PhysicalSize::new(800, 632),
+            scale_factor: 2.0,
+        };
+        let resized = initial.with_logical_size(fission_layout::LayoutSize::new(1600.0, 1200.0));
+
+        assert_eq!(resized.physical_size, PhysicalSize::new(3200, 2400));
+        assert_eq!(
+            resized.logical_size(),
+            fission_layout::LayoutSize::new(1600.0, 1200.0)
+        );
+    }
+
+    #[test]
+    fn logical_resize_requests_logical_window_dimensions() {
+        let requested =
+            native_window_size_for_logical_viewport(fission_layout::LayoutSize::new(1600.0, 2200.0));
+
+        assert_eq!(requested.width, 1600.0);
+        assert_eq!(requested.height, 2200.0);
+    }
+
+    #[test]
+    fn invalid_scale_factors_fall_back_to_unit_scale() {
+        assert_eq!(normalize_scale_factor(0.0), 1.0);
+        assert_eq!(normalize_scale_factor(-2.0), 1.0);
+        assert_eq!(normalize_scale_factor(f64::NAN), 1.0);
+        assert_eq!(normalize_scale_factor(f64::INFINITY), 1.0);
+        assert_eq!(normalize_scale_factor(1.5), 1.5);
+    }
+
+    #[test]
+    fn invalid_scale_factor_does_not_shrink_viewport_math() {
+        let logical = physical_size_to_layout_size(PhysicalSize::new(1600, 1200), 0.0);
+        assert_eq!(logical, fission_layout::LayoutSize::new(1600.0, 1200.0));
+
+        let render_target = logical_viewport_to_render_target_size(
+            fission_layout::LayoutSize::new(1600.0, 1200.0),
+            0.0,
+        );
+        assert_eq!(render_target, (1600, 1200));
+    }
+
+    #[test]
+    fn surface_resize_resets_custom_target_texture_tracking() {
+        let mut tracked_target_texture_size = (1600, 1200);
+
+        sync_tracked_target_texture_size_to_surface(
+            &mut tracked_target_texture_size,
+            PhysicalSize::new(1055, 791),
+        );
+
+        assert_eq!(tracked_target_texture_size, (1055, 791));
+        assert_ne!(
+            tracked_target_texture_size,
+            logical_viewport_to_render_target_size(
+                fission_layout::LayoutSize::new(1600.0, 1200.0),
+                1.0,
+            )
+        );
+    }
+
+    #[test]
+    fn resize_settle_signal_tracks_real_resize_state() {
+        assert!(resize_is_unsettled(true, false, false));
+        assert!(resize_is_unsettled(false, true, false));
+        assert!(resize_is_unsettled(false, false, true));
+        assert!(!resize_is_unsettled(false, false, false));
+    }
+
+    #[test]
+    fn screenshot_copy_extent_never_exceeds_texture_bounds() {
+        assert_eq!(
+            clamp_copy_extent_to_texture(1600, 1200, 1055, 791),
+            (1055, 791)
+        );
+        assert_eq!(clamp_copy_extent_to_texture(0, 0, 1055, 791), (1, 1));
+        assert_eq!(
+            clamp_copy_extent_to_texture(640, 480, 1055, 791),
+            (640, 480)
+        );
+    }
+
+    #[test]
+    fn integer_downscale_uses_fast_box_path() {
+        let rgba = vec![
+            10, 20, 30, 255, 30, 40, 50, 255, 50, 60, 70, 255, 70, 80, 90, 255,
+        ];
+        let downscaled = downscale_rgba_box(&rgba, 2, 2, 1, 1).expect("downscale");
+        assert_eq!(downscaled, vec![40, 50, 60, 255]);
     }
 }

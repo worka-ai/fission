@@ -1,12 +1,18 @@
 //! Side-effect primitives for async operations.
 //!
 //! Reducers are pure functions -- they must not perform I/O. When a reducer
-//! needs to trigger an HTTP request, read a file, or show a system alert, it
+//! needs to trigger a host capability, async job, or runtime-control effect, it
 //! pushes an [`EffectEnvelope`] through the [`Effects`](crate::Effects) builder.
 //! The platform executor fulfils the effect outside the deterministic core and
 //! dispatches the `on_ok` / `on_err` callback actions back into the pipeline.
 
 use crate::action::ActionEnvelope;
+use crate::async_runtime::{
+    JobRef, JobRequestPayload, JobSpec, ResourceExecutionContext, ServiceBindings,
+    ServiceCommandPayload, ServiceSpec, ServiceStartPayload, ServiceStopPayload, ServiceType,
+};
+use crate::capability::CapabilityInvocationPayload;
+use crate::capability::{CapabilityType, OperationCapability};
 use serde::{Deserialize, Serialize};
 
 /// An opaque request identifier assigned to each emitted effect.
@@ -19,67 +25,37 @@ pub struct ReqId(pub u64);
 /// An opaque handle to a platform-managed resource (e.g. a large binary blob).
 ///
 /// Resources live outside the action pipeline to avoid copying large payloads.
-/// Use [`SystemEffect::ReleaseResource`] to free them when no longer needed.
+/// Use [`RuntimeEffect::ReleaseResource`] to free them when no longer needed.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct ResourceId(pub u64);
 
-use std::collections::HashMap;
-
-/// Built-in system effects that every platform executor must handle.
-///
-/// These cover the most common async operations an application needs.
-/// For app-specific effects, use [`Effect::App`] with an opaque byte payload.
-///
-/// # Example
-///
-/// ```rust,ignore
-/// fn fetch_data(state: &mut MyState, _action: FetchTodos, ctx: &mut ReducerContext<MyState>) {
-///     ctx.effects.http_get("https://api.example.com/todos")
-///         .on_ok(ctx.effects.bind(TodosLoaded, handle_loaded as fn(&mut MyState, TodosLoaded)));
-/// }
-/// ```
+/// Runtime-managed effects that are not host capabilities.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub enum SystemEffect {
-    /// Show a native alert dialog with a title and message.
-    Alert { title: String, message: String },
-    /// Perform an HTTP GET request.
-    HttpGet {
-        url: String,
-        headers: HashMap<String, String>,
-    },
-    /// Read a file from the local filesystem.
-    FileRead { path: String },
+pub enum RuntimeEffect {
     /// Cancel a previously issued effect by its request id.
     Cancel { req_id: u64 },
     /// Release a platform-managed resource.
     ReleaseResource { resource_id: u64 },
-    /// Open a URL in the system browser or an in-app browser sheet.
-    ///
-    /// When `in_app` is `true`, the URL opens in a Custom Tab /
-    /// SFSafariViewController overlay. When `false`, the URL opens in the
-    /// external browser app.
-    OpenUrl { url: String, in_app: bool },
-    /// Initiate an OAuth / secure authentication session.
-    ///
-    /// The platform opens the `url` and listens for a redirect matching
-    /// `callback_scheme`. The redirect URL is delivered as the effect result.
-    Authenticate {
-        url: String,
-        callback_scheme: String,
-    },
 }
 
 /// A side-effect emitted by a reducer.
 ///
-/// `System` variants are handled by the platform executor.
-/// `App` carries an opaque byte payload for application-defined effects
-/// (e.g. database writes, Bluetooth commands).
+/// `Runtime` variants are handled by the runtime itself.
+/// All host-facing work is expressed as typed capabilities, jobs, or services.
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
 pub enum Effect {
-    /// A built-in system effect (HTTP, file I/O, alerts, etc.).
-    System(SystemEffect),
-    /// An application-defined effect with an opaque byte payload.
-    App(Vec<u8>),
+    /// A runtime-managed effect (cancellation, resource release).
+    Runtime(RuntimeEffect),
+    /// A typed one-shot host capability invocation.
+    Capability(CapabilityInvocationPayload),
+    /// A typed one-shot async job.
+    Job(JobRequestPayload),
+    /// Start a long-lived service for a logical slot.
+    StartService(ServiceStartPayload),
+    /// Send a command to an already-running service slot.
+    ServiceCommand(ServiceCommandPayload),
+    /// Stop a running service slot.
+    StopService(ServiceStopPayload),
 }
 
 /// A queued effect with optional success/failure callbacks.
@@ -92,7 +68,7 @@ pub enum Effect {
 ///
 /// ```rust,ignore
 /// // Built via the Effects builder -- you rarely construct this manually.
-/// ctx.effects.http_get("https://example.com/api")
+/// ctx.effects.capability(MY_CAPABILITY, request)
 ///     .on_ok(ok_envelope)
 ///     .on_err(err_envelope);
 /// ```
@@ -106,20 +82,10 @@ pub struct EffectEnvelope {
     pub on_ok: Option<ActionEnvelope>,
     /// Action dispatched when the effect fails.
     pub on_err: Option<ActionEnvelope>,
-}
-
-/// The payload delivered when an effect completes.
-///
-/// Small results are inlined as bytes; large results reference a
-/// platform-managed [`ResourceId`].
-#[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
-pub enum EffectPayload {
-    /// The result data, serialised inline.
-    InlineBytes(Vec<u8>),
-    /// A handle to a platform-managed resource (avoids copying large blobs).
-    Resource(u64),
-    /// The effect produced no result data.
-    Empty,
+    /// Additional bindings used by service lifecycle operations.
+    pub service_bindings: Option<ServiceBindings>,
+    /// Optional resource ownership metadata used to suppress stale completions.
+    pub resource: Option<ResourceExecutionContext>,
 }
 
 /// Extra input data passed alongside an action dispatch.
@@ -145,10 +111,77 @@ pub enum EffectPayload {
 pub enum ActionInput {
     /// No extra input.
     None,
-    /// The effect completed successfully.
-    EffectOk { req_id: u64, payload: EffectPayload },
-    /// The effect failed with an error message.
-    EffectErr { req_id: u64, message: String },
+    /// A typed async job completed successfully.
+    JobOk {
+        job_name: String,
+        req_id: u64,
+        payload: Vec<u8>,
+    },
+    /// A typed async job failed.
+    JobErr {
+        job_name: String,
+        req_id: u64,
+        payload: Option<Vec<u8>>,
+        message: Option<String>,
+    },
+    /// A service slot started successfully.
+    ServiceStarted {
+        service_name: String,
+        slot_key: String,
+        instance_id: u64,
+    },
+    /// A service slot failed to start.
+    ServiceStartFailed {
+        service_name: String,
+        slot_key: String,
+        payload: Option<Vec<u8>>,
+        message: Option<String>,
+    },
+    /// A running service emitted an event.
+    ServiceEvent {
+        service_name: String,
+        slot_key: String,
+        instance_id: u64,
+        payload: Vec<u8>,
+    },
+    /// A running service stopped.
+    ServiceStopped {
+        service_name: String,
+        slot_key: String,
+        instance_id: u64,
+    },
+    /// A service command completed successfully.
+    ServiceCommandOk {
+        service_name: String,
+        slot_key: String,
+        instance_id: u64,
+        req_id: u64,
+        payload: Option<Vec<u8>>,
+    },
+    /// A service command failed.
+    ServiceCommandErr {
+        service_name: String,
+        slot_key: String,
+        instance_id: u64,
+        req_id: u64,
+        payload: Option<Vec<u8>>,
+        message: Option<String>,
+    },
+    /// A typed capability operation succeeded.
+    CapabilityOk {
+        capability: String,
+        req_id: u64,
+        payload: Vec<u8>,
+    },
+    /// A typed capability operation failed.
+    CapabilityErr {
+        capability: String,
+        req_id: u64,
+        payload: Option<Vec<u8>>,
+        message: Option<String>,
+    },
+    /// A timer resource fired.
+    TimerTick { payload: Vec<u8> },
     /// Pointer coordinates and deltas (used by drag/gesture handlers).
     Pointer {
         x: f32,
@@ -165,10 +198,9 @@ pub enum ActionInput {
 impl ActionInput {
     pub fn as_bytes(&self) -> Option<&[u8]> {
         match self {
-            ActionInput::EffectOk {
-                payload: EffectPayload::InlineBytes(b),
-                ..
-            } => Some(b),
+            ActionInput::JobOk { payload, .. } => Some(payload),
+            ActionInput::CapabilityOk { payload, .. } => Some(payload),
+            ActionInput::TimerTick { payload } => Some(payload),
             ActionInput::InternalDrop { payload, .. } => Some(payload),
             _ => None,
         }
@@ -198,6 +230,176 @@ impl ActionInput {
     pub fn as_internal_drop(&self) -> Option<&[u8]> {
         match self {
             ActionInput::InternalDrop { payload, .. } => Some(payload),
+            _ => None,
+        }
+    }
+
+    pub fn job_ok<J: JobSpec>(&self, job: JobRef<J>) -> Option<J::Ok> {
+        match self {
+            ActionInput::JobOk {
+                job_name, payload, ..
+            } if job_name == job.name => serde_json::from_slice(payload).ok(),
+            _ => None,
+        }
+    }
+
+    pub fn job_err<J: JobSpec>(&self, job: JobRef<J>) -> Option<J::Err> {
+        match self {
+            ActionInput::JobErr {
+                job_name,
+                payload: Some(payload),
+                ..
+            } if job_name == job.name => serde_json::from_slice(payload).ok(),
+            _ => None,
+        }
+    }
+
+    pub fn job_error_message<J: JobSpec>(&self, job: JobRef<J>) -> Option<&str> {
+        match self {
+            ActionInput::JobErr {
+                job_name,
+                message: Some(message),
+                ..
+            } if job_name == job.name => Some(message.as_str()),
+            _ => None,
+        }
+    }
+
+    pub fn capability_ok<C: OperationCapability>(
+        &self,
+        capability: CapabilityType<C>,
+    ) -> Option<C::Ok> {
+        match self {
+            ActionInput::CapabilityOk {
+                capability: actual,
+                payload,
+                ..
+            } if actual == capability.name => serde_json::from_slice(payload).ok(),
+            _ => None,
+        }
+    }
+
+    pub fn capability_error<C: OperationCapability>(
+        &self,
+        capability: CapabilityType<C>,
+    ) -> Option<C::Err> {
+        match self {
+            ActionInput::CapabilityErr {
+                capability: actual,
+                payload: Some(payload),
+                ..
+            } if actual == capability.name => serde_json::from_slice(payload).ok(),
+            _ => None,
+        }
+    }
+
+    pub fn capability_error_message<C: OperationCapability>(
+        &self,
+        capability: CapabilityType<C>,
+    ) -> Option<&str> {
+        match self {
+            ActionInput::CapabilityErr {
+                capability: actual,
+                message: Some(message),
+                ..
+            } if actual == capability.name => Some(message),
+            _ => None,
+        }
+    }
+
+    pub fn service_event<S: ServiceSpec>(&self, service: ServiceType<S>) -> Option<S::Event> {
+        match self {
+            ActionInput::ServiceEvent {
+                service_name,
+                payload,
+                ..
+            } if service_name == service.name => serde_json::from_slice(payload).ok(),
+            _ => None,
+        }
+    }
+
+    pub fn service_start_err<S: ServiceSpec>(
+        &self,
+        service: ServiceType<S>,
+    ) -> Option<S::StartErr> {
+        match self {
+            ActionInput::ServiceStartFailed {
+                service_name,
+                payload: Some(payload),
+                ..
+            } if service_name == service.name => serde_json::from_slice(payload).ok(),
+            _ => None,
+        }
+    }
+
+    pub fn service_start_error_message<S: ServiceSpec>(
+        &self,
+        service: ServiceType<S>,
+    ) -> Option<&str> {
+        match self {
+            ActionInput::ServiceStartFailed {
+                service_name,
+                message: Some(message),
+                ..
+            } if service_name == service.name => Some(message.as_str()),
+            _ => None,
+        }
+    }
+
+    pub fn service_command_ok<S: ServiceSpec>(
+        &self,
+        service: ServiceType<S>,
+    ) -> Option<S::CommandOk> {
+        match self {
+            ActionInput::ServiceCommandOk {
+                service_name,
+                payload: Some(payload),
+                ..
+            } if service_name == service.name => serde_json::from_slice(payload).ok(),
+            _ => None,
+        }
+    }
+
+    pub fn service_command_err<S: ServiceSpec>(
+        &self,
+        service: ServiceType<S>,
+    ) -> Option<S::CommandErr> {
+        match self {
+            ActionInput::ServiceCommandErr {
+                service_name,
+                payload: Some(payload),
+                ..
+            } if service_name == service.name => serde_json::from_slice(payload).ok(),
+            _ => None,
+        }
+    }
+
+    pub fn timer_tick<T: serde::de::DeserializeOwned>(&self) -> Option<T> {
+        match self {
+            ActionInput::TimerTick { payload } => serde_json::from_slice(payload).ok(),
+            _ => None,
+        }
+    }
+
+    pub fn service_slot_key(&self) -> Option<&str> {
+        match self {
+            ActionInput::ServiceStarted { slot_key, .. }
+            | ActionInput::ServiceStartFailed { slot_key, .. }
+            | ActionInput::ServiceEvent { slot_key, .. }
+            | ActionInput::ServiceStopped { slot_key, .. }
+            | ActionInput::ServiceCommandOk { slot_key, .. }
+            | ActionInput::ServiceCommandErr { slot_key, .. } => Some(slot_key.as_str()),
+            _ => None,
+        }
+    }
+
+    pub fn service_instance_id(&self) -> Option<u64> {
+        match self {
+            ActionInput::ServiceStarted { instance_id, .. }
+            | ActionInput::ServiceEvent { instance_id, .. }
+            | ActionInput::ServiceStopped { instance_id, .. }
+            | ActionInput::ServiceCommandOk { instance_id, .. }
+            | ActionInput::ServiceCommandErr { instance_id, .. } => Some(*instance_id),
             _ => None,
         }
     }

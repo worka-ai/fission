@@ -1,12 +1,15 @@
 use crate::action::{ActionEnvelope, ActionId, AppState};
+use crate::async_runtime::ServiceStopPayload;
 use crate::effect::{ActionInput, EffectEnvelope};
 use crate::env::{ActiveAnimation, RuntimeState, VideoStatus};
 use crate::registry::{
-    ActionRegistry, AnimationPropertyId, AnimationRequest, AnimationStartValue, VideoRegistration,
+    ActionRegistry, AnimationPropertyId, AnimationRequest, AnimationStartValue, ResourcePolicy,
+    RuntimeResourceDeclaration, RuntimeResourceKind, TimerResource, VideoRegistration,
 };
 use crate::BoxedReducer;
 use crate::{
     Clipboard, Clock, CurrentTime, ImeHandler, InputEvent, KeyCode, KeyEvent, PointerEvent,
+    ResourceExecutionContext,
 };
 use anyhow::{anyhow, Result};
 use fission_diagnostics::prelude as diag;
@@ -21,6 +24,29 @@ use std::sync::Arc;
 #[derive(Debug, Default, Clone)]
 pub struct TickResult {
     pub changed_animations: Vec<(WidgetNodeId, AnimationPropertyId)>,
+}
+
+#[derive(Debug, Clone)]
+enum ActiveResourceKind {
+    Job,
+    Service {
+        service_name: String,
+        slot_key: String,
+    },
+    Timer {
+        interval_ms: u64,
+        payload: Vec<u8>,
+        on_tick: Option<ActionEnvelope>,
+        next_fire_at: CurrentTime,
+    },
+}
+
+#[derive(Debug, Clone)]
+struct ActiveResource {
+    generation: u64,
+    deps: Option<Vec<u8>>,
+    policy: ResourcePolicy,
+    kind: ActiveResourceKind,
 }
 
 /// The core runtime that owns application state, reducers, and the effect queue.
@@ -76,6 +102,10 @@ pub struct Runtime {
     pub pending_effects: Vec<EffectEnvelope>,
     /// Monotonically increasing counter for deterministic request id generation.
     pub next_req_id: u64,
+    /// Declarative runtime resources that currently exist.
+    active_resources: HashMap<String, ActiveResource>,
+    /// Monotonically increasing generation counter for runtime resources.
+    next_resource_generation: u64,
 }
 
 impl Default for Runtime {
@@ -90,6 +120,8 @@ impl Default for Runtime {
             ime_handler: None,
             pending_effects: Vec::new(),
             next_req_id: 0,
+            active_resources: HashMap::new(),
+            next_resource_generation: 1,
         };
 
         runtime
@@ -254,6 +286,12 @@ impl Runtime {
         self.dispatch_with_input(action, target, &ActionInput::None)
     }
 
+    fn enqueue_effect(&mut self, mut envelope: EffectEnvelope) {
+        envelope.req_id = self.next_req_id;
+        self.next_req_id += 1;
+        self.pending_effects.push(envelope);
+    }
+
     pub fn dispatch_with_input(
         &mut self,
         action: ActionEnvelope,
@@ -316,12 +354,8 @@ impl Runtime {
             reducers.extend(temp_reducers);
         }
 
-        // Process effects: Assign ReqIds and queue them
-        for mut envelope in effects {
-            // Assign deterministic ReqId
-            envelope.req_id = self.next_req_id;
-            self.next_req_id += 1;
-            self.pending_effects.push(envelope);
+        for envelope in effects {
+            self.enqueue_effect(envelope);
         }
 
         diag::emit(
@@ -341,6 +375,8 @@ impl Runtime {
         let action = Tick { dt };
         let envelope: ActionEnvelope = action.into();
         self.dispatch(envelope, NodeId::derived(0, &[0]))?;
+
+        self.tick_resource_timers()?;
 
         let current_time = self.clock().current_time();
 
@@ -387,6 +423,41 @@ impl Runtime {
         }
 
         Ok(result)
+    }
+
+    fn tick_resource_timers(&mut self) -> Result<()> {
+        let now = self.clock().current_time();
+        let mut ticks = Vec::new();
+
+        for resource in self.active_resources.values_mut() {
+            if let ActiveResourceKind::Timer {
+                interval_ms,
+                payload,
+                on_tick,
+                next_fire_at,
+            } = &mut resource.kind
+            {
+                let Some(action) = on_tick.clone() else {
+                    continue;
+                };
+
+                let interval_ms = (*interval_ms).max(1);
+                while now >= *next_fire_at {
+                    ticks.push((action.clone(), payload.clone()));
+                    *next_fire_at = next_fire_at.saturating_add(interval_ms);
+                }
+            }
+        }
+
+        for (action, payload) in ticks {
+            self.dispatch_with_input(
+                action,
+                NodeId::derived(0, &[0]),
+                &ActionInput::TimerTick { payload },
+            )?;
+        }
+
+        Ok(())
     }
 
     pub fn enqueue_animation(&mut self, target: WidgetNodeId, request: AnimationRequest) {
@@ -569,15 +640,17 @@ impl Runtime {
 
         if self.runtime_state.interaction.focused.is_none() {
             if let Some(autofocus_id) = Self::find_autofocus_node(ir) {
-                self.runtime_state.interaction.set_focused(Some(autofocus_id));
+                self.runtime_state
+                    .interaction
+                    .set_focused(Some(autofocus_id));
                 if let Some(ime_handler) = &self.ime_handler {
                     let accepts_text = ir
                         .nodes
                         .get(&autofocus_id)
                         .and_then(|node| match &node.op {
-                            Op::Semantics(semantics) => Some(
-                                semantics.role == fission_ir::semantics::Role::TextInput,
-                            ),
+                            Op::Semantics(semantics) => {
+                                Some(semantics.role == fission_ir::semantics::Role::TextInput)
+                            }
                             _ => None,
                         })
                         .unwrap_or(false);
@@ -1286,5 +1359,154 @@ impl Runtime {
         }
 
         ir.root.and_then(|root| walk(ir, root))
+    }
+
+    pub fn reconcile_resources(
+        &mut self,
+        declarations: Vec<RuntimeResourceDeclaration>,
+    ) -> Result<()> {
+        let now = self.clock().current_time();
+        let mut existing = std::mem::take(&mut self.active_resources);
+        let mut next = HashMap::new();
+
+        for declaration in declarations {
+            let key = declaration.key.clone();
+            match existing.remove(&key) {
+                Some(current)
+                    if current.policy == declaration.policy
+                        && current.deps == declaration.deps
+                        && current.matches_kind(&declaration.kind) =>
+                {
+                    next.insert(key, current);
+                }
+                Some(current) if declaration.policy == ResourcePolicy::PreserveOnChange => {
+                    next.insert(key, current);
+                }
+                Some(current) => {
+                    self.stop_resource(&key, &current);
+                    let replacement = self.start_resource(declaration, now);
+                    next.insert(key, replacement);
+                }
+                None => {
+                    let resource = self.start_resource(declaration, now);
+                    next.insert(key, resource);
+                }
+            }
+        }
+
+        for (key, resource) in existing {
+            self.stop_resource(&key, &resource);
+        }
+
+        self.active_resources = next;
+        Ok(())
+    }
+
+    pub fn resource_generation(&self, key: &str) -> Option<u64> {
+        self.active_resources
+            .get(key)
+            .map(|resource| resource.generation)
+    }
+
+    pub fn is_resource_current(&self, resource: &ResourceExecutionContext) -> bool {
+        self.resource_generation(&resource.key) == Some(resource.generation)
+    }
+
+    fn start_resource(
+        &mut self,
+        declaration: RuntimeResourceDeclaration,
+        now: CurrentTime,
+    ) -> ActiveResource {
+        let generation = self.next_resource_generation;
+        self.next_resource_generation += 1;
+
+        let context = ResourceExecutionContext {
+            key: declaration.key.clone(),
+            generation,
+        };
+
+        let kind = match declaration.kind {
+            RuntimeResourceKind::Job(mut job) => {
+                job.effect.resource = Some(context);
+                self.enqueue_effect(job.effect);
+                ActiveResourceKind::Job
+            }
+            RuntimeResourceKind::Service(mut service) => {
+                service.effect.resource = Some(context);
+                let (service_name, slot_key) = match &service.effect.effect {
+                    crate::Effect::StartService(payload) => {
+                        (payload.service_name.clone(), payload.slot_key.clone())
+                    }
+                    _ => unreachable!("service resource must lower to StartService"),
+                };
+                self.enqueue_effect(service.effect);
+                ActiveResourceKind::Service {
+                    service_name,
+                    slot_key,
+                }
+            }
+            RuntimeResourceKind::Timer(timer) => self.start_timer_resource(timer, now),
+        };
+
+        ActiveResource {
+            generation,
+            deps: declaration.deps,
+            policy: declaration.policy,
+            kind,
+        }
+    }
+
+    fn start_timer_resource(&self, timer: TimerResource, now: CurrentTime) -> ActiveResourceKind {
+        let interval_ms = timer.interval_ms.max(1);
+        ActiveResourceKind::Timer {
+            interval_ms,
+            payload: timer.payload,
+            on_tick: timer.on_tick,
+            next_fire_at: if timer.immediate {
+                now
+            } else {
+                now.saturating_add(interval_ms)
+            },
+        }
+    }
+
+    fn stop_resource(&mut self, key: &str, resource: &ActiveResource) {
+        if let ActiveResourceKind::Service {
+            service_name,
+            slot_key,
+        } = &resource.kind
+        {
+            self.enqueue_effect(EffectEnvelope {
+                req_id: 0,
+                effect: crate::Effect::StopService(ServiceStopPayload {
+                    service_name: service_name.clone(),
+                    slot_key: slot_key.clone(),
+                }),
+                on_ok: None,
+                on_err: None,
+                service_bindings: None,
+                resource: Some(ResourceExecutionContext {
+                    key: key.to_string(),
+                    generation: resource.generation,
+                }),
+            });
+        }
+    }
+}
+
+impl ActiveResource {
+    fn matches_kind(&self, kind: &RuntimeResourceKind) -> bool {
+        matches!(
+            (&self.kind, kind),
+            (ActiveResourceKind::Job, RuntimeResourceKind::Job(_))
+                | (
+                    ActiveResourceKind::Timer { .. },
+                    RuntimeResourceKind::Timer(_)
+                )
+                | (
+                    ActiveResourceKind::Service { .. },
+                    RuntimeResourceKind::Service(_)
+                )
+        )
     }
 }

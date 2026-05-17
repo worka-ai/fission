@@ -2,13 +2,19 @@
 //!
 //! When a reducer needs to emit side-effects or inspect the [`ActionInput`]
 //! that triggered it, it receives a [`ReducerContext`]. The context provides
-//! an [`Effects`] builder for issuing system effects (HTTP, file I/O, alerts)
-//! and binding callback actions.
+//! an [`Effects`] builder for issuing capabilities, jobs, services, and
+//! runtime-control effects plus binding callback actions.
 
 use crate::action::{Action, ActionEnvelope, AppState};
-use crate::effect::{ActionInput, Effect, EffectEnvelope, SystemEffect};
+use crate::async_runtime::{
+    JobRef, JobRequestPayload, JobSpec, ServiceBindings, ServiceCommandPayload, ServiceSlot,
+    ServiceSpec, ServiceStartPayload, ServiceStopPayload,
+};
+use crate::capability::{
+    CapabilityInvocationPayload, CapabilityType, OperationCapability, OperationCapabilityInvocation,
+};
+use crate::effect::{ActionInput, Effect, EffectEnvelope, RuntimeEffect};
 use crate::registry::{ActionRegistry, IntoHandler};
-use std::collections::HashMap;
 use std::marker::PhantomData;
 
 /// The context passed to modern 3-argument reducer handlers.
@@ -29,8 +35,8 @@ use std::marker::PhantomData;
 ///     if let Some((x, y, _, _)) = ctx.input.as_pointer() {
 ///         state.last_click = (x, y);
 ///     }
-///     // Issue an HTTP GET effect
-///     ctx.effects.http_get("https://api.example.com/clicked");
+///     // Issue a capability effect
+///     ctx.effects.capability(MY_CAPABILITY, request);
 /// }
 /// ```
 pub struct ReducerContext<'a, 'b, 'c, S: AppState> {
@@ -54,7 +60,7 @@ pub struct ReducerContext<'a, 'b, 'c, S: AppState> {
 ///     _action: Save,
 ///     ctx: &mut ReducerContext<MyState>,
 /// ) {
-///     ctx.effects.http_get("https://api.example.com/save")
+///     ctx.effects.capability(MY_CAPABILITY, request)
 ///         .on_ok(ctx.effects.bind(SaveOk, handle_save_ok as fn(&mut MyState, SaveOk)))
 ///         .on_err(ctx.effects.bind(SaveErr, handle_save_err as fn(&mut MyState, SaveErr)));
 /// }
@@ -99,29 +105,44 @@ impl<'a, S: AppState> Effects<'a, S> {
         }
     }
 
-    pub fn add(&mut self, effect: SystemEffect) -> u64 {
+    pub fn add(&mut self, effect: Effect) -> u64 {
         let req_id = self.next_req_id;
         self.next_req_id += 1;
 
         self.out.push(EffectEnvelope {
             req_id,
-            effect: Effect::System(effect),
+            effect,
             on_ok: None,
             on_err: None,
+            service_bindings: None,
+            resource: None,
         });
         req_id
     }
 
-    pub fn system_effect(&mut self, effect: SystemEffect) -> EffectBuilder<'_, 'a, S> {
+    pub fn capability<C: OperationCapability>(
+        &mut self,
+        capability: CapabilityType<C>,
+        request: C::Request,
+    ) -> EffectBuilder<'_, 'a, S> {
         let req_id = self.next_req_id;
         self.next_req_id += 1;
+        let request =
+            serde_json::to_vec(&request).expect("capability request serialization must succeed");
 
         let index = self.out.len();
         self.out.push(EffectEnvelope {
             req_id,
-            effect: Effect::System(effect),
+            effect: Effect::Capability(CapabilityInvocationPayload::Operation(
+                OperationCapabilityInvocation {
+                    capability_name: capability.name.to_string(),
+                    request,
+                },
+            )),
             on_ok: None,
             on_err: None,
+            service_bindings: None,
+            resource: None,
         });
 
         EffectBuilder {
@@ -130,35 +151,130 @@ impl<'a, S: AppState> Effects<'a, S> {
         }
     }
 
-    pub fn http_get(&mut self, url: impl Into<String>) -> EffectBuilder<'_, 'a, S> {
-        self.system_effect(SystemEffect::HttpGet {
-            url: url.into(),
-            headers: HashMap::new(),
-        })
+    pub fn app<J: JobSpec>(
+        &mut self,
+        job: JobRef<J>,
+        request: J::Request,
+    ) -> EffectBuilder<'_, 'a, S> {
+        let req_id = self.next_req_id;
+        self.next_req_id += 1;
+        let payload = serde_json::to_vec(&request).expect("job request serialization must succeed");
+        let index = self.out.len();
+        self.out.push(EffectEnvelope {
+            req_id,
+            effect: Effect::Job(JobRequestPayload {
+                job_name: job.name.to_string(),
+                payload,
+            }),
+            on_ok: None,
+            on_err: None,
+            service_bindings: None,
+            resource: None,
+        });
+        EffectBuilder {
+            effects: self,
+            index,
+        }
     }
 
-    pub fn file_read(&mut self, path: impl Into<String>) -> EffectBuilder<'_, 'a, S> {
-        self.system_effect(SystemEffect::FileRead { path: path.into() })
+    pub fn start_service<Svc: ServiceSpec>(
+        &mut self,
+        slot: ServiceSlot<Svc>,
+        config: Svc::Config,
+    ) -> ServiceStartBuilder<'_, 'a, S> {
+        let req_id = self.next_req_id;
+        self.next_req_id += 1;
+        let index = self.out.len();
+        let config =
+            serde_json::to_vec(&config).expect("service config serialization must succeed");
+        self.out.push(EffectEnvelope {
+            req_id,
+            effect: Effect::StartService(ServiceStartPayload {
+                service_name: slot.ty.name.to_string(),
+                slot_key: slot.slot_key().to_string(),
+                config,
+            }),
+            on_ok: None,
+            on_err: None,
+            service_bindings: Some(ServiceBindings::default()),
+            resource: None,
+        });
+        ServiceStartBuilder {
+            effects: self,
+            index,
+        }
+    }
+
+    pub fn command<Svc: ServiceSpec>(
+        &mut self,
+        slot: ServiceSlot<Svc>,
+        command: Svc::Command,
+    ) -> EffectBuilder<'_, 'a, S> {
+        let req_id = self.next_req_id;
+        self.next_req_id += 1;
+        let index = self.out.len();
+        let payload =
+            serde_json::to_vec(&command).expect("service command serialization must succeed");
+        self.out.push(EffectEnvelope {
+            req_id,
+            effect: Effect::ServiceCommand(ServiceCommandPayload {
+                service_name: slot.ty.name.to_string(),
+                slot_key: slot.slot_key().to_string(),
+                payload,
+            }),
+            on_ok: None,
+            on_err: None,
+            service_bindings: None,
+            resource: None,
+        });
+        EffectBuilder {
+            effects: self,
+            index,
+        }
+    }
+
+    pub fn stop_service<Svc: ServiceSpec>(
+        &mut self,
+        slot: ServiceSlot<Svc>,
+    ) -> EffectBuilder<'_, 'a, S> {
+        let req_id = self.next_req_id;
+        self.next_req_id += 1;
+        let index = self.out.len();
+        self.out.push(EffectEnvelope {
+            req_id,
+            effect: Effect::StopService(ServiceStopPayload {
+                service_name: slot.ty.name.to_string(),
+                slot_key: slot.slot_key().to_string(),
+            }),
+            on_ok: None,
+            on_err: None,
+            service_bindings: None,
+            resource: None,
+        });
+        EffectBuilder {
+            effects: self,
+            index,
+        }
     }
 
     pub fn cancel(&mut self, req_id: u64) {
-        self.system_effect(SystemEffect::Cancel { req_id });
+        self.add(Effect::Runtime(RuntimeEffect::Cancel { req_id }));
     }
 
     pub fn release_resource(&mut self, resource_id: u64) {
-        self.system_effect(SystemEffect::ReleaseResource { resource_id });
+        self.add(Effect::Runtime(RuntimeEffect::ReleaseResource { resource_id }));
     }
 }
 
-/// Fluent builder returned by [`Effects::system_effect`], [`Effects::http_get`],
-/// and [`Effects::file_read`].
+/// Fluent builder returned by [`Effects::capability`], [`Effects::app`], and
+/// related effect constructors.
 ///
 /// Attach `on_ok` and `on_err` callback envelopes before the builder is dropped.
 ///
 /// # Example
 ///
 /// ```rust,ignore
-/// ctx.effects.http_get("https://api.example.com")
+/// ctx.effects.capability(MY_CAPABILITY, request)
 ///     .on_ok(ok_envelope)
 ///     .on_err(err_envelope)
 ///     .dispatch(); // optional -- dropping also finalises
@@ -182,4 +298,55 @@ impl<'a, 'b, S: AppState> EffectBuilder<'a, 'b, S> {
     pub fn dispatch(self) {
         // Drop
     }
+}
+
+pub struct ServiceStartBuilder<'a, 'b, S: AppState> {
+    effects: &'a mut Effects<'b, S>,
+    index: usize,
+}
+
+impl<'a, 'b, S: AppState> ServiceStartBuilder<'a, 'b, S> {
+    pub fn on_started(self, action: ActionEnvelope) -> Self {
+        if let Some(bindings) = self.effects.out[self.index].service_bindings.as_mut() {
+            bindings.on_started = Some(action);
+        }
+        self
+    }
+
+    pub fn on_start_failed(self, action: ActionEnvelope) -> Self {
+        if let Some(bindings) = self.effects.out[self.index].service_bindings.as_mut() {
+            bindings.on_start_failed = Some(action);
+        }
+        self
+    }
+
+    pub fn on_event(self, action: ActionEnvelope) -> Self {
+        if let Some(bindings) = self.effects.out[self.index].service_bindings.as_mut() {
+            bindings.on_event = Some(action);
+        }
+        self
+    }
+
+    pub fn on_stopped(self, action: ActionEnvelope) -> Self {
+        if let Some(bindings) = self.effects.out[self.index].service_bindings.as_mut() {
+            bindings.on_stopped = Some(action);
+        }
+        self
+    }
+
+    pub fn on_command_ok(self, action: ActionEnvelope) -> Self {
+        if let Some(bindings) = self.effects.out[self.index].service_bindings.as_mut() {
+            bindings.on_command_ok = Some(action);
+        }
+        self
+    }
+
+    pub fn on_command_err(self, action: ActionEnvelope) -> Self {
+        if let Some(bindings) = self.effects.out[self.index].service_bindings.as_mut() {
+            bindings.on_command_err = Some(action);
+        }
+        self
+    }
+
+    pub fn dispatch(self) {}
 }

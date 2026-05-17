@@ -85,7 +85,7 @@ impl Widget<EditorState> for FileTree {
                         path = format!("{}-{}", a.0, s.untitled_counter);
                     }
                     let _ = std::fs::write(&path, "");
-                    s.tree_cache_dirty = true;
+                    s.request_tree_refresh();
                     s.open_file(path);
                 }) as Handler<EditorState, CreateFile>,
             )
@@ -103,7 +103,7 @@ impl Widget<EditorState> for FileTree {
                         path = format!("{}-{}", a.0, counter);
                     }
                     let _ = std::fs::create_dir_all(&path);
-                    s.tree_cache_dirty = true;
+                    s.request_tree_refresh();
                     // Expand the parent so the new folder is visible
                     if let Some(parent) = std::path::Path::new(&path).parent() {
                         s.tree_expanded.insert(parent.to_string_lossy().to_string());
@@ -120,7 +120,7 @@ impl Widget<EditorState> for FileTree {
                 (|s: &mut EditorState, _a: RefreshTree, _| {
                     // Collapse all expanded nodes to force a fresh view
                     s.tree_expanded.clear();
-                    s.tree_cache_dirty = true;
+                    s.request_tree_refresh();
                 }) as Handler<EditorState, RefreshTree>,
             )
             .id;

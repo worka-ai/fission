@@ -170,7 +170,8 @@ pub struct Pipeline {
     retained_scene: Option<RenderScene>,
     retained_dynamic_ops: RetainedDynamicOps,
     layout_input_nodes: Vec<LayoutInputNode>,
-    pending_layout_dirty: HashSet<NodeId>,
+    pending_layout_dirty_nodes: HashSet<NodeId>,
+    pending_layout_invalidated: bool,
     pending_layout_full: bool,
     compositor_animation_keys: HashSet<(WidgetNodeId, AnimationPropertyId)>,
     runtime_dynamic_nodes: HashSet<NodeId>,
@@ -204,7 +205,8 @@ impl Pipeline {
             retained_scene: None,
             retained_dynamic_ops: RetainedDynamicOps::default(),
             layout_input_nodes: Vec::new(),
-            pending_layout_dirty: HashSet::new(),
+            pending_layout_dirty_nodes: HashSet::new(),
+            pending_layout_invalidated: false,
             pending_layout_full: true,
             compositor_animation_keys: HashSet::new(),
             runtime_dynamic_nodes: HashSet::new(),
@@ -221,6 +223,7 @@ impl Pipeline {
 
     pub fn invalidate_layout_all(&mut self) {
         self.pending_layout_full = true;
+        self.pending_layout_dirty_nodes.clear();
     }
 
     pub fn replace_ir(&mut self, next_ir: CoreIR, env: &Env) -> InvalidationSet {
@@ -231,8 +234,8 @@ impl Pipeline {
             let diff = diff_ir(prev_ir, &next_ir);
             if !diff.dirty_layout.is_empty() {
                 invalidation.mark_layout();
-                self.pending_layout_dirty
-                    .extend(diff.dirty_layout.iter().copied());
+                self.pending_layout_invalidated = true;
+                self.pending_layout_dirty_nodes.extend(diff.dirty_layout);
             }
             if !diff.dirty_paint.is_empty() {
                 invalidation.mark_paint();
@@ -244,6 +247,7 @@ impl Pipeline {
         } else {
             invalidation.mark_build();
             self.pending_layout_full = true;
+            self.pending_layout_dirty_nodes.clear();
         }
 
         if rebuild_layout_tree {
@@ -287,35 +291,59 @@ impl Pipeline {
         let needs_full =
             self.pending_layout_full || self.last_snapshot.is_none() || viewport_changed;
 
-        if !needs_full && self.pending_layout_dirty.is_empty() {
+        if !needs_full && !self.pending_layout_invalidated {
             self.last_viewport = Some(viewport);
             return Ok(0);
         }
 
         let start_layout = Instant::now();
-        let dirty_nodes: HashSet<NodeId> = if needs_full {
-            self.layout_full_rebuild_count = self.layout_full_rebuild_count.saturating_add(1);
-            self.layout_input_nodes.iter().map(|n| n.id).collect()
+        let dirty_layout_nodes = if needs_full {
+            self.layout_input_nodes.len()
         } else {
-            self.pending_layout_dirty.clone()
+            self.pending_layout_dirty_nodes.len()
         };
-
-        layout_engine.update(&self.layout_input_nodes, &dirty_nodes);
-
-        let root_id = self
-            .prev_ir
-            .as_ref()
-            .and_then(|ir| ir.root)
-            .expect("no root in IR");
-        let snapshot = layout_engine.compute_layout(
-            &self.layout_input_nodes,
-            root_id,
-            viewport.size,
-            &|id| scroll_map.get_offset(id),
-        )?;
+        let (snapshot, full_rebuild) = if needs_full {
+            self.layout_full_rebuild_count = self.layout_full_rebuild_count.saturating_add(1);
+            layout_engine.update(&self.layout_input_nodes);
+            let root_id = self
+                .prev_ir
+                .as_ref()
+                .and_then(|ir| ir.root)
+                .expect("no root in IR");
+            (
+                layout_engine.compute_layout(
+                    &self.layout_input_nodes,
+                    root_id,
+                    viewport.size,
+                    &|id| scroll_map.get_offset(id),
+                )?,
+                true,
+            )
+        } else {
+            layout_engine.update(&self.layout_input_nodes);
+            let root_id = self
+                .prev_ir
+                .as_ref()
+                .and_then(|ir| ir.root)
+                .expect("no root in IR");
+            (
+                layout_engine.compute_layout_incremental(
+                    &self.layout_input_nodes,
+                    root_id,
+                    viewport.size,
+                    &|id| scroll_map.get_offset(id),
+                    self.last_snapshot
+                        .as_ref()
+                        .expect("incremental layout requires a prior snapshot"),
+                    &self.pending_layout_dirty_nodes,
+                )?,
+                false,
+            )
+        };
         self.last_snapshot = Some(snapshot);
         self.last_viewport = Some(viewport);
-        self.pending_layout_dirty.clear();
+        self.pending_layout_dirty_nodes.clear();
+        self.pending_layout_invalidated = false;
         self.pending_layout_full = false;
         self.clear_render_caches();
 
@@ -325,13 +353,13 @@ impl Pipeline {
             diag::DiagLevel::Debug,
             diag::DiagEventKind::LayoutSummary {
                 nodes: self.layout_input_nodes.len() as u32,
-                dirty_count: dirty_nodes.len() as u32,
-                full_rebuild: needs_full,
+                dirty_count: dirty_layout_nodes as u32,
+                full_rebuild,
                 duration_ns: duration,
             },
         );
 
-        Ok(dirty_nodes.len())
+        Ok(dirty_layout_nodes)
     }
 
     pub fn prepare_current(
@@ -351,7 +379,15 @@ impl Pipeline {
             render_viewport_size.height,
         );
         let mut stats = PipelineStats {
-            dirty_nodes: self.pending_layout_dirty.len(),
+            dirty_nodes: if self.pending_layout_full || self.pending_layout_invalidated {
+                if self.pending_layout_full {
+                    self.layout_input_nodes.len()
+                } else {
+                    self.pending_layout_dirty_nodes.len()
+                }
+            } else {
+                0
+            },
             layout_updates: 0,
             paint_misses: 0,
             paint_hits: 0,
@@ -659,9 +695,9 @@ impl Pipeline {
     fn clear_render_caches(&mut self) {
         if render_trace_enabled() {
             eprintln!(
-                "[pipeline] clear_render_caches layout_full={} dirty_layout={} retained_was_present={}",
+                "[pipeline] clear_render_caches layout_full={} layout_invalidated={} retained_was_present={}",
                 self.pending_layout_full,
-                self.pending_layout_dirty.len(),
+                self.pending_layout_invalidated,
                 self.retained_scene.is_some()
             );
         }
@@ -2209,6 +2245,61 @@ mod tests {
         }
     }
 
+    fn two_child_layout_ir(second_width: f32) -> CoreIR {
+        let root = NodeId::derived(50, &[0]);
+        let first = NodeId::derived(50, &[1]);
+        let second = NodeId::derived(50, &[2]);
+        let mut ir = CoreIR::new();
+        ir.add_node(
+            first,
+            Op::Layout(LayoutOp::Box {
+                width: Some(40.0),
+                height: Some(20.0),
+                min_width: None,
+                max_width: None,
+                min_height: None,
+                max_height: None,
+                padding: [0.0; 4],
+                flex_grow: 0.0,
+                flex_shrink: 1.0,
+                aspect_ratio: None,
+            }),
+            vec![],
+        );
+        ir.add_node(
+            second,
+            Op::Layout(LayoutOp::Box {
+                width: Some(second_width),
+                height: Some(20.0),
+                min_width: None,
+                max_width: None,
+                min_height: None,
+                max_height: None,
+                padding: [0.0; 4],
+                flex_grow: 0.0,
+                flex_shrink: 1.0,
+                aspect_ratio: None,
+            }),
+            vec![],
+        );
+        ir.add_node(
+            root,
+            Op::Layout(LayoutOp::Flex {
+                direction: fission_ir::FlexDirection::Column,
+                wrap: fission_ir::op::FlexWrap::NoWrap,
+                flex_grow: 0.0,
+                flex_shrink: 1.0,
+                padding: [0.0; 4],
+                gap: Some(4.0),
+                align_items: fission_ir::op::AlignItems::Start,
+                justify_content: fission_ir::op::JustifyContent::Start,
+            }),
+            vec![first, second],
+        );
+        ir.set_root(root);
+        ir
+    }
+
     #[test]
     fn unchanged_scroll_offsets_do_not_invalidate_cache() {
         let id = NodeId::derived(1, &[0]);
@@ -2227,6 +2318,37 @@ mod tests {
         let mut scroll = ScrollStateMap::default();
         scroll.set_offset(id, 4.0);
         assert!(scroll_offsets_changed(&prev, &scroll));
+    }
+
+    #[test]
+    fn incremental_layout_keeps_rebuild_telemetry_honest() {
+        let mut pipeline = Pipeline::new();
+        let mut layout_engine = LayoutEngine::new();
+        let scroll = ScrollStateMap::default();
+
+        pipeline.replace_ir(two_child_layout_ir(60.0), &Env::default());
+        let first_pass = pipeline
+            .ensure_layout(
+                LayoutRect::new(0.0, 0.0, 320.0, 240.0),
+                &mut layout_engine,
+                &scroll,
+            )
+            .expect("initial layout");
+        assert_eq!(first_pass, pipeline.layout_input_nodes.len());
+        assert_eq!(pipeline.layout_full_rebuild_count, 1);
+
+        pipeline.replace_ir(two_child_layout_ir(90.0), &Env::default());
+        let second_pass = pipeline
+            .ensure_layout(
+                LayoutRect::new(0.0, 0.0, 320.0, 240.0),
+                &mut layout_engine,
+                &scroll,
+            )
+            .expect("incremental layout");
+
+        assert_eq!(second_pass, 1);
+        assert_eq!(pipeline.layout_full_rebuild_count, 1);
+        assert!(pipeline.pending_layout_dirty_nodes.is_empty());
     }
 
     #[test]

@@ -1,12 +1,16 @@
 use fission_core::op::Color;
 use fission_core::ui::{Container, Node, Text};
-use fission_core::{AppState, BuildCtx, View, Widget};
+use fission_core::{
+    Action, ActionId, AppState, BuildCtx, ReducerContext, ResourceKey, TimerResource, View, Widget,
+};
 use fission_shell_desktop::DesktopApp;
 use fission_widgets::{
     HStack, Spacer, TerminalLaunchConfig, TerminalSession, TerminalView, VStack,
 };
+use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
+use std::time::Duration;
 
 const WINDOW_BG: Color = Color {
     r: 24,
@@ -55,18 +59,100 @@ const GREEN: Color = Color {
 struct TerminalExampleState {
     cwd: PathBuf,
     session: Option<Arc<TerminalSession>>,
+    redraw_epoch: u64,
 }
 
 impl AppState for TerminalExampleState {}
+
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
+struct StartTerminal;
+
+impl Action for StartTerminal {
+    fn static_id() -> ActionId {
+        ActionId::from_name("examples::terminal::StartTerminal")
+    }
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
+struct PollTerminal;
+
+impl Action for PollTerminal {
+    fn static_id() -> ActionId {
+        ActionId::from_name("examples::terminal::PollTerminal")
+    }
+}
+
+#[derive(Clone, Debug, Default, Serialize, Deserialize, PartialEq, Eq)]
+struct PollTerminalTick;
+
+fn start_terminal(
+    state: &mut TerminalExampleState,
+    _: StartTerminal,
+    _: &mut ReducerContext<TerminalExampleState>,
+) {
+    if state.session.is_some() {
+        return;
+    }
+
+    state.session = TerminalSession::spawn(TerminalLaunchConfig {
+        cwd: Some(state.cwd.clone()),
+        program: std::env::var("SHELL").ok(),
+        ..Default::default()
+    })
+    .ok();
+}
+
+fn poll_terminal(
+    state: &mut TerminalExampleState,
+    _: PollTerminal,
+    ctx: &mut ReducerContext<TerminalExampleState>,
+) {
+    let _tick: PollTerminalTick = ctx.input.timer_tick().unwrap_or_default();
+
+    if state
+        .session
+        .as_ref()
+        .map(|session| session.take_dirty())
+        .unwrap_or(false)
+    {
+        state.redraw_epoch = state.redraw_epoch.wrapping_add(1);
+    }
+}
 
 struct TerminalExampleApp;
 
 impl Widget<TerminalExampleState> for TerminalExampleApp {
     fn build(
         &self,
-        _ctx: &mut BuildCtx<TerminalExampleState>,
+        ctx: &mut BuildCtx<TerminalExampleState>,
         view: &View<TerminalExampleState>,
     ) -> Node {
+        ctx.register(
+            start_terminal
+                as fn(
+                    &mut TerminalExampleState,
+                    StartTerminal,
+                    &mut ReducerContext<TerminalExampleState>,
+                ),
+        );
+        let poll_terminal_action = ctx.bind(
+            PollTerminal,
+            poll_terminal
+                as fn(
+                    &mut TerminalExampleState,
+                    PollTerminal,
+                    &mut ReducerContext<TerminalExampleState>,
+                ),
+        );
+        ctx.resources.timer(
+            TimerResource::new(
+                ResourceKey::new("terminal-session-poll"),
+                Duration::from_millis(16),
+                PollTerminalTick,
+            )
+            .on_tick(poll_terminal_action),
+        );
+
         let title = view
             .state
             .session
@@ -122,7 +208,7 @@ impl Widget<TerminalExampleState> for TerminalExampleApp {
                 .font_size(13.0)
                 .line_height(18.0)
                 .padding(10.0, 10.0)
-                .build(_ctx, view)
+                .build(ctx, view)
         } else {
             Container::new(
                 Text::new("Failed to start shell")
@@ -196,26 +282,12 @@ fn main() -> anyhow::Result<()> {
     let cwd = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
     DesktopApp::new(TerminalExampleApp)
         .with_title("Fission Terminal")
-        .with_state_init(move |state: &mut TerminalExampleState| {
-            state.cwd = cwd.clone();
-            state.session = TerminalSession::spawn(TerminalLaunchConfig {
-                cwd: Some(cwd.clone()),
-                program: std::env::var("SHELL").ok(),
-                ..Default::default()
-            })
-            .ok();
-        })
+        .with_state_init(move |state: &mut TerminalExampleState| state.cwd = cwd.clone())
+        .with_startup_action(StartTerminal)
         .with_sync_env(
             |_state: &TerminalExampleState, env: &mut fission_core::Env| {
                 env.theme = fission_theme::Theme::dark();
             },
         )
-        .with_frame_hook(|state: &mut TerminalExampleState| {
-            state
-                .session
-                .as_ref()
-                .map(|session| session.take_dirty())
-                .unwrap_or(false)
-        })
         .run()
 }

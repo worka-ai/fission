@@ -1,5 +1,6 @@
 use anyhow::Result;
-use fission_core::{AppState, Env, Widget};
+use fission_core::{Action, AppState, Env, Widget};
+use fission_shell::async_host::AsyncRegistry;
 use fission_shell_winit::WinitApp;
 
 pub struct WebApp<S: AppState, W: Widget<S>> {
@@ -26,6 +27,11 @@ impl<S: AppState + Default, W: Widget<S> + 'static> WebApp<S, W> {
         self
     }
 
+    pub fn with_startup_action<A: Action>(mut self, action: A) -> Self {
+        self.inner = self.inner.with_startup_action(action);
+        self
+    }
+
     pub fn with_sync_env<F>(mut self, sync: F) -> Self
     where
         F: Fn(&S, &mut Env) + Send + Sync + 'static,
@@ -39,6 +45,14 @@ impl<S: AppState + Default, W: Widget<S> + 'static> WebApp<S, W> {
         F: Fn(&mut S) -> bool + Send + Sync + 'static,
     {
         self.inner = self.inner.with_frame_hook(hook);
+        self
+    }
+
+    pub fn with_async<F>(mut self, configure: F) -> Self
+    where
+        F: FnOnce(&mut AsyncRegistry),
+    {
+        self.inner = self.inner.with_async(configure);
         self
     }
 

@@ -11,7 +11,6 @@ use fission_render_vello::parley::FontContext;
 use fission_render_vello::VelloTextMeasurer;
 use fission_theme::fonts;
 use fontique::{Blob, Collection, CollectionOptions, FontInfoOverride, SourceCache};
-use std::collections::HashSet;
 use std::sync::{Arc, Mutex};
 
 // A mock renderer that captures the display list for inspection.
@@ -353,8 +352,7 @@ impl<S: AppState> TestHarness<S> {
             if trace {
                 eprintln!("[test-trace] layout start");
             }
-            let dirty: HashSet<_> = layout_input_nodes.iter().map(|n| n.id).collect();
-            self.layout_engine.update(&layout_input_nodes, &dirty);
+            self.layout_engine.update(&layout_input_nodes);
             self.layout_engine
                 .verify_post_update(&layout_input_nodes, root_id)?;
             let snapshot = self.layout_engine.compute_layout(
