@@ -1,34 +1,42 @@
 ---
 title: Targets
-description: Runtime targets and generated host outputs.
+description: Current generated targets, checked-in smoke paths, and the role of host folders in a Fission app.
 ---
 
 # Targets
 
-Targets are generated host layers around the same app model.
+Fission keeps product logic in shared Rust code and uses target folders as host wrappers.
 
-Supported targets for scaffolds are:
+## Generated target names
 
-- `windows`, `macos`, `linux`
+The CLI can scaffold:
+
+- `windows`
+- `macos`
+- `linux`
 - `web`
 - `ios`
 - `android`
 
-## Shared behavior, target-specific launch
-
-Keep `src/app.rs` as your product source. Generated files under `platforms/<target>/` control
-packaging and launch commands.
-
-## Typical commands
+## Commands you will actually run
 
 - desktop: `cargo run`
-- web: `cargo fission add-target web && ./platforms/web/run-browser.sh`
-- iOS: `cargo fission add-target ios && ./platforms/ios/run-sim.sh`
-- Android: `cargo fission add-target android && ./platforms/android/run-emulator.sh`
+- web: `./platforms/web/run-browser.sh`
+- iOS: `./platforms/ios/run-sim.sh`
+- Android: `./platforms/android/run-emulator.sh`
 
-## What to verify per target
+## Repo-backed smoke references
 
-- action/reducer consistency,
-- semantics discovery,
-- layout behavior under different viewport sizes,
-- baseline performance.
+- `examples/web-smoke/`
+- `examples/mobile-smoke/`
+
+Those checked-in examples are the source of truth for what the generated host paths should look like.
+
+## What each target folder owns
+
+- packaging and host metadata
+- launcher scripts and prerequisites
+- platform-specific README notes
+- app icon and bundle wiring
+
+It should not own your product logic.

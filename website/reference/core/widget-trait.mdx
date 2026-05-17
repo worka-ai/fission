@@ -1,39 +1,45 @@
 ---
 title: Widget trait
-description: The render contract every UI element follows.
+description: The pure build contract every Fission UI tree follows.
 ---
 
 # Widget trait
 
-Every renderable unit implements the same minimal contract:
+Every renderable unit in Fission implements the same contract:
 
 ```rust
 fn build(&self, ctx: &mut BuildCtx<S>, view: &View<S>) -> Node
 ```
 
-This keeps rendering pure and predictable. `build()` is not a place for side effects; it is a projection from state to nodes.
+## What belongs in `build()`
 
-## What this means in practice
+- read current state from `view.state`,
+- read runtime and environment data from `view.runtime` and `view.env`,
+- bind actions, declare resources, and register overlays through `ctx`,
+- return a deterministic `Node` tree.
 
-- all behavior starts from state,
-- action dispatch stays explicit,
-- async and I/O stay outside build through contexts and effects.
+## What does not belong in `build()`
 
-## How to reason about a widget implementation
+- direct I/O,
+- hidden mutation outside reducers,
+- platform API calls,
+- long-lived work that is not represented as a resource or effect.
 
-1. Read only what is in `view.state`.
-2. Bind any actions your UI needs.
-3. Return a deterministic `Node` tree.
+## Important supporting types
 
-If side effects leak into build, tests become noisy and replay behavior degrades.
+- `View<S>`: read-only state, runtime state, environment, and prior layout access
+- `BuildCtx<S>`: action binding plus runtime declarations
+- `Node`: the authoring tree that gets lowered into Core IR
+- `WidgetNodeId`: stable IDs for runtime-owned behavior like animation and overlays
 
-## Common usage pattern
+## Common implementation patterns
 
-```rust
-impl Widget<MyAppState> for Home {
-    fn build(&self, ctx: &mut BuildCtx<MyAppState>, view: &View<MyAppState>) -> Node {
-        // map state -> layout -> interaction
-        Column::default().into_node()
-    }
-}
-```
+- simple screens: implement `Widget<S>` directly on a struct
+- reusable helpers: return `Node` or implement `Widget<S>` on a small view-model wrapper
+- custom surfaces: return `Node::Custom(...)` with a `LowerDyn` lowerer
+
+## Related pages
+
+- [State system](/reference/core/state-system)
+- [Rendering pipeline](/reference/core/rendering-pipeline)
+- [Runtime model](/docs/learn/runtime-model)

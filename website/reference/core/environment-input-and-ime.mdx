@@ -1,0 +1,58 @@
+---
+title: Environment, input, and IME
+description: The explicit environment and input contracts that shells normalize into the shared runtime.
+---
+
+# Environment, input, and IME
+
+This is the public boundary between shell-provided context and runtime-owned interaction state.
+
+## `Env`
+
+`Env` carries explicit build-time context:
+
+- `theme`
+- `i18n`
+- `locale`
+- `window_insets`
+- `viewport_size`
+- optional text measurer
+
+Desktop can be seeded through `with_env(...)`, and desktop/mobile/web wrappers can all update environment values through `with_sync_env(...)`.
+
+## Input event model
+
+`InputEvent` variants:
+
+- `Pointer(PointerEvent)`
+- `Keyboard(KeyEvent)`
+- `Ime(ImeEvent)`
+- `Gesture(GestureEvent)`
+- `Lifecycle(LifecycleEvent)`
+
+Important related types:
+
+- `PointerButton`
+- `KeyCode`
+- modifier constants like `MOD_CTRL`
+
+## Text-edit runtime state
+
+The runtime owns text-edit buffers, caret and selection state, history, preedit, and text-input affordances.
+
+That lets built-in `TextInput` and custom text surfaces share the same model.
+
+## Clipboard and IME traits
+
+Core exposes shell traits rather than hiding these in platform code:
+
+- `Clipboard`
+- `ImeHandler`
+
+Desktop shell implementations back real copy/paste and IME composition; tests can supply mocks.
+
+## Where to inspect behavior
+
+- `examples/text-lab/` for text input and modal focus flows
+- `examples/editor/` for custom IME-aware editing
+- `crates/core/fission-core/tests/input_controller_tests.rs` for focused input-controller behavior

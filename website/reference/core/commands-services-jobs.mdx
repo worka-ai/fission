@@ -1,36 +1,54 @@
 ---
 title: Commands, services, and jobs
-description: Async boundaries and external work contracts.
+description: The reducer effect primitives used for async and long-lived work.
 ---
 
 # Commands, services, and jobs
 
-This reference page is the contract sheet for async behavior.
+The reducer-side async API lives on `ReducerContext::effects`.
 
-- **Job**: one-shot execution tied to a request/response pair.
-- **Service**: long-lived process with start/stop and events.
-- **Command**: explicit instruction to an active service.
+## Job
 
-## Data model
+Use `app(job, request)` for one-shot work with a single success or failure path.
 
-Use completion actions to bring async results back through normal reducer flow:
+Important types:
 
-```text
-action -> async trigger -> completion action -> reducer -> render
-```
+- `JobSpec`
+- `JobRef<J>`
+- `JobCtx`
 
-## Registering async behavior
+## Service
 
-All async registration is done on app startup through `with_async` so runtime wiring is centralized.
+Use `start_service(slot, config)` for long-lived work that may emit events or accept later commands.
 
-## When each primitive is appropriate
+Important types:
 
-- choose a **job** when the work is isolated and returns once,
-- choose a **service** when work is ongoing or stateful,
-- choose a **command** for explicit control signals.
+- `ServiceSpec`
+- `ServiceSlot<Svc>`
+- `ServiceCtx`
+- `ServiceBindings`
 
-## Test points to use
+## Command
 
-- reducer unit tests,
-- completion payload decode via `ActionInput`,
-- behavior tests through `TestHarness` and `LiveTestClient`.
+Use `command(slot, payload)` to talk to an already-running service.
+
+## Stop
+
+Use `stop_service(slot)` when the service lifecycle should end explicitly rather than by resource reconciliation.
+
+## Common callback hooks
+
+The effect builders support `on_ok(...)`, `on_err(...)`, and service-specific bindings such as:
+
+- `on_started(...)`
+- `on_start_failed(...)`
+- `on_event(...)`
+- `on_stopped(...)`
+- `on_command_ok(...)`
+- `on_command_err(...)`
+
+## Shell registration
+
+Jobs, services, and custom capabilities are registered at app startup through shell `with_async(...)`.
+
+That keeps runtime plumbing centralized and visible to code review.

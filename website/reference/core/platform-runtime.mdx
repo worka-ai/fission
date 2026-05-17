@@ -1,0 +1,47 @@
+---
+title: Platform runtime
+description: The shell builders and runtime hooks that wrap the shared Fission core.
+---
+
+# Platform runtime
+
+The shared runtime is hosted by three public shell wrappers:
+
+- `DesktopApp<S, W>`
+- `MobileApp<S, W>`
+- `WebApp<S, W>`
+
+## Shared builder hooks
+
+All shells expose some mix of:
+
+- `with_title(...)`
+- `with_state_init(...)`
+- `with_startup_action(...)`
+- desktop-only `with_env(...)`
+- `with_sync_env(...)`
+- `with_frame_hook(...)`
+- `with_async(...)`
+
+Desktop and mobile also expose `with_test_control_port(...)`.
+
+## What the shell owns
+
+- native event capture and normalization
+- renderer setup and presentation
+- clipboard and IME implementations
+- capability/job/service host execution
+- optional HTTP test control server
+
+## What the core owns
+
+- action dispatch and reducer execution
+- runtime state
+- resource reconciliation
+- lowering, layout, semantics, and display-list generation
+
+## Best docs to pair with this page
+
+- `crates/shell/fission-shell-desktop/README.md`
+- [Targets](/reference/platform/targets)
+- [Testing](/reference/platform/testing)

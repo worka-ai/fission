@@ -1,23 +1,41 @@
 ---
-title: CLI
-description: Project workflow and target generation commands.
+title: CLI overview
+description: The first-party scaffold and target-management commands shipped with Fission.
 ---
 
 # CLI overview
 
-The CLI flow is intentionally small:
+The CLI currently does two important things:
 
-1. `fission init <app>` creates a runnable scaffold.
-2. `cargo fission add-target <target>` adds host output for a runtime.
+1. `fission init <path>` creates a runnable app scaffold.
+2. `cargo fission add-target <targets...>` adds host folders to an existing app.
 
-Example:
+## `fission init`
 
-```bash
-cargo install fission-cli
-fission init my-app
-cd my-app
-cargo run
-cargo fission add-target web ios android
-```
+Important flags:
 
-Generated targets are launched from each `platforms/<target>/` directory. Keep generated artifacts committed only where that is part of your team practice; otherwise use local scripts for iteration and source control for product decisions.
+- `--name` to override the crate/package name
+- `--app-id` to control the mobile app identifier
+- `--local-path` to point the scaffold at a local Fission checkout
+
+## `cargo fission add-target`
+
+Important flag:
+
+- `--project-dir` to target an existing scaffold outside the current directory
+
+## Generated files worth knowing
+
+- `Cargo.toml`
+- `src/main.rs`
+- `src/lib.rs`
+- `src/app.rs`
+- `fission.toml`
+- `platforms/<target>/README.md`
+- `assets/app-icon.png`
+
+## Current scope
+
+The CLI is intentionally narrow: it gets a shared app skeleton on disk and gives you concrete host paths for desktop, web, iOS, and Android.
+
+For target reality and prerequisites, pair this page with [Targets](/reference/platform/targets).

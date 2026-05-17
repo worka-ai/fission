@@ -1,26 +1,29 @@
 ---
 title: Testing
-description: Practical testing order for reliable Fission apps.
+description: The shell-side pieces that make live interaction, screenshots, and smoke flows possible.
 ---
 
 # Testing
 
-Use this order to keep fixes localized:
+This page focuses on the shell side of testing rather than the headless runtime helpers.
 
-1. **Reducer tests**: verify state transitions.
-2. **Effect input tests**: verify completion payload decoding.
-3. **Headless widget tests**: verify behavior without platform dependencies.
-4. **Live target smoke**: verify actual runtime integration.
+## Test control server
 
-## Tools
+Desktop and mobile shells can expose an HTTP test control server through `with_test_control_port(...)` or the `FISSION_TEST_CONTROL_PORT` environment variable.
 
-- `fission_test::TestHarness` and `TestDriver` for deterministic checks,
-- `fission_test_driver::LiveTestClient` for target-level trees and interaction checks,
-- diagnostics env vars (`FISSION_DIAG_*`) for stage-based traces.
+That server is what `LiveTestClient` talks to.
 
-## Good failure signals
+## What the live driver can ask for
 
-- reducer outputs match expected state,
-- action inputs decode cleanly,
-- role/text visibility remains consistent,
-- async lifecycle completes with expected state transitions.
+- tap, drag, scroll, and resize
+- keyboard and text input
+- screenshots
+- visible text
+- semantic tree
+- pump and wait commands
+
+## Smoke-path coverage in the repo
+
+The repo uses live-driver tests across counter, widget gallery, text lab, animation gallery, chart gallery, inbox, terminal, and editor examples.
+
+Mobile and web also have dedicated smoke scripts under `examples/mobile-smoke/` and `examples/web-smoke/`.

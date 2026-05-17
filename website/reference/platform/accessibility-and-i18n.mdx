@@ -1,30 +1,34 @@
 ---
 title: Accessibility and i18n
-description: Baseline accessibility and localization contracts.
+description: How semantics, locale, and translated text move through the runtime and shell boundary.
 ---
 
 # Accessibility and i18n
 
-Treat these as product requirements from the first feature.
+These two surfaces are separate in code, but they often ship together.
 
 ## Accessibility
 
-Attach semantics to interactive nodes where users need clear intent signals:
+Semantics are produced by the runtime from widget lowering and layout. Shells then bridge the resulting semantic tree into native accessibility APIs.
 
-- `role`
-- `label`
-- `focusable`
+Important consequences:
 
-Use role and label checks in tests rather than visual-only assertions.
+- labels and roles should come from the shared tree, not per-platform code,
+- live tests can inspect semantic output before or alongside native tooling,
+- overlay and focus behavior should be validated through semantics, not only screenshots.
 
-## Internationalization
+## I18n
 
-Use stable keys (`TextContent::Key`) with per-locale bundles, and switch locale through environment sync
-(`with_sync_env`).
+Translated text enters through `Env.i18n` and `Env.locale`, then resolves during build/layout.
 
-## Practical checklist
+That means locale changes can affect:
 
-- every primary interactive control has role and label,
-- dynamic strings come from keys,
-- long strings are checked for clipping/overflow,
-- locale switch preserves layout flow.
+- visible text,
+- semantic labels,
+- layout width and overflow,
+- focus order if dynamic content changes the tree.
+
+## Good references
+
+- `examples/inbox/` for locale bundle setup and theme/locale sync
+- `examples/widget-gallery/` and `examples/text-lab/` live tests for semantic inspection patterns

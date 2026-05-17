@@ -1,27 +1,36 @@
 ---
 title: Rendering pipeline
-description: Frame-level stages and observability points.
+description: The stages between widget authoring and platform presentation.
 ---
 
 # Rendering pipeline
 
-Each frame follows:
+The public surface is authored as widgets, but the runtime works in a stricter staged pipeline.
 
-1. `Widget::build()` produces `Node`
-2. `CoreIR` lowering
-3. layout (`LayoutSnapshot`)
-4. paint list / render scene
-5. backend swapchain output
+## Stages
 
-## Why it matters
+1. `Widget::build()` returns a `Node` tree.
+2. the tree is lowered into Core IR.
+3. layout resolves constraints into a `LayoutSnapshot`.
+4. paint compilation emits a display list.
+5. the active shell presents through its renderer backend.
 
-The best place to debug a regression is the stage where output diverged:
+## Public types worth knowing
 
-- wrong text only after action dispatch -> reducer or build,
-- wrong size/position -> layout,
-- wrong pixels with stable layout -> paint/style,
-- target-specific stutter -> frame/backend tuning.
+- `Node`, `CustomNode`, and `LowerDyn` for authoring
+- `LoweringContext` and `NodeBuilder` for custom lowering
+- `CoreIR`, `NodeId`, and `WidgetNodeId` for runtime identity
+- `LayoutSnapshot`, `LayoutRect`, and `LayoutSize` for geometry
 
-## Observability
+## Why this page exists
 
-`FISSION_DIAG` supports per-stage captures and is your fastest path for stage-level triage.
+The most useful debugging question is often "which stage is wrong first?"
+
+- wrong branch or text -> state or build
+- wrong geometry -> layout
+- right layout but wrong pixels -> paint/theme/media
+- launch or input mismatch -> shell/runtime boundary
+
+## Custom rendering hooks
+
+Use `LowerDyn` when a widget needs direct IR control. The editor and 3D examples are the best repo-backed references for that escape hatch.

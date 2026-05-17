@@ -1,0 +1,43 @@
+---
+title: Theming and i18n
+description: The explicit appearance and translation surface exposed by `Env`, `fission-theme`, and `fission-i18n`.
+---
+
+# Theming and i18n
+
+Fission keeps both appearance and language selection as values, not globals.
+
+## Theme surface
+
+The top-level type is `Theme` from `fission-theme`.
+
+Key groups inside it:
+
+- primitive tokens (`ColorTokens`, `SpacingTokens`, `TypographyTokens`, `RadiusTokens`, `ElevationTokens`)
+- derived component themes (`ComponentTheme`)
+
+Useful entry points:
+
+- `Theme::default()`
+- `Theme::dark()`
+- `ComponentTheme::from_tokens(...)`
+
+## I18n surface
+
+The top-level types are:
+
+- `Locale`
+- `TranslationBundle`
+- `I18nRegistry`
+
+Core itself does not impose fallback chaining; the app chooses how to load and switch bundles.
+
+## Runtime connection
+
+`Env` carries both the current theme and the active i18n registry/locale so widgets can render the right values during build and layout.
+
+## Repo references
+
+- `examples/inbox/` for locale bundles and dark/light switching
+- `crates/core/fission-theme/README.md` for token and component theme details
+- `crates/core/fission-i18n/README.md` for the translation registry surface

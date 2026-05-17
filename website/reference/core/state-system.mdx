@@ -1,33 +1,52 @@
 ---
 title: State system
-description: Action + reducer model used by Fission apps.
+description: The typed action and reducer model behind every Fission app.
 ---
 
 # State system
 
-Fission uses a single source-of-truth pattern:
+Fission keeps product logic in a small set of public contracts.
 
-- `AppState`: data for the current UI + product model,
-- `Action`: typed event intents,
-- `Reducer`: deterministic state mutation,
-- `ReducerContext`: runtime metadata and async completion hooks.
+## Primary types
 
-## Flow in one sentence
+- `AppState`: your durable product model
+- `Action`: a serializable intent type with a stable ID
+- `ActionEnvelope`: erased transport form used by the runtime
+- `Handler<S, A>`: the canonical reducer signature
+- `ReducerContext<S>`: effect builder plus action input metadata
+- `ActionRegistry<S>`: a per-frame or startup-time reducer registry
 
-`Action -> reducer(context, state) -> new state -> build() -> UI`
+## Reducer shapes
 
-## Why teams use this
+Fission accepts both legacy two-argument reducers and the modern three-argument form, but the three-argument form is the important one because it gives access to `ReducerContext`.
 
-- fewer hidden dependencies,
-- reproducible behavior for tests,
-- easy migration from one screen to another because every screen uses the same model.
+```rust
+fn handle(state: &mut MyState, action: MyAction, ctx: &mut ReducerContext<MyState>)
+```
 
-## Guardrails
+## Binding reducers
 
-Reducers should:
+The two normal binding paths are:
 
-- stay pure,
-- avoid I/O,
-- stay local to one domain concept.
+- `ctx.bind(action, handler)` inside `build()` for local UI handlers
+- `ActionRegistry::register(handler)` plus shell `absorb_registry(...)` for global startup wiring
 
-If you need async, move that work behind [commands, services, and jobs](/reference/core/commands-services-jobs).
+## Selectors
+
+Use `Selector<S>` when you want a stable, testable derived view model without mutating app state during build.
+
+The `counter` example's `CounterVM` is the canonical pattern in this repo.
+
+## Why the model matters
+
+Because actions are typed and reducers are explicit, the same transition can be:
+
+- replayed in tests,
+- driven by mouse, keyboard, IME, or accessibility input,
+- observed through diagnostics,
+- reused across desktop, web, and mobile hosts.
+
+## Related pages
+
+- [Commands, services, and jobs](/reference/core/commands-services-jobs)
+- [Resources and capabilities](/reference/core/resources-and-capabilities)

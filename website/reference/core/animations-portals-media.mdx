@@ -1,0 +1,49 @@
+---
+title: Animations, portals, and media
+description: Runtime-owned motion and overlay/embed registration APIs.
+---
+
+# Animations, portals, and media
+
+Several visible framework behaviors are registered through `BuildCtx` rather than stored directly in app state.
+
+## Animation
+
+Public types:
+
+- `AnimationPropertyId`
+- `AnimationStartValue`
+- `AnimationRequest`
+- `EasingFunction`
+
+Use `ctx.request_animation_for(...)` or `ctx.anim_for(id).request(...)` with a stable `WidgetNodeId`.
+
+## Portals
+
+Public types:
+
+- `PortalLayer`
+- `PortalEntry`
+
+Use portal registration for overlays that should render outside the normal tree. The runtime sorts layers so modal, flyout, and toast content compose in a predictable order.
+
+## Media/embed registration
+
+Build-time registration types include:
+
+- `VideoRegistration`
+- `WebRegistration`
+
+These let the runtime and shell coordinate platform surfaces without losing layout identity.
+
+## Runtime-owned state
+
+The runtime tracks:
+
+- active animation values,
+- video and web state,
+- drag gesture payloads,
+- hero positions,
+- scroll offsets.
+
+That keeps reducers clean and makes replay/test flows possible.

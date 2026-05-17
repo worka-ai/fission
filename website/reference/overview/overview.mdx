@@ -1,30 +1,53 @@
 ---
 title: Reference overview
-description: Practical lookup for Fission APIs and contracts.
+description: The subsystem map for Fission's runtime, shells, CLI, and widget surface.
+slug: /overview/overview
 ---
 
 # Reference overview
 
-Read this section after finishing the docs learning path. It is organized for the order you usually need when
-you begin implementation:
+The reference is organized by subsystem first and widgets second.
 
-- core behavior contracts,
-- async behavior contracts,
-- render and diagnostics,
-- widget reference,
-- and platform/tooling outputs.
+## Core runtime
+
+Use the core section when you need the shared contracts that every shell and app depend on:
+
+- `Widget`, `View`, and `BuildCtx`
+- actions, reducers, selectors, and effect routing
+- resources, capabilities, jobs, services, and timers
+- environment sync, input, text-edit state, IME, clipboard, and runtime-owned media state
+- animation, portals, embed registration, and shell integration
+
+Start with:
 
 - [Widget trait](/reference/core/widget-trait)
 - [State system](/reference/core/state-system)
-- [Commands, services, and jobs](/reference/core/commands-services-jobs)
-- [Rendering pipeline](/reference/core/rendering-pipeline)
-- [Widget catalog](/reference/widgets/catalog)
-- [Layout widgets](/reference/widgets/layout)
-- [Input widgets](/reference/widgets/inputs)
-- [Media widgets](/reference/widgets/media)
-- [Targets and outputs](/reference/platform/targets)
-- [Accessibility and i18n](/reference/platform/accessibility-and-i18n)
-- [Testing](/reference/platform/testing)
+- [Resources and capabilities](/reference/core/resources-and-capabilities)
+
+## Shells, targets, and tooling
+
+Use the shell and tooling pages when you need the host boundary:
+
+- desktop, mobile, and web builder APIs,
+- current target and smoke-path reality,
+- live test control,
+- diagnostics,
+- CLI-generated project scaffolds.
+
+Start with:
+
+- [Platform runtime](/reference/core/platform-runtime)
+- [Targets](/reference/platform/targets)
 - [CLI overview](/reference/cli/overview)
 
-Use this as a map while implementing product features, then return to the tutorial flow if you hit a new concept.
+## Widgets
+
+The widget pages are still complete, but they are grouped by job:
+
+- layout and structure,
+- forms and input,
+- navigation and overlays,
+- display and feedback,
+- media, embeds, and escape hatches.
+
+Start with [Widget catalog](/reference/widgets/catalog).

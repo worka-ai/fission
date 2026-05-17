@@ -1,0 +1,51 @@
+---
+title: Testing and diagnostics
+description: The public testing crates and structured diagnostics surface used across the repo.
+---
+
+# Testing and diagnostics
+
+Fission ships both headless and live testing surfaces.
+
+## `fission-test`
+
+Primary public types:
+
+- `TestHarness`
+- `TestDriver`
+- `MockRenderer`
+- linter utilities for layout checks
+
+Use this crate when you want to build, lower, lay out, pump, dispatch, and inspect a widget tree without a real window.
+
+## `fission-test-driver`
+
+Primary public types:
+
+- `LiveTestClient`
+- `TestCommand`
+- `TestResponse`
+- `SemanticNode`
+- `TextItem`
+
+Use this crate when you need a running shell and real end-to-end interaction.
+
+## Diagnostics
+
+`fission-diagnostics` emits structured JSONL events grouped by categories such as:
+
+- frame
+- layout
+- paint
+- input
+- animation
+- media
+- semantics
+- invariants
+- test
+
+Use diagnostics when a bug is clearly in a specific frame stage and you need structured evidence rather than ad-hoc logging.
+
+## Repo references
+
+The example suites under `examples/*/tests/live_e2e.rs` are the best end-to-end examples of how the live driver is used today.

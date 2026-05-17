@@ -1,0 +1,63 @@
+---
+title: Resources and capabilities
+description: Build-time runtime declarations for recurring work plus the typed host operation surface.
+---
+
+# Resources and capabilities
+
+Fission exposes two related but distinct runtime surfaces.
+
+## Capabilities
+
+Capabilities are one-shot typed host operations triggered from reducer effects.
+
+Public types:
+
+- `OperationCapability`
+- `CapabilityType<C>`
+- `CapabilityCtx`
+
+Built-in capability IDs in `fission-core`:
+
+- `SHOW_ALERT`
+- `OPEN_URL`
+- `AUTHENTICATE`
+- `PICK_OPEN_FILES`
+
+These are the right tool for system dialogs, URL launching, auth handoffs, and host-controlled file picking.
+
+## Resources
+
+Resources are build-time declarations that the runtime reconciles by key.
+
+Public types:
+
+- `ResourceRegistry`
+- `ResourceKey`
+- `ResourcePolicy`
+- `JobResource`
+- `ServiceResource`
+- `TimerResource`
+- `RuntimeResourceDeclaration`
+
+## Resource policies
+
+- `RestartOnChange` is the default and restarts when deps change.
+- `PreserveOnChange` keeps the live instance even if the current declaration changed.
+
+## Resource reconciliation model
+
+The runtime compares:
+
+- resource key,
+- dependency payload,
+- declaration kind,
+- policy.
+
+That is why stable resource keys matter so much for long-lived work.
+
+## Repo references
+
+- `examples/editor/` for resource-backed jobs and timers
+- `examples/terminal/` for timer-driven polling
+- `examples/inbox/` for capability-backed reducer effects
