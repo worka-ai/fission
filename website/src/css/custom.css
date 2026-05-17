@@ -39,6 +39,8 @@
   --ifm-heading-color: #f8fafc;
   --ifm-link-color: #6ee7b7;
   --ifm-font-color-secondary: #cbd5e1;
+  --ifm-font-color-black: #020617;
+  --ifm-font-color-light: #020617;
 
   --ifm-color-primary: #2dd4bf;
   --ifm-color-primary-dark: #14b8a6;
@@ -46,15 +48,25 @@
   --ifm-color-primary-darkest: #0f766e;
   --ifm-color-primary-light: #4fe3cd;
   --ifm-color-primary-lightest: #7de6cf;
-  --ifm-color-emphasis-0: #0b1220;
-  --ifm-color-emphasis-100: #0f172a;
-  --ifm-color-emphasis-200: #172339;
-  --ifm-color-emphasis-300: #273957;
-  --ifm-color-emphasis-700: #a2b1c8;
+  --ifm-color-emphasis-0: #020617;
+  --ifm-color-emphasis-100: #0b1220;
+  --ifm-color-emphasis-200: #1e293b;
+  --ifm-color-emphasis-300: #334155;
+  --ifm-color-emphasis-700: #cbd5e1;
+  --ifm-menu-color: #cbd5e1;
+  --ifm-menu-color-active: #f8fafc;
+  --ifm-menu-color-sublist: #e2e8f0;
 
   --ifm-background-color: #020617;
   --ifm-navbar-background-color: #0a1324;
+  --ifm-background-surface-color: #0b1220;
+  --ifm-card-background-color: #0f172a;
   --ifm-footer-background-color: #020617;
+  --ifm-code-background: #1e293b;
+  --ifm-code-color: #f8fafc;
+  --ifm-hero-background-color: #020617;
+  --ifm-navbar-link-color: #e2e8f0;
+  --ifm-navbar-item-hover-color: #ffffff;
 }
 
 pre,

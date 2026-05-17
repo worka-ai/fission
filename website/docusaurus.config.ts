@@ -2,15 +2,18 @@ import {themes as prismThemes} from 'prism-react-renderer';
 import type {Config} from '@docusaurus/types';
 import type * as Preset from '@docusaurus/preset-classic';
 
+const siteUrl = process.env.DOCS_SITE_URL ?? 'https://fission.dev';
+const siteBaseUrl = process.env.DOCS_BASE_URL ?? '/';
+
 const config: Config = {
   title: 'Fission',
-  tagline: 'Deterministic Rust UI with a shared runtime for desktop, web, iOS, and Android.',
+  tagline: 'Deterministic Rust user interface with a shared runtime for desktop, web, iOS, and Android.',
   favicon: 'img/favicon.ico',
   future: {
     v4: true,
   },
-  url: 'https://fission.dev',
-  baseUrl: '/',
+  url: siteUrl,
+  baseUrl: siteBaseUrl,
   organizationName: 'worka-ai',
   projectName: 'fission',
   onBrokenLinks: 'throw',
@@ -123,7 +126,7 @@ const config: Config = {
           items: [
             {label: 'Build a counter', to: '/docs/cookbook/build-a-counter'},
             {label: 'Add platform targets', to: '/docs/cookbook/add-platform-targets'},
-            {label: 'Write a live UI test', to: '/docs/cookbook/write-a-live-ui-test'},
+            {label: 'Write a live interface test', to: '/docs/cookbook/write-a-live-ui-test'},
           ],
         },
         {
@@ -137,7 +140,7 @@ const config: Config = {
           ],
         },
       ],
-      copyright: `Copyright © ${new Date().getFullYear()} Fission. Built with Docusaurus. The site tracks the real runtime, shell, and example surface in this repository.`,
+      copyright: `Copyright © ${new Date().getFullYear()} Fission. The Fission framework is ready to use today but some areas are actively under development. Widget APIs are expected to remain stable but some runtime or shell APIs may get breaking changes before we get to a 1.0.0 release`,
       logo: {
         alt: 'Fission',
         src: 'img/logo.svg',
