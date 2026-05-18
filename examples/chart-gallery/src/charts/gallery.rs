@@ -1,0 +1,165 @@
+use crate::showcase::build_showcase;
+use crate::state::{GalleryState, SHOWCASE_CATEGORY};
+use crate::style::{amber, blue};
+use fission_3d::Scene3D;
+use fission_charts::{
+    Chart, ChartAnimation, ChartAnimationKind, ChartBrush, ChartInteraction, ChartSelectionMode,
+    ChartToolAction, ChartTooltipTrigger, MarkLine, MarkPoint,
+};
+use fission_core::op::Color;
+use fission_core::ui::{Container, Node, Text};
+use fission_core::{BuildCtx, View, Widget};
+
+mod cartesian;
+pub(crate) mod cartesian_variants;
+pub(crate) mod components;
+pub(crate) mod coordinates;
+pub(crate) mod dataset_3d;
+pub(crate) mod deep_catalog;
+mod dynamic;
+mod relationship_geo;
+mod statistical;
+
+pub(crate) fn build_selected_chart(
+    ctx: &mut BuildCtx<GalleryState>,
+    view: &View<GalleryState>,
+    content_width: f32,
+    scale: f32,
+) -> Node {
+    let s = scale;
+    match (view.state.selected_category, view.state.selected_chart) {
+        (SHOWCASE_CATEGORY, 0) => build_showcase(ctx, view, content_width, s),
+        (0, chart) => cartesian::build_chart(chart, ctx, view, content_width, s),
+        (1, chart) => cartesian_variants::build_chart(chart, ctx, view, content_width, s),
+        (2, chart) => statistical::build_chart(chart, ctx, view, content_width, s),
+        (3, chart) => relationship_geo::build_chart(chart, ctx, view, content_width, s),
+        (4, chart) => dynamic::build_chart(chart, ctx, view, content_width, s),
+        (5, chart) => dataset_3d::build_chart(chart, ctx, view, content_width, s),
+        (6, chart) => components::build_chart(chart, ctx, view, content_width, s),
+        (7, chart) => coordinates::build_chart(chart, ctx, view, content_width, s),
+        (category, chart) if category >= deep_catalog::DEEP_CATEGORY_OFFSET => {
+            deep_catalog::build_chart(category, chart, ctx, view, content_width, s).unwrap_or_else(
+                || {
+                    Container::new(
+                        Text::new("Select a chart from the gallery")
+                            .color(Color {
+                                r: 150,
+                                g: 150,
+                                b: 150,
+                                a: 255,
+                            })
+                            .into_node(),
+                    )
+                    .into_node()
+                },
+            )
+        }
+        _ => Container::new(
+            Text::new("Select a chart from the gallery")
+                .color(Color {
+                    r: 150,
+                    g: 150,
+                    b: 150,
+                    a: 255,
+                })
+                .into_node(),
+        )
+        .into_node(),
+    }
+}
+
+pub(super) trait GalleryBuildExt {
+    fn build_in_gallery(
+        self,
+        ctx: &mut BuildCtx<GalleryState>,
+        view: &View<GalleryState>,
+        content_width: f32,
+    ) -> Node;
+}
+
+impl GalleryBuildExt for Chart {
+    fn build_in_gallery(
+        self,
+        ctx: &mut BuildCtx<GalleryState>,
+        view: &View<GalleryState>,
+        content_width: f32,
+    ) -> Node {
+        configure_chart(
+            self,
+            view,
+            gallery_chart_width(content_width),
+            gallery_chart_height(),
+        )
+        .build(ctx, view)
+    }
+}
+
+impl GalleryBuildExt for Scene3D {
+    fn build_in_gallery(
+        self,
+        ctx: &mut BuildCtx<GalleryState>,
+        _view: &View<GalleryState>,
+        content_width: f32,
+    ) -> Node {
+        self.width(gallery_chart_width(content_width))
+            .height(gallery_chart_height())
+            .build(ctx, _view)
+    }
+}
+
+pub(crate) fn configure_chart(
+    mut chart: Chart,
+    view: &View<GalleryState>,
+    width: f32,
+    height: f32,
+) -> Chart {
+    chart = chart.width(width).height(height);
+
+    if view.state.interactions {
+        let existing = chart.interaction.clone();
+        let actions = if existing.toolbox_actions.is_empty() {
+            vec![
+                ChartToolAction::DataZoom,
+                ChartToolAction::Brush,
+                ChartToolAction::Restore,
+                ChartToolAction::SaveImage,
+            ]
+        } else {
+            existing.toolbox_actions.clone()
+        };
+        chart = chart.interaction(
+            ChartInteraction::new()
+                .tooltip_trigger(ChartTooltipTrigger::Item)
+                .selection_mode(ChartSelectionMode::Single)
+                .brush(ChartBrush::rect().preview_rect(0.18, 0.18, 0.34, 0.46))
+                .toolbox_actions(actions)
+                .emit_events(true)
+                .keyboard_focus(true),
+        );
+    }
+
+    if view.state.animations {
+        chart = chart.animation(
+            ChartAnimation::enter(ChartAnimationKind::Sweep)
+                .duration_ms(1200)
+                .stagger_ms(14)
+                .repeat(true),
+        );
+    }
+
+    if view.state.markers {
+        chart = chart
+            .mark_line(MarkLine::y("target", 160.0 * view.state.data_scale).color(amber()))
+            .mark_point(MarkPoint::xy("sample", 3.0, 210.0 * view.state.data_scale).color(blue()));
+    }
+
+    chart
+}
+
+fn gallery_chart_width(content_width: f32) -> f32 {
+    (content_width - 8.0).clamp(360.0, 1120.0)
+}
+
+fn gallery_chart_height() -> f32 {
+    520.0
+}

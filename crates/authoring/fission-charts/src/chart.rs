@@ -1,6 +1,10 @@
 use crate::axis::{Axis, AxisType};
-use crate::components::{AxisPointer, DataZoom, VisualMap};
+use crate::components::{
+    AxisPointer, ChartGraphic, ChartGraphicKind, ChartTimeline, DataZoom, MarkArea, MarkLine,
+    MarkPoint, VisualMap,
+};
 use crate::grid::Grid;
+use crate::interaction::{ChartHit, ChartInteraction, ChartInteractionEvent, ChartInteractionKind};
 use crate::layout::math::{arc, catmull_rom_to_bezier, pie_slice};
 use crate::layout::scale::LinearScale;
 use crate::legend::Legend;
@@ -8,16 +12,22 @@ use crate::model::{ChartModel, ResolvedBarSeries, ResolvedLineSeries, ResolvedSe
 use crate::series::graph::GraphEdge;
 use crate::series::Series;
 use crate::tooltip::Tooltip;
+use fission_core::event::{InputEvent, PointerEvent};
 use fission_core::op::Color;
-use fission_core::ui::{Container, CustomNode, Node};
-use fission_core::{BuildCtx, View, Widget};
+use fission_core::ui::{Container, CustomEventResult, CustomHitResult, CustomNode, Node};
+use fission_core::{
+    Action, ActionEnvelope, AnimationPropertyId, AnimationRequest, AnimationStartValue, BuildCtx,
+    CustomRenderObject, EasingFunction, View, Widget, WidgetNodeId,
+};
 use fission_ir::op::{Fill, LayoutOp, LineCap, LineJoin, PaintOp, Stroke};
-use fission_layout::LayoutRect;
+use fission_layout::{LayoutPoint, LayoutRect};
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, HashMap};
+use std::sync::Arc;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Chart {
+    pub id: Option<WidgetNodeId>,
     pub width: Option<f32>,
     pub height: Option<f32>,
     pub title: Option<String>,
@@ -31,6 +41,14 @@ pub struct Chart {
     pub visual_map: Option<VisualMap>,
     pub data_zoom: Option<DataZoom>,
     pub axis_pointer: Option<AxisPointer>,
+    pub mark_points: Vec<MarkPoint>,
+    pub mark_lines: Vec<MarkLine>,
+    pub mark_areas: Vec<MarkArea>,
+    pub graphics: Vec<ChartGraphic>,
+    pub timeline: Option<ChartTimeline>,
+    pub theme: Option<ChartTheme>,
+    pub interaction: ChartInteraction,
+    pub animation: crate::animation::ChartAnimation,
     pub animate: bool,
 }
 
@@ -43,6 +61,7 @@ impl Default for Chart {
 impl Chart {
     pub fn new() -> Self {
         Self {
+            id: None,
             width: None,
             height: None,
             title: None,
@@ -56,8 +75,21 @@ impl Chart {
             visual_map: None,
             data_zoom: None,
             axis_pointer: None,
+            mark_points: Vec::new(),
+            mark_lines: Vec::new(),
+            mark_areas: Vec::new(),
+            graphics: Vec::new(),
+            timeline: None,
+            theme: None,
+            interaction: ChartInteraction::default(),
+            animation: crate::animation::ChartAnimation::default(),
             animate: false,
         }
+    }
+
+    pub fn id(mut self, id: WidgetNodeId) -> Self {
+        self.id = Some(id);
+        self
     }
 
     pub fn width(mut self, w: f32) -> Self {
@@ -125,20 +157,93 @@ impl Chart {
         self
     }
 
+    pub fn mark_point(mut self, mark_point: MarkPoint) -> Self {
+        self.mark_points.push(mark_point);
+        self
+    }
+
+    pub fn mark_line(mut self, mark_line: MarkLine) -> Self {
+        self.mark_lines.push(mark_line);
+        self
+    }
+
+    pub fn mark_area(mut self, mark_area: MarkArea) -> Self {
+        self.mark_areas.push(mark_area);
+        self
+    }
+
+    pub fn graphic(mut self, graphic: ChartGraphic) -> Self {
+        self.graphics.push(graphic);
+        self
+    }
+
+    pub fn timeline(mut self, timeline: ChartTimeline) -> Self {
+        self.timeline = Some(timeline);
+        self
+    }
+
+    pub fn theme(mut self, theme: ChartTheme) -> Self {
+        self.theme = Some(theme);
+        self
+    }
+
     pub fn animate(mut self, animate: bool) -> Self {
         self.animate = animate;
+        self.animation.enabled = animate;
         self
+    }
+
+    pub fn animation(mut self, animation: crate::animation::ChartAnimation) -> Self {
+        self.animate = animation.enabled;
+        self.animation = animation;
+        self
+    }
+
+    pub fn interaction(mut self, interaction: ChartInteraction) -> Self {
+        self.interaction = interaction;
+        self
+    }
+
+    pub fn emit_interaction_events(mut self, emit: bool) -> Self {
+        self.interaction = self.interaction.emit_events(emit);
+        self
+    }
+
+    pub fn hit_test(&self, width: f32, height: f32, point: LayoutPoint) -> Option<ChartHit> {
+        let model = ChartModel::from_chart(self);
+        let area = chart_area_for_size(self, width, height);
+        hit_test_chart(&model, &area, point)
     }
 }
 
 impl<S: fission_core::AppState> Widget<S> for Chart {
-    fn build(&self, _ctx: &mut BuildCtx<S>, _view: &View<S>) -> Node {
+    fn build(&self, ctx: &mut BuildCtx<S>, _view: &View<S>) -> Node {
+        if self.animation.enabled {
+            ctx.anim_for(self.animation_id()).request(AnimationRequest {
+                property: chart_animation_property(),
+                from: AnimationStartValue::Explicit(0.0),
+                to: 1.0,
+                duration_ms: self.animation.duration_ms,
+                repeat: self.animation.repeat,
+                delay_ms: self.animation.delay_ms,
+                frame_interval_ms: Some(16),
+                easing: chart_easing(self.animation.easing),
+            });
+        }
+
+        let render_object = if self.interaction.enabled {
+            Some(Arc::new(ChartRenderObject {
+                chart: self.clone(),
+            }) as Arc<dyn CustomRenderObject>)
+        } else {
+            None
+        };
         let mut container = Container::new(Node::Custom(CustomNode {
             debug_tag: "fission_charts::Chart".into(),
-            lowerer: Some(std::sync::Arc::new(ChartLowerer {
+            lowerer: Some(Arc::new(ChartLowerer {
                 chart: self.clone(),
             })),
-            render_object: None,
+            render_object,
         }));
         if let Some(w) = self.width {
             container = container.width(w);
@@ -154,9 +259,82 @@ impl<S: fission_core::AppState> Widget<S> for Chart {
     }
 }
 
+impl Chart {
+    fn animation_id(&self) -> WidgetNodeId {
+        self.id.unwrap_or_else(|| {
+            let title = self.title.as_deref().unwrap_or("untitled");
+            WidgetNodeId::explicit(&format!("fission_charts::Chart::{title}"))
+        })
+    }
+}
+
+fn chart_animation_property() -> AnimationPropertyId {
+    AnimationPropertyId::custom("fission_charts::progress")
+}
+
+fn chart_easing(easing: crate::animation::ChartEasing) -> EasingFunction {
+    match easing {
+        crate::animation::ChartEasing::Linear => EasingFunction::Linear,
+        crate::animation::ChartEasing::EaseIn => EasingFunction::EaseIn,
+        crate::animation::ChartEasing::EaseOut => EasingFunction::EaseOut,
+        crate::animation::ChartEasing::EaseInOut => EasingFunction::EaseInOut,
+    }
+}
+
 #[derive(Debug)]
 pub struct ChartLowerer {
     pub chart: Chart,
+}
+
+#[derive(Debug)]
+struct ChartRenderObject {
+    chart: Chart,
+}
+
+impl CustomRenderObject for ChartRenderObject {
+    fn hit_test(&self, local_point: LayoutPoint, node_rect: LayoutRect) -> CustomHitResult {
+        if local_point.x >= 0.0
+            && local_point.y >= 0.0
+            && local_point.x < node_rect.width()
+            && local_point.y < node_rect.height()
+        {
+            CustomHitResult::inside(None)
+        } else {
+            CustomHitResult::miss()
+        }
+    }
+
+    fn handle_event(
+        &self,
+        node_id: fission_ir::NodeId,
+        event: &InputEvent,
+        node_rect: LayoutRect,
+    ) -> CustomEventResult {
+        if !self.chart.interaction.emit_events {
+            return CustomEventResult::ignored();
+        }
+
+        let Some((kind, point, modifiers)) = chart_event_point(event) else {
+            return CustomEventResult::ignored();
+        };
+        let local = LayoutPoint::new(point.x - node_rect.x(), point.y - node_rect.y());
+        let hit = self
+            .chart
+            .hit_test(node_rect.width(), node_rect.height(), local);
+        let event = ChartInteractionEvent {
+            chart_id: self.chart.title.clone(),
+            kind,
+            local_x: local.x,
+            local_y: local.y,
+            modifiers,
+            hit,
+        };
+        let envelope = ActionEnvelope {
+            id: ChartInteractionEvent::static_id(),
+            payload: event.encode(),
+        };
+        CustomEventResult::consumed_with(vec![(node_id, envelope)])
+    }
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -166,20 +344,26 @@ struct ChartArea {
     plot: LayoutRect,
 }
 
-#[derive(Debug, Clone)]
-struct ChartTheme {
-    background: Color,
-    plot_background: Color,
-    grid_line: Color,
-    axis_line: Color,
-    label: Color,
-    title: Color,
-    diagnostic: Color,
-    palette: Vec<Color>,
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ChartTheme {
+    pub background: Color,
+    pub plot_background: Color,
+    pub grid_line: Color,
+    pub axis_line: Color,
+    pub label: Color,
+    pub title: Color,
+    pub diagnostic: Color,
+    pub palette: Vec<Color>,
 }
 
 impl Default for ChartTheme {
     fn default() -> Self {
+        Self::light()
+    }
+}
+
+impl ChartTheme {
+    pub fn light() -> Self {
         Self {
             background: color(255, 255, 255, 255),
             plot_background: color(250, 252, 255, 255),
@@ -200,12 +384,57 @@ impl Default for ChartTheme {
             ],
         }
     }
+
+    pub fn dark() -> Self {
+        Self {
+            background: color(15, 23, 42, 255),
+            plot_background: color(17, 24, 39, 255),
+            grid_line: color(51, 65, 85, 255),
+            axis_line: color(100, 116, 139, 255),
+            label: color(203, 213, 225, 255),
+            title: color(248, 250, 252, 255),
+            diagnostic: color(251, 191, 36, 255),
+            palette: vec![
+                color(96, 165, 250, 255),
+                color(45, 212, 191, 255),
+                color(251, 191, 36, 255),
+                color(248, 113, 113, 255),
+                color(56, 189, 248, 255),
+                color(192, 132, 252, 255),
+                color(244, 114, 182, 255),
+                color(74, 222, 128, 255),
+            ],
+        }
+    }
+
+    fn from_env(env: &fission_core::Env) -> Self {
+        let colors = &env.theme.tokens.colors;
+        let dark = color_luma(colors.background) < 128.0;
+        let mut theme = if dark { Self::dark() } else { Self::light() };
+        theme.background = colors.surface;
+        theme.plot_background = if dark {
+            mix_color(colors.surface, colors.background, 0.5)
+        } else {
+            mix_color(colors.surface, Color::WHITE, 0.55)
+        };
+        theme.grid_line = colors.border;
+        theme.axis_line = colors.text_secondary;
+        theme.label = colors.text_secondary;
+        theme.title = colors.text_primary;
+        theme.palette[0] = colors.primary;
+        theme.palette[1] = colors.secondary;
+        theme
+    }
 }
 
 impl fission_core::ui::traits::LowerDyn for ChartLowerer {
     fn lower_dyn(&self, cx: &mut fission_core::lowering::LoweringContext) -> fission_ir::NodeId {
         let model = ChartModel::from_chart(&self.chart);
-        let theme = ChartTheme::default();
+        let theme = self
+            .chart
+            .theme
+            .clone()
+            .unwrap_or_else(|| ChartTheme::from_env(cx.env));
         let area = chart_area(&self.chart, cx);
         let mut root = fission_core::lowering::NodeBuilder::new(
             cx.next_node_id(),
@@ -213,15 +442,23 @@ impl fission_core::ui::traits::LowerDyn for ChartLowerer {
         );
 
         draw_background(cx, &mut root, &area, &theme);
+        draw_animation_progress(cx, &mut root, &self.chart, &area, &theme);
         draw_title(cx, &mut root, &model, &area, &theme);
         if model.has_cartesian_series() {
             draw_cartesian_axes(cx, &mut root, &model, &area, &theme);
         }
 
+        draw_mark_areas(cx, &mut root, &model, &self.chart, &area);
         render_series(cx, &mut root, &model, &self.chart, &area, &theme);
+        draw_mark_lines(cx, &mut root, &model, &self.chart, &area, &theme);
+        draw_mark_points(cx, &mut root, &model, &self.chart, &area, &theme);
         draw_legend(cx, &mut root, &model, &self.chart, &area, &theme);
         draw_visual_map(cx, &mut root, &self.chart, &area, &theme);
         draw_data_zoom(cx, &mut root, &self.chart, &area, &theme);
+        draw_brush(cx, &mut root, &self.chart, &area, &theme);
+        draw_graphics(cx, &mut root, &self.chart, &area, &theme);
+        draw_timeline(cx, &mut root, &self.chart, &area, &theme);
+        draw_toolbox(cx, &mut root, &self.chart, &area, &theme);
         draw_diagnostics(cx, &mut root, &model, &area, &theme);
 
         root.build(cx)
@@ -231,12 +468,16 @@ impl fission_core::ui::traits::LowerDyn for ChartLowerer {
 fn chart_area(chart: &Chart, cx: &fission_core::lowering::LoweringContext) -> ChartArea {
     let outer_w = chart.width.unwrap_or_else(|| {
         let available_w = cx.env.viewport_size.width;
-        (available_w - 264.0).max(420.0)
+        (available_w - 380.0).max(360.0)
     });
     let outer_h = chart.height.unwrap_or_else(|| {
         let available_h = cx.env.viewport_size.height;
         (available_h - 200.0).max(320.0)
     });
+    chart_area_for_size(chart, outer_w, outer_h)
+}
+
+fn chart_area_for_size(chart: &Chart, outer_w: f32, outer_h: f32) -> ChartArea {
     let grid = chart.grid.clone().unwrap_or_default();
     let left = grid.left.unwrap_or(70.0);
     let top = grid
@@ -262,6 +503,24 @@ fn chart_area(chart: &Chart, cx: &fission_core::lowering::LoweringContext) -> Ch
     }
 }
 
+fn chart_event_point(event: &InputEvent) -> Option<(ChartInteractionKind, LayoutPoint, u8)> {
+    match event {
+        InputEvent::Pointer(PointerEvent::Move { point, modifiers }) => {
+            Some((ChartInteractionKind::Hover, *point, *modifiers))
+        }
+        InputEvent::Pointer(PointerEvent::Down {
+            point, modifiers, ..
+        }) => Some((ChartInteractionKind::Press, *point, *modifiers)),
+        InputEvent::Pointer(PointerEvent::Up {
+            point, modifiers, ..
+        }) => Some((ChartInteractionKind::Release, *point, *modifiers)),
+        InputEvent::Pointer(PointerEvent::Scroll {
+            point, modifiers, ..
+        }) => Some((ChartInteractionKind::Scroll, *point, *modifiers)),
+        _ => None,
+    }
+}
+
 fn render_series(
     cx: &mut fission_core::lowering::LoweringContext,
     root: &mut fission_core::lowering::NodeBuilder,
@@ -277,7 +536,7 @@ fn render_series(
     let mut bar_stacks: HashMap<(String, usize), f32> = HashMap::new();
     let mut line_stacks: HashMap<(String, usize), f32> = HashMap::new();
 
-    for (series_index, series) in model.series.iter().enumerate() {
+    for series in &model.series {
         match series {
             ResolvedSeries::Bar(bar) => {
                 let group_index = if bar.source.stack.is_none() {
@@ -324,6 +583,15 @@ fn render_series(
                 theme,
                 false,
             ),
+            ResolvedSeries::Bubble(bubble) => render_bubble(
+                cx,
+                root,
+                bubble,
+                chart.visual_map.as_ref(),
+                area,
+                &x_scale,
+                &y_scale,
+            ),
             ResolvedSeries::EffectScatter(effect) => render_scatter(
                 cx,
                 root,
@@ -352,7 +620,12 @@ fn render_series(
                 area,
                 theme,
             ),
+            ResolvedSeries::CalendarHeatmap(calendar) => {
+                render_calendar_heatmap(cx, root, calendar, chart.visual_map.as_ref(), area, theme)
+            }
+            ResolvedSeries::Lines(lines) => render_lines(cx, root, lines, area, theme),
             ResolvedSeries::Graph(graph) => render_graph(cx, root, graph, area, theme),
+            ResolvedSeries::Tree(tree) => render_tree(cx, root, tree, area, theme),
             ResolvedSeries::Treemap(treemap) => render_treemap(cx, root, treemap, area, theme),
             ResolvedSeries::Radar(radar) => render_radar(cx, root, radar, area, theme),
             ResolvedSeries::Funnel(funnel) => render_funnel(cx, root, funnel, area, theme),
@@ -369,11 +642,211 @@ fn render_series(
             }
             ResolvedSeries::Liquidfill(liquid) => render_liquidfill(cx, root, liquid, area, theme),
             ResolvedSeries::Wordcloud(words) => render_wordcloud(cx, root, words, area, theme),
-        }
-        if chart.animate && matches!(series, ResolvedSeries::Line(_) | ResolvedSeries::Bar(_)) {
-            draw_series_badge(cx, root, "animated", series_index, area, theme);
+            ResolvedSeries::PolarBar(polar) => render_polar_bar(cx, root, polar, area, theme),
+            ResolvedSeries::PolarLine(polar) => render_polar_line(cx, root, polar, area, theme),
+            ResolvedSeries::SingleAxis(single_axis) => {
+                render_single_axis(cx, root, single_axis, area, theme)
+            }
         }
     }
+}
+
+fn hit_test_chart(model: &ChartModel, area: &ChartArea, point: LayoutPoint) -> Option<ChartHit> {
+    if !area.plot.contains(point) {
+        return None;
+    }
+
+    let x_scale = LinearScale::nice(model.x_domain.0, model.x_domain.1, 6);
+    let y_scale = LinearScale::nice(model.y_domain.0, model.y_domain.1, 6);
+    let threshold = 10.0;
+    let bar_groups = count_bar_groups(&model.series);
+    let mut bar_group_index = 0usize;
+    let mut bar_stacks: HashMap<(String, usize), f32> = HashMap::new();
+    let mut line_stacks: HashMap<(String, usize), f32> = HashMap::new();
+    let mut direct_hit = None;
+
+    for (series_index, series) in model.series.iter().enumerate() {
+        match series {
+            ResolvedSeries::Bar(bar) => {
+                let group_index = if bar.source.stack.is_none() {
+                    let idx = bar_group_index;
+                    bar_group_index += 1;
+                    idx
+                } else {
+                    0
+                };
+                let band = band_width(model, area);
+                let group_count = bar_groups.max(1) as f32;
+                let bar_w = if bar.source.stack.is_some() {
+                    band * 0.64
+                } else {
+                    (band * 0.72 / group_count).max(2.0)
+                };
+                let group_offset = if bar.source.stack.is_some() {
+                    0.0
+                } else {
+                    (group_index as f32 - (group_count - 1.0) / 2.0) * bar_w
+                };
+
+                for (idx, value) in bar.values.iter().enumerate() {
+                    let base = stack_base(&bar_stacks, bar.source.stack.as_ref(), idx);
+                    let total = base + *value;
+                    if let Some(stack) = bar.source.stack.as_ref() {
+                        bar_stacks.insert((stack.clone(), idx), total);
+                    }
+                    let rect = if bar.source.orientation
+                        == crate::series::bar::BarOrientation::Horizontal
+                    {
+                        let band = category_band_width(
+                            model.y_categories.len().max(bar.values.len()),
+                            area.plot.height(),
+                        );
+                        let bar_h = if bar.source.stack.is_some() {
+                            band * 0.64
+                        } else {
+                            (band * 0.72 / group_count).max(2.0)
+                        };
+                        let group_offset_y = if bar.source.stack.is_some() {
+                            0.0
+                        } else {
+                            (group_index as f32 - (group_count - 1.0) / 2.0) * bar_h
+                        };
+                        let y = map_category_y(idx, model, area) + group_offset_y;
+                        let x0 = map_x(base, area, &x_scale);
+                        let x1 = map_x(total, area, &x_scale);
+                        LayoutRect::new(
+                            x0.min(x1),
+                            y - bar_h / 2.0,
+                            (x1 - x0).abs().max(1.0),
+                            bar_h,
+                        )
+                    } else {
+                        let x = map_category_x(idx, model, area) + group_offset;
+                        let y0 = map_y(base, area, &y_scale);
+                        let y1 = map_y(total, area, &y_scale);
+                        LayoutRect::new(
+                            x - bar_w / 2.0,
+                            y0.min(y1),
+                            bar_w,
+                            (y0 - y1).abs().max(1.0),
+                        )
+                    };
+                    if rect.contains(point) {
+                        direct_hit = Some(ChartHit::series_item(
+                            series_index,
+                            bar.source.name.clone(),
+                            idx,
+                            Some(idx as f32),
+                            Some(total),
+                        ));
+                    }
+                }
+            }
+            ResolvedSeries::Line(line) => {
+                for (idx, value) in line.values.iter().enumerate() {
+                    let base = stack_base(&line_stacks, line.source.stack.as_ref(), idx);
+                    let total = base + *value;
+                    if let Some(stack) = line.source.stack.as_ref() {
+                        line_stacks.insert((stack.clone(), idx), total);
+                    }
+                    let x = map_category_x(idx, model, area);
+                    let y = map_y(total, area, &y_scale);
+                    if distance(point, (x, y)) <= threshold {
+                        direct_hit = Some(ChartHit::series_item(
+                            series_index,
+                            line.source.name.clone(),
+                            idx,
+                            Some(idx as f32),
+                            Some(total),
+                        ));
+                    }
+                }
+            }
+            ResolvedSeries::Scatter(scatter) => {
+                if let Some(hit) = hit_test_points(
+                    series_index,
+                    &scatter.name,
+                    &scatter.data,
+                    area,
+                    &x_scale,
+                    &y_scale,
+                    point,
+                    threshold,
+                ) {
+                    direct_hit = Some(hit);
+                }
+            }
+            ResolvedSeries::Bubble(bubble) => {
+                let max_size = bubble
+                    .data
+                    .iter()
+                    .map(|(_, _, size)| *size)
+                    .fold(1.0_f32, f32::max);
+                for (idx, (xv, yv, size)) in bubble.data.iter().enumerate() {
+                    let x = map_x(*xv, area, &x_scale);
+                    let y = map_y(*yv, area, &y_scale);
+                    let t = (*size / max_size).clamp(0.0, 1.0).sqrt();
+                    let radius = bubble.min_radius + (bubble.max_radius - bubble.min_radius) * t;
+                    if distance(point, (x, y)) <= radius.max(threshold) {
+                        direct_hit = Some(ChartHit::series_item(
+                            series_index,
+                            bubble.name.clone(),
+                            idx,
+                            Some(*xv),
+                            Some(*yv),
+                        ));
+                    }
+                }
+            }
+            ResolvedSeries::EffectScatter(scatter) => {
+                if let Some(hit) = hit_test_points(
+                    series_index,
+                    &scatter.name,
+                    &scatter.data,
+                    area,
+                    &x_scale,
+                    &y_scale,
+                    point,
+                    threshold * 1.6,
+                ) {
+                    direct_hit = Some(hit);
+                }
+            }
+            ResolvedSeries::Pie(pie) => {
+                if let Some(hit) = hit_test_pie(series_index, pie, area, point) {
+                    direct_hit = Some(hit);
+                }
+            }
+            ResolvedSeries::Heatmap(heatmap) => {
+                let max_x = heatmap.data.iter().map(|d| d.0).max().unwrap_or(0) + 1;
+                let max_y = heatmap.data.iter().map(|d| d.1).max().unwrap_or(0) + 1;
+                let cell_w = area.plot.width() / max_x.max(1) as f32;
+                let cell_h = area.plot.height() / max_y.max(1) as f32;
+                for (idx, (x_idx, y_idx, value)) in heatmap.data.iter().enumerate() {
+                    let rect = LayoutRect::new(
+                        area.plot.x() + *x_idx as f32 * cell_w,
+                        area.plot.bottom() - (*y_idx as f32 + 1.0) * cell_h,
+                        cell_w,
+                        cell_h,
+                    );
+                    if rect.contains(point) {
+                        direct_hit = Some(ChartHit::series_item(
+                            series_index,
+                            heatmap.name.clone(),
+                            idx,
+                            Some(*x_idx as f32),
+                            Some(*value),
+                        ));
+                    }
+                }
+            }
+            _ => {}
+        }
+    }
+
+    direct_hit
+        .or_else(|| nearest_cartesian_hit(model, area, point))
+        .or_else(|| Some(ChartHit::plot_area()))
 }
 
 fn draw_background(
@@ -397,6 +870,50 @@ fn draw_background(
         theme.plot_background,
         Some(stroke(theme.grid_line, 1.0)),
         8.0,
+    );
+}
+
+fn draw_animation_progress(
+    cx: &mut fission_core::lowering::LoweringContext,
+    root: &mut fission_core::lowering::NodeBuilder,
+    chart: &Chart,
+    area: &ChartArea,
+    theme: &ChartTheme,
+) {
+    if !chart.animation.enabled {
+        return;
+    }
+
+    let progress = cx
+        .runtime_state
+        .animation
+        .values
+        .get(&(chart.animation_id(), chart_animation_property()))
+        .copied()
+        .unwrap_or(0.0)
+        .clamp(0.0, 1.0);
+    let sweep_width = (area.plot.width() * 0.16).clamp(34.0, 110.0);
+    let sweep_x = area.plot.x() + progress * (area.plot.width() + sweep_width) - sweep_width;
+    add_rect(
+        cx,
+        root,
+        LayoutRect::new(sweep_x, area.plot.y(), sweep_width, area.plot.height()),
+        theme.palette[0].with_alpha(28),
+        None,
+        0.0,
+    );
+    add_rect(
+        cx,
+        root,
+        LayoutRect::new(
+            area.plot.x(),
+            area.outer_h - 12.0,
+            area.plot.width() * progress,
+            4.0,
+        ),
+        theme.palette[0].with_alpha(190),
+        None,
+        2.0,
     );
 }
 
@@ -487,6 +1004,37 @@ fn draw_cartesian_axes(
                 18.0,
             );
         }
+    } else if model.y_axis.axis_type == AxisType::Category && !model.y_categories.is_empty() {
+        let x_scale = LinearScale::nice(model.x_domain.0, model.x_domain.1, 6);
+        for tick in &x_scale.ticks {
+            let x = map_x(*tick, area, &x_scale);
+            add_text(
+                cx,
+                root,
+                &format_tick(*tick),
+                11.0,
+                theme.label,
+                x - 24.0,
+                area.plot.bottom() + 8.0,
+                48.0,
+                18.0,
+            );
+        }
+        let band = category_band_width(model.y_categories.len(), area.plot.height());
+        for (idx, label) in model.y_categories.iter().enumerate() {
+            let y = map_category_y(idx, model, area);
+            add_text(
+                cx,
+                root,
+                label,
+                11.0,
+                theme.label,
+                8.0,
+                y - band / 2.0,
+                area.plot.x() - 14.0,
+                band.max(16.0),
+            );
+        }
     } else {
         let x_scale = LinearScale::nice(model.x_domain.0, model.x_domain.1, 6);
         for tick in &x_scale.ticks {
@@ -513,12 +1061,27 @@ fn render_bar(
     stacks: &mut HashMap<(String, usize), f32>,
     model: &ChartModel,
     area: &ChartArea,
-    _x_scale: &LinearScale,
+    x_scale: &LinearScale,
     y_scale: &LinearScale,
     _theme: &ChartTheme,
     group_index: usize,
     group_count: usize,
 ) {
+    if bar.source.orientation == crate::series::bar::BarOrientation::Horizontal {
+        render_horizontal_bar(
+            cx,
+            root,
+            bar,
+            stacks,
+            model,
+            area,
+            x_scale,
+            group_index,
+            group_count,
+        );
+        return;
+    }
+
     let band = band_width(model, area);
     let group_count = group_count.max(1) as f32;
     let bar_w = if bar.source.stack.is_some() {
@@ -543,10 +1106,80 @@ fn render_bar(
         let y1 = map_y(total, area, y_scale);
         let top = y0.min(y1);
         let height = (y0 - y1).abs().max(1.0);
+        if let Some(background) = bar.source.background {
+            add_rect(
+                cx,
+                root,
+                LayoutRect::new(x - bar_w / 2.0, area.plot.y(), bar_w, area.plot.height()),
+                background,
+                None,
+                bar.source.border_radius.unwrap_or(4.0),
+            );
+        }
         add_rect(
             cx,
             root,
             LayoutRect::new(x - bar_w / 2.0, top, bar_w, height),
+            bar.source.color,
+            None,
+            bar.source.border_radius.unwrap_or(4.0),
+        );
+    }
+}
+
+#[allow(clippy::too_many_arguments)]
+fn render_horizontal_bar(
+    cx: &mut fission_core::lowering::LoweringContext,
+    root: &mut fission_core::lowering::NodeBuilder,
+    bar: &ResolvedBarSeries,
+    stacks: &mut HashMap<(String, usize), f32>,
+    model: &ChartModel,
+    area: &ChartArea,
+    x_scale: &LinearScale,
+    group_index: usize,
+    group_count: usize,
+) {
+    let band = category_band_width(
+        model.y_categories.len().max(bar.values.len()),
+        area.plot.height(),
+    );
+    let group_count = group_count.max(1) as f32;
+    let bar_h = if bar.source.stack.is_some() {
+        band * 0.64
+    } else {
+        (band * 0.72 / group_count).max(2.0)
+    };
+    let group_offset = if bar.source.stack.is_some() {
+        0.0
+    } else {
+        (group_index as f32 - (group_count - 1.0) / 2.0) * bar_h
+    };
+
+    for (idx, value) in bar.values.iter().enumerate() {
+        let base = stack_base(stacks, bar.source.stack.as_ref(), idx);
+        let total = base + *value;
+        if bar.source.stack.is_some() {
+            stacks.insert((bar.source.stack.clone().unwrap(), idx), total);
+        }
+        let y = map_category_y(idx, model, area) + group_offset;
+        let x0 = map_x(base, area, x_scale);
+        let x1 = map_x(total, area, x_scale);
+        let left = x0.min(x1);
+        let width = (x1 - x0).abs().max(1.0);
+        if let Some(background) = bar.source.background {
+            add_rect(
+                cx,
+                root,
+                LayoutRect::new(area.plot.x(), y - bar_h / 2.0, area.plot.width(), bar_h),
+                background,
+                None,
+                bar.source.border_radius.unwrap_or(4.0),
+            );
+        }
+        add_rect(
+            cx,
+            root,
+            LayoutRect::new(left, y - bar_h / 2.0, width, bar_h),
             bar.source.color,
             None,
             bar.source.border_radius.unwrap_or(4.0),
@@ -657,6 +1290,52 @@ fn render_scatter(
     }
 }
 
+fn render_bubble(
+    cx: &mut fission_core::lowering::LoweringContext,
+    root: &mut fission_core::lowering::NodeBuilder,
+    bubble: &crate::series::bubble::BubbleSeries,
+    visual_map: Option<&VisualMap>,
+    area: &ChartArea,
+    x_scale: &LinearScale,
+    y_scale: &LinearScale,
+) {
+    let max_size = bubble
+        .data
+        .iter()
+        .map(|(_, _, size)| *size)
+        .fold(1.0_f32, f32::max);
+    for (idx, (xv, yv, size)) in bubble.data.iter().enumerate() {
+        let x = map_x(*xv, area, x_scale);
+        let y = map_y(*yv, area, y_scale);
+        let t = (*size / max_size).clamp(0.0, 1.0).sqrt();
+        let radius = bubble.min_radius + (bubble.max_radius - bubble.min_radius) * t;
+        let fill = visual_map
+            .map(|map| visual_color(map, *size))
+            .unwrap_or_else(|| bubble.color.with_alpha(185));
+        add_rect(
+            cx,
+            root,
+            LayoutRect::new(x - radius, y - radius, radius * 2.0, radius * 2.0),
+            fill,
+            Some(stroke(Color::WHITE, 1.2)),
+            radius,
+        );
+        if radius > 14.0 {
+            add_text(
+                cx,
+                root,
+                &(idx + 1).to_string(),
+                10.0,
+                Color::WHITE,
+                x - 10.0,
+                y - 6.0,
+                20.0,
+                12.0,
+            );
+        }
+    }
+}
+
 fn render_pie(
     cx: &mut fission_core::lowering::LoweringContext,
     root: &mut fission_core::lowering::NodeBuilder,
@@ -672,13 +1351,23 @@ fn render_pie(
     let cy_pie = area.plot.y() + area.plot.height() * 0.52;
     let max_r = area.plot.width().min(area.plot.height()) * 0.38;
     let inner = pie.inner_radius.max(0.0).min(max_r * 0.85);
+    let max_value = pie
+        .data
+        .iter()
+        .map(|(_, value)| *value)
+        .fold(1.0_f32, f32::max);
     let mut angle = -std::f32::consts::PI / 2.0;
     for (idx, (label, value)) in pie.data.iter().enumerate() {
         let sweep = (*value / total) * std::f32::consts::TAU;
         let end = angle + sweep;
         let mut outer = max_r;
-        if pie.rose_type.as_deref() == Some("radius") {
-            outer = max_r * (0.45 + 0.55 * (*value / total).sqrt());
+        if let Some(rose_type) = pie.rose_type.as_deref() {
+            let normalized = (*value / max_value).clamp(0.0, 1.0);
+            outer = match rose_type {
+                "area" => max_r * (0.42 + 0.58 * normalized.sqrt()),
+                "radius" => max_r * (0.42 + 0.58 * normalized),
+                _ => max_r,
+            };
         }
         add_path(
             cx,
@@ -878,6 +1567,101 @@ fn render_heatmap(
     }
 }
 
+fn render_calendar_heatmap(
+    cx: &mut fission_core::lowering::LoweringContext,
+    root: &mut fission_core::lowering::NodeBuilder,
+    calendar: &crate::series::calendar_heatmap::CalendarHeatmapSeries,
+    visual_map: Option<&VisualMap>,
+    area: &ChartArea,
+    theme: &ChartTheme,
+) {
+    use chrono::{Datelike, Duration, NaiveDate};
+
+    let parsed: Vec<(NaiveDate, f32)> = calendar
+        .data
+        .iter()
+        .filter_map(|(date, value)| {
+            NaiveDate::parse_from_str(date, "%Y-%m-%d")
+                .ok()
+                .map(|date| (date, *value))
+        })
+        .collect();
+    if parsed.is_empty() {
+        return;
+    }
+
+    let min_date = parsed.iter().map(|(date, _)| *date).min().unwrap();
+    let max_date = parsed.iter().map(|(date, _)| *date).max().unwrap();
+    let start = calendar
+        .start
+        .as_ref()
+        .and_then(|date| NaiveDate::parse_from_str(date, "%Y-%m-%d").ok())
+        .unwrap_or(min_date);
+    let end = calendar
+        .end
+        .as_ref()
+        .and_then(|date| NaiveDate::parse_from_str(date, "%Y-%m-%d").ok())
+        .unwrap_or(max_date)
+        .max(start);
+
+    let start_weekday = start.weekday().num_days_from_monday() as i64;
+    let days = (end - start).num_days().max(0) + 1;
+    let weeks = ((start_weekday + days + 6) / 7).max(1) as usize;
+    let cell = (area.plot.width() / weeks as f32)
+        .min(area.plot.height() / 7.0)
+        .max(4.0);
+    let x0 = area.plot.x();
+    let y0 = area.plot.y() + (area.plot.height() - cell * 7.0) / 2.0;
+    let values: HashMap<NaiveDate, f32> = parsed.into_iter().collect();
+    let max_value = values.values().copied().fold(1.0_f32, f32::max);
+
+    let mut date = start;
+    while date <= end {
+        let offset = (date - start).num_days() + start_weekday;
+        let week = (offset / 7) as f32;
+        let day = date.weekday().num_days_from_monday() as f32;
+        let value = values.get(&date).copied().unwrap_or(0.0);
+        let fill = visual_map
+            .map(|map| visual_color(map, value))
+            .unwrap_or_else(|| heat_color(value / max_value));
+        add_rect(
+            cx,
+            root,
+            LayoutRect::new(x0 + week * cell, y0 + day * cell, cell - 2.0, cell - 2.0),
+            fill.with_alpha(if value > 0.0 { 230 } else { 55 }),
+            Some(stroke(Color::WHITE, 0.8)),
+            2.0,
+        );
+        date += Duration::days(1);
+    }
+
+    for (idx, label) in ["Mon", "Wed", "Fri", "Sun"].iter().enumerate() {
+        let day = [0.0, 2.0, 4.0, 6.0][idx];
+        add_text(
+            cx,
+            root,
+            label,
+            10.0,
+            theme.label,
+            x0 - 34.0,
+            y0 + day * cell - 2.0,
+            28.0,
+            12.0,
+        );
+    }
+    add_text(
+        cx,
+        root,
+        &format!("{} to {}", start.format("%b %Y"), end.format("%b %Y")),
+        11.0,
+        theme.label,
+        x0,
+        y0 + cell * 7.0 + 8.0,
+        area.plot.width(),
+        16.0,
+    );
+}
+
 fn render_graph(
     cx: &mut fission_core::lowering::LoweringContext,
     root: &mut fission_core::lowering::NodeBuilder,
@@ -915,6 +1699,176 @@ fn render_graph(
                 px + r + 4.0,
                 py - 7.0,
                 100.0,
+                14.0,
+            );
+        }
+    }
+}
+
+fn render_lines(
+    cx: &mut fission_core::lowering::LoweringContext,
+    root: &mut fission_core::lowering::NodeBuilder,
+    lines: &crate::series::lines::LinesSeries,
+    area: &ChartArea,
+    theme: &ChartTheme,
+) {
+    if lines.data.is_empty() {
+        return;
+    }
+
+    let mut min_x = f32::MAX;
+    let mut max_x = f32::MIN;
+    let mut min_y = f32::MAX;
+    let mut max_y = f32::MIN;
+    let mut max_value = 1.0_f32;
+    for segment in &lines.data {
+        for (x, y) in [segment.from, segment.to] {
+            min_x = min_x.min(x);
+            max_x = max_x.max(x);
+            min_y = min_y.min(y);
+            max_y = max_y.max(y);
+        }
+        max_value = max_value.max(segment.value);
+    }
+    let (min_x, max_x) = normalize_bounds(min_x, max_x);
+    let (min_y, max_y) = normalize_bounds(min_y, max_y);
+
+    for segment in &lines.data {
+        let from = map_lines_point(segment.from, min_x, max_x, min_y, max_y, area);
+        let to = map_lines_point(segment.to, min_x, max_x, min_y, max_y, area);
+        let intensity = (segment.value / max_value).clamp(0.0, 1.0);
+        let stroke_color = mix_color(lines.color.with_alpha(110), lines.color, intensity);
+        let control_x = (from.0 + to.0) / 2.0;
+        let control_y = (from.1 + to.1) / 2.0 - 36.0 * intensity;
+        let path = format!(
+            "M {} {} C {} {} {} {} {} {}",
+            from.0, from.1, control_x, control_y, control_x, control_y, to.0, to.1
+        );
+        add_path(
+            cx,
+            root,
+            &path,
+            None,
+            Some(stroke(stroke_color, 1.6 + 2.2 * intensity)),
+        );
+        draw_arrow_head(cx, root, from, to, stroke_color);
+
+        if lines.effect {
+            let mid = quadratic_midpoint(from, (control_x, control_y), to);
+            let radius = 4.0 + 5.0 * intensity;
+            add_rect(
+                cx,
+                root,
+                LayoutRect::new(mid.0 - radius, mid.1 - radius, radius * 2.0, radius * 2.0),
+                stroke_color.with_alpha(130),
+                Some(stroke(Color::WHITE.with_alpha(150), 1.0)),
+                radius,
+            );
+        }
+    }
+
+    add_text(
+        cx,
+        root,
+        "lines",
+        10.0,
+        theme.label,
+        area.plot.x() + 8.0,
+        area.plot.y() + 8.0,
+        56.0,
+        14.0,
+    );
+}
+
+fn render_tree(
+    cx: &mut fission_core::lowering::LoweringContext,
+    root: &mut fission_core::lowering::NodeBuilder,
+    tree: &crate::series::tree::TreeSeries,
+    area: &ChartArea,
+    theme: &ChartTheme,
+) {
+    if tree.data.is_empty() {
+        return;
+    }
+
+    let leaf_count = tree.data.iter().map(tree_leaf_count).sum::<usize>().max(1);
+    let depth = tree
+        .data
+        .iter()
+        .map(treemap_depth)
+        .max()
+        .unwrap_or(1)
+        .max(1);
+    let mut next_leaf = 0usize;
+    let mut nodes = Vec::<TreeRenderNode>::new();
+    let mut edges = Vec::<((f32, f32), (f32, f32))>::new();
+
+    for root_node in &tree.data {
+        if tree.radial {
+            layout_radial_tree_node(
+                root_node,
+                0,
+                depth,
+                leaf_count,
+                &mut next_leaf,
+                area,
+                &mut nodes,
+                &mut edges,
+            );
+        } else {
+            layout_tree_node(
+                root_node,
+                0,
+                depth,
+                leaf_count,
+                &mut next_leaf,
+                area,
+                &mut nodes,
+                &mut edges,
+            );
+        }
+    }
+
+    for (from, to) in edges {
+        let path = if tree.radial {
+            format!("M {} {} L {} {}", from.0, from.1, to.0, to.1)
+        } else {
+            let mid_x = (from.0 + to.0) / 2.0;
+            format!(
+                "M {} {} C {} {} {} {} {} {}",
+                from.0, from.1, mid_x, from.1, mid_x, to.1, to.0, to.1
+            )
+        };
+        add_path(
+            cx,
+            root,
+            &path,
+            None,
+            Some(stroke(theme.axis_line.with_alpha(150), 1.3)),
+        );
+    }
+
+    for (idx, node) in nodes.iter().enumerate() {
+        let radius = if node.depth == 0 { 8.0 } else { 6.0 };
+        let color = theme.palette[idx % theme.palette.len()];
+        add_rect(
+            cx,
+            root,
+            LayoutRect::new(node.x - radius, node.y - radius, radius * 2.0, radius * 2.0),
+            color,
+            Some(stroke(Color::WHITE, 1.0)),
+            radius,
+        );
+        if !tree.radial || node.depth > 0 {
+            add_text(
+                cx,
+                root,
+                &node.name,
+                10.0,
+                theme.label,
+                node.x + radius + 5.0,
+                node.y - 7.0,
+                110.0,
                 14.0,
             );
         }
@@ -1023,6 +1977,226 @@ fn render_radar(
             &path,
             Some(Fill::Solid(c.with_alpha(70))),
             Some(stroke(c, 2.0)),
+        );
+    }
+}
+
+fn render_polar_bar(
+    cx: &mut fission_core::lowering::LoweringContext,
+    root: &mut fission_core::lowering::NodeBuilder,
+    polar: &crate::series::polar::PolarBarSeries,
+    area: &ChartArea,
+    theme: &ChartTheme,
+) {
+    if polar.data.is_empty() {
+        return;
+    }
+
+    let center = (
+        area.plot.x() + area.plot.width() / 2.0,
+        area.plot.y() + area.plot.height() / 2.0,
+    );
+    let max_r = area.plot.width().min(area.plot.height()) * 0.43;
+    let inner = polar.inner_radius.min(max_r * 0.72);
+    let max_value = polar
+        .data
+        .iter()
+        .map(|(_, value)| *value)
+        .fold(1.0_f32, f32::max);
+    let slot = std::f32::consts::TAU / polar.data.len() as f32;
+
+    for ring in 1..=4 {
+        let r = inner + (max_r - inner) * ring as f32 / 4.0;
+        add_path(
+            cx,
+            root,
+            &circle_path(center.0, center.1, r),
+            None,
+            Some(stroke(theme.grid_line, 1.0)),
+        );
+    }
+
+    for (idx, (label, value)) in polar.data.iter().enumerate() {
+        let start = -std::f32::consts::PI / 2.0 + idx as f32 * slot + slot * 0.10;
+        let end = start + slot * 0.80;
+        let outer = inner + (max_r - inner) * (*value / max_value).clamp(0.0, 1.0);
+        let c = mix_color(
+            polar.color.with_alpha(150),
+            theme.palette[idx % theme.palette.len()],
+            0.35,
+        );
+        add_path(
+            cx,
+            root,
+            &pie_slice(center.0, center.1, inner, outer, start, end),
+            Some(Fill::Solid(c)),
+            Some(stroke(Color::WHITE, 1.0)),
+        );
+        let mid = (start + end) / 2.0;
+        add_text(
+            cx,
+            root,
+            label,
+            10.0,
+            theme.label,
+            center.0 + (max_r + 16.0) * mid.cos() - 28.0,
+            center.1 + (max_r + 16.0) * mid.sin() - 7.0,
+            56.0,
+            14.0,
+        );
+    }
+}
+
+fn render_polar_line(
+    cx: &mut fission_core::lowering::LoweringContext,
+    root: &mut fission_core::lowering::NodeBuilder,
+    polar: &crate::series::polar::PolarLineSeries,
+    area: &ChartArea,
+    theme: &ChartTheme,
+) {
+    if polar.data.is_empty() {
+        return;
+    }
+
+    let center = (
+        area.plot.x() + area.plot.width() / 2.0,
+        area.plot.y() + area.plot.height() / 2.0,
+    );
+    let max_r = area.plot.width().min(area.plot.height()) * 0.42;
+    let max_value = polar
+        .data
+        .iter()
+        .map(|(_, radius)| *radius)
+        .fold(1.0_f32, f32::max);
+    for ring in 1..=4 {
+        let r = max_r * ring as f32 / 4.0;
+        add_path(
+            cx,
+            root,
+            &circle_path(center.0, center.1, r),
+            None,
+            Some(stroke(theme.grid_line, 1.0)),
+        );
+    }
+    for axis in 0..8 {
+        let angle = -std::f32::consts::PI / 2.0 + axis as f32 / 8.0 * std::f32::consts::TAU;
+        add_path(
+            cx,
+            root,
+            &format!(
+                "M {} {} L {} {}",
+                center.0,
+                center.1,
+                center.0 + max_r * angle.cos(),
+                center.1 + max_r * angle.sin()
+            ),
+            None,
+            Some(stroke(theme.grid_line, 0.8)),
+        );
+    }
+
+    let points: Vec<(f32, f32)> = polar
+        .data
+        .iter()
+        .map(|(angle_degrees, radius)| {
+            let angle = angle_degrees.to_radians() - std::f32::consts::PI / 2.0;
+            let r = max_r * (*radius / max_value).clamp(0.0, 1.0);
+            (center.0 + r * angle.cos(), center.1 + r * angle.sin())
+        })
+        .collect();
+    add_path(
+        cx,
+        root,
+        &path_for_line(&points, polar.smooth, None),
+        None,
+        Some(stroke(polar.color, 2.4)),
+    );
+    for (x, y) in points {
+        add_rect(
+            cx,
+            root,
+            LayoutRect::new(x - 4.0, y - 4.0, 8.0, 8.0),
+            polar.color,
+            Some(stroke(Color::WHITE, 1.0)),
+            4.0,
+        );
+    }
+}
+
+fn render_single_axis(
+    cx: &mut fission_core::lowering::LoweringContext,
+    root: &mut fission_core::lowering::NodeBuilder,
+    single_axis: &crate::series::single_axis::SingleAxisSeries,
+    area: &ChartArea,
+    theme: &ChartTheme,
+) {
+    if single_axis.data.is_empty() {
+        return;
+    }
+
+    let min = single_axis
+        .data
+        .iter()
+        .map(|(value, _)| *value)
+        .fold(f32::MAX, f32::min);
+    let max = single_axis
+        .data
+        .iter()
+        .map(|(value, _)| *value)
+        .fold(f32::MIN, f32::max);
+    let scale = LinearScale::nice(min, max, 6);
+    let axis_y = area.plot.y() + area.plot.height() * 0.55;
+    add_path(
+        cx,
+        root,
+        &format!(
+            "M {} {} L {} {}",
+            area.plot.x(),
+            axis_y,
+            area.plot.right(),
+            axis_y
+        ),
+        None,
+        Some(stroke(theme.axis_line, 1.2)),
+    );
+    for tick in &scale.ticks {
+        let x = map_x(*tick, area, &scale);
+        add_path(
+            cx,
+            root,
+            &format!("M {} {} L {} {}", x, axis_y - 5.0, x, axis_y + 5.0),
+            None,
+            Some(stroke(theme.axis_line, 1.0)),
+        );
+        add_text(
+            cx,
+            root,
+            &format_tick(*tick),
+            10.0,
+            theme.label,
+            x - 20.0,
+            axis_y + 10.0,
+            40.0,
+            14.0,
+        );
+    }
+    let max_size = single_axis
+        .data
+        .iter()
+        .map(|(_, size)| *size)
+        .fold(1.0_f32, f32::max);
+    for (idx, (value, size)) in single_axis.data.iter().enumerate() {
+        let x = map_x(*value, area, &scale);
+        let lane = idx % 5;
+        let y = axis_y - 32.0 + lane as f32 * 16.0;
+        let r = 4.0 + 12.0 * (*size / max_size).clamp(0.0, 1.0).sqrt();
+        add_rect(
+            cx,
+            root,
+            LayoutRect::new(x - r, y - r, r * 2.0, r * 2.0),
+            single_axis.color.with_alpha(170),
+            Some(stroke(Color::WHITE, 1.0)),
+            r,
         );
     }
 }
@@ -1672,6 +2846,115 @@ fn draw_legend(
     }
 }
 
+fn draw_mark_areas(
+    cx: &mut fission_core::lowering::LoweringContext,
+    root: &mut fission_core::lowering::NodeBuilder,
+    model: &ChartModel,
+    chart: &Chart,
+    area: &ChartArea,
+) {
+    if chart.mark_areas.is_empty() || !model.has_cartesian_series() {
+        return;
+    }
+    let y_scale = LinearScale::nice(model.y_domain.0, model.y_domain.1, 6);
+    for mark in &chart.mark_areas {
+        let y0 = map_y(mark.y_min, area, &y_scale);
+        let y1 = map_y(mark.y_max, area, &y_scale);
+        add_rect(
+            cx,
+            root,
+            LayoutRect::new(
+                area.plot.x(),
+                y0.min(y1),
+                area.plot.width(),
+                (y0 - y1).abs().max(1.0),
+            ),
+            mark.color,
+            None,
+            0.0,
+        );
+    }
+}
+
+fn draw_mark_lines(
+    cx: &mut fission_core::lowering::LoweringContext,
+    root: &mut fission_core::lowering::NodeBuilder,
+    model: &ChartModel,
+    chart: &Chart,
+    area: &ChartArea,
+    theme: &ChartTheme,
+) {
+    if chart.mark_lines.is_empty() || !model.has_cartesian_series() {
+        return;
+    }
+    let y_scale = LinearScale::nice(model.y_domain.0, model.y_domain.1, 6);
+    for mark in &chart.mark_lines {
+        let y = map_y(mark.y, area, &y_scale);
+        add_path(
+            cx,
+            root,
+            &format!("M {} {} L {} {}", area.plot.x(), y, area.plot.right(), y),
+            None,
+            Some(stroke(mark.color, mark.width)),
+        );
+        add_text(
+            cx,
+            root,
+            &mark.name,
+            10.0,
+            theme.label,
+            area.plot.right() - 90.0,
+            y - 16.0,
+            86.0,
+            14.0,
+        );
+    }
+}
+
+fn draw_mark_points(
+    cx: &mut fission_core::lowering::LoweringContext,
+    root: &mut fission_core::lowering::NodeBuilder,
+    model: &ChartModel,
+    chart: &Chart,
+    area: &ChartArea,
+    theme: &ChartTheme,
+) {
+    if chart.mark_points.is_empty() || !model.has_cartesian_series() {
+        return;
+    }
+    let x_scale = LinearScale::nice(model.x_domain.0, model.x_domain.1, 6);
+    let y_scale = LinearScale::nice(model.y_domain.0, model.y_domain.1, 6);
+    for mark in &chart.mark_points {
+        let x = if model.x_axis.axis_type == AxisType::Category {
+            mark.x
+                .map(|x| map_category_x(x.round().max(0.0) as usize, model, area))
+                .unwrap_or(area.plot.x() + area.plot.width() / 2.0)
+        } else {
+            map_x(mark.x.unwrap_or(model.x_domain.0), area, &x_scale)
+        };
+        let y = map_y(mark.y, area, &y_scale);
+        add_rect(
+            cx,
+            root,
+            LayoutRect::new(x - 5.0, y - 5.0, 10.0, 10.0),
+            mark.color,
+            Some(stroke(Color::WHITE, 1.0)),
+            5.0,
+        );
+        add_text(
+            cx,
+            root,
+            &mark.name,
+            10.0,
+            theme.label,
+            x + 8.0,
+            y - 8.0,
+            90.0,
+            14.0,
+        );
+    }
+}
+
 fn draw_visual_map(
     cx: &mut fission_core::lowering::LoweringContext,
     root: &mut fission_core::lowering::NodeBuilder,
@@ -1766,6 +3049,194 @@ fn draw_data_zoom(
     );
 }
 
+fn draw_brush(
+    cx: &mut fission_core::lowering::LoweringContext,
+    root: &mut fission_core::lowering::NodeBuilder,
+    chart: &Chart,
+    area: &ChartArea,
+    theme: &ChartTheme,
+) {
+    let Some(brush) = chart.interaction.brush.as_ref() else {
+        return;
+    };
+    let Some((x, y, width, height)) = brush.preview_rect else {
+        return;
+    };
+    let rect = LayoutRect::new(
+        area.plot.x() + x * area.plot.width(),
+        area.plot.y() + y * area.plot.height(),
+        width * area.plot.width(),
+        height * area.plot.height(),
+    );
+    add_rect(
+        cx,
+        root,
+        rect,
+        theme.palette[0].with_alpha(42),
+        Some(stroke(theme.palette[0].with_alpha(190), 1.4)),
+        3.0,
+    );
+}
+
+fn draw_graphics(
+    cx: &mut fission_core::lowering::LoweringContext,
+    root: &mut fission_core::lowering::NodeBuilder,
+    chart: &Chart,
+    area: &ChartArea,
+    theme: &ChartTheme,
+) {
+    for graphic in &chart.graphics {
+        let x = area.plot.x() + graphic.x * area.plot.width();
+        let y = area.plot.y() + graphic.y * area.plot.height();
+        let width = graphic.width * area.plot.width();
+        let height = graphic.height * area.plot.height();
+        match graphic.kind {
+            ChartGraphicKind::Rect => add_rect(
+                cx,
+                root,
+                LayoutRect::new(x, y, width, height),
+                graphic.color,
+                graphic.stroke.map(|color| stroke(color, 1.0)),
+                4.0,
+            ),
+            ChartGraphicKind::Circle => {
+                let r = width.min(height) / 2.0;
+                add_rect(
+                    cx,
+                    root,
+                    LayoutRect::new(x - r, y - r, r * 2.0, r * 2.0),
+                    graphic.color,
+                    graphic.stroke.map(|color| stroke(color, 1.0)),
+                    r,
+                );
+            }
+            ChartGraphicKind::Text => {
+                if let Some(text) = graphic.text.as_ref() {
+                    add_text(cx, root, text, 12.0, graphic.color, x, y, width, height);
+                }
+            }
+            ChartGraphicKind::Line => add_path(
+                cx,
+                root,
+                &format!("M {} {} L {} {}", x, y, x + width, y + height),
+                None,
+                Some(stroke(graphic.color, 1.8)),
+            ),
+        }
+    }
+    if !chart.graphics.is_empty() {
+        add_text(
+            cx,
+            root,
+            "graphic layer",
+            10.0,
+            theme.label,
+            area.plot.x() + 8.0,
+            area.plot.y() + 8.0,
+            110.0,
+            14.0,
+        );
+    }
+}
+
+fn draw_timeline(
+    cx: &mut fission_core::lowering::LoweringContext,
+    root: &mut fission_core::lowering::NodeBuilder,
+    chart: &Chart,
+    area: &ChartArea,
+    theme: &ChartTheme,
+) {
+    let Some(timeline) = chart.timeline.as_ref() else {
+        return;
+    };
+    if timeline.labels.is_empty() {
+        return;
+    }
+
+    let x = area.plot.x();
+    let y = area.outer_h - 30.0;
+    let w = area.plot.width();
+    add_path(
+        cx,
+        root,
+        &format!("M {} {} L {} {}", x, y, x + w, y),
+        None,
+        Some(stroke(theme.grid_line, 2.0)),
+    );
+    let denom = timeline.labels.len().saturating_sub(1).max(1) as f32;
+    for (idx, label) in timeline.labels.iter().enumerate() {
+        let px = x + idx as f32 / denom * w;
+        let active = idx == timeline.current_index.min(timeline.labels.len() - 1);
+        let r = if active { 6.0 } else { 4.0 };
+        add_rect(
+            cx,
+            root,
+            LayoutRect::new(px - r, y - r, r * 2.0, r * 2.0),
+            if active {
+                theme.palette[0]
+            } else {
+                theme.axis_line
+            },
+            Some(stroke(Color::WHITE, 1.0)),
+            r,
+        );
+        add_text(
+            cx,
+            root,
+            label,
+            10.0,
+            theme.label,
+            px - 28.0,
+            y + 8.0,
+            56.0,
+            14.0,
+        );
+    }
+}
+
+fn draw_toolbox(
+    cx: &mut fission_core::lowering::LoweringContext,
+    root: &mut fission_core::lowering::NodeBuilder,
+    chart: &Chart,
+    area: &ChartArea,
+    theme: &ChartTheme,
+) {
+    if chart.interaction.toolbox_actions.is_empty() {
+        return;
+    }
+
+    let mut x = area.plot.right() - chart.interaction.toolbox_actions.len() as f32 * 54.0;
+    let y = 18.0;
+    for action in &chart.interaction.toolbox_actions {
+        let label = match action {
+            crate::interaction::ChartToolAction::Restore => "reset",
+            crate::interaction::ChartToolAction::SaveImage => "save",
+            crate::interaction::ChartToolAction::DataZoom => "zoom",
+            crate::interaction::ChartToolAction::Brush => "brush",
+        };
+        add_rect(
+            cx,
+            root,
+            LayoutRect::new(x, y, 48.0, 22.0),
+            theme.plot_background,
+            Some(stroke(theme.grid_line, 1.0)),
+            5.0,
+        );
+        add_text(
+            cx,
+            root,
+            label,
+            10.0,
+            theme.label,
+            x + 5.0,
+            y + 4.0,
+            38.0,
+            14.0,
+        );
+        x += 54.0;
+    }
+}
+
 fn draw_diagnostics(
     cx: &mut fission_core::lowering::LoweringContext,
     root: &mut fission_core::lowering::NodeBuilder,
@@ -1791,27 +3262,6 @@ fn draw_diagnostics(
             16.0,
         );
     }
-}
-
-fn draw_series_badge(
-    cx: &mut fission_core::lowering::LoweringContext,
-    root: &mut fission_core::lowering::NodeBuilder,
-    text: &str,
-    index: usize,
-    area: &ChartArea,
-    theme: &ChartTheme,
-) {
-    add_text(
-        cx,
-        root,
-        text,
-        10.0,
-        theme.label,
-        area.plot.x() + 8.0 + index as f32 * 62.0,
-        area.plot.y() + 8.0,
-        56.0,
-        14.0,
-    );
 }
 
 fn count_bar_groups(series: &[ResolvedSeries]) -> usize {
@@ -1861,6 +3311,22 @@ fn path_for_points(points: &[(f32, f32)]) -> String {
         path.push_str(&format!(" L {} {}", x, y));
     }
     path
+}
+
+fn circle_path(cx: f32, cy: f32, r: f32) -> String {
+    format!(
+        "M {} {} A {} {} 0 1 0 {} {} A {} {} 0 1 0 {} {}",
+        cx + r,
+        cy,
+        r,
+        r,
+        cx - r,
+        cy,
+        r,
+        r,
+        cx + r,
+        cy
+    )
 }
 
 fn treemap_weight(node: &crate::series::treemap::TreemapNode) -> f32 {
@@ -1915,13 +3381,169 @@ fn path_bounds(path: &str) -> Option<(f32, f32, f32, f32)> {
     }
 }
 
+fn hit_test_points(
+    series_index: usize,
+    series_name: &str,
+    data: &[(f32, f32)],
+    area: &ChartArea,
+    x_scale: &LinearScale,
+    y_scale: &LinearScale,
+    point: LayoutPoint,
+    threshold: f32,
+) -> Option<ChartHit> {
+    for (idx, (xv, yv)) in data.iter().enumerate() {
+        let x = map_x(*xv, area, x_scale);
+        let y = map_y(*yv, area, y_scale);
+        if distance(point, (x, y)) <= threshold {
+            return Some(ChartHit::series_item(
+                series_index,
+                series_name.to_string(),
+                idx,
+                Some(*xv),
+                Some(*yv),
+            ));
+        }
+    }
+    None
+}
+
+fn nearest_cartesian_hit(
+    model: &ChartModel,
+    area: &ChartArea,
+    point: LayoutPoint,
+) -> Option<ChartHit> {
+    let y_scale = LinearScale::nice(model.y_domain.0, model.y_domain.1, 6);
+    let mut best: Option<(f32, ChartHit)> = None;
+
+    for (series_index, series) in model.series.iter().enumerate() {
+        match series {
+            ResolvedSeries::Line(line) => {
+                for (idx, value) in line.values.iter().enumerate() {
+                    let x = map_category_x(idx, model, area);
+                    let y = map_y(*value, area, &y_scale);
+                    let dx = (point.x - x).abs();
+                    let dy = (point.y - y).abs() * 0.25;
+                    let score = dx + dy;
+                    let hit = ChartHit::series_item(
+                        series_index,
+                        line.source.name.clone(),
+                        idx,
+                        Some(idx as f32),
+                        Some(*value),
+                    );
+                    if best
+                        .as_ref()
+                        .map_or(true, |(best_score, _)| score < *best_score)
+                    {
+                        best = Some((score, hit));
+                    }
+                }
+            }
+            ResolvedSeries::Bar(bar) => {
+                for (idx, value) in bar.values.iter().enumerate() {
+                    let x = map_category_x(idx, model, area);
+                    let score = (point.x - x).abs();
+                    let hit = ChartHit::series_item(
+                        series_index,
+                        bar.source.name.clone(),
+                        idx,
+                        Some(idx as f32),
+                        Some(*value),
+                    );
+                    if best
+                        .as_ref()
+                        .map_or(true, |(best_score, _)| score < *best_score)
+                    {
+                        best = Some((score, hit));
+                    }
+                }
+            }
+            _ => {}
+        }
+    }
+
+    best.and_then(|(score, hit)| {
+        let max_distance = (band_width(model, area) * 0.55).max(16.0);
+        if score <= max_distance {
+            Some(hit)
+        } else {
+            None
+        }
+    })
+}
+
+fn hit_test_pie(
+    series_index: usize,
+    pie: &crate::series::pie::PieSeries,
+    area: &ChartArea,
+    point: LayoutPoint,
+) -> Option<ChartHit> {
+    let total: f32 = pie.data.iter().map(|(_, value)| *value).sum();
+    if total <= 0.0 {
+        return None;
+    }
+
+    let center = (
+        area.plot.x() + area.plot.width() * 0.45,
+        area.plot.y() + area.plot.height() * 0.52,
+    );
+    let max_r = area.plot.width().min(area.plot.height()) * 0.38;
+    let dx = point.x - center.0;
+    let dy = point.y - center.1;
+    let radius = (dx * dx + dy * dy).sqrt();
+    if radius > max_r {
+        return None;
+    }
+    let inner = pie.inner_radius.max(0.0).min(max_r * 0.85);
+    if radius < inner {
+        return None;
+    }
+
+    let mut angle = dy.atan2(dx);
+    if angle < -std::f32::consts::PI / 2.0 {
+        angle += std::f32::consts::TAU;
+    }
+    let mut start = -std::f32::consts::PI / 2.0;
+    for (idx, (label, value)) in pie.data.iter().enumerate() {
+        let sweep = (*value / total) * std::f32::consts::TAU;
+        let end = start + sweep;
+        if angle >= start && angle <= end {
+            let _ = label;
+            return Some(ChartHit::series_item(
+                series_index,
+                pie.name.clone(),
+                idx,
+                None,
+                Some(*value),
+            ));
+        }
+        start = end;
+    }
+    None
+}
+
+fn distance(point: LayoutPoint, other: (f32, f32)) -> f32 {
+    let dx = point.x - other.0;
+    let dy = point.y - other.1;
+    (dx * dx + dy * dy).sqrt()
+}
+
 fn band_width(model: &ChartModel, area: &ChartArea) -> f32 {
     let count = model.x_categories.len().max(1) as f32;
     area.plot.width() / count
 }
 
+fn category_band_width(count: usize, extent: f32) -> f32 {
+    extent / count.max(1) as f32
+}
+
 fn map_category_x(idx: usize, model: &ChartModel, area: &ChartArea) -> f32 {
     area.plot.x() + band_width(model, area) * (idx as f32 + 0.5)
+}
+
+fn map_category_y(idx: usize, model: &ChartModel, area: &ChartArea) -> f32 {
+    let count = model.y_categories.len().max(1);
+    area.plot.y() + category_band_width(count, area.plot.height()) * (idx as f32 + 0.5)
 }
 
 fn map_x(value: f32, area: &ChartArea, scale: &LinearScale) -> f32 {
@@ -1941,10 +3563,14 @@ fn series_names(model: &ChartModel) -> Vec<String> {
             ResolvedSeries::Bar(s) => s.source.name.clone(),
             ResolvedSeries::Scatter(s) => s.name.clone(),
             ResolvedSeries::Pie(s) => s.name.clone(),
+            ResolvedSeries::Bubble(s) => s.name.clone(),
             ResolvedSeries::Boxplot(s) => s.name.clone(),
             ResolvedSeries::Candlestick(s) => s.name.clone(),
             ResolvedSeries::Heatmap(s) => s.name.clone(),
+            ResolvedSeries::CalendarHeatmap(s) => s.name.clone(),
+            ResolvedSeries::Lines(s) => s.name.clone(),
             ResolvedSeries::Graph(s) => s.name.clone(),
+            ResolvedSeries::Tree(s) => s.name.clone(),
             ResolvedSeries::Treemap(s) => s.name.clone(),
             ResolvedSeries::Radar(s) => s.name.clone(),
             ResolvedSeries::Funnel(s) => s.name.clone(),
@@ -1958,6 +3584,9 @@ fn series_names(model: &ChartModel) -> Vec<String> {
             ResolvedSeries::EffectScatter(s) => s.name.clone(),
             ResolvedSeries::Liquidfill(s) => s.name.clone(),
             ResolvedSeries::Wordcloud(s) => s.name.clone(),
+            ResolvedSeries::PolarBar(s) => s.name.clone(),
+            ResolvedSeries::PolarLine(s) => s.name.clone(),
+            ResolvedSeries::SingleAxis(s) => s.name.clone(),
         })
         .collect()
 }
@@ -2036,6 +3665,10 @@ fn mix_color(a: Color, b: Color, t: f32) -> Color {
     )
 }
 
+fn color_luma(color: Color) -> f32 {
+    color.r as f32 * 0.2126 + color.g as f32 * 0.7152 + color.b as f32 * 0.0722
+}
+
 fn translate_path(path: &str, dx: f32, dy: f32) -> String {
     if dx == 0.0 && dy == 0.0 {
         path.to_string()
@@ -2066,6 +3699,193 @@ fn translate_path(path: &str, dx: f32, dy: f32) -> String {
             result.push(' ');
         }
         result
+    }
+}
+
+#[derive(Debug, Clone)]
+struct TreeRenderNode {
+    name: String,
+    x: f32,
+    y: f32,
+    depth: usize,
+}
+
+fn tree_leaf_count(node: &crate::series::treemap::TreemapNode) -> usize {
+    if node.children.is_empty() {
+        1
+    } else {
+        node.children.iter().map(tree_leaf_count).sum()
+    }
+}
+
+#[allow(clippy::too_many_arguments)]
+fn layout_tree_node(
+    node: &crate::series::treemap::TreemapNode,
+    depth_index: usize,
+    depth_count: usize,
+    leaf_count: usize,
+    next_leaf: &mut usize,
+    area: &ChartArea,
+    nodes: &mut Vec<TreeRenderNode>,
+    edges: &mut Vec<((f32, f32), (f32, f32))>,
+) -> (f32, f32) {
+    let x_denom = depth_count.saturating_sub(1).max(1) as f32;
+    let x = area.plot.x() + depth_index as f32 / x_denom * area.plot.width();
+    let mut child_points = Vec::new();
+    let y = if node.children.is_empty() {
+        let y = area.plot.y() + (*next_leaf as f32 + 0.5) / leaf_count as f32 * area.plot.height();
+        *next_leaf += 1;
+        y
+    } else {
+        let mut sum = 0.0;
+        for child in &node.children {
+            let child_point = layout_tree_node(
+                child,
+                depth_index + 1,
+                depth_count,
+                leaf_count,
+                next_leaf,
+                area,
+                nodes,
+                edges,
+            );
+            child_points.push(child_point);
+            let (_, child_y) = child_point;
+            sum += child_y;
+        }
+        sum / node.children.len().max(1) as f32
+    };
+
+    let point = (x, y);
+    for child_point in child_points {
+        edges.push((point, child_point));
+    }
+    nodes.push(TreeRenderNode {
+        name: node.name.clone(),
+        x,
+        y,
+        depth: depth_index,
+    });
+    point
+}
+
+#[allow(clippy::too_many_arguments)]
+fn layout_radial_tree_node(
+    node: &crate::series::treemap::TreemapNode,
+    depth_index: usize,
+    depth_count: usize,
+    leaf_count: usize,
+    next_leaf: &mut usize,
+    area: &ChartArea,
+    nodes: &mut Vec<TreeRenderNode>,
+    edges: &mut Vec<((f32, f32), (f32, f32))>,
+) -> (f32, f32) {
+    let center = (
+        area.plot.x() + area.plot.width() / 2.0,
+        area.plot.y() + area.plot.height() / 2.0,
+    );
+    let radius = area.plot.width().min(area.plot.height()) * 0.44;
+    let mut child_points = Vec::new();
+    let point = if node.children.is_empty() {
+        let angle = -std::f32::consts::PI / 2.0
+            + (*next_leaf as f32 + 0.5) / leaf_count as f32 * std::f32::consts::TAU;
+        *next_leaf += 1;
+        let r = depth_index as f32 / depth_count.saturating_sub(1).max(1) as f32 * radius;
+        (center.0 + r * angle.cos(), center.1 + r * angle.sin())
+    } else {
+        let mut points = Vec::new();
+        for child in &node.children {
+            let child_point = layout_radial_tree_node(
+                child,
+                depth_index + 1,
+                depth_count,
+                leaf_count,
+                next_leaf,
+                area,
+                nodes,
+                edges,
+            );
+            points.push(child_point);
+            child_points.push(child_point);
+        }
+        if depth_index == 0 {
+            center
+        } else {
+            let avg_x = points.iter().map(|point| point.0).sum::<f32>() / points.len() as f32;
+            let avg_y = points.iter().map(|point| point.1).sum::<f32>() / points.len() as f32;
+            let angle = (avg_y - center.1).atan2(avg_x - center.0);
+            let r = depth_index as f32 / depth_count.saturating_sub(1).max(1) as f32 * radius;
+            (center.0 + r * angle.cos(), center.1 + r * angle.sin())
+        }
+    };
+
+    nodes.push(TreeRenderNode {
+        name: node.name.clone(),
+        x: point.0,
+        y: point.1,
+        depth: depth_index,
+    });
+    for child_point in child_points {
+        edges.push((point, child_point));
+    }
+    point
+}
+
+fn map_lines_point(
+    point: (f32, f32),
+    min_x: f32,
+    max_x: f32,
+    min_y: f32,
+    max_y: f32,
+    area: &ChartArea,
+) -> (f32, f32) {
+    let x_t = ((point.0 - min_x) / (max_x - min_x).max(f32::EPSILON)).clamp(0.0, 1.0);
+    let y_t = ((point.1 - min_y) / (max_y - min_y).max(f32::EPSILON)).clamp(0.0, 1.0);
+    (
+        area.plot.x() + x_t * area.plot.width(),
+        area.plot.bottom() - y_t * area.plot.height(),
+    )
+}
+
+fn quadratic_midpoint(from: (f32, f32), control: (f32, f32), to: (f32, f32)) -> (f32, f32) {
+    (
+        0.25 * from.0 + 0.5 * control.0 + 0.25 * to.0,
+        0.25 * from.1 + 0.5 * control.1 + 0.25 * to.1,
+    )
+}
+
+fn draw_arrow_head(
+    cx: &mut fission_core::lowering::LoweringContext,
+    root: &mut fission_core::lowering::NodeBuilder,
+    from: (f32, f32),
+    to: (f32, f32),
+    fill: Color,
+) {
+    let angle = (to.1 - from.1).atan2(to.0 - from.0);
+    let size = 8.0;
+    let left = (
+        to.0 - size * (angle - 0.45).cos(),
+        to.1 - size * (angle - 0.45).sin(),
+    );
+    let right = (
+        to.0 - size * (angle + 0.45).cos(),
+        to.1 - size * (angle + 0.45).sin(),
+    );
+    let path = format!(
+        "M {} {} L {} {} L {} {} Z",
+        to.0, to.1, left.0, left.1, right.0, right.1
+    );
+    add_path(cx, root, &path, Some(Fill::Solid(fill)), None);
+}
+
+fn normalize_bounds(min: f32, max: f32) -> (f32, f32) {
+    if !min.is_finite() || !max.is_finite() {
+        return (0.0, 1.0);
+    }
+    if (max - min).abs() < f32::EPSILON {
+        (min - 1.0, max + 1.0)
+    } else {
+        (min, max)
     }
 }
 

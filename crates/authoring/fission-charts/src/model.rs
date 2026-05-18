@@ -17,6 +17,7 @@ pub struct ChartModel {
     pub x_axis: Axis,
     pub y_axis: Axis,
     pub x_categories: Vec<String>,
+    pub y_categories: Vec<String>,
     pub x_domain: (f32, f32),
     pub y_domain: (f32, f32),
     pub series: Vec<ResolvedSeries>,
@@ -29,10 +30,14 @@ pub enum ResolvedSeries {
     Bar(ResolvedBarSeries),
     Scatter(scatter::ScatterSeries),
     Pie(pie::PieSeries),
+    Bubble(bubble::BubbleSeries),
     Boxplot(boxplot::BoxplotSeries),
     Candlestick(candlestick::CandlestickSeries),
     Heatmap(heatmap::HeatmapSeries),
+    CalendarHeatmap(calendar_heatmap::CalendarHeatmapSeries),
+    Lines(lines::LinesSeries),
     Graph(graph::GraphSeries),
+    Tree(tree::TreeSeries),
     Treemap(treemap::TreemapSeries),
     Radar(radar::RadarSeries),
     Funnel(funnel::FunnelSeries),
@@ -46,6 +51,9 @@ pub enum ResolvedSeries {
     EffectScatter(effect_scatter::EffectScatterSeries),
     Liquidfill(liquidfill::LiquidfillSeries),
     Wordcloud(wordcloud::WordcloudSeries),
+    PolarBar(polar::PolarBarSeries),
+    PolarLine(polar::PolarLineSeries),
+    SingleAxis(single_axis::SingleAxisSeries),
 }
 
 #[derive(Debug, Clone)]
@@ -84,12 +92,18 @@ impl ChartModel {
                 ))),
                 Series::Scatter(series) => resolved.push(ResolvedSeries::Scatter(series.clone())),
                 Series::Pie(series) => resolved.push(ResolvedSeries::Pie(series.clone())),
+                Series::Bubble(series) => resolved.push(ResolvedSeries::Bubble(series.clone())),
                 Series::Boxplot(series) => resolved.push(ResolvedSeries::Boxplot(series.clone())),
                 Series::Candlestick(series) => {
                     resolved.push(ResolvedSeries::Candlestick(series.clone()))
                 }
                 Series::Heatmap(series) => resolved.push(ResolvedSeries::Heatmap(series.clone())),
+                Series::CalendarHeatmap(series) => {
+                    resolved.push(ResolvedSeries::CalendarHeatmap(series.clone()))
+                }
+                Series::Lines(series) => resolved.push(ResolvedSeries::Lines(series.clone())),
                 Series::Graph(series) => resolved.push(ResolvedSeries::Graph(series.clone())),
+                Series::Tree(series) => resolved.push(ResolvedSeries::Tree(series.clone())),
                 Series::Treemap(series) => resolved.push(ResolvedSeries::Treemap(series.clone())),
                 Series::Radar(series) => resolved.push(ResolvedSeries::Radar(series.clone())),
                 Series::Funnel(series) => resolved.push(ResolvedSeries::Funnel(series.clone())),
@@ -119,18 +133,25 @@ impl ChartModel {
                     resolved.push(ResolvedSeries::Liquidfill(series.clone()))
                 }
                 Series::Wordcloud(series) => resolved.push(ResolvedSeries::Wordcloud(series.clone())),
+                Series::PolarBar(series) => resolved.push(ResolvedSeries::PolarBar(series.clone())),
+                Series::PolarLine(series) => resolved.push(ResolvedSeries::PolarLine(series.clone())),
+                Series::SingleAxis(series) => resolved.push(ResolvedSeries::SingleAxis(series.clone())),
                 Series::Custom(series) => diagnostics.push(unsupported(&series.name, "String-named custom render callbacks are not part of the Fission chart architecture.")),
             }
         }
 
-        let x_categories = resolve_x_categories(&x_axis, &resolved);
-        let (x_domain, y_domain) = resolve_domains(&x_axis, &y_axis, &x_categories, &resolved);
+        let mut x_categories = resolve_x_categories(&x_axis, &resolved);
+        let y_categories = resolve_y_categories(&y_axis, &resolved);
+        apply_data_zoom(chart.data_zoom.as_ref(), &mut resolved, &mut x_categories);
+        let (x_domain, y_domain) =
+            resolve_domains(&x_axis, &y_axis, &x_categories, &y_categories, &resolved);
 
         Self {
             title: chart.title.clone(),
             x_axis,
             y_axis,
             x_categories,
+            y_categories,
             x_domain,
             y_domain,
             series: resolved,
@@ -145,6 +166,7 @@ impl ChartModel {
                 ResolvedSeries::Line(_)
                     | ResolvedSeries::Bar(_)
                     | ResolvedSeries::Scatter(_)
+                    | ResolvedSeries::Bubble(_)
                     | ResolvedSeries::Boxplot(_)
                     | ResolvedSeries::Candlestick(_)
                     | ResolvedSeries::Heatmap(_)
@@ -229,10 +251,84 @@ fn resolve_x_categories(axis: &Axis, series: &[ResolvedSeries]) -> Vec<String> {
     (0..max_len).map(|idx| (idx + 1).to_string()).collect()
 }
 
+fn resolve_y_categories(axis: &Axis, series: &[ResolvedSeries]) -> Vec<String> {
+    if axis.axis_type == AxisType::Category && !axis.data.is_empty() {
+        return axis.data.clone();
+    }
+
+    let mut max_len = 0usize;
+    for series in series {
+        match series {
+            ResolvedSeries::Bar(bar)
+                if bar.source.orientation == bar::BarOrientation::Horizontal =>
+            {
+                max_len = max_len.max(bar.values.len())
+            }
+            ResolvedSeries::SingleAxis(single_axis) => {
+                max_len = max_len.max(single_axis.data.len())
+            }
+            _ => {}
+        }
+    }
+
+    (0..max_len).map(|idx| (idx + 1).to_string()).collect()
+}
+
+fn apply_data_zoom(
+    data_zoom: Option<&crate::components::DataZoom>,
+    series: &mut [ResolvedSeries],
+    categories: &mut Vec<String>,
+) {
+    let Some(data_zoom) = data_zoom else {
+        return;
+    };
+    if categories.is_empty() {
+        return;
+    }
+
+    let len = categories.len();
+    let start = ((data_zoom.start_percent / 100.0).clamp(0.0, 1.0) * len as f32).floor() as usize;
+    let mut end = ((data_zoom.end_percent / 100.0).clamp(0.0, 1.0) * len as f32).ceil() as usize;
+    let start = start.min(len.saturating_sub(1));
+    end = end.max(start + 1).min(len);
+
+    *categories = categories[start..end].to_vec();
+    for series in series {
+        match series {
+            ResolvedSeries::Line(line) => {
+                line.values = slice_vec(&line.values, start, end);
+                line.categories = slice_vec(&line.categories, start, end);
+            }
+            ResolvedSeries::Bar(bar) if bar.source.orientation == bar::BarOrientation::Vertical => {
+                bar.values = slice_vec(&bar.values, start, end);
+                bar.categories = slice_vec(&bar.categories, start, end);
+            }
+            ResolvedSeries::Boxplot(boxplot) => {
+                boxplot.data = slice_vec(&boxplot.data, start, end);
+            }
+            ResolvedSeries::Candlestick(candle) => {
+                candle.data = slice_vec(&candle.data, start, end);
+            }
+            ResolvedSeries::PictorialBar(pic) => {
+                pic.data = slice_vec(&pic.data, start, end);
+            }
+            _ => {}
+        }
+    }
+}
+
+fn slice_vec<T: Clone>(values: &[T], start: usize, end: usize) -> Vec<T> {
+    if values.is_empty() {
+        return Vec::new();
+    }
+    values[start.min(values.len())..end.min(values.len())].to_vec()
+}
+
 fn resolve_domains(
     x_axis: &Axis,
     y_axis: &Axis,
-    categories: &[String],
+    x_categories: &[String],
+    y_categories: &[String],
     series: &[ResolvedSeries],
 ) -> ((f32, f32), (f32, f32)) {
     let mut x_min = f32::MAX;
@@ -260,9 +356,15 @@ fn resolve_domains(
                 for (idx, value) in bar.values.iter().enumerate() {
                     let value =
                         stacked_value(&mut bar_stacks, bar.source.stack.as_ref(), idx, *value);
-                    y_min = y_min.min(value).min(0.0);
-                    y_max = y_max.max(value).max(0.0);
-                    saw_y = true;
+                    if bar.source.orientation == bar::BarOrientation::Horizontal {
+                        x_min = x_min.min(value).min(0.0);
+                        x_max = x_max.max(value).max(0.0);
+                        saw_x = true;
+                    } else {
+                        y_min = y_min.min(value).min(0.0);
+                        y_max = y_max.max(value).max(0.0);
+                        saw_y = true;
+                    }
                 }
             }
             ResolvedSeries::Scatter(scatter) => {
@@ -277,6 +379,16 @@ fn resolve_domains(
             }
             ResolvedSeries::EffectScatter(scatter) => {
                 for (x, y) in &scatter.data {
+                    x_min = x_min.min(*x);
+                    x_max = x_max.max(*x);
+                    y_min = y_min.min(*y);
+                    y_max = y_max.max(*y);
+                    saw_x = true;
+                    saw_y = true;
+                }
+            }
+            ResolvedSeries::Bubble(bubble) => {
+                for (x, y, _) in &bubble.data {
                     x_min = x_min.min(*x);
                     x_max = x_max.max(*x);
                     y_min = y_min.min(*y);
@@ -310,18 +422,38 @@ fn resolve_domains(
                     saw_y = true;
                 }
             }
+            ResolvedSeries::PolarLine(line) => {
+                for (_, radius) in &line.data {
+                    y_min = y_min.min(*radius).min(0.0);
+                    y_max = y_max.max(*radius).max(0.0);
+                    saw_y = true;
+                }
+            }
+            ResolvedSeries::SingleAxis(single_axis) => {
+                for (value, _) in &single_axis.data {
+                    x_min = x_min.min(*value);
+                    x_max = x_max.max(*value);
+                    saw_x = true;
+                }
+            }
             _ => {}
         }
     }
 
     let mut x_domain = if x_axis.axis_type == AxisType::Category {
-        (0.0, categories.len().saturating_sub(1).max(1) as f32)
+        (0.0, x_categories.len().saturating_sub(1).max(1) as f32)
     } else if saw_x {
         (x_min, x_max)
     } else {
-        (0.0, categories.len().saturating_sub(1).max(1) as f32)
+        (0.0, x_categories.len().saturating_sub(1).max(1) as f32)
     };
-    let mut y_domain = if saw_y { (y_min, y_max) } else { (0.0, 1.0) };
+    let mut y_domain = if y_axis.axis_type == AxisType::Category {
+        (0.0, y_categories.len().saturating_sub(1).max(1) as f32)
+    } else if saw_y {
+        (y_min, y_max)
+    } else {
+        (0.0, 1.0)
+    };
 
     if let Some(min) = x_axis.min {
         x_domain.0 = min;
