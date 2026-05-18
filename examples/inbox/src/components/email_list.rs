@@ -8,6 +8,7 @@ use fission_core::ui::{
 use fission_core::ActionEnvelope;
 use fission_core::{reduce_with, BuildCtx, NodeId, View, Widget, WidgetNodeId};
 use fission_icons::material;
+use fission_theme::ComponentSize;
 use fission_widgets::{
     Badge, DateRangePicker, Divider, DropDown, EmptyState, HStack, Hero, Icon, LazyColumn,
     Pagination, Popover, RangeSlider, SegmentedControl, TabItem, Tabs, Tag, TextInput, VStack,
@@ -362,6 +363,7 @@ impl Widget<InboxState> for EmailList {
                     }
                     .build(ctx, view),
                 ],
+                ..Default::default()
             }
             .build(ctx, view),
         );
@@ -395,6 +397,7 @@ impl Widget<InboxState> for EmailList {
                         }),
                     },
                 ],
+                size: ComponentSize::Sm,
             }
             .build(ctx, view),
         );

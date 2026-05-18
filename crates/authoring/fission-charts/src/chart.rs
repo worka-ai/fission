@@ -421,9 +421,32 @@ impl ChartTheme {
         theme.axis_line = colors.text_secondary;
         theme.label = colors.text_secondary;
         theme.title = colors.text_primary;
-        theme.palette[0] = colors.primary;
-        theme.palette[1] = colors.secondary;
+        if env.theme.tokens.data_visualization.palette.is_empty() {
+            theme.palette[0] = colors.primary;
+            theme.palette[1] = colors.secondary;
+        } else {
+            theme.palette = env.theme.tokens.data_visualization.palette.clone();
+        }
         theme
+    }
+}
+
+#[cfg(test)]
+mod chart_theme_tests {
+    use super::*;
+
+    #[test]
+    fn chart_theme_uses_generated_data_visualization_palette() {
+        let mut env = fission_core::Env::default();
+        env.theme.tokens.data_visualization.palette = vec![
+            color(1, 2, 3, 255),
+            color(4, 5, 6, 255),
+            color(7, 8, 9, 255),
+        ];
+
+        let theme = ChartTheme::from_env(&env);
+
+        assert_eq!(theme.palette, env.theme.tokens.data_visualization.palette);
     }
 }
 

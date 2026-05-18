@@ -70,6 +70,7 @@ impl<S: fission_core::AppState> Widget<S> for Modal {
 
         let theme = &view.env.theme.components.modal;
         let tokens = &view.env.theme.tokens;
+        let container_style = &theme.container_style;
         let viewport = view.viewport_size();
         let horizontal_margin = 24.0;
         let max_dialog_width = if viewport.width.is_finite() && viewport.width > 0.0 {
@@ -82,12 +83,14 @@ impl<S: fission_core::AppState> Widget<S> for Modal {
         // Dimmed backdrop
         let backdrop =
             Container::new(fission_core::ui::widgets::spacer::Spacer::default().into_node())
-                .bg(Color {
-                    r: 0,
-                    g: 0,
-                    b: 0,
-                    a: 220,
-                })
+                .bg_fill(theme.scrim_style.background.clone().unwrap_or(
+                    fission_core::op::Fill::Solid(Color {
+                        r: 0,
+                        g: 0,
+                        b: 0,
+                        a: 220,
+                    }),
+                ))
                 .flex_grow(1.0)
                 .into_node();
 
@@ -104,9 +107,9 @@ impl<S: fission_core::AppState> Widget<S> for Modal {
             action_buttons.push(
                 Button {
                     variant: if action.is_primary {
-                        ButtonVariant::Filled
+                        ButtonVariant::Primary
                     } else {
-                        ButtonVariant::Outline
+                        ButtonVariant::SecondaryGray
                     },
                     child: Some(Box::new(
                         Text::new(action.label.clone())
@@ -174,11 +177,19 @@ impl<S: fission_core::AppState> Widget<S> for Modal {
                 }
                 .into_node(),
             )
-            .bg(theme.bg_color)
-            .border_radius(theme.radius);
+            .bg_fill(
+                container_style
+                    .background
+                    .clone()
+                    .unwrap_or(fission_core::op::Fill::Solid(theme.bg_color)),
+            )
+            .border_radius(container_style.radius.unwrap_or(theme.radius))
+            .shadows(container_style.outer_shadows());
 
-        if let Some(s) = theme.shadow {
-            modal_card_builder = modal_card_builder.shadow(s);
+        if container_style.shadows.is_empty() {
+            if let Some(s) = theme.shadow {
+                modal_card_builder = modal_card_builder.shadow(s);
+            }
         }
 
         let modal_card = modal_card_builder

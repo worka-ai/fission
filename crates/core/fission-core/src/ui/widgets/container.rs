@@ -64,6 +64,8 @@ pub struct Container {
     pub border_radius: f32,
     /// Optional drop shadow.
     pub shadow: Option<BoxShadow>,
+    /// Additional shadows drawn behind the container in order.
+    pub shadows: Vec<BoxShadow>,
 }
 
 impl Default for Container {
@@ -86,6 +88,7 @@ impl Default for Container {
             border_width: 0.0,
             border_radius: 0.0,
             shadow: None,
+            shadows: Vec::new(),
         }
     }
 }
@@ -186,6 +189,11 @@ impl Container {
         self
     }
 
+    pub fn shadows(mut self, shadows: Vec<BoxShadow>) -> Self {
+        self.shadows = shadows;
+        self
+    }
+
     pub fn into_node(self) -> Node {
         Node::Container(self)
     }
@@ -203,7 +211,21 @@ impl Lower for Container {
             || self.background_color.is_some()
             || self.border_color.is_some()
             || self.shadow.is_some()
+            || !self.shadows.is_empty()
         {
+            for shadow in &self.shadows {
+                let paint = NodeBuilder::new(
+                    cx.next_node_id(),
+                    Op::Paint(PaintOp::DrawRect {
+                        fill: None,
+                        stroke: None,
+                        corner_radius: self.border_radius,
+                        shadow: Some(*shadow),
+                    }),
+                )
+                .build(cx);
+                children_ids.push(paint);
+            }
             let paint = NodeBuilder::new(
                 cx.next_node_id(),
                 Op::Paint(PaintOp::DrawRect {

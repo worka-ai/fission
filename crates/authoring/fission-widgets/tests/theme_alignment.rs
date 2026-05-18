@@ -96,10 +96,22 @@ fn rect_center(rect: fission_layout::LayoutRect) -> (f32, f32) {
     )
 }
 
+fn find_text_paint(ir: &CoreIR, expected: &str) -> Option<NodeId> {
+    ir.nodes.iter().find_map(|(id, node)| match &node.op {
+        Op::Paint(PaintOp::DrawText { text, .. }) if text == expected => Some(*id),
+        Op::Paint(PaintOp::DrawRichText { runs, .. })
+            if runs.iter().map(|run| run.text.as_str()).collect::<String>() == expected =>
+        {
+            Some(*id)
+        }
+        _ => None,
+    })
+}
+
 #[test]
-fn badge_background_uses_theme_secondary() {
+fn badge_background_uses_generated_brand_tone() {
     let mut tokens = Tokens::default();
-    tokens.colors.secondary = Color {
+    tokens.colors.primary_subtle = Color {
         r: 7,
         g: 11,
         b: 13,
@@ -124,7 +136,7 @@ fn badge_background_uses_theme_secondary() {
             ..
         }) = &node.op
         {
-            if *color == env.theme.tokens.colors.secondary {
+            if *color == env.theme.tokens.colors.primary_subtle {
                 found = true;
                 break;
             }
@@ -133,7 +145,7 @@ fn badge_background_uses_theme_secondary() {
 
     assert!(
         found,
-        "expected badge background to use theme secondary color"
+        "expected badge background to use generated brand tone"
     );
 }
 
@@ -205,18 +217,7 @@ fn badge_text_centered() {
     );
     let parents = parent_map(&ir);
 
-    let text_paint_id = ir
-        .nodes
-        .iter()
-        .find_map(|(id, node)| {
-            if let Op::Paint(PaintOp::DrawText { text, .. }) = &node.op {
-                if text == "1" {
-                    return Some(*id);
-                }
-            }
-            None
-        })
-        .expect("badge text paint");
+    let text_paint_id = find_text_paint(&ir, "1").expect("badge text paint");
 
     let text_layout_id = parents
         .get(&text_paint_id)

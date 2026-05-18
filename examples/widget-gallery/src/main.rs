@@ -481,6 +481,7 @@ impl Widget<GalleryState> for GalleryApp {
                             )),
                         },
                     ],
+                    ..Default::default()
                 }
                 .build(ctx, view),
                 // Breadcrumb
@@ -587,6 +588,7 @@ impl Widget<GalleryState> for GalleryApp {
                         }
                         .into_node(),
                     ),
+                    ..Default::default()
                 }
                 .build(ctx, view),
                 // Accordion

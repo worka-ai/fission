@@ -16,6 +16,7 @@ use fission_ir::{
     },
     AnyRenderObject, FlexDirection, FlexWrap, NodeId, Role, Semantics,
 };
+use fission_theme::{ComponentSize, ComponentState};
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 use unicode_segmentation::UnicodeSegmentation;
@@ -296,6 +297,9 @@ pub struct TextInput {
     pub width: Option<f32>,
     /// Fixed height in layout points.
     pub height: Option<f32>,
+    /// Design-system size slot.
+    #[serde(default)]
+    pub size: ComponentSize,
     /// Custom content padding `[left, right, top, bottom]`.
     pub padding: Option<[f32; 4]>,
     /// When `true`, the input accepts newlines and scrolls vertically.
@@ -783,6 +787,7 @@ impl Default for TextInput {
             on_tap_outside: None,
             width: None,
             height: None,
+            size: ComponentSize::Md,
             padding: None,
             multiline: false,
             autofocus: false,
@@ -1082,35 +1087,89 @@ impl Lower for TextInput {
 
         let theme = &cx.env.theme.components.text_input;
         let tokens = &cx.env.theme.tokens;
+        let component_state = if !self.enabled {
+            ComponentState::Disabled
+        } else if self.error_text.is_some() {
+            ComponentState::Error
+        } else if is_focused {
+            ComponentState::Focus
+        } else {
+            ComponentState::Default
+        };
+        let component_style = theme.resolve(self.size, component_state);
 
         let text_scale = self.text_scale.unwrap_or(1.0).max(0.0);
-        let font_size = self.font_size.unwrap_or(theme.font_size) * text_scale;
-        let text_color = self.text_color.unwrap_or(theme.text_color);
+        let font_size = self
+            .font_size
+            .unwrap_or(component_style.font_size.unwrap_or(theme.font_size))
+            * text_scale;
+        let text_color = self
+            .text_color
+            .unwrap_or(component_style.text_color.unwrap_or(theme.text_color));
         let selection_color = self
             .selection_color
             .unwrap_or(tokens.colors.primary.with_alpha(52));
         let selection_text_color = self.selection_text_color.unwrap_or(text_color);
-        let placeholder_color = self.placeholder_color.unwrap_or(theme.placeholder_color);
+        let placeholder_color = self.placeholder_color.unwrap_or(
+            theme
+                .placeholder_style
+                .text_color
+                .unwrap_or(theme.placeholder_color),
+        );
         let cursor_color = self.cursor_color.unwrap_or(theme.focus_color);
         let cursor_width = self.cursor_width.unwrap_or(2.0);
-        let font_weight = self.font_weight.unwrap_or(400);
-        let line_height = self.line_height.map(|value| value * text_scale);
+        let font_weight = self
+            .font_weight
+            .unwrap_or(component_style.font_weight.unwrap_or(theme.font_weight));
+        let line_height = self
+            .line_height
+            .or(component_style.line_height)
+            .map(|value| value * text_scale);
         let letter_spacing = self.letter_spacing.unwrap_or(0.0) * text_scale;
+        let style_border = component_style.border.clone();
         let border_color = if is_focused {
-            self.focus_border_color.unwrap_or(theme.focus_color)
+            self.focus_border_color.unwrap_or_else(|| {
+                style_border
+                    .as_ref()
+                    .and_then(|border| match &border.fill {
+                        Fill::Solid(color) => Some(*color),
+                        _ => None,
+                    })
+                    .unwrap_or(theme.focus_color)
+            })
         } else {
-            self.border_color.unwrap_or(theme.border_color)
+            self.border_color.unwrap_or_else(|| {
+                style_border
+                    .as_ref()
+                    .and_then(|border| match &border.fill {
+                        Fill::Solid(color) => Some(*color),
+                        _ => None,
+                    })
+                    .unwrap_or(theme.border_color)
+            })
         };
         let border_width = if is_focused {
-            self.focus_border_width
-                .unwrap_or(self.border_width.unwrap_or(2.0))
+            self.focus_border_width.unwrap_or(
+                style_border
+                    .as_ref()
+                    .map(|border| border.width)
+                    .unwrap_or(2.0),
+            )
         } else {
-            self.border_width.unwrap_or(theme.border_width)
+            self.border_width.unwrap_or(
+                style_border
+                    .as_ref()
+                    .map(|border| border.width)
+                    .unwrap_or(theme.border_width),
+            )
         };
-        let border_radius = self.border_radius.unwrap_or(theme.radius);
-        let content_padding = self
-            .padding
-            .unwrap_or([theme.padding_h, theme.padding_h, 4.0, 4.0]);
+        let border_radius = self
+            .border_radius
+            .unwrap_or(component_style.radius.unwrap_or(theme.radius));
+        let content_padding = self.padding.unwrap_or(component_style.padding_box(
+            component_style.padding_x.unwrap_or(theme.padding_h),
+            component_style.padding_y.unwrap_or(4.0),
+        ));
         let base_text_style = fission_ir::op::TextStyle {
             font_size,
             color: text_color,
@@ -1144,6 +1203,7 @@ impl Lower for TextInput {
                         fill: Some(
                             self.background_fill
                                 .clone()
+                                .or_else(|| component_style.background.clone())
                                 .unwrap_or(Fill::Solid(tokens.colors.background)),
                         ),
                         stroke: Some(Stroke {
@@ -1154,7 +1214,7 @@ impl Lower for TextInput {
                             line_join: fission_ir::op::LineJoin::Miter,
                         }),
                         corner_radius: border_radius,
-                        shadow: None,
+                        shadow: component_style.outer_shadows().first().copied(),
                     }),
                 )
                 .build(cx),
@@ -1610,14 +1670,27 @@ impl Lower for TextInput {
                 let label_color = self.label_color.unwrap_or(if is_focused {
                     theme.focus_color
                 } else {
-                    tokens.colors.text_secondary
+                    theme
+                        .label_style
+                        .text_color
+                        .unwrap_or(tokens.colors.text_secondary)
                 });
                 let supporting_color = if self.error_text.is_some() {
                     self.error_color.unwrap_or(tokens.colors.error)
                 } else {
-                    self.helper_color.unwrap_or(tokens.colors.text_secondary)
+                    self.helper_color.unwrap_or(
+                        theme
+                            .helper_style
+                            .text_color
+                            .unwrap_or(tokens.colors.text_secondary),
+                    )
                 };
-                let counter_color = self.counter_color.unwrap_or(tokens.colors.text_secondary);
+                let counter_color = self.counter_color.unwrap_or(
+                    theme
+                        .helper_style
+                        .text_color
+                        .unwrap_or(tokens.colors.text_secondary),
+                );
                 let mut column = NodeBuilder::new(
                     cx.next_node_id(),
                     Op::Layout(LayoutOp::Flex {
@@ -1635,7 +1708,18 @@ impl Lower for TextInput {
                 if let Some(label) = &resolved_label {
                     column.add_child(
                         Text::new(label.clone())
-                            .size(tokens.typography.label_large_size)
+                            .size(
+                                theme
+                                    .label_style
+                                    .font_size
+                                    .unwrap_or(tokens.typography.label_large_size),
+                            )
+                            .weight(
+                                theme
+                                    .label_style
+                                    .font_weight
+                                    .unwrap_or(tokens.typography.font_weight_medium),
+                            )
                             .color(label_color)
                             .lower(cx),
                     );
@@ -1648,7 +1732,12 @@ impl Lower for TextInput {
                     if let Some(supporting_text) = supporting_text {
                         row.children.push(
                             Text::new(supporting_text)
-                                .size(tokens.typography.label_large_size)
+                                .size(
+                                    theme
+                                        .helper_style
+                                        .font_size
+                                        .unwrap_or(tokens.typography.label_large_size),
+                                )
                                 .color(supporting_color)
                                 .into_node(),
                         );
@@ -1663,7 +1752,12 @@ impl Lower for TextInput {
                     if let Some(counter_text) = counter_text {
                         row.children.push(
                             Text::new(counter_text)
-                                .size(tokens.typography.label_large_size)
+                                .size(
+                                    theme
+                                        .helper_style
+                                        .font_size
+                                        .unwrap_or(tokens.typography.label_large_size),
+                                )
                                 .color(counter_color)
                                 .into_node(),
                         );

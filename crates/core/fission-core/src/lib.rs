@@ -96,7 +96,8 @@ pub use registry::{
 };
 pub use time::{Clock, CurrentTime};
 pub use ui::{
-    Builder, Button, Column, CustomEventResult, CustomHitResult, CustomNode, CustomRenderObject,
+    BadgeTone, Builder, Button, ButtonHierarchy, CardPattern, Column, ComponentSize,
+    ComponentState, CustomEventResult, CustomHitResult, CustomNode, CustomRenderObject,
     LayoutBuilder, Lower, LowerDyn, Node, Row, Text,
 };
 pub use view::{Selector, View, Widget};
