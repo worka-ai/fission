@@ -1,5 +1,7 @@
 use crate::stack::{HStack, VStack};
-use fission_core::ui::{Button, ButtonVariant, Container, Node, Text};
+use fission_core::ui::{
+    Button, ButtonVariant, ComponentSize, ComponentState, Container, Node, Text,
+};
 use fission_core::{ActionEnvelope, BuildCtx, View, Widget};
 use serde::{Deserialize, Serialize};
 
@@ -32,6 +34,7 @@ pub struct TabItem {
 pub struct Tabs {
     pub active_index: usize,
     pub items: Vec<TabItem>,
+    pub size: ComponentSize,
 }
 
 impl<S: fission_core::AppState> Widget<S> for Tabs {
@@ -41,11 +44,18 @@ impl<S: fission_core::AppState> Widget<S> for Tabs {
 
         for (i, item) in self.items.iter().enumerate() {
             let is_active = i == self.active_index;
-            let color = if is_active {
+            let state = if is_active {
+                ComponentState::Active
+            } else {
+                ComponentState::Default
+            };
+            let style = theme.resolve_tab(self.size, state);
+            let color = style.text_color.unwrap_or(if is_active {
                 theme.active_color
             } else {
                 theme.inactive_color
-            };
+            });
+            let border = style.border.clone();
 
             let tab_button = VStack {
                 spacing: Some(0.0),
@@ -54,13 +64,19 @@ impl<S: fission_core::AppState> Widget<S> for Tabs {
                         variant: ButtonVariant::Ghost,
                         child: Some(Box::new(
                             Text::new(item.title.clone())
-                                .size(14.0)
+                                .size(style.font_size.unwrap_or(14.0))
+                                .weight(style.font_weight.unwrap_or(400))
                                 .color(color)
                                 .into_node(),
                         )),
                         on_press: item.on_press.clone(),
-                        height: Some(38.0),
-                        padding: Some([10.0, 10.0, 0.0, 0.0]),
+                        height: style.height.or(Some(38.0)),
+                        padding: Some([
+                            10.0,
+                            10.0,
+                            style.padding_y.unwrap_or(0.0),
+                            style.padding_y.unwrap_or(0.0),
+                        ]),
                         ..Default::default()
                     }
                     .into_node(),
@@ -68,8 +84,16 @@ impl<S: fission_core::AppState> Widget<S> for Tabs {
                         Container::new(
                             fission_core::ui::widgets::spacer::Spacer::default().into_node(),
                         )
-                        .height(theme.indicator_height)
-                        .bg(theme.active_color)
+                        .height(
+                            border
+                                .as_ref()
+                                .map(|border| border.width)
+                                .unwrap_or(theme.indicator_height),
+                        )
+                        .bg(match border.map(|border| border.fill) {
+                            Some(fission_core::op::Fill::Solid(color)) => color,
+                            _ => theme.active_color,
+                        })
                         .into_node()
                     } else {
                         fission_core::ui::widgets::spacer::Spacer::default().into_node()
@@ -88,8 +112,30 @@ impl<S: fission_core::AppState> Widget<S> for Tabs {
             }
             .into_node(),
         )
-        .bg(theme.background)
-        .border(theme.divider_color, 1.0)
+        .bg_fill(
+            theme
+                .track_style
+                .background
+                .clone()
+                .unwrap_or(fission_core::op::Fill::Solid(theme.background)),
+        )
+        .border(
+            theme
+                .track_style
+                .border
+                .as_ref()
+                .and_then(|border| match &border.fill {
+                    fission_core::op::Fill::Solid(color) => Some(*color),
+                    _ => None,
+                })
+                .unwrap_or(theme.divider_color),
+            theme
+                .track_style
+                .border
+                .as_ref()
+                .map(|border| border.width)
+                .unwrap_or(1.0),
+        )
         .padding_all(2.0)
         .into_node();
 

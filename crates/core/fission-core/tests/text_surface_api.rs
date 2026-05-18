@@ -230,6 +230,10 @@ fn button_background_fill_and_text_override_lower() {
     let text_color = paint_ops(&ir)
         .find_map(|op| match op {
             PaintOp::DrawText { text, color, .. } if text == "Continue" => Some(*color),
+            PaintOp::DrawRichText { runs, .. } => runs
+                .iter()
+                .find(|run| run.text == "Continue")
+                .map(|run| run.style.color),
             _ => None,
         })
         .expect("button label");
@@ -504,7 +508,7 @@ fn text_input_lowers_cursor_and_semantics_overrides() {
         })
         .expect("value run");
     assert_eq!(value_run.style.locale.as_deref(), Some("fr-GB"));
-    assert_eq!(value_run.style.font_size, 21.25);
+    assert_eq!(value_run.style.font_size, 20.0);
 }
 
 #[test]

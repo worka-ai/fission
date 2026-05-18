@@ -1,4 +1,5 @@
-use fission_core::ui::{Container, Node};
+use fission_core::op::Fill;
+use fission_core::ui::{CardPattern, Container, Node};
 use fission_core::{BuildCtx, View, Widget};
 use serde::{Deserialize, Serialize};
 
@@ -10,18 +11,24 @@ use serde::{Deserialize, Serialize};
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct Card {
     pub child: Box<Node>,
+    pub pattern: CardPattern,
+    pub interactive: bool,
 }
 
 impl Default for Card {
     fn default() -> Self {
         Self {
             child: Box::new(fission_core::ui::Row::default().into()),
+            pattern: CardPattern::Raised,
+            interactive: false,
         }
     }
 }
 
 impl<S: fission_core::AppState> Widget<S> for Card {
     fn build(&self, _ctx: &mut BuildCtx<S>, view: &View<S>) -> Node {
+        let theme = &view.env.theme.components.card;
+        let style = theme.resolve(self.pattern, self.interactive);
         let tokens = &view.env.theme.tokens;
         let default_shadow = fission_core::op::BoxShadow {
             color: fission_core::op::Color {
@@ -34,11 +41,24 @@ impl<S: fission_core::AppState> Widget<S> for Card {
             offset: (0.0, 1.0),
         };
 
-        Container::new(*self.child.clone())
-            .bg(tokens.colors.surface)
-            .border_radius(tokens.radii.medium)
-            .shadow(tokens.elevations.level1.unwrap_or(default_shadow))
-            .padding_all(tokens.spacing.m)
-            .into_node()
+        let mut card = Container::new(*self.child.clone())
+            .bg_fill(
+                style
+                    .background
+                    .clone()
+                    .unwrap_or(Fill::Solid(tokens.colors.surface)),
+            )
+            .border_radius(style.radius.unwrap_or(theme.radius))
+            .shadows(style.outer_shadows())
+            .padding(style.padding_box(theme.padding, theme.padding));
+        if let Some(border) = style.border {
+            if let Fill::Solid(color) = border.fill {
+                card = card.border(color, border.width);
+            }
+        }
+        if style.shadows.is_empty() {
+            card = card.shadow(tokens.elevations.level1.unwrap_or(default_shadow));
+        }
+        card.into_node()
     }
 }

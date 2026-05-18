@@ -90,35 +90,35 @@
         "primary": {
           "default":  { "background": "{color.light.primary}",       "color": "{color.light.on_primary}", "border": "none", "box_shadow": "0 1px 2px 0 rgba(10,13,18,0.05), inset 0 0 0 1px rgba(0,0,0,0.18)" },
           "hover":    { "background": "{color.light.primary_hover}" },
-          "active":   { "background": "{color.teal.900}" },
+          "active":   { "background": "{color.light.primary_hover}" },
           "focus":    { "box_shadow": "{elevation.focus}" },
-          "disabled": { "background": "{color.slate.100}", "color": "{color.slate.400}", "box_shadow": "none", "cursor": "not-allowed" }
+          "disabled": { "background": "{color.light.surface_sunken}", "color": "{color.light.text_muted}", "box_shadow": "none", "cursor": "not-allowed" }
         },
         "secondary_color": {
-          "default":  { "background": "{color.light.surface}", "color": "{color.teal.700}",  "border": "1px solid {color.teal.200}",  "box_shadow": "0 1px 2px 0 rgba(10,13,18,0.05)" },
-          "hover":    { "background": "{color.teal.50}", "color": "{color.teal.800}" },
-          "active":   { "background": "{color.teal.100}" }
+          "default":  { "background": "{color.light.surface}", "color": "{color.light.primary}",  "border": "1px solid {color.light.primary_subtle}",  "box_shadow": "0 1px 2px 0 rgba(10,13,18,0.05)" },
+          "hover":    { "background": "{color.light.primary_subtle}", "color": "{color.light.primary_hover}" },
+          "active":   { "background": "{color.light.primary_subtle}" }
         },
         "secondary_gray": {
-          "default":  { "background": "{color.light.surface}", "color": "{color.slate.700}", "border": "1px solid {color.slate.300}", "box_shadow": "0 1px 2px 0 rgba(10,13,18,0.05)" },
-          "hover":    { "background": "{color.slate.50}", "color": "{color.slate.800}" },
-          "active":   { "background": "{color.slate.100}" }
+          "default":  { "background": "{color.light.surface}", "color": "{color.light.text_primary}", "border": "1px solid {color.light.border}", "box_shadow": "0 1px 2px 0 rgba(10,13,18,0.05)" },
+          "hover":    { "background": "{color.light.surface_sunken}", "color": "{color.light.text_primary}" },
+          "active":   { "background": "{color.light.surface_sunken}" }
         },
         "tertiary_color": {
-          "default":  { "background": "transparent", "color": "{color.teal.700}",  "border": "none" },
-          "hover":    { "background": "{color.teal.50}" }
+          "default":  { "background": "transparent", "color": "{color.light.primary}",  "border": "none" },
+          "hover":    { "background": "{color.light.primary_subtle}", "color": "{color.light.primary_hover}" }
         },
         "tertiary_gray": {
-          "default":  { "background": "transparent", "color": "{color.slate.600}", "border": "none" },
-          "hover":    { "background": "{color.slate.100}", "color": "{color.slate.800}" }
+          "default":  { "background": "transparent", "color": "{color.light.text_secondary}", "border": "none" },
+          "hover":    { "background": "{color.light.surface_sunken}", "color": "{color.light.text_primary}" }
         },
         "link_color": {
-          "default":  { "background": "transparent", "color": "{color.teal.700}",  "border": "none", "padding_x": "0", "height": "auto" },
-          "hover":    { "color": "{color.teal.800}", "text_decoration": "underline" }
+          "default":  { "background": "transparent", "color": "{color.light.primary}",  "border": "none", "padding_x": "0", "height": "auto" },
+          "hover":    { "color": "{color.light.primary_hover}", "text_decoration": "underline" }
         },
         "link_gray": {
-          "default":  { "background": "transparent", "color": "{color.slate.600}", "border": "none", "padding_x": "0", "height": "auto" },
-          "hover":    { "color": "{color.slate.800}", "text_decoration": "underline" }
+          "default":  { "background": "transparent", "color": "{color.light.text_secondary}", "border": "none", "padding_x": "0", "height": "auto" },
+          "hover":    { "color": "{color.light.text_primary}", "text_decoration": "underline" }
         },
         "destructive": {
           "$source": "Figma /Buttons/Buttons-Button-destructive",
@@ -143,14 +143,14 @@
         "md": { "height": "40px", "padding_x": "12px" }
       },
       "states": {
-        "default":     { "background": "{color.light.surface}", "border": "1px solid {color.slate.300}", "color": "{color.slate.900}",       "box_shadow": "0 1px 2px 0 rgba(10,13,18,0.05)" },
-        "placeholder": { "color": "{color.slate.500}" },
-        "focus":       { "border": "2px solid {color.teal.700}", "box_shadow": "{elevation.focus}", "padding_x": "11px",   "$comment": "padding shrinks by 1px to compensate for the doubled border so the field doesn't jump" },
-        "error":       { "border": "1px solid {color.semantic.error}", "$helper_color": "{color.semantic.error}" },
-        "disabled":    { "background": "{color.slate.50}",  "color": "{color.slate.500}", "cursor": "not-allowed" }
+        "default":     { "background": "{color.light.surface}", "border": "1px solid {color.light.border}", "color": "{color.light.text_primary}",       "box_shadow": "0 1px 2px 0 rgba(10,13,18,0.05)" },
+        "placeholder": { "color": "{color.light.text_muted}" },
+        "focus":       { "border": "2px solid {color.light.primary}", "box_shadow": "{elevation.focus}", "padding_x": "11px",   "$comment": "padding shrinks by 1px to compensate for the doubled border so the field doesn't jump" },
+        "error":       { "border": "1px solid {color.light.error}", "$helper_color": "{color.light.error}" },
+        "disabled":    { "background": "{color.light.surface_sunken}",  "color": "{color.light.text_secondary}", "cursor": "not-allowed" }
       },
-      "label": { "font_size": "14px", "font_weight": 500, "color": "{color.slate.700}", "margin_bottom": "6px" },
-      "helper_text": { "font_size": "14px", "color": "{color.slate.500}", "margin_top": "6px" },
+      "label": { "font_size": "14px", "font_weight": 500, "color": "{color.light.text_primary}", "margin_bottom": "6px" },
+      "helper_text": { "font_size": "14px", "color": "{color.light.text_muted}", "margin_top": "6px" },
       "css_classes": ["fs-input"]
     },
 
@@ -345,6 +345,20 @@
       "cdn": "https://fonts.googleapis.com/css2?family=Material+Symbols+Rounded:opsz,wght,FILL,GRAD@24,400,0,0",
       "rust_source": "https://github.com/worka-ai/material-design-icons"
     }
+  },
+
+  "data_visualization": {
+    "$description": "Default qualitative chart palette used by Fission charts when an app does not provide a chart-specific palette.",
+    "palette": [
+      "{color.teal.700}",
+      "{color.brand.blue.600}",
+      "{color.semantic.warning}",
+      "{color.semantic.error}",
+      "{color.semantic.success}",
+      "{color.semantic.info}",
+      "{color.brand.orange.600}",
+      "{color.teal.500}"
+    ]
   },
 
   "preview": {

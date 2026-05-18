@@ -151,11 +151,14 @@ pub mod prelude {
     pub use fission_core::{
         Action, ActionEnvelope, ActionId, AnimationPropertyId, AnimationRequest,
         AnimationStartValue, AppState, BuildCtx, Effects, FlexDirection, Handler, NodeBuilder, Op,
-        PortalLayer, ReducerContext, Selector, View, Widget, WidgetNodeId,
+        PortalLayer, ReducerContext, Selector, View, Widget, WidgetNodeId, WindowEnv, WindowTitle,
     };
 
     // Layout
     pub use fission_layout::{LayoutPoint, LayoutRect, LayoutSize};
+
+    // Design systems and generated themes.
+    pub use fission_theme::*;
 
     // IR
     pub use fission_ir::op as ir_op;

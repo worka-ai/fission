@@ -31,6 +31,7 @@ pub use checkbox::Checkbox;
 pub use column::Column;
 pub use composite::Composite;
 pub use container::Container;
+pub use fission_theme::{BadgeTone, ButtonHierarchy, CardPattern, ComponentSize, ComponentState};
 pub use grid::{Grid, GridItem};
 pub use icon::Icon;
 pub use image::Image;

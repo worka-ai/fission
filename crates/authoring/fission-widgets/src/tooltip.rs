@@ -36,16 +36,23 @@ impl<S: fission_core::AppState> Widget<S> for Tooltip {
             .into_node();
 
         if show_tooltip {
+            let style = &theme.style;
             let tooltip_card = Container::new(
                 Text::new(self.text.clone())
-                    .size(theme.font_size)
-                    .color(theme.text_color)
-                    .max_width(220.0)
+                    .size(style.font_size.unwrap_or(theme.font_size))
+                    .color(style.text_color.unwrap_or(theme.text_color))
+                    .max_width(style.max_width.unwrap_or(theme.max_width))
                     .into_node(),
             )
-            .bg(theme.bg_color)
-            .padding_all(8.0)
-            .border_radius(theme.radius)
+            .bg_fill(
+                style
+                    .background
+                    .clone()
+                    .unwrap_or(fission_core::op::Fill::Solid(theme.bg_color)),
+            )
+            .padding(style.padding_box(theme.padding_x, theme.padding_y))
+            .border_radius(style.radius.unwrap_or(theme.radius))
+            .shadows(style.outer_shadows())
             .into_node();
 
             let flyout_node = crate::flyout(

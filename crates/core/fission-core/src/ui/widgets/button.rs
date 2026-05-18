@@ -6,6 +6,7 @@ use fission_ir::{
     op::{BoxShadow, Color as IrColor, Fill, LayoutOp, Op, PaintOp, Stroke},
     ActionEntry, ActionSet, NodeId, Role, Semantics,
 };
+use fission_theme::{ButtonHierarchy, ComponentSize, ComponentState};
 use serde::{Deserialize, Serialize};
 
 /// Visual style variant for a [`Button`].
@@ -32,6 +33,37 @@ pub enum ButtonVariant {
     Outline,
     /// No background, no border.
     Ghost,
+    /// DSP primary hierarchy.
+    Primary,
+    /// DSP secondary colour hierarchy.
+    SecondaryColor,
+    /// DSP secondary gray hierarchy.
+    SecondaryGray,
+    /// DSP tertiary colour hierarchy.
+    TertiaryColor,
+    /// DSP tertiary gray hierarchy.
+    TertiaryGray,
+    /// DSP link colour hierarchy.
+    LinkColor,
+    /// DSP link gray hierarchy.
+    LinkGray,
+    /// DSP destructive hierarchy.
+    Destructive,
+}
+
+impl ButtonVariant {
+    fn hierarchy(self) -> ButtonHierarchy {
+        match self {
+            ButtonVariant::Filled | ButtonVariant::Primary => ButtonHierarchy::Primary,
+            ButtonVariant::Outline | ButtonVariant::SecondaryGray => ButtonHierarchy::SecondaryGray,
+            ButtonVariant::Ghost | ButtonVariant::TertiaryGray => ButtonHierarchy::TertiaryGray,
+            ButtonVariant::SecondaryColor => ButtonHierarchy::SecondaryColor,
+            ButtonVariant::TertiaryColor => ButtonHierarchy::TertiaryColor,
+            ButtonVariant::LinkColor => ButtonHierarchy::LinkColor,
+            ButtonVariant::LinkGray => ButtonHierarchy::LinkGray,
+            ButtonVariant::Destructive => ButtonHierarchy::Destructive,
+        }
+    }
 }
 
 /// Horizontal alignment of a [`Button`]'s child content.
@@ -95,6 +127,9 @@ pub struct Button {
     pub style: Option<ButtonStyleOverride>,
     /// Visual variant (Filled, Outline, or Ghost).
     pub variant: ButtonVariant,
+    /// Design-system size slot.
+    #[serde(default)]
+    pub size: ComponentSize,
     /// Optional fill override for the button background.
     pub background_fill: Option<Fill>,
     /// Optional text color override for direct `Text` children.
@@ -159,6 +194,7 @@ impl Default for Button {
             padding: None,
             style: None,
             variant: ButtonVariant::Filled,
+            size: ComponentSize::Md,
             background_fill: None,
             text_color: None,
             content_align: ButtonContentAlign::Center,
@@ -178,7 +214,11 @@ struct ButtonStyleResolved {
     height: f32,
     corner_radius: f32,
     shadow: Option<BoxShadow>,
+    shadows: Vec<BoxShadow>,
     stroke: Option<Stroke>,
+    font_size: f32,
+    font_weight: u16,
+    line_height: Option<f32>,
 }
 
 impl Button {
@@ -194,98 +234,77 @@ impl Button {
         let is_hovered = interaction.is_hovered(self_id) && !self.disabled;
         let is_pressed = interaction.is_pressed(self_id) && !self.disabled;
         let is_focused = interaction.is_focused(self_id) && !self.disabled;
-
-        let (background_fill, text_color, border_stroke) = if self.disabled {
-            (
-                if self.variant == ButtonVariant::Filled {
-                    Some(Fill::Solid(tokens.border))
-                } else {
-                    None
-                }, // Grey bg or transparent
-                tokens.text_secondary, // Grey text
-                if self.variant == ButtonVariant::Outline {
-                    Some(Stroke {
-                        fill: Fill::Solid(tokens.border),
-                        width: 1.0,
-                        dash_array: None,
-                        line_cap: fission_ir::op::LineCap::Butt,
-                        line_join: fission_ir::op::LineJoin::Miter,
-                    })
-                } else {
-                    None
-                },
-            )
+        let component_state = if self.disabled {
+            ComponentState::Disabled
+        } else if is_pressed {
+            ComponentState::Active
+        } else if is_focused {
+            ComponentState::Focus
+        } else if is_hovered {
+            ComponentState::Hover
         } else {
-            match self.variant {
-                ButtonVariant::Filled => (
-                    Some(
-                        self.background_fill
-                            .clone()
-                            .unwrap_or(Fill::Solid(tokens.primary)),
-                    ),
-                    tokens.on_primary,
-                    if is_focused {
-                        default_style.focus_stroke.clone()
-                    } else {
-                        None
-                    },
-                ),
-                ButtonVariant::Outline => (
-                    if is_hovered {
-                        Some(
-                            self.background_fill
-                                .clone()
-                                .unwrap_or(Fill::Solid(tokens.surface)),
-                        )
-                    } else {
-                        self.background_fill.clone()
-                    },
-                    tokens.primary,
-                    Some(Stroke {
-                        fill: Fill::Solid(tokens.border),
-                        width: 1.0,
-                        dash_array: None,
-                        line_cap: fission_ir::op::LineCap::Butt,
-                        line_join: fission_ir::op::LineJoin::Miter,
-                    }),
-                ),
-                ButtonVariant::Ghost => (
-                    if is_hovered {
-                        Some(
-                            self.background_fill
-                                .clone()
-                                .unwrap_or(Fill::Solid(tokens.surface)),
-                        )
-                    } else {
-                        self.background_fill.clone()
-                    },
-                    tokens.primary,
-                    None,
-                ),
-            }
+            ComponentState::Default
         };
+        let component_style =
+            default_style.resolve(self.variant.hierarchy(), self.size, component_state);
 
-        let shadow = if self.variant == ButtonVariant::Filled {
-            if is_pressed {
-                default_style.elevation_pressed
-            } else if is_hovered {
-                default_style.elevation_hover
+        let stroke = component_style
+            .border
+            .clone()
+            .or_else(|| component_style.inset_border())
+            .map(|border| Stroke {
+                fill: border.fill,
+                width: border.width,
+                dash_array: None,
+                line_cap: fission_ir::op::LineCap::Butt,
+                line_join: fission_ir::op::LineJoin::Miter,
+            })
+            .or_else(|| {
+                if is_focused {
+                    default_style.focus_stroke.clone()
+                } else {
+                    None
+                }
+            });
+        let shadows = component_style.outer_shadows();
+        let shadow = shadows.first().copied().or_else(|| {
+            if matches!(self.variant, ButtonVariant::Filled | ButtonVariant::Primary) {
+                if is_pressed {
+                    default_style.elevation_pressed
+                } else if is_hovered {
+                    default_style.elevation_hover
+                } else {
+                    default_style.elevation_rest
+                }
             } else {
-                default_style.elevation_rest
+                None
             }
-        } else {
-            None
-        };
+        });
 
         ButtonStyleResolved {
-            background_fill,
-            text_color: self.text_color.unwrap_or(text_color),
-            padding_horizontal: default_style.padding_horizontal,
-            padding_vertical: default_style.padding_vertical,
-            height: default_style.height,
-            corner_radius: default_style.radius,
+            background_fill: self
+                .background_fill
+                .clone()
+                .or_else(|| component_style.background.clone()),
+            text_color: self
+                .text_color
+                .unwrap_or(component_style.text_color.unwrap_or(tokens.primary)),
+            padding_horizontal: component_style
+                .padding_x
+                .unwrap_or(default_style.padding_horizontal),
+            padding_vertical: component_style
+                .padding_y
+                .unwrap_or(default_style.padding_vertical),
+            height: component_style.height.unwrap_or(default_style.height),
+            corner_radius: component_style.radius.unwrap_or(default_style.radius),
             shadow,
-            stroke: border_stroke,
+            shadows,
+            stroke,
+            font_size: component_style.font_size.unwrap_or(default_style.text_size),
+            font_weight: component_style
+                .font_weight
+                .unwrap_or(default_style.font_weight),
+            line_height: component_style.line_height,
         }
     }
 
@@ -334,17 +353,6 @@ impl Lower for Button {
 
         cx.push_scope(layout_node_id);
 
-        let background_id = NodeBuilder::new(
-            cx.next_node_id(),
-            Op::Paint(PaintOp::DrawRect {
-                fill: resolved_style.background_fill,
-                stroke: resolved_style.stroke,
-                corner_radius: resolved_style.corner_radius,
-                shadow: resolved_style.shadow,
-            }),
-        )
-        .build(cx);
-
         let mut button_builder = NodeBuilder::new(
             layout_node_id,
             Op::Layout(LayoutOp::Box {
@@ -369,11 +377,43 @@ impl Lower for Button {
                 aspect_ratio: None,
             }),
         );
+
+        for shadow in &resolved_style.shadows {
+            let shadow_id = NodeBuilder::new(
+                cx.next_node_id(),
+                Op::Paint(PaintOp::DrawRect {
+                    fill: None,
+                    stroke: None,
+                    corner_radius: resolved_style.corner_radius,
+                    shadow: Some(*shadow),
+                }),
+            )
+            .build(cx);
+            button_builder.add_child(shadow_id);
+        }
+
+        let background_id = NodeBuilder::new(
+            cx.next_node_id(),
+            Op::Paint(PaintOp::DrawRect {
+                fill: resolved_style.background_fill,
+                stroke: resolved_style.stroke,
+                corner_radius: resolved_style.corner_radius,
+                shadow: if resolved_style.shadows.is_empty() {
+                    resolved_style.shadow
+                } else {
+                    None
+                },
+            }),
+        )
+        .build(cx);
         button_builder.add_child(background_id);
 
         if let Some(child_widget) = &self.child {
             let child_id = if let Node::Text(mut text_widget) = *child_widget.clone() {
                 text_widget.color = Some(resolved_style.text_color);
+                text_widget.font_size = Some(resolved_style.font_size);
+                text_widget.font_weight = Some(resolved_style.font_weight);
+                text_widget.line_height = resolved_style.line_height;
                 text_widget.lower(cx)
             } else {
                 child_widget.lower(cx)

@@ -301,11 +301,17 @@ fn find_text_node_rects(h: &TestHarness<InboxState>, needle: &str) -> Vec<Layout
         None => return rects,
     };
     for (node_id, node) in &ir.nodes {
-        if let Op::Paint(PaintOp::DrawText { text, .. }) = &node.op {
-            if text == needle {
-                if let Some(rect) = node_rect(h, *node_id) {
-                    rects.push(rect);
-                }
+        let matches = match &node.op {
+            Op::Paint(PaintOp::DrawText { text, .. }) => text == needle,
+            Op::Paint(PaintOp::DrawRichText { runs, .. }) => {
+                runs.iter().any(|run| run.text == needle)
+                    || runs.iter().map(|run| run.text.as_str()).collect::<String>() == needle
+            }
+            _ => false,
+        };
+        if matches {
+            if let Some(rect) = node_rect(h, *node_id) {
+                rects.push(rect);
             }
         }
     }
@@ -315,10 +321,16 @@ fn find_text_node_rects(h: &TestHarness<InboxState>, needle: &str) -> Vec<Layout
 fn find_text_node_id(h: &TestHarness<InboxState>, needle: &str) -> Option<NodeId> {
     let ir = h.last_ir.as_ref()?;
     for (node_id, node) in &ir.nodes {
-        if let Op::Paint(PaintOp::DrawText { text, .. }) = &node.op {
-            if text == needle {
-                return Some(*node_id);
+        let matches = match &node.op {
+            Op::Paint(PaintOp::DrawText { text, .. }) => text == needle,
+            Op::Paint(PaintOp::DrawRichText { runs, .. }) => {
+                runs.iter().any(|run| run.text == needle)
+                    || runs.iter().map(|run| run.text.as_str()).collect::<String>() == needle
             }
+            _ => false,
+        };
+        if matches {
+            return Some(*node_id);
         }
     }
     None

@@ -217,6 +217,7 @@ fn build_all_widgets(ctx: &mut BuildCtx<GS>, view: &View<GS>) -> Node {
                         on_press: None,
                     },
                 ],
+                ..Default::default()
             }
             .build(ctx, view),
             Breadcrumb {
@@ -516,20 +517,23 @@ fn progress_bar_partial_fill() {
     let dl = harness.renderer.last_display_list.lock().unwrap();
     let dl = dl.as_ref().unwrap();
 
-    // Find the progress bar: look for a colored rect that's narrower than the track
-    // The track color is theme.progress.track_color (border color ~188,188,188)
-    // The bar color is theme.progress.bar_color (primary ~103,85,143)
+    let progress_theme = &harness.env.theme.components.progress;
+    let expected_height = progress_theme
+        .track_style
+        .height
+        .unwrap_or(progress_theme.height);
+
+    // Find the progress bar by its generated track height; the radius may come
+    // from the active design system and should not be hard-coded in this test.
     let mut bar_rects: Vec<(f32, f32)> = Vec::new();
     for op in &dl.ops {
         if let DisplayOp::DrawRect {
             rect,
             fill: Some(_fill),
-            corner_radius,
             ..
         } = op
         {
-            // Progress bar has corner_radius = height/2 = 4.0
-            if (*corner_radius - 4.0).abs() < 0.5 && rect.height() > 3.0 && rect.height() < 12.0 {
+            if (rect.height() - expected_height).abs() < 0.5 {
                 bar_rects.push((rect.width(), rect.height()));
             }
         }
@@ -541,6 +545,19 @@ fn progress_bar_partial_fill() {
         bar_rects.len() >= 2,
         "expected track + bar rects, found {}",
         bar_rects.len()
+    );
+    let min_width = bar_rects
+        .iter()
+        .map(|(width, _)| *width)
+        .fold(f32::INFINITY, f32::min);
+    let max_width = bar_rects
+        .iter()
+        .map(|(width, _)| *width)
+        .fold(0.0_f32, f32::max);
+    assert!(
+        min_width < max_width,
+        "expected determinate fill to be narrower than track: {:?}",
+        bar_rects
     );
     println!("Progress bar rects: {:?}", bar_rects);
 }
