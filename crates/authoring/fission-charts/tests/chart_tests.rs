@@ -1,10 +1,9 @@
 use fission_charts::chart::ChartLowerer;
 use fission_charts::{
-    Axis, BarSeries, BoxplotSeries, CandlestickSeries, Chart, CustomSeries, EffectScatterSeries,
+    Axis, BarSeries, BoxplotSeries, CandlestickSeries, Chart, ChartModel, EffectScatterSeries,
     FunnelSeries, GaugeSeries, GraphNode, GraphSeries, Grid, HeatmapSeries, LineSeries,
-    LiquidfillSeries, MapSeries, ParallelSeries, PictorialBarSeries, PieSeries, RadarSeries,
-    SankeySeries, ScatterSeries, SunburstSeries, ThemeRiverSeries, TreemapNode, TreemapSeries,
-    WordcloudSeries,
+    LiquidfillSeries, ParallelSeries, PictorialBarSeries, PieSeries, RadarSeries, SankeySeries,
+    ScatterSeries, TreemapNode, TreemapSeries, WordcloudSeries,
 };
 use fission_core::{env::Env, lowering::LoweringContext, ui::traits::LowerDyn};
 use fission_ir::op::{LayoutOp, PaintOp};
@@ -14,7 +13,7 @@ fn test_all_chart_builders() {
     let mut chart = Chart::new()
         .width(800.0)
         .height(600.0)
-        .title("Full Parity Test Chart")
+        .title("Full Supported Chart Test")
         .x_axis(Axis::category(vec!["A", "B", "C"]))
         .y_axis(Axis::value())
         .grid(Grid::new())
@@ -59,9 +58,6 @@ fn test_all_chart_builders() {
             .data(vec![("Stage 1", 100.0), ("Stage 2", 80.0)])
             .into(),
         GaugeSeries::new("Gauge").data(vec![("Speed", 65.0)]).into(),
-        MapSeries::new("Map", "world")
-            .data(vec![("USA", 100.0)])
-            .into(),
         SankeySeries::new("Sankey")
             .nodes(vec![GraphNode {
                 id: "1".into(),
@@ -72,25 +68,12 @@ fn test_all_chart_builders() {
         ParallelSeries::new("Parallel")
             .data(vec![vec![1.0, 2.0, 3.0]])
             .into(),
-        SunburstSeries::new("Sunburst")
-            .data(vec![TreemapNode {
-                name: "Root".into(),
-                value: 100.0,
-                children: vec![],
-            }])
-            .into(),
-        ThemeRiverSeries::new("ThemeRiver")
-            .data(vec![("2021/01/01", 10.0, "Category A")])
-            .into(),
         PictorialBarSeries::new("Pictorial")
             .data(vec![10.0, 20.0])
             .symbol("rect")
             .into(),
         EffectScatterSeries::new("EffectScatter")
             .data(vec![(10.0, 20.0)])
-            .into(),
-        CustomSeries::new("Custom", "my_custom_renderer")
-            .data(vec![1.0, 2.0])
             .into(),
         LiquidfillSeries::new("Liquidfill").data(vec![0.6]).into(),
         WordcloudSeries::new("Wordcloud")
@@ -100,11 +83,30 @@ fn test_all_chart_builders() {
 
     chart = chart.series(series_list);
 
-    assert_eq!(chart.title.unwrap(), "Full Parity Test Chart");
-    assert_eq!(chart.series.len(), 22);
+    assert_eq!(chart.title.unwrap(), "Full Supported Chart Test");
+    assert_eq!(chart.series.len(), 18);
     assert!(chart.animate);
     assert_eq!(chart.width, Some(800.0));
     assert_eq!(chart.height, Some(600.0));
+}
+
+#[test]
+fn unsupported_series_emit_diagnostics_instead_of_drawing() {
+    let chart = Chart::new().series(vec![
+        fission_charts::series::map::MapSeries::new("World", "world")
+            .data(vec![("USA", 100.0)])
+            .into(),
+        fission_charts::series::custom::CustomSeries::new("Custom", "string-callback")
+            .data(vec![1.0])
+            .into(),
+    ]);
+
+    let model = ChartModel::from_chart(&chart);
+
+    assert!(model.series.is_empty());
+    assert_eq!(model.diagnostics.len(), 2);
+    assert!(model.diagnostics[0].message.contains("GeoJSON"));
+    assert!(model.diagnostics[1].message.contains("String-named"));
 }
 
 #[test]

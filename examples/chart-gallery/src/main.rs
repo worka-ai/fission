@@ -1,11 +1,11 @@
 use fission::prelude::fission_reducer;
 use fission_3d::{Point3D, Primitive3D, Scene3D};
 use fission_charts::{
-    Axis, BarSeries, BoxplotSeries, CandlestickSeries, Chart, CustomSeries, DataValue, Dataset,
+    Axis, BarSeries, BoxplotSeries, CandlestickSeries, Chart, DataValue, DataZoom, Dataset,
     EffectScatterSeries, Encode, FunnelSeries, GaugeSeries, GraphNode, GraphSeries, HeatmapSeries,
-    LineSeries, LiquidfillSeries, MapSeries, ParallelSeries, PictorialBarSeries, PieSeries,
-    RadarSeries, SankeySeries, ScatterSeries, SunburstSeries, ThemeRiverSeries, TreemapNode,
-    TreemapSeries, WordcloudSeries,
+    Legend, LineSeries, LiquidfillSeries, ParallelSeries, PictorialBarSeries, PieSeries,
+    RadarSeries, SankeySeries, ScatterSeries, Tooltip, TreemapNode, TreemapSeries, VisualMap,
+    WordcloudSeries,
 };
 use fission_core::op::Color;
 use fission_core::ui::{Button, ButtonVariant, Column, Container, Node, Row, Scroll, Text};
@@ -68,23 +68,32 @@ impl Widget<GalleryState> for GalleryApp {
         let categories = vec![
             (
                 "Foundational",
-                vec!["Line & Bar", "Stacked Area", "Step Line", "Pie", "Scatter"],
-            ),
-            (
-                "Statistical",
-                vec!["Boxplot", "Candlestick", "Heatmap", "Graph", "Treemap"],
-            ),
-            (
-                "Specialized",
                 vec![
-                    "Radar", "Funnel", "Gauge", "Map", "Sankey", "Parallel", "Sunburst",
+                    "Line & Bar",
+                    "Stacked Area",
+                    "Step Line",
+                    "Donut Pie",
+                    "Scatter Visual",
                 ],
             ),
             (
-                "Dynamic",
-                vec!["ThemeRiver", "PictorialBar", "EffectScatter"],
+                "Statistical",
+                vec!["Boxplot", "Candlestick", "Heatmap", "Radar", "Funnel"],
             ),
-            ("Extensions", vec!["Custom", "Liquidfill", "Wordcloud"]),
+            (
+                "Relationships",
+                vec!["Graph", "Treemap", "Sankey", "Parallel"],
+            ),
+            (
+                "Dynamic",
+                vec![
+                    "Gauge",
+                    "PictorialBar",
+                    "EffectScatter",
+                    "Liquidfill",
+                    "Wordcloud",
+                ],
+            ),
             ("3D + Dataset", vec!["Dataset Demo", "3D Scene"]),
         ];
 
@@ -190,6 +199,8 @@ impl Widget<GalleryState> for GalleryApp {
                     "Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun",
                 ]))
                 .y_axis(Axis::value())
+                .legend(Legend::top_right())
+                .tooltip(Tooltip::axis_trigger())
                 .series(vec![
                     BarSeries::new("Direct")
                         .data(vec![
@@ -234,6 +245,8 @@ impl Widget<GalleryState> for GalleryApp {
                     "Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun",
                 ]))
                 .y_axis(Axis::value())
+                .legend(Legend::top_right())
+                .data_zoom(DataZoom::new().start_percent(10.0).end_percent(90.0))
                 .series(vec![
                     LineSeries::new("Email")
                         .stack("total")
@@ -313,8 +326,11 @@ impl Widget<GalleryState> for GalleryApp {
                     .into()])
                 .build(ctx, view),
             (0, 3) => Chart::new()
-                .title("Foundational: Pie")
+                .title("Foundational: Donut Pie")
+                .legend(Legend::top_right())
+                .tooltip(Tooltip::item_trigger())
                 .series(vec![PieSeries::new("Access Source")
+                    .inner_radius(52.0)
                     .data(vec![
                         ("Search Engine", 1048.0 * s),
                         ("Direct", 735.0 * s),
@@ -325,9 +341,34 @@ impl Widget<GalleryState> for GalleryApp {
                     .into()])
                 .build(ctx, view),
             (0, 4) => Chart::new()
-                .title("Foundational: Scatter")
+                .title("Foundational: Scatter Visual")
                 .x_axis(Axis::value())
                 .y_axis(Axis::value())
+                .visual_map(
+                    VisualMap::new()
+                        .min(6.0 * s)
+                        .max(11.0 * s)
+                        .in_range_colors(vec![
+                            Color {
+                                r: 59,
+                                g: 130,
+                                b: 246,
+                                a: 255,
+                            },
+                            Color {
+                                r: 250,
+                                g: 204,
+                                b: 21,
+                                a: 255,
+                            },
+                            Color {
+                                r: 239,
+                                g: 68,
+                                b: 68,
+                                a: 255,
+                            },
+                        ]),
+                )
                 .series(vec![ScatterSeries::new("Data")
                     .data(vec![
                         (10.0 * s, 8.04 * s),
@@ -387,6 +428,26 @@ impl Widget<GalleryState> for GalleryApp {
                 .title("Statistical: Heatmap")
                 .x_axis(Axis::category(vec!["12a", "1a", "2a", "3a"]))
                 .y_axis(Axis::category(vec!["Sat", "Fri", "Thu"]))
+                .visual_map(VisualMap::new().min(0.0).max(8.0 * s).in_range_colors(vec![
+                    Color {
+                        r: 219,
+                        g: 234,
+                        b: 254,
+                        a: 255,
+                    },
+                    Color {
+                        r: 96,
+                        g: 165,
+                        b: 250,
+                        a: 255,
+                    },
+                    Color {
+                        r: 30,
+                        g: 64,
+                        b: 175,
+                        a: 255,
+                    },
+                ]))
                 .series(vec![HeatmapSeries::new("Punch Card")
                     .data(vec![
                         (0, 0, 5.0 * s),
@@ -405,7 +466,28 @@ impl Widget<GalleryState> for GalleryApp {
                     .into()])
                 .build(ctx, view),
             (1, 3) => Chart::new()
-                .title("Statistical: Graph")
+                .title("Statistical: Radar")
+                .series(vec![RadarSeries::new("Budget vs spending")
+                    .data(vec![
+                        vec![42.0 * s, 30.0 * s, 20.0 * s, 35.0 * s, 50.0 * s, 18.0 * s],
+                        vec![50.0 * s, 14.0 * s, 28.0 * s, 26.0 * s, 42.0 * s, 21.0 * s],
+                    ])
+                    .into()])
+                .build(ctx, view),
+            (1, 4) => Chart::new()
+                .title("Statistical: Funnel")
+                .series(vec![FunnelSeries::new("Expected")
+                    .data(vec![
+                        ("Visit", 100.0 * s),
+                        ("Inquiry", 80.0 * s),
+                        ("Order", 60.0 * s),
+                        ("Click", 40.0 * s),
+                        ("Return", 20.0 * s),
+                    ])
+                    .into()])
+                .build(ctx, view),
+            (2, 0) => Chart::new()
+                .title("Relationships: Graph")
                 .series(vec![GraphSeries::new("Les Miserables")
                     .nodes(vec![
                         GraphNode {
@@ -423,6 +505,11 @@ impl Widget<GalleryState> for GalleryApp {
                             name: "Mlle.Baptistine".into(),
                             value: 15.0 * s,
                         },
+                        GraphNode {
+                            id: "3".into(),
+                            name: "Valjean".into(),
+                            value: 42.0 * s,
+                        },
                     ])
                     .edges(vec![
                         fission_charts::series::graph::GraphEdge {
@@ -433,11 +520,15 @@ impl Widget<GalleryState> for GalleryApp {
                             source: "2".into(),
                             target: "0".into(),
                         },
+                        fission_charts::series::graph::GraphEdge {
+                            source: "3".into(),
+                            target: "0".into(),
+                        },
                     ])
                     .into()])
                 .build(ctx, view),
-            (1, 4) => Chart::new()
-                .title("Statistical: Treemap")
+            (2, 1) => Chart::new()
+                .title("Relationships: Treemap")
                 .series(vec![TreemapSeries::new("Disk Usage")
                     .data(vec![
                         TreemapNode {
@@ -458,41 +549,8 @@ impl Widget<GalleryState> for GalleryApp {
                     ])
                     .into()])
                 .build(ctx, view),
-            (2, 0) => Chart::new()
-                .title("Specialized: Radar")
-                .series(vec![RadarSeries::new("Budget vs spending")
-                    .data(vec![
-                        vec![42.0 * s, 30.0 * s, 20.0 * s, 35.0 * s, 50.0 * s, 18.0 * s],
-                        vec![50.0 * s, 14.0 * s, 28.0 * s, 26.0 * s, 42.0 * s, 21.0 * s],
-                    ])
-                    .into()])
-                .build(ctx, view),
-            (2, 1) => Chart::new()
-                .title("Specialized: Funnel")
-                .series(vec![FunnelSeries::new("Expected")
-                    .data(vec![
-                        ("Visit", 100.0 * s),
-                        ("Inquiry", 80.0 * s),
-                        ("Order", 60.0 * s),
-                        ("Click", 40.0 * s),
-                        ("Return", 20.0 * s),
-                    ])
-                    .into()])
-                .build(ctx, view),
             (2, 2) => Chart::new()
-                .title("Specialized: Gauge")
-                .series(vec![GaugeSeries::new("Speed")
-                    .data(vec![("km/h", 50.0 * s)])
-                    .into()])
-                .build(ctx, view),
-            (2, 3) => Chart::new()
-                .title("Specialized: Map")
-                .series(vec![MapSeries::new("World", "world")
-                    .data(vec![("China", 100.0 * s), ("USA", 50.0 * s)])
-                    .into()])
-                .build(ctx, view),
-            (2, 4) => Chart::new()
-                .title("Specialized: Sankey")
+                .title("Relationships: Sankey")
                 .series(vec![SankeySeries::new("Energy Flow")
                     .nodes(vec![
                         GraphNode {
@@ -512,8 +570,8 @@ impl Widget<GalleryState> for GalleryApp {
                     }])
                     .into()])
                 .build(ctx, view),
-            (2, 5) => Chart::new()
-                .title("Specialized: Parallel")
+            (2, 3) => Chart::new()
+                .title("Relationships: Parallel")
                 .series(vec![ParallelSeries::new("Data")
                     .data(vec![
                         vec![12.99 * s, 100.0 * s, 82.0 * s, 90.0 * s],
@@ -521,19 +579,11 @@ impl Widget<GalleryState> for GalleryApp {
                     ])
                     .into()])
                 .build(ctx, view),
-            (2, 6) => {
-                Chart::new()
-                    .title("Specialized: Sunburst")
-                    .series(vec![SunburstSeries::new("Disk Usage")
-                        .data(vec![]) // Empty stub for now
-                        .into()])
-                    .build(ctx, view)
-            }
             // --- Dynamic (category 3) ---
             (3, 0) => Chart::new()
-                .title("Dynamic: ThemeRiver")
-                .series(vec![ThemeRiverSeries::new("Theme River")
-                    .data(vec![])
+                .title("Dynamic: Gauge")
+                .series(vec![GaugeSeries::new("Speed")
+                    .data(vec![("km/h", 50.0 * s)])
                     .into()])
                 .build(ctx, view),
             (3, 1) => Chart::new()
@@ -556,21 +606,14 @@ impl Widget<GalleryState> for GalleryApp {
                     ])
                     .into()])
                 .build(ctx, view),
-            // --- Extensions (category 4) ---
-            (4, 0) => Chart::new()
-                .title("Extensions: Custom Series")
-                .series(vec![CustomSeries::new("Custom", "circle")
-                    .data(vec![10.0, 20.0, 30.0, 40.0])
-                    .into()])
-                .build(ctx, view),
-            (4, 1) => Chart::new()
-                .title("Extensions: Liquidfill")
+            (3, 3) => Chart::new()
+                .title("Dynamic: Liquidfill")
                 .series(vec![LiquidfillSeries::new("Water Level")
                     .data(vec![0.6 * s, 0.5 * s, 0.4 * s])
                     .into()])
                 .build(ctx, view),
-            (4, 2) => Chart::new()
-                .title("Extensions: Wordcloud")
+            (3, 4) => Chart::new()
+                .title("Dynamic: Wordcloud")
                 .series(vec![WordcloudSeries::new("Words")
                     .data(vec![
                         ("Rust", 100.0 * s),
@@ -580,8 +623,8 @@ impl Widget<GalleryState> for GalleryApp {
                     ])
                     .into()])
                 .build(ctx, view),
-            // --- 3D + Dataset (category 5) ---
-            (5, 0) => Chart::new()
+            // --- 3D + Dataset (category 4) ---
+            (4, 0) => Chart::new()
                 .title("Dataset Engine: Encoded Line & Bar")
                 .dataset(
                     Dataset::new()
@@ -625,6 +668,7 @@ impl Widget<GalleryState> for GalleryApp {
                     "Walnut Brownie",
                 ]))
                 .y_axis(Axis::value())
+                .legend(Legend::top_right())
                 .series(vec![
                     BarSeries::new("2015")
                         .encode(Encode::new().x("product").y("2015"))
@@ -656,7 +700,7 @@ impl Widget<GalleryState> for GalleryApp {
                         .into(),
                 ])
                 .build(ctx, view),
-            (5, 1) => Scene3D::new()
+            (4, 1) => Scene3D::new()
                 .add_primitive(Primitive3D::Cube {
                     center: Point3D::new(0.0, 0.0, 0.0),
                     size: 2.0,
@@ -669,7 +713,7 @@ impl Widget<GalleryState> for GalleryApp {
                 })
                 .build(ctx, view),
             _ => Container::new(
-                Text::new("Chart implementation rendered as placeholder")
+                Text::new("Select a chart from the gallery")
                     .color(Color {
                         r: 150,
                         g: 150,

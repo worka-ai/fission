@@ -1,12 +1,13 @@
 use fission_core::op::Color;
+use serde::{Deserialize, Serialize};
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum VisualMapType {
     Continuous,
     Piecewise,
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct VisualMap {
     pub map_type: VisualMapType,
     pub min: f32,
