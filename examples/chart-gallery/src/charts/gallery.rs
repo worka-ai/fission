@@ -130,8 +130,7 @@ pub(crate) fn configure_chart(
         chart = chart.animation(
             ChartAnimation::enter(ChartAnimationKind::Sweep)
                 .duration_ms(1200)
-                .stagger_ms(14)
-                .repeat(true),
+                .stagger_ms(14),
         );
     }
 

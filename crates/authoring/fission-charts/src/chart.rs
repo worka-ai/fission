@@ -520,6 +520,74 @@ fn chart_event_point(event: &InputEvent) -> Option<(ChartInteractionKind, Layout
     }
 }
 
+#[derive(Debug, Clone, Copy)]
+struct ChartAnimationFrame {
+    enabled: bool,
+    progress: f32,
+    stagger_fraction: f32,
+}
+
+impl ChartAnimationFrame {
+    fn from_chart(chart: &Chart, cx: &fission_core::lowering::LoweringContext) -> Self {
+        if !chart.animation.enabled {
+            return Self::complete();
+        }
+
+        let progress = cx
+            .runtime_state
+            .animation
+            .values
+            .get(&(chart.animation_id(), chart_animation_property()))
+            .copied()
+            .unwrap_or(1.0)
+            .clamp(0.0, 1.0);
+        let duration = chart.animation.duration_ms.max(1) as f32;
+        let stagger_fraction = (chart.animation.stagger_ms as f32 / duration).clamp(0.0, 0.18);
+
+        Self {
+            enabled: true,
+            progress,
+            stagger_fraction,
+        }
+    }
+
+    fn complete() -> Self {
+        Self {
+            enabled: false,
+            progress: 1.0,
+            stagger_fraction: 0.0,
+        }
+    }
+
+    fn series_progress(self, series_index: usize) -> f32 {
+        if !self.enabled {
+            return 1.0;
+        }
+        self.staggered_progress(series_index, self.stagger_fraction)
+    }
+
+    fn item_progress(self, series_progress: f32, item_index: usize) -> f32 {
+        if !self.enabled {
+            return 1.0;
+        }
+        let item_stagger = (self.stagger_fraction * 0.55).min(0.08);
+        Self {
+            progress: series_progress,
+            ..self
+        }
+        .staggered_progress(item_index, item_stagger)
+    }
+
+    fn staggered_progress(self, index: usize, step: f32) -> f32 {
+        let delay = (index as f32 * step).min(0.86);
+        if self.progress <= delay {
+            0.0
+        } else {
+            ((self.progress - delay) / (1.0 - delay)).clamp(0.0, 1.0)
+        }
+    }
+}
+
 fn render_series(
     cx: &mut fission_core::lowering::LoweringContext,
     root: &mut fission_core::lowering::NodeBuilder,
@@ -534,8 +602,9 @@ fn render_series(
     let mut bar_group_index = 0usize;
     let mut bar_stacks: HashMap<(String, usize), f32> = HashMap::new();
     let mut line_stacks: HashMap<(String, usize), f32> = HashMap::new();
+    let animation = ChartAnimationFrame::from_chart(chart, cx);
 
-    for series in &model.series {
+    for (series_index, series) in model.series.iter().enumerate() {
         match series {
             ResolvedSeries::Bar(bar) => {
                 let group_index = if bar.source.stack.is_none() {
@@ -557,6 +626,8 @@ fn render_series(
                     theme,
                     group_index,
                     bar_groups,
+                    animation,
+                    series_index,
                 );
             }
             ResolvedSeries::Line(line) => render_line(
@@ -569,6 +640,8 @@ fn render_series(
                 &x_scale,
                 &y_scale,
                 theme,
+                animation,
+                series_index,
             ),
             ResolvedSeries::Scatter(scatter) => render_scatter(
                 cx,
@@ -581,6 +654,8 @@ fn render_series(
                 &y_scale,
                 theme,
                 false,
+                animation,
+                series_index,
             ),
             ResolvedSeries::Bubble(bubble) => render_bubble(
                 cx,
@@ -590,6 +665,8 @@ fn render_series(
                 area,
                 &x_scale,
                 &y_scale,
+                animation,
+                series_index,
             ),
             ResolvedSeries::EffectScatter(effect) => render_scatter(
                 cx,
@@ -602,14 +679,33 @@ fn render_series(
                 &y_scale,
                 theme,
                 true,
+                animation,
+                series_index,
             ),
-            ResolvedSeries::Pie(pie) => render_pie(cx, root, pie, area, theme),
-            ResolvedSeries::Boxplot(boxplot) => {
-                render_boxplot(cx, root, boxplot, model, area, &y_scale, theme)
+            ResolvedSeries::Pie(pie) => {
+                render_pie(cx, root, pie, area, theme, animation, series_index)
             }
-            ResolvedSeries::Candlestick(candle) => {
-                render_candlestick(cx, root, candle, model, area, &y_scale)
-            }
+            ResolvedSeries::Boxplot(boxplot) => render_boxplot(
+                cx,
+                root,
+                boxplot,
+                model,
+                area,
+                &y_scale,
+                theme,
+                animation,
+                series_index,
+            ),
+            ResolvedSeries::Candlestick(candle) => render_candlestick(
+                cx,
+                root,
+                candle,
+                model,
+                area,
+                &y_scale,
+                animation,
+                series_index,
+            ),
             ResolvedSeries::Heatmap(heatmap) => render_heatmap(
                 cx,
                 root,
@@ -618,33 +714,87 @@ fn render_series(
                 chart.visual_map.as_ref(),
                 area,
                 theme,
+                animation,
+                series_index,
             ),
-            ResolvedSeries::CalendarHeatmap(calendar) => {
-                render_calendar_heatmap(cx, root, calendar, chart.visual_map.as_ref(), area, theme)
+            ResolvedSeries::CalendarHeatmap(calendar) => render_calendar_heatmap(
+                cx,
+                root,
+                calendar,
+                chart.visual_map.as_ref(),
+                area,
+                theme,
+                animation,
+                series_index,
+            ),
+            ResolvedSeries::Lines(lines) => {
+                render_lines(cx, root, lines, area, theme, animation, series_index)
             }
-            ResolvedSeries::Lines(lines) => render_lines(cx, root, lines, area, theme),
-            ResolvedSeries::Graph(graph) => render_graph(cx, root, graph, area, theme),
-            ResolvedSeries::Tree(tree) => render_tree(cx, root, tree, area, theme),
-            ResolvedSeries::Treemap(treemap) => render_treemap(cx, root, treemap, area, theme),
-            ResolvedSeries::Radar(radar) => render_radar(cx, root, radar, area, theme),
-            ResolvedSeries::Funnel(funnel) => render_funnel(cx, root, funnel, area, theme),
-            ResolvedSeries::Gauge(gauge) => render_gauge(cx, root, gauge, area, theme),
-            ResolvedSeries::Map(map) => {
-                render_map(cx, root, map, chart.visual_map.as_ref(), area, theme)
+            ResolvedSeries::Graph(graph) => {
+                render_graph(cx, root, graph, area, theme, animation, series_index)
             }
-            ResolvedSeries::Sankey(sankey) => render_sankey(cx, root, sankey, area, theme),
-            ResolvedSeries::Parallel(parallel) => render_parallel(cx, root, parallel, area, theme),
-            ResolvedSeries::Sunburst(sunburst) => render_sunburst(cx, root, sunburst, area, theme),
-            ResolvedSeries::ThemeRiver(river) => render_theme_river(cx, root, river, area, theme),
-            ResolvedSeries::PictorialBar(pic) => {
-                render_pictorial_bar(cx, root, pic, model, area, &y_scale, theme)
+            ResolvedSeries::Tree(tree) => {
+                render_tree(cx, root, tree, area, theme, animation, series_index)
             }
-            ResolvedSeries::Liquidfill(liquid) => render_liquidfill(cx, root, liquid, area, theme),
-            ResolvedSeries::Wordcloud(words) => render_wordcloud(cx, root, words, area, theme),
-            ResolvedSeries::PolarBar(polar) => render_polar_bar(cx, root, polar, area, theme),
-            ResolvedSeries::PolarLine(polar) => render_polar_line(cx, root, polar, area, theme),
+            ResolvedSeries::Treemap(treemap) => {
+                render_treemap(cx, root, treemap, area, theme, animation, series_index)
+            }
+            ResolvedSeries::Radar(radar) => {
+                render_radar(cx, root, radar, area, theme, animation, series_index)
+            }
+            ResolvedSeries::Funnel(funnel) => {
+                render_funnel(cx, root, funnel, area, theme, animation, series_index)
+            }
+            ResolvedSeries::Gauge(gauge) => {
+                render_gauge(cx, root, gauge, area, theme, animation, series_index)
+            }
+            ResolvedSeries::Map(map) => render_map(
+                cx,
+                root,
+                map,
+                chart.visual_map.as_ref(),
+                area,
+                theme,
+                animation,
+                series_index,
+            ),
+            ResolvedSeries::Sankey(sankey) => {
+                render_sankey(cx, root, sankey, area, theme, animation, series_index)
+            }
+            ResolvedSeries::Parallel(parallel) => {
+                render_parallel(cx, root, parallel, area, theme, animation, series_index)
+            }
+            ResolvedSeries::Sunburst(sunburst) => {
+                render_sunburst(cx, root, sunburst, area, theme, animation, series_index)
+            }
+            ResolvedSeries::ThemeRiver(river) => {
+                render_theme_river(cx, root, river, area, theme, animation, series_index)
+            }
+            ResolvedSeries::PictorialBar(pic) => render_pictorial_bar(
+                cx,
+                root,
+                pic,
+                model,
+                area,
+                &y_scale,
+                theme,
+                animation,
+                series_index,
+            ),
+            ResolvedSeries::Liquidfill(liquid) => {
+                render_liquidfill(cx, root, liquid, area, theme, animation, series_index)
+            }
+            ResolvedSeries::Wordcloud(words) => {
+                render_wordcloud(cx, root, words, area, theme, animation, series_index)
+            }
+            ResolvedSeries::PolarBar(polar) => {
+                render_polar_bar(cx, root, polar, area, theme, animation, series_index)
+            }
+            ResolvedSeries::PolarLine(polar) => {
+                render_polar_line(cx, root, polar, area, theme, animation, series_index)
+            }
             ResolvedSeries::SingleAxis(single_axis) => {
-                render_single_axis(cx, root, single_axis, area, theme)
+                render_single_axis(cx, root, single_axis, area, theme, animation, series_index)
             }
         }
     }
@@ -1021,7 +1171,10 @@ fn render_bar(
     _theme: &ChartTheme,
     group_index: usize,
     group_count: usize,
+    animation: ChartAnimationFrame,
+    series_index: usize,
 ) {
+    let series_progress = animation.series_progress(series_index);
     if bar.source.orientation == crate::series::bar::BarOrientation::Horizontal {
         render_horizontal_bar(
             cx,
@@ -1033,6 +1186,8 @@ fn render_bar(
             x_scale,
             group_index,
             group_count,
+            animation,
+            series_progress,
         );
         return;
     }
@@ -1051,8 +1206,12 @@ fn render_bar(
     };
 
     for (idx, value) in bar.values.iter().enumerate() {
+        let item_progress = animation.item_progress(series_progress, idx);
+        if item_progress <= f32::EPSILON {
+            continue;
+        }
         let base = stack_base(stacks, bar.source.stack.as_ref(), idx);
-        let total = base + *value;
+        let total = base + *value * item_progress;
         if bar.source.stack.is_some() {
             stacks.insert((bar.source.stack.clone().unwrap(), idx), total);
         }
@@ -1093,6 +1252,8 @@ fn render_horizontal_bar(
     x_scale: &LinearScale,
     group_index: usize,
     group_count: usize,
+    animation: ChartAnimationFrame,
+    series_progress: f32,
 ) {
     let band = category_band_width(
         model.y_categories.len().max(bar.values.len()),
@@ -1111,8 +1272,12 @@ fn render_horizontal_bar(
     };
 
     for (idx, value) in bar.values.iter().enumerate() {
+        let item_progress = animation.item_progress(series_progress, idx);
+        if item_progress <= f32::EPSILON {
+            continue;
+        }
         let base = stack_base(stacks, bar.source.stack.as_ref(), idx);
-        let total = base + *value;
+        let total = base + *value * item_progress;
         if bar.source.stack.is_some() {
             stacks.insert((bar.source.stack.clone().unwrap(), idx), total);
         }
@@ -1152,8 +1317,14 @@ fn render_line(
     _x_scale: &LinearScale,
     y_scale: &LinearScale,
     _theme: &ChartTheme,
+    animation: ChartAnimationFrame,
+    series_index: usize,
 ) {
     if line.values.is_empty() {
+        return;
+    }
+    let series_progress = animation.series_progress(series_index);
+    if series_progress <= f32::EPSILON {
         return;
     }
     let mut points = Vec::new();
@@ -1169,35 +1340,55 @@ fn render_line(
         base_points.push((x, map_y(base, area, y_scale)));
     }
 
+    let revealed_points = reveal_points(&points, series_progress);
+    let revealed_base_points = reveal_points(&base_points, series_progress);
+
     if let Some(area_color) = line.source.area_style {
-        let mut area_path = path_for_line(&points, line.source.smooth, line.source.step.as_deref());
-        for (x, y) in base_points.iter().rev() {
-            area_path.push_str(&format!(" L {} {}", x, y));
+        if revealed_points.len() > 1 && revealed_base_points.len() > 1 {
+            let mut area_path = path_for_line(
+                &revealed_points,
+                line.source.smooth,
+                line.source.step.as_deref(),
+            );
+            for (x, y) in revealed_base_points.iter().rev() {
+                area_path.push_str(&format!(" L {} {}", x, y));
+            }
+            area_path.push_str(" Z");
+            let fill = Fill::LinearGradient {
+                start: (area.plot.x(), area.plot.y()),
+                end: (area.plot.x(), area.plot.bottom()),
+                stops: vec![(0.0, area_color), (1.0, area_color.with_alpha(16))],
+            };
+            add_path(cx, root, &area_path, Some(fill), None);
         }
-        area_path.push_str(" Z");
-        let fill = Fill::LinearGradient {
-            start: (area.plot.x(), area.plot.y()),
-            end: (area.plot.x(), area.plot.bottom()),
-            stops: vec![(0.0, area_color), (1.0, area_color.with_alpha(16))],
-        };
-        add_path(cx, root, &area_path, Some(fill), None);
     }
 
-    add_path(
-        cx,
-        root,
-        &path_for_line(&points, line.source.smooth, line.source.step.as_deref()),
-        None,
-        Some(stroke(line.source.color, 2.4)),
-    );
-    for (x, y) in points {
+    if revealed_points.len() > 1 {
+        add_path(
+            cx,
+            root,
+            &path_for_line(
+                &revealed_points,
+                line.source.smooth,
+                line.source.step.as_deref(),
+            ),
+            None,
+            Some(stroke(line.source.color, 2.4)),
+        );
+    }
+    for (idx, (x, y)) in revealed_points.into_iter().enumerate() {
+        let item_progress = animation.item_progress(series_progress, idx);
+        if item_progress <= f32::EPSILON {
+            continue;
+        }
+        let radius = 3.0 * item_progress.sqrt();
         add_rect(
             cx,
             root,
-            LayoutRect::new(x - 3.0, y - 3.0, 6.0, 6.0),
-            line.source.color,
+            LayoutRect::new(x - radius, y - radius, radius * 2.0, radius * 2.0),
+            fade_color(line.source.color, item_progress),
             Some(stroke(Color::WHITE, 1.0)),
-            3.0,
+            radius,
         );
     }
 }
@@ -1213,8 +1404,19 @@ fn render_scatter(
     y_scale: &LinearScale,
     _theme: &ChartTheme,
     effect: bool,
+    animation: ChartAnimationFrame,
+    series_index: usize,
 ) {
-    for (xv, yv) in data {
+    let series_progress = animation.series_progress(series_index);
+    if series_progress <= f32::EPSILON {
+        return;
+    }
+
+    for (idx, (xv, yv)) in data.iter().enumerate() {
+        let item_progress = animation.item_progress(series_progress, idx);
+        if item_progress <= f32::EPSILON {
+            continue;
+        }
         let x = map_x(*xv, area, x_scale);
         let y = map_y(*yv, area, y_scale);
         let fill = visual_map
@@ -1222,24 +1424,25 @@ fn render_scatter(
             .unwrap_or(color);
         if effect {
             for (scale, alpha) in [(2.2, 45), (1.55, 72), (1.0, 220)] {
-                let r = 7.0 * scale;
+                let r = 7.0 * scale * item_progress.sqrt();
                 add_rect(
                     cx,
                     root,
                     LayoutRect::new(x - r, y - r, r * 2.0, r * 2.0),
-                    fill.with_alpha(alpha),
+                    fill.with_alpha(((alpha as f32) * item_progress).round() as u8),
                     None,
                     r,
                 );
             }
         } else {
+            let r = 5.5 * item_progress.sqrt();
             add_rect(
                 cx,
                 root,
-                LayoutRect::new(x - 5.5, y - 5.5, 11.0, 11.0),
-                fill,
+                LayoutRect::new(x - r, y - r, r * 2.0, r * 2.0),
+                fade_color(fill, item_progress),
                 Some(stroke(Color::WHITE, 1.0)),
-                5.5,
+                r,
             );
         }
     }
@@ -1253,17 +1456,29 @@ fn render_bubble(
     area: &ChartArea,
     x_scale: &LinearScale,
     y_scale: &LinearScale,
+    animation: ChartAnimationFrame,
+    series_index: usize,
 ) {
     let max_size = bubble
         .data
         .iter()
         .map(|(_, _, size)| *size)
         .fold(1.0_f32, f32::max);
+    let series_progress = animation.series_progress(series_index);
+    if series_progress <= f32::EPSILON {
+        return;
+    }
+
     for (idx, (xv, yv, size)) in bubble.data.iter().enumerate() {
+        let item_progress = animation.item_progress(series_progress, idx);
+        if item_progress <= f32::EPSILON {
+            continue;
+        }
         let x = map_x(*xv, area, x_scale);
         let y = map_y(*yv, area, y_scale);
         let t = (*size / max_size).clamp(0.0, 1.0).sqrt();
-        let radius = bubble.min_radius + (bubble.max_radius - bubble.min_radius) * t;
+        let radius = (bubble.min_radius + (bubble.max_radius - bubble.min_radius) * t)
+            * item_progress.sqrt();
         let fill = visual_map
             .map(|map| visual_color(map, *size))
             .unwrap_or_else(|| bubble.color.with_alpha(185));
@@ -1271,7 +1486,7 @@ fn render_bubble(
             cx,
             root,
             LayoutRect::new(x - radius, y - radius, radius * 2.0, radius * 2.0),
-            fill,
+            fade_color(fill, item_progress),
             Some(stroke(Color::WHITE, 1.2)),
             radius,
         );
@@ -1297,9 +1512,15 @@ fn render_pie(
     pie: &crate::series::pie::PieSeries,
     area: &ChartArea,
     theme: &ChartTheme,
+    animation: ChartAnimationFrame,
+    series_index: usize,
 ) {
     let total: f32 = pie.data.iter().map(|(_, value)| *value).sum();
     if total <= 0.0 {
+        return;
+    }
+    let series_progress = animation.series_progress(series_index);
+    if series_progress <= f32::EPSILON {
         return;
     }
     let cx_pie = area.plot.x() + area.plot.width() * 0.45;
@@ -1312,9 +1533,14 @@ fn render_pie(
         .map(|(_, value)| *value)
         .fold(1.0_f32, f32::max);
     let mut angle = -std::f32::consts::PI / 2.0;
+    let mut remaining_reveal = std::f32::consts::TAU * series_progress;
     for (idx, (label, value)) in pie.data.iter().enumerate() {
         let sweep = (*value / total) * std::f32::consts::TAU;
-        let end = angle + sweep;
+        let revealed_sweep = sweep.min(remaining_reveal.max(0.0));
+        if revealed_sweep <= f32::EPSILON {
+            break;
+        }
+        let end = angle + revealed_sweep;
         let mut outer = max_r;
         if let Some(rose_type) = pie.rose_type.as_deref() {
             let normalized = (*value / max_value).clamp(0.0, 1.0);
@@ -1331,21 +1557,24 @@ fn render_pie(
             Some(Fill::Solid(theme.palette[idx % theme.palette.len()])),
             Some(stroke(Color::WHITE, 1.2)),
         );
-        let mid = angle + sweep / 2.0;
+        let mid = angle + revealed_sweep / 2.0;
         let lx = cx_pie + (outer + 20.0) * mid.cos();
         let ly = cy_pie + (outer + 20.0) * mid.sin();
-        add_text(
-            cx,
-            root,
-            label,
-            11.0,
-            theme.label,
-            lx - 36.0,
-            ly - 7.0,
-            72.0,
-            14.0,
-        );
-        angle = end;
+        if series_progress > 0.92 || revealed_sweep >= sweep * 0.92 {
+            add_text(
+                cx,
+                root,
+                label,
+                11.0,
+                theme.label,
+                lx - 36.0,
+                ly - 7.0,
+                72.0,
+                14.0,
+            );
+        }
+        angle += sweep;
+        remaining_reveal -= sweep;
     }
 }
 
@@ -1357,19 +1586,30 @@ fn render_boxplot(
     area: &ChartArea,
     y_scale: &LinearScale,
     _theme: &ChartTheme,
+    animation: ChartAnimationFrame,
+    series_index: usize,
 ) {
+    let series_progress = animation.series_progress(series_index);
+    if series_progress <= f32::EPSILON {
+        return;
+    }
     let band = band_width(model, area);
     let box_w = band * 0.46;
     for (idx, row) in boxplot.data.iter().enumerate() {
         if row.len() < 5 {
             continue;
         }
+        let item_progress = animation.item_progress(series_progress, idx);
+        if item_progress <= f32::EPSILON {
+            continue;
+        }
         let x = map_category_x(idx, model, area);
-        let min_y = map_y(row[0], area, y_scale);
-        let q1_y = map_y(row[1], area, y_scale);
+        let median_anchor = map_y(row[2], area, y_scale);
+        let min_y = interpolate(median_anchor, map_y(row[0], area, y_scale), item_progress);
+        let q1_y = interpolate(median_anchor, map_y(row[1], area, y_scale), item_progress);
         let med_y = map_y(row[2], area, y_scale);
-        let q3_y = map_y(row[3], area, y_scale);
-        let max_y = map_y(row[4], area, y_scale);
+        let q3_y = interpolate(median_anchor, map_y(row[3], area, y_scale), item_progress);
+        let max_y = interpolate(median_anchor, map_y(row[4], area, y_scale), item_progress);
         add_rect(
             cx,
             root,
@@ -1379,8 +1619,8 @@ fn render_boxplot(
                 box_w,
                 (q1_y - q3_y).abs().max(1.0),
             ),
-            boxplot.color.with_alpha(70),
-            Some(stroke(boxplot.color, 1.5)),
+            fade_color(boxplot.color.with_alpha(70), item_progress),
+            Some(fade_stroke(stroke(boxplot.color, 1.5), item_progress)),
             1.0,
         );
         add_path(
@@ -1406,7 +1646,7 @@ fn render_boxplot(
                 max_y
             ),
             None,
-            Some(stroke(boxplot.color, 1.2)),
+            Some(fade_stroke(stroke(boxplot.color, 1.2), item_progress)),
         );
         add_path(
             cx,
@@ -1419,7 +1659,7 @@ fn render_boxplot(
                 med_y
             ),
             None,
-            Some(stroke(boxplot.color, 2.0)),
+            Some(fade_stroke(stroke(boxplot.color, 2.0), item_progress)),
         );
     }
 }
@@ -1431,11 +1671,21 @@ fn render_candlestick(
     model: &ChartModel,
     area: &ChartArea,
     y_scale: &LinearScale,
+    animation: ChartAnimationFrame,
+    series_index: usize,
 ) {
+    let series_progress = animation.series_progress(series_index);
+    if series_progress <= f32::EPSILON {
+        return;
+    }
     let band = band_width(model, area);
     let box_w = band * 0.5;
     for (idx, row) in candle.data.iter().enumerate() {
         if row.len() < 4 {
+            continue;
+        }
+        let item_progress = animation.item_progress(series_progress, idx);
+        if item_progress <= f32::EPSILON {
             continue;
         }
         let open = row[0];
@@ -1449,16 +1699,17 @@ fn render_candlestick(
             candle.color_down
         };
         let x = map_category_x(idx, model, area);
-        let open_y = map_y(open, area, y_scale);
-        let close_y = map_y(close, area, y_scale);
-        let high_y = map_y(high, area, y_scale);
-        let low_y = map_y(low, area, y_scale);
+        let center_y = map_y((open + close) / 2.0, area, y_scale);
+        let open_y = interpolate(center_y, map_y(open, area, y_scale), item_progress);
+        let close_y = interpolate(center_y, map_y(close, area, y_scale), item_progress);
+        let high_y = interpolate(center_y, map_y(high, area, y_scale), item_progress);
+        let low_y = interpolate(center_y, map_y(low, area, y_scale), item_progress);
         add_path(
             cx,
             root,
             &format!("M {} {} L {} {}", x, high_y, x, low_y),
             None,
-            Some(stroke(color, 1.4)),
+            Some(fade_stroke(stroke(color, 1.4), item_progress)),
         );
         add_rect(
             cx,
@@ -1469,8 +1720,8 @@ fn render_candlestick(
                 box_w,
                 (open_y - close_y).abs().max(1.0),
             ),
-            if up { Color::WHITE } else { color },
-            Some(stroke(color, 1.4)),
+            fade_color(if up { Color::WHITE } else { color }, item_progress),
+            Some(fade_stroke(stroke(color, 1.4), item_progress)),
             0.0,
         );
     }
@@ -1484,24 +1735,38 @@ fn render_heatmap(
     visual_map: Option<&VisualMap>,
     area: &ChartArea,
     theme: &ChartTheme,
+    animation: ChartAnimationFrame,
+    series_index: usize,
 ) {
+    let series_progress = animation.series_progress(series_index);
+    if series_progress <= f32::EPSILON {
+        return;
+    }
     let max_x = heatmap.data.iter().map(|d| d.0).max().unwrap_or(0) + 1;
     let max_y = heatmap.data.iter().map(|d| d.1).max().unwrap_or(0) + 1;
     let cell_w = area.plot.width() / max_x.max(1) as f32;
     let cell_h = area.plot.height() / max_y.max(1) as f32;
     let max_val = heatmap.data.iter().map(|d| d.2).fold(1.0_f32, f32::max);
-    for (x_idx, y_idx, val) in &heatmap.data {
+    for (idx, (x_idx, y_idx, val)) in heatmap.data.iter().enumerate() {
+        let item_progress = animation.item_progress(series_progress, idx);
+        if item_progress <= f32::EPSILON {
+            continue;
+        }
         let x = area.plot.x() + *x_idx as f32 * cell_w;
         let y = area.plot.bottom() - (*y_idx as f32 + 1.0) * cell_h;
         let fill = visual_map
             .map(|map| visual_color(map, *val))
             .unwrap_or_else(|| heat_color(*val / max_val));
+        let rect = scale_rect_from_center(
+            LayoutRect::new(x, y, cell_w, cell_h),
+            0.82 + item_progress * 0.18,
+        );
         add_rect(
             cx,
             root,
-            LayoutRect::new(x, y, cell_w, cell_h),
-            fill,
-            Some(stroke(Color::WHITE, 1.0)),
+            rect,
+            fade_color(fill, item_progress),
+            Some(fade_stroke(stroke(Color::WHITE, 1.0), item_progress)),
             0.0,
         );
     }
@@ -1529,8 +1794,15 @@ fn render_calendar_heatmap(
     visual_map: Option<&VisualMap>,
     area: &ChartArea,
     theme: &ChartTheme,
+    animation: ChartAnimationFrame,
+    series_index: usize,
 ) {
     use chrono::{Datelike, Duration, NaiveDate};
+
+    let series_progress = animation.series_progress(series_index);
+    if series_progress <= f32::EPSILON {
+        return;
+    }
 
     let parsed: Vec<(NaiveDate, f32)> = calendar
         .data
@@ -1571,6 +1843,7 @@ fn render_calendar_heatmap(
     let max_value = values.values().copied().fold(1.0_f32, f32::max);
 
     let mut date = start;
+    let mut idx = 0usize;
     while date <= end {
         let offset = (date - start).num_days() + start_weekday;
         let week = (offset / 7) as f32;
@@ -1579,15 +1852,24 @@ fn render_calendar_heatmap(
         let fill = visual_map
             .map(|map| visual_color(map, value))
             .unwrap_or_else(|| heat_color(value / max_value));
+        let item_progress = animation.item_progress(series_progress, idx);
+        let rect = scale_rect_from_center(
+            LayoutRect::new(x0 + week * cell, y0 + day * cell, cell - 2.0, cell - 2.0),
+            0.82 + item_progress * 0.18,
+        );
         add_rect(
             cx,
             root,
-            LayoutRect::new(x0 + week * cell, y0 + day * cell, cell - 2.0, cell - 2.0),
-            fill.with_alpha(if value > 0.0 { 230 } else { 55 }),
-            Some(stroke(Color::WHITE, 0.8)),
+            rect,
+            fade_color(
+                fill.with_alpha(if value > 0.0 { 230 } else { 55 }),
+                item_progress,
+            ),
+            Some(fade_stroke(stroke(Color::WHITE, 0.8), item_progress)),
             2.0,
         );
         date += Duration::days(1);
+        idx += 1;
     }
 
     for (idx, label) in ["Mon", "Wed", "Fri", "Sun"].iter().enumerate() {
@@ -1623,7 +1905,13 @@ fn render_graph(
     graph: &crate::series::graph::GraphSeries,
     area: &ChartArea,
     theme: &ChartTheme,
+    animation: ChartAnimationFrame,
+    series_index: usize,
 ) {
+    let series_progress = animation.series_progress(series_index);
+    if series_progress <= f32::EPSILON {
+        return;
+    }
     let positions = crate::layout::force_graph::ForceGraphLayout::compute_positions(
         &graph.nodes,
         &graph.edges,
@@ -1631,31 +1919,46 @@ fn render_graph(
         area.plot.height(),
         80,
     );
-    render_edges(cx, root, &graph.edges, &positions, area, theme);
+    render_edges(
+        cx,
+        root,
+        &graph.edges,
+        &positions,
+        area,
+        theme,
+        animation,
+        series_progress,
+    );
     for (idx, node) in graph.nodes.iter().enumerate() {
+        let item_progress = animation.item_progress(series_progress, idx + graph.edges.len());
+        if item_progress <= f32::EPSILON {
+            continue;
+        }
         if let Some((x, y)) = positions.get(&node.id) {
-            let r = 7.0 + node.value.sqrt().min(24.0);
+            let r = (7.0 + node.value.sqrt().min(24.0)) * item_progress.sqrt();
             let px = area.plot.x() + *x;
             let py = area.plot.y() + *y;
             add_rect(
                 cx,
                 root,
                 LayoutRect::new(px - r, py - r, r * 2.0, r * 2.0),
-                theme.palette[idx % theme.palette.len()],
-                Some(stroke(Color::WHITE, 1.0)),
+                fade_color(theme.palette[idx % theme.palette.len()], item_progress),
+                Some(fade_stroke(stroke(Color::WHITE, 1.0), item_progress)),
                 r,
             );
-            add_text(
-                cx,
-                root,
-                &node.name,
-                10.0,
-                theme.label,
-                px + r + 4.0,
-                py - 7.0,
-                100.0,
-                14.0,
-            );
+            if item_progress > 0.82 {
+                add_text(
+                    cx,
+                    root,
+                    &node.name,
+                    10.0,
+                    theme.label,
+                    px + r + 4.0,
+                    py - 7.0,
+                    100.0,
+                    14.0,
+                );
+            }
         }
     }
 }
@@ -1666,8 +1969,14 @@ fn render_lines(
     lines: &crate::series::lines::LinesSeries,
     area: &ChartArea,
     theme: &ChartTheme,
+    animation: ChartAnimationFrame,
+    series_index: usize,
 ) {
     if lines.data.is_empty() {
+        return;
+    }
+    let series_progress = animation.series_progress(series_index);
+    if series_progress <= f32::EPSILON {
         return;
     }
 
@@ -1688,11 +1997,19 @@ fn render_lines(
     let (min_x, max_x) = normalize_bounds(min_x, max_x);
     let (min_y, max_y) = normalize_bounds(min_y, max_y);
 
-    for segment in &lines.data {
+    for (idx, segment) in lines.data.iter().enumerate() {
+        let item_progress = animation.item_progress(series_progress, idx);
+        if item_progress <= f32::EPSILON {
+            continue;
+        }
         let from = map_lines_point(segment.from, min_x, max_x, min_y, max_y, area);
-        let to = map_lines_point(segment.to, min_x, max_x, min_y, max_y, area);
+        let full_to = map_lines_point(segment.to, min_x, max_x, min_y, max_y, area);
+        let to = interpolate_point(from, full_to, item_progress);
         let intensity = (segment.value / max_value).clamp(0.0, 1.0);
-        let stroke_color = mix_color(lines.color.with_alpha(110), lines.color, intensity);
+        let stroke_color = fade_color(
+            mix_color(lines.color.with_alpha(110), lines.color, intensity),
+            item_progress,
+        );
         let control_x = (from.0 + to.0) / 2.0;
         let control_y = (from.1 + to.1) / 2.0 - 36.0 * intensity;
         let path = format!(
@@ -1706,7 +2023,9 @@ fn render_lines(
             None,
             Some(stroke(stroke_color, 1.6 + 2.2 * intensity)),
         );
-        draw_arrow_head(cx, root, from, to, stroke_color);
+        if item_progress > 0.72 {
+            draw_arrow_head(cx, root, from, to, stroke_color);
+        }
 
         if lines.effect {
             let mid = quadratic_midpoint(from, (control_x, control_y), to);
@@ -1741,8 +2060,14 @@ fn render_tree(
     tree: &crate::series::tree::TreeSeries,
     area: &ChartArea,
     theme: &ChartTheme,
+    animation: ChartAnimationFrame,
+    series_index: usize,
 ) {
     if tree.data.is_empty() {
+        return;
+    }
+    let series_progress = animation.series_progress(series_index);
+    if series_progress <= f32::EPSILON {
         return;
     }
 
@@ -1784,7 +2109,12 @@ fn render_tree(
         }
     }
 
-    for (from, to) in edges {
+    for (idx, (from, to)) in edges.iter().enumerate() {
+        let item_progress = animation.item_progress(series_progress, idx);
+        if item_progress <= f32::EPSILON {
+            continue;
+        }
+        let to = interpolate_point(*from, *to, item_progress);
         let path = if tree.radial {
             format!("M {} {} L {} {}", from.0, from.1, to.0, to.1)
         } else {
@@ -1799,22 +2129,29 @@ fn render_tree(
             root,
             &path,
             None,
-            Some(stroke(theme.axis_line.with_alpha(150), 1.3)),
+            Some(fade_stroke(
+                stroke(theme.axis_line.with_alpha(150), 1.3),
+                item_progress,
+            )),
         );
     }
 
     for (idx, node) in nodes.iter().enumerate() {
-        let radius = if node.depth == 0 { 8.0 } else { 6.0 };
+        let item_progress = animation.item_progress(series_progress, idx + edges.len());
+        if item_progress <= f32::EPSILON {
+            continue;
+        }
+        let radius = (if node.depth == 0 { 8.0 } else { 6.0 }) * item_progress.sqrt();
         let color = theme.palette[idx % theme.palette.len()];
         add_rect(
             cx,
             root,
             LayoutRect::new(node.x - radius, node.y - radius, radius * 2.0, radius * 2.0),
-            color,
-            Some(stroke(Color::WHITE, 1.0)),
+            fade_color(color, item_progress),
+            Some(fade_stroke(stroke(Color::WHITE, 1.0), item_progress)),
             radius,
         );
-        if !tree.radial || node.depth > 0 {
+        if item_progress > 0.82 && (!tree.radial || node.depth > 0) {
             add_text(
                 cx,
                 root,
@@ -1836,18 +2173,29 @@ fn render_treemap(
     treemap: &crate::series::treemap::TreemapSeries,
     area: &ChartArea,
     theme: &ChartTheme,
+    animation: ChartAnimationFrame,
+    series_index: usize,
 ) {
+    let series_progress = animation.series_progress(series_index);
+    if series_progress <= f32::EPSILON {
+        return;
+    }
     let layout = crate::layout::treemap::TreemapLayout::squarify(&treemap.data, area.plot);
     for (idx, (node, rect)) in layout.iter().enumerate() {
+        let item_progress = animation.item_progress(series_progress, idx);
+        if item_progress <= f32::EPSILON {
+            continue;
+        }
+        let rect = scale_rect_from_center(*rect, 0.86 + item_progress * 0.14);
         add_rect(
             cx,
             root,
-            *rect,
-            theme.palette[idx % theme.palette.len()],
-            Some(stroke(Color::WHITE, 2.0)),
+            rect,
+            fade_color(theme.palette[idx % theme.palette.len()], item_progress),
+            Some(fade_stroke(stroke(Color::WHITE, 2.0), item_progress)),
             3.0,
         );
-        if rect.width() > 58.0 && rect.height() > 24.0 {
+        if item_progress > 0.82 && rect.width() > 58.0 && rect.height() > 24.0 {
             add_text(
                 cx,
                 root,
@@ -1869,9 +2217,15 @@ fn render_radar(
     radar: &crate::series::radar::RadarSeries,
     area: &ChartArea,
     theme: &ChartTheme,
+    animation: ChartAnimationFrame,
+    series_index: usize,
 ) {
     let axes = radar.data.first().map(|data| data.len()).unwrap_or(0);
     if axes == 0 {
+        return;
+    }
+    let series_progress = animation.series_progress(series_index);
+    if series_progress <= f32::EPSILON {
         return;
     }
     let center = (
@@ -1912,10 +2266,14 @@ fn render_radar(
         );
     }
     for (idx, data) in radar.data.iter().enumerate() {
+        let item_progress = animation.item_progress(series_progress, idx);
+        if item_progress <= f32::EPSILON {
+            continue;
+        }
         let mut path = String::new();
         for (axis, value) in data.iter().enumerate() {
             let angle = radar_angle(axis, axes);
-            let rr = r * (*value / 100.0).clamp(0.0, 1.0);
+            let rr = r * (*value / 100.0).clamp(0.0, 1.0) * item_progress;
             let x = center.0 + rr * angle.cos();
             let y = center.1 + rr * angle.sin();
             if axis == 0 {
@@ -1930,8 +2288,8 @@ fn render_radar(
             cx,
             root,
             &path,
-            Some(Fill::Solid(c.with_alpha(70))),
-            Some(stroke(c, 2.0)),
+            Some(Fill::Solid(fade_color(c.with_alpha(70), item_progress))),
+            Some(fade_stroke(stroke(c, 2.0), item_progress)),
         );
     }
 }
@@ -1942,8 +2300,14 @@ fn render_polar_bar(
     polar: &crate::series::polar::PolarBarSeries,
     area: &ChartArea,
     theme: &ChartTheme,
+    animation: ChartAnimationFrame,
+    series_index: usize,
 ) {
     if polar.data.is_empty() {
+        return;
+    }
+    let series_progress = animation.series_progress(series_index);
+    if series_progress <= f32::EPSILON {
         return;
     }
 
@@ -1972,9 +2336,13 @@ fn render_polar_bar(
     }
 
     for (idx, (label, value)) in polar.data.iter().enumerate() {
+        let item_progress = animation.item_progress(series_progress, idx);
+        if item_progress <= f32::EPSILON {
+            continue;
+        }
         let start = -std::f32::consts::PI / 2.0 + idx as f32 * slot + slot * 0.10;
-        let end = start + slot * 0.80;
-        let outer = inner + (max_r - inner) * (*value / max_value).clamp(0.0, 1.0);
+        let end = start + slot * 0.80 * item_progress;
+        let outer = inner + (max_r - inner) * (*value / max_value).clamp(0.0, 1.0) * item_progress;
         let c = mix_color(
             polar.color.with_alpha(150),
             theme.palette[idx % theme.palette.len()],
@@ -1984,21 +2352,23 @@ fn render_polar_bar(
             cx,
             root,
             &pie_slice(center.0, center.1, inner, outer, start, end),
-            Some(Fill::Solid(c)),
-            Some(stroke(Color::WHITE, 1.0)),
+            Some(Fill::Solid(fade_color(c, item_progress))),
+            Some(fade_stroke(stroke(Color::WHITE, 1.0), item_progress)),
         );
         let mid = (start + end) / 2.0;
-        add_text(
-            cx,
-            root,
-            label,
-            10.0,
-            theme.label,
-            center.0 + (max_r + 16.0) * mid.cos() - 28.0,
-            center.1 + (max_r + 16.0) * mid.sin() - 7.0,
-            56.0,
-            14.0,
-        );
+        if item_progress > 0.86 {
+            add_text(
+                cx,
+                root,
+                label,
+                10.0,
+                theme.label,
+                center.0 + (max_r + 16.0) * mid.cos() - 28.0,
+                center.1 + (max_r + 16.0) * mid.sin() - 7.0,
+                56.0,
+                14.0,
+            );
+        }
     }
 }
 
@@ -2008,8 +2378,14 @@ fn render_polar_line(
     polar: &crate::series::polar::PolarLineSeries,
     area: &ChartArea,
     theme: &ChartTheme,
+    animation: ChartAnimationFrame,
+    series_index: usize,
 ) {
     if polar.data.is_empty() {
+        return;
+    }
+    let series_progress = animation.series_progress(series_index);
+    if series_progress <= f32::EPSILON {
         return;
     }
 
@@ -2059,21 +2435,27 @@ fn render_polar_line(
             (center.0 + r * angle.cos(), center.1 + r * angle.sin())
         })
         .collect();
+    let revealed_points = reveal_points(&points, series_progress);
     add_path(
         cx,
         root,
-        &path_for_line(&points, polar.smooth, None),
+        &path_for_line(&revealed_points, polar.smooth, None),
         None,
-        Some(stroke(polar.color, 2.4)),
+        Some(fade_stroke(stroke(polar.color, 2.4), series_progress)),
     );
-    for (x, y) in points {
+    for (idx, (x, y)) in revealed_points.into_iter().enumerate() {
+        let item_progress = animation.item_progress(series_progress, idx);
+        if item_progress <= f32::EPSILON {
+            continue;
+        }
+        let r = 4.0 * item_progress.sqrt();
         add_rect(
             cx,
             root,
-            LayoutRect::new(x - 4.0, y - 4.0, 8.0, 8.0),
-            polar.color,
-            Some(stroke(Color::WHITE, 1.0)),
-            4.0,
+            LayoutRect::new(x - r, y - r, r * 2.0, r * 2.0),
+            fade_color(polar.color, item_progress),
+            Some(fade_stroke(stroke(Color::WHITE, 1.0), item_progress)),
+            r,
         );
     }
 }
@@ -2084,8 +2466,14 @@ fn render_single_axis(
     single_axis: &crate::series::single_axis::SingleAxisSeries,
     area: &ChartArea,
     theme: &ChartTheme,
+    animation: ChartAnimationFrame,
+    series_index: usize,
 ) {
     if single_axis.data.is_empty() {
+        return;
+    }
+    let series_progress = animation.series_progress(series_index);
+    if series_progress <= f32::EPSILON {
         return;
     }
 
@@ -2141,16 +2529,20 @@ fn render_single_axis(
         .map(|(_, size)| *size)
         .fold(1.0_f32, f32::max);
     for (idx, (value, size)) in single_axis.data.iter().enumerate() {
+        let item_progress = animation.item_progress(series_progress, idx);
+        if item_progress <= f32::EPSILON {
+            continue;
+        }
         let x = map_x(*value, area, &scale);
         let lane = idx % 5;
         let y = axis_y - 32.0 + lane as f32 * 16.0;
-        let r = 4.0 + 12.0 * (*size / max_size).clamp(0.0, 1.0).sqrt();
+        let r = (4.0 + 12.0 * (*size / max_size).clamp(0.0, 1.0).sqrt()) * item_progress.sqrt();
         add_rect(
             cx,
             root,
             LayoutRect::new(x - r, y - r, r * 2.0, r * 2.0),
-            single_axis.color.with_alpha(170),
-            Some(stroke(Color::WHITE, 1.0)),
+            fade_color(single_axis.color.with_alpha(170), item_progress),
+            Some(fade_stroke(stroke(Color::WHITE, 1.0), item_progress)),
             r,
         );
     }
@@ -2162,21 +2554,31 @@ fn render_funnel(
     funnel: &crate::series::funnel::FunnelSeries,
     area: &ChartArea,
     theme: &ChartTheme,
+    animation: ChartAnimationFrame,
+    series_index: usize,
 ) {
     if funnel.data.is_empty() {
+        return;
+    }
+    let series_progress = animation.series_progress(series_index);
+    if series_progress <= f32::EPSILON {
         return;
     }
     let max = funnel.data.iter().map(|(_, v)| *v).fold(1.0_f32, f32::max);
     let step_h = area.plot.height() / funnel.data.len() as f32;
     let cx_mid = area.plot.x() + area.plot.width() / 2.0;
     for (idx, (label, value)) in funnel.data.iter().enumerate() {
+        let item_progress = animation.item_progress(series_progress, idx);
+        if item_progress <= f32::EPSILON {
+            continue;
+        }
         let y = area.plot.y() + idx as f32 * step_h;
         let top_w = if idx == 0 {
             area.plot.width()
         } else {
             area.plot.width() * funnel.data[idx - 1].1 / max
-        };
-        let bot_w = area.plot.width() * *value / max;
+        } * item_progress;
+        let bot_w = area.plot.width() * *value / max * item_progress;
         let path = format!(
             "M {} {} L {} {} L {} {} L {} {} Z",
             cx_mid - top_w / 2.0,
@@ -2192,20 +2594,25 @@ fn render_funnel(
             cx,
             root,
             &path,
-            Some(Fill::Solid(theme.palette[idx % theme.palette.len()])),
-            Some(stroke(Color::WHITE, 1.5)),
+            Some(Fill::Solid(fade_color(
+                theme.palette[idx % theme.palette.len()],
+                item_progress,
+            ))),
+            Some(fade_stroke(stroke(Color::WHITE, 1.5), item_progress)),
         );
-        add_text(
-            cx,
-            root,
-            label,
-            12.0,
-            Color::WHITE,
-            cx_mid - 50.0,
-            y + step_h / 2.0 - 8.0,
-            100.0,
-            16.0,
-        );
+        if item_progress > 0.82 {
+            add_text(
+                cx,
+                root,
+                label,
+                12.0,
+                Color::WHITE,
+                cx_mid - 50.0,
+                y + step_h / 2.0 - 8.0,
+                100.0,
+                16.0,
+            );
+        }
     }
 }
 
@@ -2215,6 +2622,8 @@ fn render_gauge(
     gauge: &crate::series::gauge::GaugeSeries,
     area: &ChartArea,
     theme: &ChartTheme,
+    animation: ChartAnimationFrame,
+    series_index: usize,
 ) {
     let center = (
         area.plot.x() + area.plot.width() / 2.0,
@@ -2235,8 +2644,12 @@ fn render_gauge(
         Some(stroke(theme.grid_line, 18.0)),
     );
     if let Some((label, value)) = gauge.data.first() {
+        let series_progress = animation.series_progress(series_index);
+        if series_progress <= f32::EPSILON {
+            return;
+        }
         let pct = (*value / 100.0).clamp(0.0, 1.0);
-        let angle = std::f32::consts::PI + pct * std::f32::consts::PI;
+        let angle = std::f32::consts::PI + pct * std::f32::consts::PI * series_progress;
         add_path(
             cx,
             root,
@@ -2286,7 +2699,13 @@ fn render_map(
     visual_map: Option<&VisualMap>,
     area: &ChartArea,
     theme: &ChartTheme,
+    animation: ChartAnimationFrame,
+    series_index: usize,
 ) {
+    let series_progress = animation.series_progress(series_index);
+    if series_progress <= f32::EPSILON {
+        return;
+    }
     let regions =
         crate::layout::map::MapLayout::compute_geojson(map, area.plot.width(), area.plot.height());
     if regions.is_empty() {
@@ -2298,6 +2717,10 @@ fn render_map(
     let denom = (max - min).max(f32::EPSILON);
 
     for (idx, region) in regions.iter().enumerate() {
+        let item_progress = animation.item_progress(series_progress, idx);
+        if item_progress <= f32::EPSILON {
+            continue;
+        }
         let fill = if let Some(value) = region.value {
             visual_map
                 .map(|map| visual_color(map, value))
@@ -2316,11 +2739,11 @@ fn render_map(
             cx,
             root,
             &shifted,
-            Some(Fill::Solid(fill)),
-            Some(stroke(Color::WHITE, 1.4)),
+            Some(Fill::Solid(fade_color(fill, item_progress))),
+            Some(fade_stroke(stroke(Color::WHITE, 1.4), item_progress)),
         );
         if let Some((x, y, width, height)) = path_bounds(&shifted) {
-            if width > 42.0 && height > 18.0 {
+            if item_progress > 0.82 && width > 42.0 && height > 18.0 {
                 add_text(
                     cx,
                     root,
@@ -2343,7 +2766,13 @@ fn render_sankey(
     sankey: &crate::series::sankey::SankeySeries,
     area: &ChartArea,
     theme: &ChartTheme,
+    animation: ChartAnimationFrame,
+    series_index: usize,
 ) {
+    let series_progress = animation.series_progress(series_index);
+    if series_progress <= f32::EPSILON {
+        return;
+    }
     let (rects, paths) = crate::layout::sankey::SankeyLayout::compute(
         &sankey.nodes,
         &sankey.edges,
@@ -2351,43 +2780,57 @@ fn render_sankey(
         area.plot.height(),
     );
     for (idx, (_, _, path)) in paths.iter().enumerate() {
+        let item_progress = animation.item_progress(series_progress, idx);
+        if item_progress <= f32::EPSILON {
+            continue;
+        }
         add_path(
             cx,
             root,
             &translate_path(path, area.plot.x(), area.plot.y()),
-            Some(Fill::Solid(
+            Some(Fill::Solid(fade_color(
                 theme.palette[idx % theme.palette.len()].with_alpha(115),
-            )),
+                item_progress,
+            ))),
             None,
         );
     }
     for (idx, node) in sankey.nodes.iter().enumerate() {
+        let item_progress = animation.item_progress(series_progress, idx + paths.len());
+        if item_progress <= f32::EPSILON {
+            continue;
+        }
         if let Some(rect) = rects.get(&node.id) {
-            let shifted = LayoutRect::new(
-                area.plot.x() + rect.x(),
-                area.plot.y() + rect.y(),
-                rect.width(),
-                rect.height(),
+            let shifted = scale_rect_from_center(
+                LayoutRect::new(
+                    area.plot.x() + rect.x(),
+                    area.plot.y() + rect.y(),
+                    rect.width(),
+                    rect.height(),
+                ),
+                0.86 + item_progress * 0.14,
             );
             add_rect(
                 cx,
                 root,
                 shifted,
-                theme.palette[idx % theme.palette.len()],
+                fade_color(theme.palette[idx % theme.palette.len()], item_progress),
                 None,
                 3.0,
             );
-            add_text(
-                cx,
-                root,
-                &node.name,
-                11.0,
-                theme.label,
-                shifted.right() + 6.0,
-                shifted.y() + 4.0,
-                100.0,
-                14.0,
-            );
+            if item_progress > 0.82 {
+                add_text(
+                    cx,
+                    root,
+                    &node.name,
+                    11.0,
+                    theme.label,
+                    shifted.right() + 6.0,
+                    shifted.y() + 4.0,
+                    100.0,
+                    14.0,
+                );
+            }
         }
     }
 }
@@ -2398,8 +2841,14 @@ fn render_sunburst(
     sunburst: &crate::series::sunburst::SunburstSeries,
     area: &ChartArea,
     theme: &ChartTheme,
+    animation: ChartAnimationFrame,
+    series_index: usize,
 ) {
     if sunburst.data.is_empty() {
+        return;
+    }
+    let series_progress = animation.series_progress(series_index);
+    if series_progress <= f32::EPSILON {
         return;
     }
     let center = (
@@ -2422,7 +2871,7 @@ fn render_sunburst(
     let mut angle = -std::f32::consts::PI / 2.0;
     let mut index = 0usize;
     for node in &sunburst.data {
-        let sweep = treemap_weight(node) / total * std::f32::consts::TAU;
+        let sweep = treemap_weight(node) / total * std::f32::consts::TAU * series_progress;
         render_sunburst_node(
             cx,
             root,
@@ -2434,6 +2883,8 @@ fn render_sunburst(
             angle + sweep,
             theme,
             &mut index,
+            animation,
+            series_progress,
         );
         angle += sweep;
     }
@@ -2451,22 +2902,33 @@ fn render_sunburst_node(
     end: f32,
     theme: &ChartTheme,
     index: &mut usize,
+    animation: ChartAnimationFrame,
+    series_progress: f32,
 ) {
     if end <= start {
         return;
     }
+    let item_index = *index;
+    let item_progress = animation.item_progress(series_progress, item_index);
+    if item_progress <= f32::EPSILON {
+        *index += 1;
+        return;
+    }
     let inner = depth as f32 * ring;
     let outer = inner + ring * 0.94;
-    let color = theme.palette[*index % theme.palette.len()];
+    let color = theme.palette[item_index % theme.palette.len()];
     *index += 1;
     add_path(
         cx,
         root,
         &pie_slice(center.0, center.1, inner, outer, start, end),
-        Some(Fill::Solid(color.with_alpha(215))),
-        Some(stroke(Color::WHITE, 1.0)),
+        Some(Fill::Solid(fade_color(
+            color.with_alpha(215),
+            item_progress,
+        ))),
+        Some(fade_stroke(stroke(Color::WHITE, 1.0), item_progress)),
     );
-    if end - start > 0.22 && outer > 28.0 {
+    if item_progress > 0.82 && end - start > 0.22 && outer > 28.0 {
         let mid = (start + end) / 2.0;
         let label_r = inner + (outer - inner) * 0.52;
         add_text(
@@ -2499,6 +2961,8 @@ fn render_sunburst_node(
             child_start + child_sweep,
             theme,
             index,
+            animation,
+            series_progress,
         );
         child_start += child_sweep;
     }
@@ -2510,9 +2974,15 @@ fn render_parallel(
     parallel: &crate::series::parallel::ParallelSeries,
     area: &ChartArea,
     theme: &ChartTheme,
+    animation: ChartAnimationFrame,
+    series_index: usize,
 ) {
     let axes = parallel.data.first().map(|row| row.len()).unwrap_or(0);
     if axes < 2 {
+        return;
+    }
+    let series_progress = animation.series_progress(series_index);
+    if series_progress <= f32::EPSILON {
         return;
     }
     let step = area.plot.width() / (axes - 1) as f32;
@@ -2527,24 +2997,31 @@ fn render_parallel(
         );
     }
     for (idx, row) in parallel.data.iter().enumerate() {
-        let mut path = String::new();
-        for (axis, value) in row.iter().enumerate() {
-            let x = area.plot.x() + axis as f32 * step;
-            let y = area.plot.bottom() - (*value / 100.0).clamp(0.0, 1.0) * area.plot.height();
-            if axis == 0 {
-                path.push_str(&format!("M {} {}", x, y));
-            } else {
-                path.push_str(&format!(" L {} {}", x, y));
-            }
+        let item_progress = animation.item_progress(series_progress, idx);
+        if item_progress <= f32::EPSILON {
+            continue;
         }
+        let points: Vec<(f32, f32)> = row
+            .iter()
+            .enumerate()
+            .map(|(axis, value)| {
+                let x = area.plot.x() + axis as f32 * step;
+                let y = area.plot.bottom() - (*value / 100.0).clamp(0.0, 1.0) * area.plot.height();
+                (x, y)
+            })
+            .collect();
+        let path = path_for_points(&reveal_points(&points, item_progress));
         add_path(
             cx,
             root,
             &path,
             None,
-            Some(stroke(
-                theme.palette[idx % theme.palette.len()].with_alpha(170),
-                2.0,
+            Some(fade_stroke(
+                stroke(
+                    theme.palette[idx % theme.palette.len()].with_alpha(170),
+                    2.0,
+                ),
+                item_progress,
             )),
         );
     }
@@ -2556,8 +3033,14 @@ fn render_theme_river(
     river: &crate::series::theme_river::ThemeRiverSeries,
     area: &ChartArea,
     theme: &ChartTheme,
+    animation: ChartAnimationFrame,
+    series_index: usize,
 ) {
     if river.data.is_empty() {
+        return;
+    }
+    let series_progress = animation.series_progress(series_index);
+    if series_progress <= f32::EPSILON {
         return;
     }
     let mut by_time: BTreeMap<String, HashMap<String, f32>> = BTreeMap::new();
@@ -2600,6 +3083,10 @@ fn render_theme_river(
     );
 
     for (cat_idx, category) in categories.iter().enumerate() {
+        let item_progress = animation.item_progress(series_progress, cat_idx);
+        if item_progress <= f32::EPSILON {
+            continue;
+        }
         let mut top = Vec::new();
         let mut bottom = Vec::new();
         for (idx, time) in times.iter().enumerate() {
@@ -2613,6 +3100,11 @@ fn render_theme_river(
             bottom.push((x, y_bottom));
             bases[idx] += value;
         }
+        let top = reveal_points(&top, item_progress);
+        let bottom = reveal_points(&bottom, item_progress);
+        if top.len() < 2 || bottom.len() < 2 {
+            continue;
+        }
         let mut path = path_for_points(&top);
         for (x, y) in bottom.iter().rev() {
             path.push_str(&format!(" L {} {}", x, y));
@@ -2623,8 +3115,11 @@ fn render_theme_river(
             cx,
             root,
             &path,
-            Some(Fill::Solid(color.with_alpha(150))),
-            Some(stroke(color, 1.0)),
+            Some(Fill::Solid(fade_color(
+                color.with_alpha(150),
+                item_progress,
+            ))),
+            Some(fade_stroke(stroke(color, 1.0), item_progress)),
         );
     }
 
@@ -2653,39 +3148,63 @@ fn render_pictorial_bar(
     area: &ChartArea,
     y_scale: &LinearScale,
     _theme: &ChartTheme,
+    animation: ChartAnimationFrame,
+    series_index: usize,
 ) {
+    let series_progress = animation.series_progress(series_index);
+    if series_progress <= f32::EPSILON {
+        return;
+    }
     for (idx, value) in pic.data.iter().enumerate() {
+        let item_progress = animation.item_progress(series_progress, idx);
+        if item_progress <= f32::EPSILON {
+            continue;
+        }
         let x = map_category_x(idx, model, area);
         let y0 = map_y(0.0, area, y_scale);
         let y1 = map_y(*value, area, y_scale);
         let count = ((*value).abs() / 20.0).ceil().max(1.0) as usize;
+        let visible_units = (count as f32 * item_progress).ceil() as usize;
         let step = (y0 - y1) / count as f32;
-        for unit in 0..count {
+        for unit in 0..visible_units.min(count) {
+            let unit_progress = ((item_progress * count as f32) - unit as f32).clamp(0.0, 1.0);
+            if unit_progress <= f32::EPSILON {
+                continue;
+            }
             let y = y0 - (unit as f32 + 0.5) * step;
+            let half = 7.0 * unit_progress.sqrt();
+            let top = 9.0 * unit_progress.sqrt();
+            let bottom = 8.0 * unit_progress.sqrt();
             let path = if pic.symbol == "rect" {
                 format!(
                     "M {} {} L {} {} L {} {} L {} {} Z",
-                    x - 7.0,
-                    y - 7.0,
-                    x + 7.0,
-                    y - 7.0,
-                    x + 7.0,
-                    y + 7.0,
-                    x - 7.0,
-                    y + 7.0
+                    x - half,
+                    y - half,
+                    x + half,
+                    y - half,
+                    x + half,
+                    y + half,
+                    x - half,
+                    y + half
                 )
             } else {
                 format!(
                     "M {} {} L {} {} L {} {} Z",
                     x,
-                    y - 9.0,
-                    x + 9.0,
-                    y + 8.0,
-                    x - 9.0,
-                    y + 8.0
+                    y - top,
+                    x + bottom,
+                    y + bottom,
+                    x - bottom,
+                    y + bottom
                 )
             };
-            add_path(cx, root, &path, Some(Fill::Solid(pic.color)), None);
+            add_path(
+                cx,
+                root,
+                &path,
+                Some(Fill::Solid(fade_color(pic.color, unit_progress))),
+                None,
+            );
         }
     }
 }
@@ -2696,8 +3215,11 @@ fn render_liquidfill(
     liquid: &crate::series::liquidfill::LiquidfillSeries,
     area: &ChartArea,
     theme: &ChartTheme,
+    animation: ChartAnimationFrame,
+    series_index: usize,
 ) {
-    let value = liquid.data.first().copied().unwrap_or(0.0).clamp(0.0, 1.0);
+    let series_progress = animation.series_progress(series_index);
+    let value = liquid.data.first().copied().unwrap_or(0.0).clamp(0.0, 1.0) * series_progress;
     let center = (
         area.plot.x() + area.plot.width() / 2.0,
         area.plot.y() + area.plot.height() / 2.0,
@@ -2731,7 +3253,10 @@ fn render_liquidfill(
         cx,
         root,
         &path,
-        Some(Fill::Solid(liquid.color.with_alpha(190))),
+        Some(Fill::Solid(fade_color(
+            liquid.color.with_alpha(190),
+            series_progress,
+        ))),
         None,
     );
     add_text(
@@ -2753,20 +3278,30 @@ fn render_wordcloud(
     wordcloud: &crate::series::wordcloud::WordcloudSeries,
     area: &ChartArea,
     theme: &ChartTheme,
+    animation: ChartAnimationFrame,
+    series_index: usize,
 ) {
+    let series_progress = animation.series_progress(series_index);
+    if series_progress <= f32::EPSILON {
+        return;
+    }
     let layout = crate::layout::wordcloud::WordcloudLayout::compute(
         &wordcloud.data,
         area.plot.width(),
         area.plot.height(),
     );
     for (idx, (word, size, x, y)) in layout.iter().enumerate() {
+        let item_progress = animation.item_progress(series_progress, idx);
+        if item_progress <= f32::EPSILON {
+            continue;
+        }
         add_text(
             cx,
             root,
             word,
-            *size,
-            theme.palette[idx % theme.palette.len()],
-            area.plot.x() + x,
+            (*size * (0.78 + item_progress * 0.22)).max(1.0),
+            fade_color(theme.palette[idx % theme.palette.len()], item_progress),
+            area.plot.x() + x + (*size * (1.0 - item_progress) * 0.08),
             area.plot.y() + y,
             180.0,
             size + 8.0,
@@ -3257,6 +3792,26 @@ fn path_for_line(points: &[(f32, f32)], smooth: bool, step: Option<&str>) -> Str
     path
 }
 
+fn reveal_points(points: &[(f32, f32)], progress: f32) -> Vec<(f32, f32)> {
+    if points.is_empty() || progress <= f32::EPSILON {
+        return Vec::new();
+    }
+    if progress >= 1.0 || points.len() == 1 {
+        return points.to_vec();
+    }
+
+    let span = progress.clamp(0.0, 1.0) * (points.len() - 1) as f32;
+    let last_full = span.floor() as usize;
+    let mut out = points[..=last_full].to_vec();
+    if last_full + 1 < points.len() {
+        let t = span - last_full as f32;
+        let (ax, ay) = points[last_full];
+        let (bx, by) = points[last_full + 1];
+        out.push((ax + (bx - ax) * t, ay + (by - ay) * t));
+    }
+    out
+}
+
 fn path_for_points(points: &[(f32, f32)]) -> String {
     if points.is_empty() {
         return String::new();
@@ -3553,21 +4108,30 @@ fn render_edges(
     positions: &HashMap<String, (f32, f32)>,
     area: &ChartArea,
     theme: &ChartTheme,
+    animation: ChartAnimationFrame,
+    series_progress: f32,
 ) {
-    for edge in edges {
+    for (idx, edge) in edges.iter().enumerate() {
+        let item_progress = animation.item_progress(series_progress, idx);
+        if item_progress <= f32::EPSILON {
+            continue;
+        }
         if let (Some(a), Some(b)) = (positions.get(&edge.source), positions.get(&edge.target)) {
+            let from = (area.plot.x() + a.0, area.plot.y() + a.1);
+            let to = interpolate_point(
+                from,
+                (area.plot.x() + b.0, area.plot.y() + b.1),
+                item_progress,
+            );
             add_path(
                 cx,
                 root,
-                &format!(
-                    "M {} {} L {} {}",
-                    area.plot.x() + a.0,
-                    area.plot.y() + a.1,
-                    area.plot.x() + b.0,
-                    area.plot.y() + b.1
-                ),
+                &format!("M {} {} L {} {}", from.0, from.1, to.0, to.1),
                 None,
-                Some(stroke(theme.axis_line.with_alpha(140), 1.2)),
+                Some(fade_stroke(
+                    stroke(theme.axis_line.with_alpha(140), 1.2),
+                    item_progress,
+                )),
             );
         }
     }
@@ -3617,6 +4181,64 @@ fn mix_color(a: Color, b: Color, t: f32) -> Color {
         mix(a.g, b.g) as u8,
         mix(a.b, b.b) as u8,
         mix(a.a, b.a) as u8,
+    )
+}
+
+fn fade_color(color: Color, progress: f32) -> Color {
+    color.with_alpha(((color.a as f32) * progress.clamp(0.0, 1.0)).round() as u8)
+}
+
+fn fade_fill(fill: Fill, progress: f32) -> Fill {
+    match fill {
+        Fill::Solid(color) => Fill::Solid(fade_color(color, progress)),
+        Fill::LinearGradient { start, end, stops } => Fill::LinearGradient {
+            start,
+            end,
+            stops: stops
+                .into_iter()
+                .map(|(offset, color)| (offset, fade_color(color, progress)))
+                .collect(),
+        },
+        Fill::RadialGradient {
+            center,
+            radius,
+            stops,
+        } => Fill::RadialGradient {
+            center,
+            radius,
+            stops: stops
+                .into_iter()
+                .map(|(offset, color)| (offset, fade_color(color, progress)))
+                .collect(),
+        },
+    }
+}
+
+fn fade_stroke(mut stroke: Stroke, progress: f32) -> Stroke {
+    stroke.fill = fade_fill(stroke.fill, progress);
+    stroke
+}
+
+fn interpolate(a: f32, b: f32, progress: f32) -> f32 {
+    a + (b - a) * progress.clamp(0.0, 1.0)
+}
+
+fn interpolate_point(from: (f32, f32), to: (f32, f32), progress: f32) -> (f32, f32) {
+    (
+        interpolate(from.0, to.0, progress),
+        interpolate(from.1, to.1, progress),
+    )
+}
+
+fn scale_rect_from_center(rect: LayoutRect, progress: f32) -> LayoutRect {
+    let progress = progress.clamp(0.0, 1.0);
+    let width = (rect.width() * progress).max(1.0);
+    let height = (rect.height() * progress).max(1.0);
+    LayoutRect::new(
+        rect.x() + (rect.width() - width) / 2.0,
+        rect.y() + (rect.height() - height) / 2.0,
+        width,
+        height,
     )
 }
 

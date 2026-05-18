@@ -8,7 +8,9 @@ use fission_charts::{
     PolarLineSeries, RadarSeries, SankeySeries, ScatterSeries, SingleAxisSeries, SunburstSeries,
     ThemeRiverSeries, TreeSeries, TreemapNode, TreemapSeries, WordcloudSeries,
 };
-use fission_core::{env::Env, lowering::LoweringContext, ui::traits::LowerDyn};
+use fission_core::{
+    env::Env, lowering::LoweringContext, ui::traits::LowerDyn, AnimationPropertyId, WidgetNodeId,
+};
 use fission_ir::op::{Color, Fill, LayoutOp, PaintOp};
 
 const SIMPLE_GEOJSON: &str = r#"
@@ -34,6 +36,76 @@ const SIMPLE_GEOJSON: &str = r#"
   ]
 }
 "#;
+
+fn lower_chart_with_animation_progress(
+    chart: Chart,
+    chart_id: WidgetNodeId,
+    progress: f32,
+) -> fission_ir::CoreIR {
+    let lowerer = ChartLowerer { chart };
+    let env = Env::default();
+    let mut runtime_state = fission_core::RuntimeState::default();
+    runtime_state.animation.values.insert(
+        (
+            chart_id,
+            AnimationPropertyId::custom("fission_charts::progress"),
+        ),
+        progress,
+    );
+    let mut cx = LoweringContext::new(&env, &runtime_state, None, None);
+    let root_id = cx.next_node_id();
+    cx.push_scope(root_id);
+    lowerer.lower_dyn(&mut cx);
+    cx.ir
+}
+
+fn max_rect_height_for_fill(ir: &fission_ir::CoreIR, target: Color) -> f32 {
+    ir.nodes
+        .values()
+        .filter_map(|node| {
+            let fission_ir::Op::Paint(PaintOp::DrawRect {
+                fill: Some(Fill::Solid(fill)),
+                ..
+            }) = &node.op
+            else {
+                return None;
+            };
+            if *fill != target {
+                return None;
+            }
+            let parent = ir.nodes.get(&node.parent?)?;
+            let fission_ir::Op::Layout(LayoutOp::Positioned {
+                height: Some(height),
+                ..
+            }) = parent.op
+            else {
+                return None;
+            };
+            Some(height)
+        })
+        .fold(0.0_f32, f32::max)
+}
+
+fn longest_stroked_path_for_color(ir: &fission_ir::CoreIR, target: Color) -> String {
+    ir.nodes
+        .values()
+        .filter_map(|node| {
+            let fission_ir::Op::Paint(PaintOp::DrawPath {
+                path,
+                stroke: Some(stroke),
+                ..
+            }) = &node.op
+            else {
+                return None;
+            };
+            let Fill::Solid(fill) = &stroke.fill else {
+                return None;
+            };
+            (*fill == target).then(|| path.clone())
+        })
+        .max_by_key(|path| path.len())
+        .unwrap_or_default()
+}
 
 #[test]
 fn test_all_chart_builders() {
@@ -299,6 +371,75 @@ fn chart_animation_progress_applies_delay_stagger_and_easing() {
     assert_eq!(animation.progress_at(20, 1), 0.0);
     assert!(animation.progress_at(80, 1) > 0.0);
     assert_eq!(animation.progress_at(500, 4), 1.0);
+}
+
+#[test]
+fn chart_animation_progress_changes_series_geometry_not_overlay() {
+    let chart_id = WidgetNodeId::explicit("animated-bar-test");
+    let bar_color = Color {
+        r: 7,
+        g: 99,
+        b: 203,
+        a: 255,
+    };
+    let chart = Chart::new()
+        .id(chart_id)
+        .width(420.0)
+        .height(300.0)
+        .x_axis(Axis::category(vec!["A"]))
+        .y_axis(Axis::value())
+        .animation(ChartAnimation::enter(ChartAnimationKind::Grow).stagger_ms(0))
+        .series(vec![BarSeries::new("Orders")
+            .color(bar_color)
+            .data(vec![100.0])
+            .into()]);
+
+    let half_ir = lower_chart_with_animation_progress(chart.clone(), chart_id, 0.5);
+    let full_ir = lower_chart_with_animation_progress(chart, chart_id, 1.0);
+    let half_height = max_rect_height_for_fill(&half_ir, bar_color);
+    let full_height = max_rect_height_for_fill(&full_ir, bar_color);
+
+    assert!(
+        half_height > 0.0,
+        "animated bars should still lower actual bar geometry"
+    );
+    assert!(
+        full_height > half_height * 1.6,
+        "bar animation should grow the bar mark itself, not draw a generic progress overlay"
+    );
+}
+
+#[test]
+fn chart_animation_progress_reveals_line_paths() {
+    let chart_id = WidgetNodeId::explicit("animated-line-test");
+    let line_color = Color {
+        r: 212,
+        g: 82,
+        b: 16,
+        a: 255,
+    };
+    let chart = Chart::new()
+        .id(chart_id)
+        .width(420.0)
+        .height(300.0)
+        .x_axis(Axis::category(vec!["A", "B", "C", "D"]))
+        .y_axis(Axis::value())
+        .animation(ChartAnimation::enter(ChartAnimationKind::Sweep).stagger_ms(0))
+        .series(vec![LineSeries::new("Revenue")
+            .color(line_color)
+            .data(vec![10.0, 40.0, 22.0, 70.0])
+            .into()]);
+
+    let partial_ir = lower_chart_with_animation_progress(chart.clone(), chart_id, 0.45);
+    let full_ir = lower_chart_with_animation_progress(chart, chart_id, 1.0);
+    let partial_path = longest_stroked_path_for_color(&partial_ir, line_color);
+    let full_path = longest_stroked_path_for_color(&full_ir, line_color);
+
+    assert!(!partial_path.is_empty());
+    assert!(
+        full_path.len() > partial_path.len(),
+        "line animation should reveal the line path instead of drawing a separate animation widget"
+    );
 }
 
 #[test]
