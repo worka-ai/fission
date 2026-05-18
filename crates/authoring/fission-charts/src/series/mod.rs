@@ -1,5 +1,7 @@
 pub mod bar;
 pub mod boxplot;
+pub mod bubble;
+pub mod calendar_heatmap;
 pub mod candlestick;
 pub mod custom;
 pub mod effect_scatter;
@@ -8,17 +10,21 @@ pub mod gauge;
 pub mod graph;
 pub mod heatmap;
 pub mod line;
+pub mod lines;
 pub mod liquidfill;
 pub mod map;
 pub mod modifiers;
 pub mod parallel;
 pub mod pictorial_bar;
 pub mod pie;
+pub mod polar;
 pub mod radar;
 pub mod sankey;
 pub mod scatter;
+pub mod single_axis;
 pub mod sunburst;
 pub mod theme_river;
+pub mod tree;
 pub mod treemap;
 pub mod wordcloud;
 
@@ -30,10 +36,14 @@ pub enum Series {
     Bar(bar::BarSeries),
     Scatter(scatter::ScatterSeries),
     Pie(pie::PieSeries),
+    Bubble(bubble::BubbleSeries),
     Boxplot(boxplot::BoxplotSeries),
     Candlestick(candlestick::CandlestickSeries),
     Heatmap(heatmap::HeatmapSeries),
+    CalendarHeatmap(calendar_heatmap::CalendarHeatmapSeries),
+    Lines(lines::LinesSeries),
     Graph(graph::GraphSeries),
+    Tree(tree::TreeSeries),
     Treemap(treemap::TreemapSeries),
     Radar(radar::RadarSeries),
     Funnel(funnel::FunnelSeries),
@@ -48,4 +58,7 @@ pub enum Series {
     Custom(custom::CustomSeries),
     Liquidfill(liquidfill::LiquidfillSeries),
     Wordcloud(wordcloud::WordcloudSeries),
+    PolarBar(polar::PolarBarSeries),
+    PolarLine(polar::PolarLineSeries),
+    SingleAxis(single_axis::SingleAxisSeries),
 }

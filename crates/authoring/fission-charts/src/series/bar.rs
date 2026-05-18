@@ -2,6 +2,12 @@ use crate::encode::Encode;
 use fission_core::op::Color;
 use serde::{Deserialize, Serialize};
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum BarOrientation {
+    Vertical,
+    Horizontal,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct BarSeries {
     pub name: String,
@@ -10,6 +16,8 @@ pub struct BarSeries {
     pub color: Color,
     pub stack: Option<String>,
     pub border_radius: Option<f32>,
+    pub orientation: BarOrientation,
+    pub background: Option<Color>,
 }
 
 impl BarSeries {
@@ -21,6 +29,8 @@ impl BarSeries {
             color: Color::BLUE,
             stack: None,
             border_radius: None,
+            orientation: BarOrientation::Vertical,
+            background: None,
         }
     }
 
@@ -46,6 +56,16 @@ impl BarSeries {
 
     pub fn border_radius(mut self, radius: f32) -> Self {
         self.border_radius = Some(radius);
+        self
+    }
+
+    pub fn horizontal(mut self) -> Self {
+        self.orientation = BarOrientation::Horizontal;
+        self
+    }
+
+    pub fn background(mut self, color: Color) -> Self {
+        self.background = Some(color);
         self
     }
 }

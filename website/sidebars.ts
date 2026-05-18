@@ -38,6 +38,21 @@ const sidebars: SidebarsConfig = {
     },
     {
       type: 'category',
+      label: 'Charts',
+      link: {
+        type: 'doc',
+        id: 'charts/overview',
+      },
+      collapsed: false,
+      items: [
+        'charts/catalog',
+        'charts/series-and-datasets',
+        'charts/data-and-interaction',
+        'charts/three-dimensional-and-gl',
+      ],
+    },
+    {
+      type: 'category',
       label: 'Cookbook',
       link: {
         type: 'doc',

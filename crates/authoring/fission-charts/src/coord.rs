@@ -76,7 +76,7 @@ pub struct Geo {
 
 impl Geo {
     pub fn map_val(&self, lon: f32, lat: f32) -> (f32, f32) {
-        // Simple equirectangular projection for map parity
+        // Simple equirectangular projection for future geo rendering.
         let x = self.cx + (lon * PI / 180.0) * self.scale;
         let y = self.cy - (lat * PI / 180.0) * self.scale;
         (x, y)
