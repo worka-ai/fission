@@ -2074,6 +2074,7 @@ impl<S: AppState + Default, W: Widget<S> + 'static> WinitApp<S, W> {
 
     pub fn with_title(mut self, title: impl Into<String>) -> Self {
         self.title = title.into();
+        self.env.window.title = fission_core::WindowTitle::plain(self.title.clone());
         self
     }
 
@@ -2213,6 +2214,8 @@ impl<S: AppState + Default, W: Widget<S> + 'static> WinitApp<S, W> {
         let mut layout_engine = self.layout_engine;
         let root_widget = self.root_widget;
         let mut env = self.env;
+        env.window.title = fission_core::WindowTitle::plain(window_title.clone());
+        let mut applied_window_title = window_title;
         let mut pipeline = self.pipeline;
         let measurer = self.measurer;
         let effect_result_tx = self.effect_result_tx;
@@ -3518,6 +3521,13 @@ impl<S: AppState + Default, W: Widget<S> + 'static> WinitApp<S, W> {
                                 if let Some(sync) = &self.sync_env {
                                     let state = runtime.get_app_state::<S>().unwrap();
                                     sync(state, &mut env);
+                                }
+                                let desired_window_title = env.window.title.plain_text();
+                                if desired_window_title != applied_window_title {
+                                    if let Some(window) = current_window(&window) {
+                                        window.set_title(desired_window_title);
+                                    }
+                                    applied_window_title = desired_window_title.to_string();
                                 }
 
                                 if invalidations.build || pipeline.prev_ir.is_none() {
