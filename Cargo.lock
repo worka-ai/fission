@@ -1194,6 +1194,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "fission-design-system-codegen"
+version = "0.1.1"
+dependencies = [
+ "anyhow",
+ "serde_json",
+]
+
+[[package]]
 name = "fission-diagnostics"
 version = "0.1.1"
 dependencies = [
@@ -1450,6 +1458,7 @@ dependencies = [
 name = "fission-theme"
 version = "0.1.1"
 dependencies = [
+ "fission-design-system-codegen",
  "fission-ir",
  "serde",
 ]
