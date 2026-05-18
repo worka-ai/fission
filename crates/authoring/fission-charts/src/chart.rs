@@ -442,7 +442,6 @@ impl fission_core::ui::traits::LowerDyn for ChartLowerer {
         );
 
         draw_background(cx, &mut root, &area, &theme);
-        draw_animation_progress(cx, &mut root, &self.chart, &area, &theme);
         draw_title(cx, &mut root, &model, &area, &theme);
         if model.has_cartesian_series() {
             draw_cartesian_axes(cx, &mut root, &model, &area, &theme);
@@ -870,50 +869,6 @@ fn draw_background(
         theme.plot_background,
         Some(stroke(theme.grid_line, 1.0)),
         8.0,
-    );
-}
-
-fn draw_animation_progress(
-    cx: &mut fission_core::lowering::LoweringContext,
-    root: &mut fission_core::lowering::NodeBuilder,
-    chart: &Chart,
-    area: &ChartArea,
-    theme: &ChartTheme,
-) {
-    if !chart.animation.enabled {
-        return;
-    }
-
-    let progress = cx
-        .runtime_state
-        .animation
-        .values
-        .get(&(chart.animation_id(), chart_animation_property()))
-        .copied()
-        .unwrap_or(0.0)
-        .clamp(0.0, 1.0);
-    let sweep_width = (area.plot.width() * 0.16).clamp(34.0, 110.0);
-    let sweep_x = area.plot.x() + progress * (area.plot.width() + sweep_width) - sweep_width;
-    add_rect(
-        cx,
-        root,
-        LayoutRect::new(sweep_x, area.plot.y(), sweep_width, area.plot.height()),
-        theme.palette[0].with_alpha(28),
-        None,
-        0.0,
-    );
-    add_rect(
-        cx,
-        root,
-        LayoutRect::new(
-            area.plot.x(),
-            area.outer_h - 12.0,
-            area.plot.width() * progress,
-            4.0,
-        ),
-        theme.palette[0].with_alpha(190),
-        None,
-        2.0,
     );
 }
 

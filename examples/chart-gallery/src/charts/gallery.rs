@@ -3,8 +3,8 @@ use crate::state::{GalleryState, SHOWCASE_CATEGORY};
 use crate::style::{amber, blue};
 use fission_3d::Scene3D;
 use fission_charts::{
-    Chart, ChartAnimation, ChartAnimationKind, ChartBrush, ChartInteraction, ChartSelectionMode,
-    ChartToolAction, ChartTooltipTrigger, MarkLine, MarkPoint,
+    Chart, ChartAnimation, ChartAnimationKind, ChartSelectionMode, ChartTooltipTrigger, MarkLine,
+    MarkPoint,
 };
 use fission_core::op::Color;
 use fission_core::ui::{Container, Node, Text};
@@ -116,26 +116,14 @@ pub(crate) fn configure_chart(
     chart = chart.width(width).height(height);
 
     if view.state.interactions {
-        let existing = chart.interaction.clone();
-        let actions = if existing.toolbox_actions.is_empty() {
-            vec![
-                ChartToolAction::DataZoom,
-                ChartToolAction::Brush,
-                ChartToolAction::Restore,
-                ChartToolAction::SaveImage,
-            ]
-        } else {
-            existing.toolbox_actions.clone()
-        };
-        chart = chart.interaction(
-            ChartInteraction::new()
-                .tooltip_trigger(ChartTooltipTrigger::Item)
-                .selection_mode(ChartSelectionMode::Single)
-                .brush(ChartBrush::rect().preview_rect(0.18, 0.18, 0.34, 0.46))
-                .toolbox_actions(actions)
-                .emit_events(true)
-                .keyboard_focus(true),
-        );
+        let interaction = chart
+            .interaction
+            .clone()
+            .tooltip_trigger(ChartTooltipTrigger::Item)
+            .selection_mode(ChartSelectionMode::Single)
+            .emit_events(true)
+            .keyboard_focus(true);
+        chart = chart.interaction(interaction);
     }
 
     if view.state.animations {

@@ -362,37 +362,6 @@ fn chart_theme_follows_dark_fission_env() {
 }
 
 #[test]
-fn chart_animation_adds_visible_progress_layer() {
-    let base_chart = Chart::new()
-        .width(420.0)
-        .height(300.0)
-        .title("Animated")
-        .series(vec![LineSeries::new("Revenue")
-            .data(vec![10.0, 20.0, 30.0])
-            .into()]);
-    let animated_chart = base_chart
-        .clone()
-        .animation(ChartAnimation::enter(ChartAnimationKind::Sweep).repeat(true));
-
-    let count_rects = |chart: Chart| {
-        let lowerer = ChartLowerer { chart };
-        let env = Env::default();
-        let runtime_state = fission_core::RuntimeState::default();
-        let mut cx = LoweringContext::new(&env, &runtime_state, None, None);
-        let root_id = cx.next_node_id();
-        cx.push_scope(root_id);
-        lowerer.lower_dyn(&mut cx);
-        cx.ir
-            .nodes
-            .values()
-            .filter(|node| matches!(node.op, fission_ir::Op::Paint(PaintOp::DrawRect { .. })))
-            .count()
-    };
-
-    assert!(count_rects(animated_chart) >= count_rects(base_chart) + 2);
-}
-
-#[test]
 fn map_lines_tree_sunburst_and_theme_river_lower_to_paths() {
     let chart = Chart::new().width(800.0).height(600.0).series(vec![
         MapSeries::new("Map", "demo")

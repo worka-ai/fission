@@ -27,7 +27,7 @@ impl Default for GalleryState {
             data_scale: 1.0,
             dark_theme: true,
             interactions: true,
-            animations: true,
+            animations: false,
             markers: false,
             last_interaction: None,
         }
