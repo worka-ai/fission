@@ -160,6 +160,7 @@ impl {krate}::DesignSystem for {type_name} {{
         let radii = self.radius_tokens_expr(krate)?;
         let elevations = self.elevation_tokens_expr(krate)?;
         let motion = self.motion_tokens_expr(krate)?;
+        let data_visualization = self.data_visualization_tokens_expr(krate, mode)?;
         let components = self.component_theme_expr(krate, mode)?;
         Ok(format!(
             r#"{krate}::Theme {{
@@ -170,6 +171,7 @@ impl {krate}::DesignSystem for {type_name} {{
                     radii: {radii},
                     elevations: {elevations},
                     motion: {motion},
+                    data_visualization: {data_visualization},
                 }},
                 components: {components},
                 design_system: {krate}::ResolvedDesignSystem {{
@@ -416,9 +418,23 @@ impl {krate}::DesignSystem for {type_name} {{
         ))
     }
 
+    fn data_visualization_tokens_expr(&self, krate: &str, mode: Mode) -> Result<String> {
+        let palette = self.palette_expr(krate, mode)?;
+        Ok(format!(
+            "{krate}::DataVisualizationTokens {{ palette: vec![{palette}] }}"
+        ))
+    }
+
     fn component_theme_expr(&self, krate: &str, mode: Mode) -> Result<String> {
         let button = self.button_theme_expr(krate, mode)?;
         let text_input = self.text_input_theme_expr(krate, mode)?;
+        let badge = self.badge_theme_expr(krate, mode)?;
+        let tabs = self.tabs_theme_expr(krate, mode)?;
+        let modal = self.modal_theme_expr(krate, mode)?;
+        let progress = self.progress_theme_expr(krate, mode)?;
+        let tooltip = self.tooltip_theme_expr(krate, mode)?;
+        let card = self.card_theme_expr(krate, mode)?;
+        let feature_icon = self.feature_icon_theme_expr(krate, mode)?;
         let colors_prefix = match mode {
             Mode::Light => "color.light",
             Mode::Dark => "color.dark",
@@ -432,25 +448,20 @@ impl {krate}::DesignSystem for {type_name} {{
                 timeline: {krate}::TimelineTheme {{ dot_size: 12.0, line_width: 2.0, dot_color: {primary}, line_color: {border} }},
                 segmented_control: {krate}::SegmentedControlTheme {{ bg_color: {surface}, border_color: {border}, radius: {radius_full}, active_bg: {primary}, active_text: {on_primary} }},
                 alert: {krate}::AlertTheme {{ info_bg: {info_bg}, warning_bg: {warning_bg}, error_bg: {error_bg}, success_bg: {success_bg}, radius: {radius_medium} }},
-                badge: {krate}::BadgeTheme {{ radius: {badge_radius}, font_size: {badge_font_size} }},
-                tabs: {krate}::TabsTheme {{ active_color: {primary}, inactive_color: {text_secondary}, indicator_height: {tabs_indicator}, background: {background}, divider_color: {divider}.with_alpha(120) }},
-                modal: {krate}::ModalTheme {{ bg_color: {surface}, radius: {modal_radius}, shadow: {modal_shadow}, max_width: {modal_width} }},
+                badge: {badge},
+                tabs: {tabs},
+                modal: {modal},
                 tree_view: {krate}::TreeViewTheme {{ indent: 16.0, selected_bg: {primary}.with_alpha(52), hover_bg: {surface} }},
-                progress: {krate}::ProgressTheme {{ height: {progress_height}, track_color: {border}, bar_color: {primary} }},
-                tooltip: {krate}::TooltipTheme {{ bg_color: {tooltip_bg}, text_color: {tooltip_text}, radius: {tooltip_radius}, font_size: {tooltip_font_size} }},
+                progress: {progress},
+                tooltip: {tooltip},
+                card: {card},
+                feature_icon: {feature_icon},
             }}"#,
             surface = self.color_expr(krate, &format!("{colors_prefix}.surface"))?,
             border = self.color_expr(krate, &format!("{colors_prefix}.border"))?,
             primary = self.color_expr(krate, &format!("{colors_prefix}.primary"))?,
             on_primary = self.color_expr(krate, &format!("{colors_prefix}.on_primary"))?,
             secondary = self.color_expr(krate, &format!("{colors_prefix}.secondary"))?,
-            background = self.color_expr(krate, &format!("{colors_prefix}.background"))?,
-            divider = self.color_expr_optional(
-                krate,
-                &format!("{colors_prefix}.divider"),
-                &self.resolve_token_string(&format!("{colors_prefix}.border"))?
-            )?,
-            text_secondary = self.color_expr(krate, &format!("{colors_prefix}.text_secondary"))?,
             info_bg = self.color_literal_expr(krate, "#E6F2FF")?,
             warning_bg = self.color_literal_expr(krate, "#FFF4E5")?,
             error_bg = format!(
@@ -461,27 +472,6 @@ impl {krate}::DesignSystem for {type_name} {{
             radius_medium = f32_lit(self.dimension("radius.medium")?),
             radius_full = f32_lit(self.dimension("radius.full")?),
             spacing_s = f32_lit(self.dimension("spacing.s")?),
-            badge_radius = f32_lit(
-                self.dimension_optional("component.badge.radius", self.dimension("radius.full")?)?
-            ),
-            badge_font_size = f32_lit(self.dimension_optional("component.badge.font_size", 10.0)?),
-            tabs_indicator =
-                f32_lit(self.dimension_optional("component.tabs.indicator_height", 3.0)?),
-            modal_radius = f32_lit(
-                self.dimension_optional("component.modal.radius", self.dimension("radius.large")?)?
-            ),
-            modal_shadow = self.shadow_option_expr(krate, "component.modal.shadow")?,
-            modal_width = f32_lit(self.dimension_optional("component.modal.max_width", 600.0)?),
-            progress_height = f32_lit(self.dimension_optional("component.progress.height", 8.0)?),
-            tooltip_bg = self.color_literal_expr(krate, "#323232")?,
-            tooltip_text = self.color_literal_expr(krate, "#FFFFFF")?,
-            tooltip_radius =
-                f32_lit(self.dimension_optional(
-                    "component.tooltip.radius",
-                    self.dimension("radius.small")?
-                )?),
-            tooltip_font_size =
-                f32_lit(self.dimension_optional("component.tooltip.font_size", 12.0)?),
         ))
     }
 
@@ -518,6 +508,12 @@ impl {krate}::DesignSystem for {type_name} {{
                 elevation_hover: {elevation_hover},
                 elevation_pressed: {elevation_pressed},
                 focus_stroke: Some({krate}::Stroke {{ fill: {krate}::Fill::Solid({focus}), width: 2.0, dash_array: None, line_cap: {krate}::LineCap::Round, line_join: {krate}::LineJoin::Round }}),
+                icon_size: {icon_size},
+                font_weight: {font_weight},
+                line_height: {line_height},
+                transition: {transition},
+                sizes: vec![{sizes}],
+                hierarchies: vec![{hierarchies}],
             }}"#,
             height = f32_lit(height),
             padding_h = f32_lit(padding_h),
@@ -532,6 +528,31 @@ impl {krate}::DesignSystem for {type_name} {{
                 krate,
                 &format!("{colors_prefix}.focus_ring"),
                 &self.resolve_token_string(&format!("{colors_prefix}.primary"))?
+            )?,
+            icon_size = f32_lit(self.style_dimension_optional(
+                mode,
+                self.dsp.pointer("/components/button/icon_size"),
+                20.0,
+            )?),
+            font_weight = self.style_u16_optional(
+                mode,
+                self.dsp.pointer("/components/button/font_weight"),
+                600,
+            )?,
+            line_height = f32_lit(
+                self.dsp_dimension_optional("/components/button/sizes/md/line_height", 20.0,)?
+            ),
+            transition = self.motion_option_expr(
+                krate,
+                mode,
+                self.dsp.pointer("/components/button/transition"),
+            )?,
+            sizes = self.size_styles_expr(krate, mode, "/components/button/sizes")?,
+            hierarchies = self.enum_state_styles_expr(
+                krate,
+                mode,
+                "/components/button/hierarchies",
+                button_hierarchy_variant,
             )?,
         ))
     }
@@ -558,17 +579,808 @@ impl {krate}::DesignSystem for {type_name} {{
             self.dimension_optional("component.text_input.font_size", 17.0)?,
         )?;
         Ok(format!(
-            "{krate}::TextInputTheme {{ height: {height}, padding_h: {padding_h}, radius: {radius}, font_size: {font_size}, border_color: {border}, border_width: {border_width}, focus_color: {focus}, text_color: {text}, placeholder_color: {placeholder} }}",
+            r#"{krate}::TextInputTheme {{
+                height: {height},
+                padding_h: {padding_h},
+                radius: {radius},
+                font_size: {font_size},
+                border_color: {border},
+                border_width: {border_width},
+                focus_color: {focus},
+                text_color: {text},
+                placeholder_color: {placeholder},
+                line_height: {line_height},
+                font_weight: {font_weight},
+                sizes: vec![{sizes}],
+                states: {states},
+                placeholder_style: {placeholder_style},
+                label_style: {label_style},
+                helper_style: {helper_style},
+            }}"#,
             height = f32_lit(height),
             padding_h = f32_lit(padding_h),
             radius = f32_lit(radius),
             font_size = f32_lit(font_size),
             border = self.color_expr(krate, &format!("{colors_prefix}.border"))?,
-            border_width = f32_lit(self.dimension_optional("component.text_input.border_width", 1.0)?),
-            focus = self.color_expr_optional(krate, &format!("{colors_prefix}.focus_ring"), &self.resolve_token_string(&format!("{colors_prefix}.primary"))?)?,
+            border_width =
+                f32_lit(self.dimension_optional("component.text_input.border_width", 1.0)?),
+            focus = self.color_expr_optional(
+                krate,
+                &format!("{colors_prefix}.focus_ring"),
+                &self.resolve_token_string(&format!("{colors_prefix}.primary"))?
+            )?,
             text = self.color_expr(krate, &format!("{colors_prefix}.text_primary"))?,
-            placeholder = self.color_expr_optional(krate, &format!("{colors_prefix}.text_muted"), &self.resolve_token_string(&format!("{colors_prefix}.text_secondary"))?)?,
+            placeholder = self.color_expr_optional(
+                krate,
+                &format!("{colors_prefix}.text_muted"),
+                &self.resolve_token_string(&format!("{colors_prefix}.text_secondary"))?
+            )?,
+            line_height =
+                f32_lit(self.dsp_dimension_optional("/components/input/line_height", 24.0)?),
+            font_weight = self.style_u16_optional(
+                mode,
+                self.dsp.pointer("/components/input/font_weight"),
+                400,
+            )?,
+            sizes = self.size_styles_expr(krate, mode, "/components/input/sizes")?,
+            states =
+                self.state_styles_expr(krate, mode, self.dsp.pointer("/components/input/states"))?,
+            placeholder_style = self.style_expr(
+                krate,
+                mode,
+                self.dsp.pointer("/components/input/states/placeholder")
+            )?,
+            label_style =
+                self.style_expr(krate, mode, self.dsp.pointer("/components/input/label"))?,
+            helper_style = self.style_expr(
+                krate,
+                mode,
+                self.dsp.pointer("/components/input/helper_text")
+            )?,
         ))
+    }
+
+    fn badge_theme_expr(&self, krate: &str, mode: Mode) -> Result<String> {
+        let radius = self.style_dimension_optional(
+            mode,
+            self.dsp.pointer("/components/badge/radius"),
+            self.dimension_optional("component.badge.radius", self.dimension("radius.full")?)?,
+        )?;
+        let font_size = self.dsp_dimension_optional(
+            "/components/badge/sizes/md/font_size",
+            self.dimension_optional("component.badge.font_size", 10.0)?,
+        )?;
+        Ok(format!(
+            r#"{krate}::BadgeTheme {{
+                radius: {radius},
+                font_size: {font_size},
+                font_weight: {font_weight},
+                sizes: vec![{sizes}],
+                tones: vec![{tones}],
+            }}"#,
+            radius = f32_lit(radius),
+            font_size = f32_lit(font_size),
+            font_weight = self.style_u16_optional(
+                mode,
+                self.dsp.pointer("/components/badge/font_weight"),
+                500
+            )?,
+            sizes = self.size_styles_expr(krate, mode, "/components/badge/sizes")?,
+            tones =
+                self.enum_styles_expr(krate, mode, "/components/badge/colors", badge_tone_variant)?,
+        ))
+    }
+
+    fn tabs_theme_expr(&self, krate: &str, mode: Mode) -> Result<String> {
+        let colors_prefix = match mode {
+            Mode::Light => "color.light",
+            Mode::Dark => "color.dark",
+        };
+        let active = self.color_expr(krate, &format!("{colors_prefix}.primary"))?;
+        let inactive = self.color_expr(krate, &format!("{colors_prefix}.text_secondary"))?;
+        let background = self.color_expr(krate, &format!("{colors_prefix}.background"))?;
+        let divider = self.color_expr_optional(
+            krate,
+            &format!("{colors_prefix}.divider"),
+            &self.resolve_token_string(&format!("{colors_prefix}.border"))?,
+        )?;
+        Ok(format!(
+            r#"{krate}::TabsTheme {{
+                active_color: {active},
+                inactive_color: {inactive},
+                indicator_height: {indicator_height},
+                background: {background},
+                divider_color: {divider}.with_alpha(120),
+                sizes: vec![{sizes}],
+                states: {states},
+                track_style: {track},
+            }}"#,
+            indicator_height = f32_lit(self.dsp_dimension_optional(
+                "/components/tabs/sizes/md/indicator_height",
+                self.dimension_optional("component.tabs.indicator_height", 3.0)?
+            )?),
+            sizes = self.size_styles_expr(krate, mode, "/components/tabs/sizes")?,
+            states =
+                self.state_styles_expr(krate, mode, self.dsp.pointer("/components/tabs/states"))?,
+            track = self.style_expr(krate, mode, self.dsp.pointer("/components/tabs/track"))?,
+        ))
+    }
+
+    fn modal_theme_expr(&self, krate: &str, mode: Mode) -> Result<String> {
+        let bg = self
+            .style_fill_color_expr(
+                krate,
+                mode,
+                self.dsp.pointer("/components/modal/background"),
+            )?
+            .unwrap_or(self.color_expr(krate, &format!("color.{}.surface", mode.color_name()))?);
+        let radius = self.style_dimension_optional(
+            mode,
+            self.dsp.pointer("/components/modal/radius"),
+            self.dimension_optional("component.modal.radius", self.dimension("radius.large")?)?,
+        )?;
+        let max_width = self.style_dimension_optional(
+            mode,
+            self.dsp.pointer("/components/modal/max_width"),
+            self.dimension_optional("component.modal.max_width", 600.0)?,
+        )?;
+        let shadow = self.shadow_option_expr(krate, "component.modal.shadow")?;
+        let container_style = self.style_expr_for_component(
+            krate,
+            mode,
+            "/components/modal",
+            &["background", "radius", "max_width", "box_shadow"],
+        )?;
+        let scrim_style =
+            self.style_expr(krate, mode, self.dsp.pointer("/components/modal/scrim"))?;
+        let scrim_blur = self
+            .dsp
+            .pointer("/components/modal/scrim/backdrop_filter")
+            .and_then(Value::as_str)
+            .and_then(|value| {
+                value
+                    .strip_prefix("blur(")
+                    .and_then(|v| v.strip_suffix(')'))
+            })
+            .and_then(|value| parse_dimension(value).ok())
+            .unwrap_or(4.0);
+        Ok(format!(
+            r#"{krate}::ModalTheme {{
+                bg_color: {bg},
+                radius: {radius},
+                shadow: {shadow},
+                max_width: {max_width},
+                container_style: {container_style},
+                scrim_style: {scrim_style},
+                scrim_blur: {scrim_blur},
+            }}"#,
+            radius = f32_lit(radius),
+            max_width = f32_lit(max_width),
+            scrim_blur = f32_lit(scrim_blur),
+        ))
+    }
+
+    fn progress_theme_expr(&self, krate: &str, mode: Mode) -> Result<String> {
+        let height = self.style_dimension_optional(
+            mode,
+            self.dsp.pointer("/components/progress_bar/height"),
+            self.dimension_optional("component.progress.height", 8.0)?,
+        )?;
+        let radius = self.style_dimension_optional(
+            mode,
+            self.dsp.pointer("/components/progress_bar/radius"),
+            self.dimension("radius.full")?,
+        )?;
+        let track_style = self.style_expr(
+            krate,
+            mode,
+            self.dsp.pointer("/components/progress_bar/track"),
+        )?;
+        let fill_style = self.style_expr(
+            krate,
+            mode,
+            self.dsp.pointer("/components/progress_bar/fill"),
+        )?;
+        let track_color = self
+            .style_fill_color_expr(
+                krate,
+                mode,
+                self.dsp
+                    .pointer("/components/progress_bar/track/background"),
+            )?
+            .unwrap_or_else(|| {
+                self.color_expr(krate, &format!("color.{}.border", mode.color_name()))
+                    .unwrap()
+            });
+        let fill_color = self
+            .style_fill_color_expr(
+                krate,
+                mode,
+                self.dsp.pointer("/components/progress_bar/fill/background"),
+            )?
+            .unwrap_or_else(|| {
+                self.color_expr(krate, &format!("color.{}.primary", mode.color_name()))
+                    .unwrap()
+            });
+        Ok(format!(
+            r#"{krate}::ProgressTheme {{
+                height: {height},
+                track_color: {track_color},
+                bar_color: {fill_color},
+                radius: {radius},
+                track_style: {track_style},
+                fill_style: {fill_style},
+            }}"#,
+            height = f32_lit(height),
+            radius = f32_lit(radius),
+        ))
+    }
+
+    fn tooltip_theme_expr(&self, krate: &str, mode: Mode) -> Result<String> {
+        let style = self.style_expr_for_component(
+            krate,
+            mode,
+            "/components/tooltip",
+            &[
+                "background",
+                "color",
+                "radius",
+                "font_size",
+                "padding",
+                "max_width",
+                "box_shadow",
+            ],
+        )?;
+        let bg = self
+            .style_fill_color_expr(
+                krate,
+                mode,
+                self.dsp.pointer("/components/tooltip/background"),
+            )?
+            .unwrap_or(self.color_literal_expr(krate, "#323232")?);
+        let text = self
+            .style_fill_color_expr(krate, mode, self.dsp.pointer("/components/tooltip/color"))?
+            .unwrap_or(self.color_literal_expr(krate, "#FFFFFF")?);
+        let radius = self.style_dimension_optional(
+            mode,
+            self.dsp.pointer("/components/tooltip/radius"),
+            self.dimension_optional("component.tooltip.radius", self.dimension("radius.small")?)?,
+        )?;
+        let font_size = self.style_dimension_optional(
+            mode,
+            self.dsp.pointer("/components/tooltip/font_size"),
+            self.dimension_optional("component.tooltip.font_size", 12.0)?,
+        )?;
+        let (padding_x, padding_y) = self
+            .dsp
+            .pointer("/components/tooltip/padding")
+            .and_then(Value::as_str)
+            .and_then(|raw| self.resolve_refs_in_string_for_mode(raw, mode).ok())
+            .and_then(|raw| parse_padding(&raw).ok())
+            .map(|p| (p[0], p[2]))
+            .unwrap_or((10.0, 8.0));
+        let max_width = self.style_dimension_optional(
+            mode,
+            self.dsp.pointer("/components/tooltip/max_width"),
+            240.0,
+        )?;
+        Ok(format!(
+            r#"{krate}::TooltipTheme {{
+                bg_color: {bg},
+                text_color: {text},
+                radius: {radius},
+                font_size: {font_size},
+                padding_x: {padding_x},
+                padding_y: {padding_y},
+                max_width: {max_width},
+                style: {style},
+            }}"#,
+            radius = f32_lit(radius),
+            font_size = f32_lit(font_size),
+            padding_x = f32_lit(padding_x),
+            padding_y = f32_lit(padding_y),
+            max_width = f32_lit(max_width),
+        ))
+    }
+
+    fn card_theme_expr(&self, krate: &str, mode: Mode) -> Result<String> {
+        let padding = self.style_dimension_optional(
+            mode,
+            self.dsp.pointer("/components/card/padding"),
+            self.dimension_optional("component.card.padding", self.dimension("spacing.l")?)?,
+        )?;
+        let radius = self.style_dimension_optional(
+            mode,
+            self.dsp.pointer("/components/card/radius"),
+            self.dimension_optional("component.card.radius", self.dimension("radius.large")?)?,
+        )?;
+        let patterns = self.enum_styles_expr(
+            krate,
+            mode,
+            "/components/card/patterns",
+            card_pattern_variant,
+        )?;
+        let hover = self.style_expr(
+            krate,
+            mode,
+            self.dsp.pointer("/components/card/interaction/hover"),
+        )?;
+        Ok(format!(
+            r#"{krate}::CardTheme {{
+                padding: {padding},
+                radius: {radius},
+                default_pattern: {krate}::CardPattern::Raised,
+                patterns: vec![{patterns}],
+                hover_style: {hover},
+            }}"#,
+            padding = f32_lit(padding),
+            radius = f32_lit(radius),
+        ))
+    }
+
+    fn feature_icon_theme_expr(&self, krate: &str, mode: Mode) -> Result<String> {
+        Ok(format!(
+            r#"{krate}::FeatureIconTheme {{
+                sizes: vec![{sizes}],
+                tones: vec![{tones}],
+                shadow: {shadow},
+            }}"#,
+            sizes = self.size_styles_expr(krate, mode, "/components/feature_icon/sizes")?,
+            tones = self.enum_styles_expr(
+                krate,
+                mode,
+                "/components/feature_icon/tones",
+                feature_icon_tone_variant
+            )?,
+            shadow = self.shadow_option_from_value_expr(
+                krate,
+                mode,
+                self.dsp.pointer("/components/feature_icon/box_shadow"),
+            )?,
+        ))
+    }
+
+    fn palette_expr(&self, krate: &str, mode: Mode) -> Result<String> {
+        let mut colors = Vec::new();
+        if let Some(items) = self
+            .dsp
+            .pointer("/data_visualization/palette")
+            .or_else(|| self.dsp.pointer("/charts/palette"))
+            .and_then(Value::as_array)
+        {
+            for item in items {
+                if let Some(color) = self.style_fill_color_expr(krate, mode, Some(item))? {
+                    colors.push(color);
+                }
+            }
+        }
+        if colors.is_empty() {
+            let token_paths = [
+                "color.teal.700",
+                "color.brand.blue.600",
+                "color.semantic.warning",
+                "color.semantic.error",
+                "color.semantic.success",
+                "color.semantic.info",
+                "color.brand.orange.600",
+                "color.teal.500",
+            ];
+            for path in token_paths {
+                if self.tokens.contains(path) {
+                    colors.push(self.color_expr(krate, path)?);
+                }
+            }
+        }
+        if colors.is_empty() {
+            colors = vec![
+                self.color_literal_expr(krate, "#14B8A6")?,
+                self.color_literal_expr(krate, "#4DA6E0")?,
+                self.color_literal_expr(krate, "#F59E0B")?,
+                self.color_literal_expr(krate, "#F43F5E")?,
+            ];
+        }
+        Ok(colors.join(","))
+    }
+
+    fn size_styles_expr(&self, krate: &str, mode: Mode, pointer: &str) -> Result<String> {
+        let Some(obj) = self.dsp.pointer(pointer).and_then(Value::as_object) else {
+            return Ok(String::new());
+        };
+        let mut items = Vec::new();
+        for (name, value) in obj {
+            if let Some(variant) = component_size_variant(krate, name) {
+                items.push(format!(
+                    "({variant}, {})",
+                    self.style_expr(krate, mode, Some(value))?
+                ));
+            }
+        }
+        Ok(items.join(","))
+    }
+
+    fn enum_styles_expr(
+        &self,
+        krate: &str,
+        mode: Mode,
+        pointer: &str,
+        variant: fn(&str, &str) -> Option<String>,
+    ) -> Result<String> {
+        let Some(obj) = self.dsp.pointer(pointer).and_then(Value::as_object) else {
+            return Ok(String::new());
+        };
+        let mut items = Vec::new();
+        for (name, value) in obj {
+            if let Some(variant_expr) = variant(krate, name) {
+                items.push(format!(
+                    "({variant_expr}, {})",
+                    self.style_expr(krate, mode, Some(value))?
+                ));
+            }
+        }
+        Ok(items.join(","))
+    }
+
+    fn enum_state_styles_expr(
+        &self,
+        krate: &str,
+        mode: Mode,
+        pointer: &str,
+        variant: fn(&str, &str) -> Option<String>,
+    ) -> Result<String> {
+        let Some(obj) = self.dsp.pointer(pointer).and_then(Value::as_object) else {
+            return Ok(String::new());
+        };
+        let mut items = Vec::new();
+        for (name, value) in obj {
+            if let Some(variant_expr) = variant(krate, name) {
+                items.push(format!(
+                    "({variant_expr}, {})",
+                    self.state_styles_expr(krate, mode, Some(value))?
+                ));
+            }
+        }
+        Ok(items.join(","))
+    }
+
+    fn state_styles_expr(&self, krate: &str, mode: Mode, value: Option<&Value>) -> Result<String> {
+        let state = |name: &str| -> Result<String> {
+            let expr = value
+                .and_then(|v| v.get(name))
+                .map(|v| self.style_expr(krate, mode, Some(v)))
+                .transpose()?;
+            Ok(expr
+                .map(|expr| format!("Some({expr})"))
+                .unwrap_or_else(|| "None".into()))
+        };
+        let default = value
+            .and_then(|v| v.get("default"))
+            .map(|v| self.style_expr(krate, mode, Some(v)))
+            .transpose()?
+            .unwrap_or_else(|| format!("{krate}::ResolvedComponentStyle::default()"));
+        Ok(format!(
+            r#"{krate}::ComponentStateStyles {{
+                default: {default},
+                hover: {hover},
+                active: {active},
+                focus: {focus},
+                disabled: {disabled},
+                error: {error},
+                selected: {selected},
+            }}"#,
+            hover = state("hover")?,
+            active = state("active")?,
+            focus = state("focus")?,
+            disabled = state("disabled")?,
+            error = state("error")?,
+            selected = state("selected")?,
+        ))
+    }
+
+    fn style_expr_for_component(
+        &self,
+        krate: &str,
+        mode: Mode,
+        pointer: &str,
+        keys: &[&str],
+    ) -> Result<String> {
+        let Some(source) = self.dsp.pointer(pointer).and_then(Value::as_object) else {
+            return self.style_expr(krate, mode, None);
+        };
+        let mut obj = serde_json::Map::new();
+        for key in keys {
+            if let Some(value) = source.get(*key) {
+                obj.insert((*key).to_string(), value.clone());
+            }
+        }
+        self.style_expr(krate, mode, Some(&Value::Object(obj)))
+    }
+
+    fn style_expr(&self, krate: &str, mode: Mode, value: Option<&Value>) -> Result<String> {
+        let Some(value) = value else {
+            return Ok(format!("{krate}::ResolvedComponentStyle::default()"));
+        };
+        let background = self.fill_option_expr(krate, mode, field(value, "background"))?;
+        let text_color = self
+            .style_fill_color_expr(krate, mode, field(value, "color"))?
+            .map(|expr| format!("Some({expr})"))
+            .unwrap_or_else(|| "None".into());
+        let border = self.border_option_expr(
+            krate,
+            mode,
+            field(value, "border").or_else(|| field(value, "border_bottom")),
+        )?;
+        let shadows = self.shadow_layers_expr(
+            krate,
+            mode,
+            field(value, "box_shadow").or_else(|| field(value, "shadow")),
+        )?;
+        let radius = self.style_dimension_option_expr(mode, field(value, "radius"))?;
+        let height = self.style_dimension_option_expr(mode, field(value, "height"))?;
+        let width = self.style_dimension_option_expr(mode, field(value, "width"))?;
+        let size = self.style_dimension_option_expr(mode, field(value, "size"))?;
+        let width = if width == "None" { size.clone() } else { width };
+        let height = if height == "None" { size } else { height };
+        let padding_x = self.style_dimension_option_expr(mode, field(value, "padding_x"))?;
+        let padding_y = self.style_dimension_option_expr(mode, field(value, "padding_y"))?;
+        let padding = self.padding_option_expr(mode, field(value, "padding"))?;
+        let gap = self.style_dimension_option_expr(mode, field(value, "gap"))?;
+        let font_size = self.style_dimension_option_expr(mode, field(value, "font_size"))?;
+        let font_weight = self.style_u16_option_expr(mode, field(value, "font_weight"))?;
+        let line_height = self.style_dimension_option_expr(mode, field(value, "line_height"))?;
+        let letter_spacing =
+            self.style_dimension_option_expr(mode, field(value, "letter_spacing"))?;
+        let icon_size = self.style_dimension_option_expr(mode, field(value, "icon_size"))?;
+        let max_width = self.style_dimension_option_expr(mode, field(value, "max_width"))?;
+        let transition = self.motion_option_expr(krate, mode, field(value, "transition"))?;
+        Ok(format!(
+            r#"{krate}::ResolvedComponentStyle {{
+                background: {background},
+                text_color: {text_color},
+                border: {border},
+                radius: {radius},
+                height: {height},
+                width: {width},
+                padding_x: {padding_x},
+                padding_y: {padding_y},
+                padding: {padding},
+                gap: {gap},
+                font_size: {font_size},
+                font_weight: {font_weight},
+                line_height: {line_height},
+                letter_spacing: {letter_spacing},
+                icon_size: {icon_size},
+                max_width: {max_width},
+                shadows: {shadows},
+                transition: {transition},
+            }}"#
+        ))
+    }
+
+    fn fill_option_expr(&self, krate: &str, mode: Mode, value: Option<&Value>) -> Result<String> {
+        let Some(fill) = self.fill_expr(krate, mode, value)? else {
+            return Ok("None".into());
+        };
+        Ok(format!("Some({fill})"))
+    }
+
+    fn fill_expr(&self, krate: &str, mode: Mode, value: Option<&Value>) -> Result<Option<String>> {
+        let Some(raw) = self.resolved_value_string(mode, value)? else {
+            return Ok(None);
+        };
+        let raw = raw.trim();
+        if raw.eq_ignore_ascii_case("none") || raw.eq_ignore_ascii_case("auto") {
+            return Ok(None);
+        }
+        if raw.eq_ignore_ascii_case("transparent") {
+            return Ok(Some(format!(
+                "{krate}::Fill::Solid({})",
+                color_expr(krate, 0, 0, 0, 0)
+            )));
+        }
+        if raw.starts_with("linear-gradient(") {
+            let stops = gradient_stops(raw)
+                .into_iter()
+                .enumerate()
+                .map(|(idx, color)| {
+                    let position = if idx == 0 { 0.0 } else { 1.0 };
+                    Ok(format!(
+                        "({}, {})",
+                        f32_lit(position),
+                        self.color_literal_expr(krate, color)?
+                    ))
+                })
+                .collect::<Result<Vec<_>>>()?;
+            return Ok(Some(format!(
+                "{krate}::Fill::LinearGradient {{ start: (0.0, 0.0), end: (1.0, 1.0), stops: vec![{}] }}",
+                stops.join(",")
+            )));
+        }
+        if raw.starts_with("radial-gradient(") {
+            let colors = gradient_stops(raw);
+            let mut stops = Vec::new();
+            for (idx, color) in colors.iter().enumerate() {
+                let position = if colors.len() <= 1 {
+                    0.0
+                } else {
+                    idx as f32 / (colors.len() - 1) as f32
+                };
+                stops.push(format!(
+                    "({}, {})",
+                    f32_lit(position),
+                    self.color_literal_expr(krate, color)?
+                ));
+            }
+            return Ok(Some(format!(
+                "{krate}::Fill::RadialGradient {{ center: (0.5, 0.5), radius: 1.0, stops: vec![{}] }}",
+                stops.join(",")
+            )));
+        }
+        if parse_color(raw).is_ok() {
+            return Ok(Some(format!(
+                "{krate}::Fill::Solid({})",
+                self.color_literal_expr(krate, raw)?
+            )));
+        }
+        Ok(None)
+    }
+
+    fn style_fill_color_expr(
+        &self,
+        krate: &str,
+        mode: Mode,
+        value: Option<&Value>,
+    ) -> Result<Option<String>> {
+        let Some(raw) = self.resolved_value_string(mode, value)? else {
+            return Ok(None);
+        };
+        let raw = raw.trim();
+        if raw.eq_ignore_ascii_case("transparent") {
+            return Ok(Some(color_expr(krate, 0, 0, 0, 0)));
+        }
+        if parse_color(raw).is_ok() {
+            return Ok(Some(self.color_literal_expr(krate, raw)?));
+        }
+        Ok(None)
+    }
+
+    fn border_option_expr(&self, krate: &str, mode: Mode, value: Option<&Value>) -> Result<String> {
+        let Some(raw) = self.resolved_value_string(mode, value)? else {
+            return Ok("None".into());
+        };
+        let raw = raw.trim();
+        if raw.eq_ignore_ascii_case("none") || raw.eq_ignore_ascii_case("transparent") {
+            return Ok("None".into());
+        }
+        let Some((width, color)) = parse_border(raw) else {
+            return Ok("None".into());
+        };
+        Ok(format!(
+            "Some({krate}::ComponentBorder {{ fill: {krate}::Fill::Solid({}), width: {} }})",
+            self.color_literal_expr(krate, color)?,
+            f32_lit(width)
+        ))
+    }
+
+    fn shadow_layers_expr(&self, krate: &str, mode: Mode, value: Option<&Value>) -> Result<String> {
+        let Some(raw) = self.resolved_value_string(mode, value)? else {
+            return Ok("Vec::new()".into());
+        };
+        let layers = parse_shadow_layers(&raw);
+        let exprs = layers
+            .iter()
+            .map(|layer| shadow_layer_expr(krate, layer))
+            .collect::<Vec<_>>();
+        Ok(format!("vec![{}]", exprs.join(",")))
+    }
+
+    fn shadow_option_from_value_expr(
+        &self,
+        krate: &str,
+        mode: Mode,
+        value: Option<&Value>,
+    ) -> Result<String> {
+        let Some(raw) = self.resolved_value_string(mode, value)? else {
+            return Ok("None".into());
+        };
+        let layers = parse_shadow_layers(&raw);
+        if let Some(layer) = layers.iter().find(|layer| !layer.inset) {
+            Ok(format!("Some({})", box_shadow_expr(krate, layer)))
+        } else {
+            Ok("None".into())
+        }
+    }
+
+    fn style_dimension_optional(
+        &self,
+        mode: Mode,
+        value: Option<&Value>,
+        fallback: f32,
+    ) -> Result<f32> {
+        let Some(raw) = self.resolved_value_string(mode, value)? else {
+            return Ok(fallback);
+        };
+        parse_dimension(&raw)
+            .or_else(|_| raw.parse::<f32>())
+            .or(Ok(fallback))
+    }
+
+    fn style_dimension_option_expr(&self, mode: Mode, value: Option<&Value>) -> Result<String> {
+        let Some(raw) = self.resolved_value_string(mode, value)? else {
+            return Ok("None".into());
+        };
+        if raw == "auto" {
+            return Ok("None".into());
+        }
+        let Ok(dimension) = parse_dimension(&raw).or_else(|_| raw.parse::<f32>()) else {
+            return Ok("None".into());
+        };
+        Ok(format!("Some({})", f32_lit(dimension)))
+    }
+
+    fn style_u16_optional(&self, mode: Mode, value: Option<&Value>, fallback: u16) -> Result<u16> {
+        let Some(raw) = self.resolved_value_string(mode, value)? else {
+            return Ok(fallback);
+        };
+        Ok(raw.parse::<u16>().unwrap_or(fallback))
+    }
+
+    fn style_u16_option_expr(&self, mode: Mode, value: Option<&Value>) -> Result<String> {
+        let Some(raw) = self.resolved_value_string(mode, value)? else {
+            return Ok("None".into());
+        };
+        Ok(raw
+            .parse::<u16>()
+            .map(|value| format!("Some({value})"))
+            .unwrap_or_else(|_| "None".into()))
+    }
+
+    fn padding_option_expr(&self, mode: Mode, value: Option<&Value>) -> Result<String> {
+        let Some(raw) = self.resolved_value_string(mode, value)? else {
+            return Ok("None".into());
+        };
+        let Ok(padding) = parse_padding(&raw) else {
+            return Ok("None".into());
+        };
+        Ok(format!(
+            "Some([{}, {}, {}, {}])",
+            f32_lit(padding[0]),
+            f32_lit(padding[1]),
+            f32_lit(padding[2]),
+            f32_lit(padding[3])
+        ))
+    }
+
+    fn motion_option_expr(&self, krate: &str, mode: Mode, value: Option<&Value>) -> Result<String> {
+        let Some(raw) = self.resolved_value_string(mode, value)? else {
+            return Ok("None".into());
+        };
+        let duration = raw
+            .split_whitespace()
+            .find_map(|part| parse_duration_ms(part).ok())
+            .unwrap_or(self.duration_ms_optional("motion.duration.fast", 160)?);
+        let easing = if raw.contains("cubic-bezier") {
+            let start = raw.find("cubic-bezier").unwrap_or(0);
+            let value = raw[start..].split_whitespace().next().unwrap_or("linear");
+            easing_expr(krate, value.trim_end_matches(','))
+        } else if raw.contains("ease") {
+            format!("{krate}::EasingCurve::Ease")
+        } else {
+            self.easing_expr(krate, "motion.easing.standard")?
+        };
+        Ok(format!(
+            "Some({krate}::ComponentMotion {{ duration_ms: {duration}, easing: {easing} }})"
+        ))
+    }
+
+    fn resolved_value_string(&self, mode: Mode, value: Option<&Value>) -> Result<Option<String>> {
+        let Some(value) = value else {
+            return Ok(None);
+        };
+        match value {
+            Value::String(raw) => Ok(Some(self.resolve_refs_in_string_for_mode(raw, mode)?)),
+            Value::Number(number) => Ok(Some(number.to_string())),
+            _ => Ok(None),
+        }
     }
 
     fn design_tokens_expr(&self, krate: &str) -> Result<String> {
@@ -728,8 +1540,8 @@ impl {krate}::DesignSystem for {type_name} {{
     }
 
     fn design_value_expr(&self, krate: &str, kind: &str, value: &str) -> Result<String> {
-        if kind == "color" || value.trim_start().starts_with('#') {
-            if let Ok((r, g, b, a)) = parse_hex_color(value) {
+        if kind == "color" || value.trim_start().starts_with('#') || value.starts_with("rgb") {
+            if let Ok((r, g, b, a)) = parse_color(value) {
                 return Ok(format!(
                     "{krate}::DesignValue::Color({})",
                     color_expr(krate, r, g, b, a)
@@ -789,8 +1601,7 @@ impl {krate}::DesignSystem for {type_name} {{
     }
 
     fn color_literal_expr(&self, krate: &str, value: &str) -> Result<String> {
-        let (r, g, b, a) =
-            parse_hex_color(value).with_context(|| format!("invalid color {value}"))?;
+        let (r, g, b, a) = parse_color(value).with_context(|| format!("invalid color {value}"))?;
         Ok(color_expr(krate, r, g, b, a))
     }
 
@@ -898,6 +1709,41 @@ impl {krate}::DesignSystem for {type_name} {{
         out.push_str(rest);
         Ok(out)
     }
+
+    fn resolve_refs_in_string_for_mode(&self, raw: &str, mode: Mode) -> Result<String> {
+        let mut out = String::new();
+        let mut rest = raw;
+        while let Some(start) = rest.find('{') {
+            let (before, after_start) = rest.split_at(start);
+            out.push_str(before);
+            let after_start = &after_start[1..];
+            let Some(end) = after_start.find('}') else {
+                bail!("unclosed token reference in {raw}");
+            };
+            let mut token = after_start[..end].to_string();
+            match mode {
+                Mode::Light => {}
+                Mode::Dark => {
+                    if let Some(suffix) = token.strip_prefix("color.light.") {
+                        let dark = format!("color.dark.{suffix}");
+                        if self.tokens.contains(&dark) {
+                            token = dark;
+                        }
+                    }
+                }
+            }
+            if self.tokens.contains(&token) {
+                out.push_str(&self.resolve_token_string(&token)?);
+            } else {
+                out.push('{');
+                out.push_str(&token);
+                out.push('}');
+            }
+            rest = &after_start[end + 1..];
+        }
+        out.push_str(rest);
+        Ok(out)
+    }
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -910,6 +1756,13 @@ impl Mode {
         match self {
             Self::Light => "Light",
             Self::Dark => "Dark",
+        }
+    }
+
+    fn color_name(self) -> &'static str {
+        match self {
+            Self::Light => "light",
+            Self::Dark => "dark",
         }
     }
 }
@@ -1114,6 +1967,20 @@ fn parse_hex_color(value: &str) -> Result<(u8, u8, u8, u8)> {
     }
 }
 
+fn parse_color(value: &str) -> Result<(u8, u8, u8, u8)> {
+    let value = value.trim();
+    if value.eq_ignore_ascii_case("transparent") {
+        return Ok((0, 0, 0, 0));
+    }
+    if value.starts_with('#') {
+        return parse_hex_color(value);
+    }
+    if value.starts_with("rgb(") || value.starts_with("rgba(") {
+        return parse_rgb_color(value);
+    }
+    bail!("unsupported color value: {value}")
+}
+
 fn parse_rgb_color(value: &str) -> Result<(u8, u8, u8, u8)> {
     let inner = value
         .trim()
@@ -1142,6 +2009,55 @@ fn parse_rgb_color(value: &str) -> Result<(u8, u8, u8, u8)> {
     Ok((r, g, b, a))
 }
 
+fn parse_border(value: &str) -> Option<(f32, &str)> {
+    let mut width = None;
+    let mut color_start = None;
+    for part in value.split_whitespace() {
+        if width.is_none() {
+            if let Ok(px) = parse_dimension(part) {
+                width = Some(px);
+                continue;
+            }
+        }
+        if part.starts_with('#') || part.starts_with("rgb") || part == "transparent" {
+            color_start = value.find(part);
+            break;
+        }
+    }
+    match (width, color_start) {
+        (Some(width), Some(start)) => Some((width, value[start..].trim())),
+        _ => None,
+    }
+}
+
+fn parse_padding(value: &str) -> Result<[f32; 4]> {
+    let parts = value
+        .split_whitespace()
+        .map(parse_dimension)
+        .collect::<Result<Vec<_>>>()?;
+    let (top, right, bottom, left) = match parts.as_slice() {
+        [all] => (*all, *all, *all, *all),
+        [vertical, horizontal] => (*vertical, *horizontal, *vertical, *horizontal),
+        [top, horizontal, bottom] => (*top, *horizontal, *bottom, *horizontal),
+        [top, right, bottom, left, ..] => (*top, *right, *bottom, *left),
+        _ => (0.0, 0.0, 0.0, 0.0),
+    };
+    Ok([left, right, top, bottom])
+}
+
+fn gradient_stops(value: &str) -> Vec<&str> {
+    let inner = value
+        .split_once('(')
+        .and_then(|(_, rest)| rest.strip_suffix(')'))
+        .unwrap_or(value);
+    split_css_layers(inner)
+        .into_iter()
+        .map(str::trim)
+        .filter(|part| part.starts_with('#') || part.starts_with("rgb") || *part == "transparent")
+        .map(|part| part.split_whitespace().next().unwrap_or(part))
+        .collect()
+}
+
 fn parse_dimension(value: &str) -> Result<f32> {
     let trimmed = value.trim().trim_matches('"');
     if let Some(px) = trimmed.strip_suffix("px") {
@@ -1151,6 +2067,72 @@ fn parse_dimension(value: &str) -> Result<f32> {
         return Ok(em.trim().parse()?);
     }
     Ok(trimmed.parse()?)
+}
+
+fn field<'a>(value: &'a Value, name: &str) -> Option<&'a Value> {
+    value.get(name)
+}
+
+fn component_size_variant(krate: &str, name: &str) -> Option<String> {
+    let variant = match name {
+        "sm" => "Sm",
+        "md" => "Md",
+        "lg" => "Lg",
+        "xl" => "Xl",
+        _ => return None,
+    };
+    Some(format!("{krate}::ComponentSize::{variant}"))
+}
+
+fn button_hierarchy_variant(krate: &str, name: &str) -> Option<String> {
+    let variant = match name {
+        "primary" => "Primary",
+        "secondary_color" => "SecondaryColor",
+        "secondary_gray" => "SecondaryGray",
+        "tertiary_color" => "TertiaryColor",
+        "tertiary_gray" => "TertiaryGray",
+        "link_color" => "LinkColor",
+        "link_gray" => "LinkGray",
+        "destructive" => "Destructive",
+        _ => return None,
+    };
+    Some(format!("{krate}::ButtonHierarchy::{variant}"))
+}
+
+fn badge_tone_variant(krate: &str, name: &str) -> Option<String> {
+    let variant = match name {
+        "brand" => "Brand",
+        "gray" => "Gray",
+        "success" => "Success",
+        "warning" => "Warning",
+        "error" => "Error",
+        "blue" => "Blue",
+        "orange" => "Orange",
+        _ => return None,
+    };
+    Some(format!("{krate}::BadgeTone::{variant}"))
+}
+
+fn card_pattern_variant(krate: &str, name: &str) -> Option<String> {
+    let variant = match name {
+        "plain" => "Plain",
+        "raised" => "Raised",
+        "tinted" => "Tinted",
+        "elevated" => "Elevated",
+        _ => return None,
+    };
+    Some(format!("{krate}::CardPattern::{variant}"))
+}
+
+fn feature_icon_tone_variant(krate: &str, name: &str) -> Option<String> {
+    let variant = match name {
+        "brand" => "Brand",
+        "gray" => "Gray",
+        "blue" => "Blue",
+        "orange" => "Orange",
+        _ => return None,
+    };
+    Some(format!("{krate}::FeatureIconTone::{variant}"))
 }
 
 fn parse_duration_ms(value: &str) -> Result<u64> {

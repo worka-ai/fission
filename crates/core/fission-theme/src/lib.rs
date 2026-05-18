@@ -96,6 +96,26 @@ pub struct ShadowLayer {
     pub inset: bool,
 }
 
+impl ShadowLayer {
+    pub fn to_box_shadow(&self) -> BoxShadow {
+        BoxShadow {
+            color: self.color,
+            offset: self.offset,
+            blur_radius: self.blur_radius,
+        }
+    }
+}
+
+fn shadow_layer_from_box(shadow: BoxShadow) -> ShadowLayer {
+    ShadowLayer {
+        color: shadow.color,
+        offset: shadow.offset,
+        blur_radius: shadow.blur_radius,
+        spread_radius: 0.0,
+        inset: false,
+    }
+}
+
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub enum EasingCurve {
     Linear,
@@ -130,6 +150,194 @@ pub struct DesignAsset {
     pub id: String,
     pub path: String,
     pub format: String,
+}
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub enum ComponentSize {
+    Sm,
+    #[default]
+    Md,
+    Lg,
+    Xl,
+}
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub enum ComponentState {
+    #[default]
+    Default,
+    Hover,
+    Active,
+    Focus,
+    Disabled,
+    Error,
+    Selected,
+}
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub enum ButtonHierarchy {
+    #[default]
+    Primary,
+    SecondaryColor,
+    SecondaryGray,
+    TertiaryColor,
+    TertiaryGray,
+    LinkColor,
+    LinkGray,
+    Destructive,
+}
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub enum BadgeTone {
+    #[default]
+    Brand,
+    Gray,
+    Success,
+    Warning,
+    Error,
+    Blue,
+    Orange,
+}
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub enum CardPattern {
+    Plain,
+    #[default]
+    Raised,
+    Tinted,
+    Elevated,
+}
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub enum FeatureIconTone {
+    #[default]
+    Brand,
+    Gray,
+    Blue,
+    Orange,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct ComponentBorder {
+    pub fill: Fill,
+    pub width: f32,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct ComponentMotion {
+    pub duration_ms: u64,
+    pub easing: EasingCurve,
+}
+
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+pub struct ResolvedComponentStyle {
+    pub background: Option<Fill>,
+    pub text_color: Option<Color>,
+    pub border: Option<ComponentBorder>,
+    pub radius: Option<f32>,
+    pub height: Option<f32>,
+    pub width: Option<f32>,
+    pub padding_x: Option<f32>,
+    pub padding_y: Option<f32>,
+    pub padding: Option<[f32; 4]>,
+    pub gap: Option<f32>,
+    pub font_size: Option<f32>,
+    pub font_weight: Option<u16>,
+    pub line_height: Option<f32>,
+    pub letter_spacing: Option<f32>,
+    pub icon_size: Option<f32>,
+    pub max_width: Option<f32>,
+    pub shadows: Vec<ShadowLayer>,
+    pub transition: Option<ComponentMotion>,
+}
+
+impl ResolvedComponentStyle {
+    pub fn merge(&self, overlay: &Self) -> Self {
+        Self {
+            background: overlay
+                .background
+                .clone()
+                .or_else(|| self.background.clone()),
+            text_color: overlay.text_color.or(self.text_color),
+            border: overlay.border.clone().or_else(|| self.border.clone()),
+            radius: overlay.radius.or(self.radius),
+            height: overlay.height.or(self.height),
+            width: overlay.width.or(self.width),
+            padding_x: overlay.padding_x.or(self.padding_x),
+            padding_y: overlay.padding_y.or(self.padding_y),
+            padding: overlay.padding.or(self.padding),
+            gap: overlay.gap.or(self.gap),
+            font_size: overlay.font_size.or(self.font_size),
+            font_weight: overlay.font_weight.or(self.font_weight),
+            line_height: overlay.line_height.or(self.line_height),
+            letter_spacing: overlay.letter_spacing.or(self.letter_spacing),
+            icon_size: overlay.icon_size.or(self.icon_size),
+            max_width: overlay.max_width.or(self.max_width),
+            shadows: if overlay.shadows.is_empty() {
+                self.shadows.clone()
+            } else {
+                overlay.shadows.clone()
+            },
+            transition: overlay
+                .transition
+                .clone()
+                .or_else(|| self.transition.clone()),
+        }
+    }
+
+    pub fn padding_box(&self, fallback_x: f32, fallback_y: f32) -> [f32; 4] {
+        self.padding.unwrap_or([
+            self.padding_x.unwrap_or(fallback_x),
+            self.padding_x.unwrap_or(fallback_x),
+            self.padding_y.unwrap_or(fallback_y),
+            self.padding_y.unwrap_or(fallback_y),
+        ])
+    }
+
+    pub fn outer_shadows(&self) -> Vec<BoxShadow> {
+        self.shadows
+            .iter()
+            .filter(|layer| !layer.inset)
+            .map(ShadowLayer::to_box_shadow)
+            .collect()
+    }
+
+    pub fn inset_border(&self) -> Option<ComponentBorder> {
+        self.shadows
+            .iter()
+            .find(|layer| layer.inset && layer.spread_radius > 0.0)
+            .map(|layer| ComponentBorder {
+                fill: Fill::Solid(layer.color),
+                width: layer.spread_radius,
+            })
+    }
+}
+
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+pub struct ComponentStateStyles {
+    pub default: ResolvedComponentStyle,
+    pub hover: Option<ResolvedComponentStyle>,
+    pub active: Option<ResolvedComponentStyle>,
+    pub focus: Option<ResolvedComponentStyle>,
+    pub disabled: Option<ResolvedComponentStyle>,
+    pub error: Option<ResolvedComponentStyle>,
+    pub selected: Option<ResolvedComponentStyle>,
+}
+
+impl ComponentStateStyles {
+    pub fn resolve(&self, state: ComponentState) -> ResolvedComponentStyle {
+        let overlay = match state {
+            ComponentState::Default => None,
+            ComponentState::Hover => self.hover.as_ref(),
+            ComponentState::Active => self.active.as_ref(),
+            ComponentState::Focus => self.focus.as_ref(),
+            ComponentState::Disabled => self.disabled.as_ref(),
+            ComponentState::Error => self.error.as_ref(),
+            ComponentState::Selected => self.selected.as_ref(),
+        };
+        overlay
+            .map(|style| self.default.merge(style))
+            .unwrap_or_else(|| self.default.clone())
+    }
 }
 
 /// Semantic color palette for the application.
@@ -703,6 +911,68 @@ impl Default for MotionTokens {
     }
 }
 
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct DataVisualizationTokens {
+    pub palette: Vec<Color>,
+}
+
+impl Default for DataVisualizationTokens {
+    fn default() -> Self {
+        Self {
+            palette: vec![
+                Color {
+                    r: 20,
+                    g: 184,
+                    b: 166,
+                    a: 255,
+                },
+                Color {
+                    r: 77,
+                    g: 166,
+                    b: 224,
+                    a: 255,
+                },
+                Color {
+                    r: 245,
+                    g: 158,
+                    b: 11,
+                    a: 255,
+                },
+                Color {
+                    r: 244,
+                    g: 63,
+                    b: 94,
+                    a: 255,
+                },
+                Color {
+                    r: 132,
+                    g: 204,
+                    b: 22,
+                    a: 255,
+                },
+                Color {
+                    r: 14,
+                    g: 165,
+                    b: 233,
+                    a: 255,
+                },
+                Color {
+                    r: 168,
+                    g: 85,
+                    b: 247,
+                    a: 255,
+                },
+                Color {
+                    r: 249,
+                    g: 115,
+                    b: 22,
+                    a: 255,
+                },
+            ],
+        }
+    }
+}
+
 /// The complete set of primitive design tokens.
 ///
 /// Combines [`ColorTokens`], [`SpacingTokens`], [`TypographyTokens`],
@@ -716,6 +986,7 @@ pub struct Tokens {
     pub radii: RadiusTokens,
     pub elevations: ElevationTokens,
     pub motion: MotionTokens,
+    pub data_visualization: DataVisualizationTokens,
 }
 
 impl Tokens {
@@ -727,6 +998,7 @@ impl Tokens {
             radii: RadiusTokens::default(),
             elevations: ElevationTokens::default(),
             motion: MotionTokens::default(),
+            data_visualization: DataVisualizationTokens::default(),
         }
     }
 }
@@ -748,10 +1020,124 @@ pub struct ButtonTheme {
     pub elevation_hover: Option<BoxShadow>,
     pub elevation_pressed: Option<BoxShadow>,
     pub focus_stroke: Option<Stroke>,
+    pub icon_size: f32,
+    pub font_weight: u16,
+    pub line_height: f32,
+    pub transition: Option<ComponentMotion>,
+    pub sizes: Vec<(ComponentSize, ResolvedComponentStyle)>,
+    pub hierarchies: Vec<(ButtonHierarchy, ComponentStateStyles)>,
 }
 
 impl ButtonTheme {
     pub fn from_tokens(tokens: &Tokens) -> Self {
+        let transition = Some(ComponentMotion {
+            duration_ms: tokens.motion.duration_fast_ms,
+            easing: tokens.motion.easing_standard.clone(),
+        });
+        let size_md = ResolvedComponentStyle {
+            height: Some(40.0),
+            padding_x: Some(14.0),
+            padding_y: Some(tokens.spacing.s),
+            gap: Some(4.0),
+            font_size: Some(tokens.typography.label_large_size),
+            font_weight: Some(tokens.typography.font_weight_semibold),
+            line_height: Some(20.0),
+            icon_size: Some(20.0),
+            ..ResolvedComponentStyle::default()
+        };
+        let primary = ComponentStateStyles {
+            default: ResolvedComponentStyle {
+                background: Some(Fill::Solid(tokens.colors.primary)),
+                text_color: Some(tokens.colors.on_primary),
+                border: None,
+                shadows: tokens
+                    .elevations
+                    .level1
+                    .map(shadow_layer_from_box)
+                    .into_iter()
+                    .collect(),
+                transition: transition.clone(),
+                ..ResolvedComponentStyle::default()
+            },
+            hover: Some(ResolvedComponentStyle {
+                background: Some(Fill::Solid(tokens.colors.primary_hover)),
+                shadows: tokens
+                    .elevations
+                    .level2
+                    .map(shadow_layer_from_box)
+                    .into_iter()
+                    .collect(),
+                ..ResolvedComponentStyle::default()
+            }),
+            active: Some(ResolvedComponentStyle {
+                shadows: tokens
+                    .elevations
+                    .level0
+                    .map(shadow_layer_from_box)
+                    .into_iter()
+                    .collect(),
+                ..ResolvedComponentStyle::default()
+            }),
+            focus: Some(ResolvedComponentStyle {
+                shadows: tokens
+                    .elevations
+                    .focus
+                    .map(shadow_layer_from_box)
+                    .into_iter()
+                    .collect(),
+                ..ResolvedComponentStyle::default()
+            }),
+            disabled: Some(ResolvedComponentStyle {
+                background: Some(Fill::Solid(tokens.colors.border)),
+                text_color: Some(tokens.colors.text_secondary),
+                shadows: Vec::new(),
+                ..ResolvedComponentStyle::default()
+            }),
+            ..ComponentStateStyles::default()
+        };
+        let secondary_gray = ComponentStateStyles {
+            default: ResolvedComponentStyle {
+                background: Some(Fill::Solid(tokens.colors.surface)),
+                text_color: Some(tokens.colors.text_primary),
+                border: Some(ComponentBorder {
+                    fill: Fill::Solid(tokens.colors.border),
+                    width: 1.0,
+                }),
+                transition: transition.clone(),
+                ..ResolvedComponentStyle::default()
+            },
+            hover: Some(ResolvedComponentStyle {
+                background: Some(Fill::Solid(tokens.colors.surface_sunken)),
+                ..ResolvedComponentStyle::default()
+            }),
+            disabled: Some(ResolvedComponentStyle {
+                text_color: Some(tokens.colors.text_secondary),
+                border: Some(ComponentBorder {
+                    fill: Fill::Solid(tokens.colors.border),
+                    width: 1.0,
+                }),
+                ..ResolvedComponentStyle::default()
+            }),
+            ..ComponentStateStyles::default()
+        };
+        let tertiary_gray = ComponentStateStyles {
+            default: ResolvedComponentStyle {
+                background: None,
+                text_color: Some(tokens.colors.primary),
+                border: None,
+                transition,
+                ..ResolvedComponentStyle::default()
+            },
+            hover: Some(ResolvedComponentStyle {
+                background: Some(Fill::Solid(tokens.colors.surface_sunken)),
+                ..ResolvedComponentStyle::default()
+            }),
+            disabled: Some(ResolvedComponentStyle {
+                text_color: Some(tokens.colors.text_secondary),
+                ..ResolvedComponentStyle::default()
+            }),
+            ..ComponentStateStyles::default()
+        };
         Self {
             height: 42.0,
             padding_horizontal: tokens.spacing.m,
@@ -768,7 +1154,140 @@ impl ButtonTheme {
                 line_cap: fission_ir::op::LineCap::Butt,
                 line_join: fission_ir::op::LineJoin::Miter,
             }),
+            icon_size: 20.0,
+            font_weight: tokens.typography.font_weight_semibold,
+            line_height: 20.0,
+            transition: Some(ComponentMotion {
+                duration_ms: tokens.motion.duration_fast_ms,
+                easing: tokens.motion.easing_standard.clone(),
+            }),
+            sizes: vec![
+                (
+                    ComponentSize::Sm,
+                    ResolvedComponentStyle {
+                        height: Some(36.0),
+                        padding_x: Some(12.0),
+                        padding_y: Some(tokens.spacing.xs),
+                        gap: Some(4.0),
+                        font_size: Some(tokens.typography.font_size_sm),
+                        line_height: Some(20.0),
+                        icon_size: Some(18.0),
+                        ..ResolvedComponentStyle::default()
+                    },
+                ),
+                (ComponentSize::Md, size_md),
+                (
+                    ComponentSize::Lg,
+                    ResolvedComponentStyle {
+                        height: Some(44.0),
+                        padding_x: Some(16.0),
+                        padding_y: Some(tokens.spacing.s),
+                        gap: Some(6.0),
+                        font_size: Some(tokens.typography.font_size_base),
+                        line_height: Some(24.0),
+                        icon_size: Some(20.0),
+                        ..ResolvedComponentStyle::default()
+                    },
+                ),
+                (
+                    ComponentSize::Xl,
+                    ResolvedComponentStyle {
+                        height: Some(48.0),
+                        padding_x: Some(18.0),
+                        padding_y: Some(tokens.spacing.s),
+                        gap: Some(6.0),
+                        font_size: Some(tokens.typography.font_size_base),
+                        line_height: Some(24.0),
+                        icon_size: Some(20.0),
+                        ..ResolvedComponentStyle::default()
+                    },
+                ),
+            ],
+            hierarchies: vec![
+                (ButtonHierarchy::Primary, primary.clone()),
+                (ButtonHierarchy::SecondaryColor, secondary_gray.clone()),
+                (ButtonHierarchy::SecondaryGray, secondary_gray),
+                (ButtonHierarchy::TertiaryColor, tertiary_gray.clone()),
+                (ButtonHierarchy::TertiaryGray, tertiary_gray.clone()),
+                (ButtonHierarchy::LinkColor, tertiary_gray.clone()),
+                (ButtonHierarchy::LinkGray, tertiary_gray.clone()),
+                (
+                    ButtonHierarchy::Destructive,
+                    ComponentStateStyles {
+                        default: ResolvedComponentStyle {
+                            background: Some(Fill::Solid(tokens.colors.error)),
+                            text_color: Some(tokens.colors.on_error),
+                            ..primary.default.clone()
+                        },
+                        hover: Some(ResolvedComponentStyle {
+                            background: Some(Fill::Solid(tokens.colors.error.with_alpha(230))),
+                            ..ResolvedComponentStyle::default()
+                        }),
+                        ..primary
+                    },
+                ),
+            ],
         }
+    }
+
+    pub fn size_style(&self, size: ComponentSize) -> ResolvedComponentStyle {
+        self.sizes
+            .iter()
+            .find(|(candidate, _)| *candidate == size)
+            .map(|(_, style)| style.clone())
+            .or_else(|| {
+                self.sizes
+                    .iter()
+                    .find(|(candidate, _)| *candidate == ComponentSize::Md)
+                    .map(|(_, style)| style.clone())
+            })
+            .unwrap_or_else(|| ResolvedComponentStyle {
+                height: Some(self.height),
+                padding_x: Some(self.padding_horizontal),
+                padding_y: Some(self.padding_vertical),
+                radius: Some(self.radius),
+                font_size: Some(self.text_size),
+                font_weight: Some(self.font_weight),
+                line_height: Some(self.line_height),
+                icon_size: Some(self.icon_size),
+                ..ResolvedComponentStyle::default()
+            })
+    }
+
+    pub fn hierarchy_style(&self, hierarchy: ButtonHierarchy) -> ComponentStateStyles {
+        self.hierarchies
+            .iter()
+            .find(|(candidate, _)| *candidate == hierarchy)
+            .map(|(_, styles)| styles.clone())
+            .or_else(|| {
+                self.hierarchies
+                    .iter()
+                    .find(|(candidate, _)| *candidate == ButtonHierarchy::Primary)
+                    .map(|(_, styles)| styles.clone())
+            })
+            .unwrap_or_default()
+    }
+
+    pub fn resolve(
+        &self,
+        hierarchy: ButtonHierarchy,
+        size: ComponentSize,
+        state: ComponentState,
+    ) -> ResolvedComponentStyle {
+        let base = ResolvedComponentStyle {
+            height: Some(self.height),
+            padding_x: Some(self.padding_horizontal),
+            padding_y: Some(self.padding_vertical),
+            radius: Some(self.radius),
+            font_size: Some(self.text_size),
+            font_weight: Some(self.font_weight),
+            line_height: Some(self.line_height),
+            icon_size: Some(self.icon_size),
+            transition: self.transition.clone(),
+            ..ResolvedComponentStyle::default()
+        };
+        base.merge(&self.size_style(size))
+            .merge(&self.hierarchy_style(hierarchy).resolve(state))
     }
 }
 
@@ -787,6 +1306,13 @@ pub struct TextInputTheme {
     pub focus_color: Color,
     pub text_color: Color,
     pub placeholder_color: Color,
+    pub line_height: f32,
+    pub font_weight: u16,
+    pub sizes: Vec<(ComponentSize, ResolvedComponentStyle)>,
+    pub states: ComponentStateStyles,
+    pub placeholder_style: ResolvedComponentStyle,
+    pub label_style: ResolvedComponentStyle,
+    pub helper_style: ResolvedComponentStyle,
 }
 
 impl TextInputTheme {
@@ -801,7 +1327,123 @@ impl TextInputTheme {
             focus_color: tokens.colors.primary,
             text_color: tokens.colors.text_primary,
             placeholder_color: tokens.colors.text_secondary,
+            line_height: 24.0,
+            font_weight: tokens.typography.font_weight_regular,
+            sizes: vec![
+                (
+                    ComponentSize::Sm,
+                    ResolvedComponentStyle {
+                        height: Some(36.0),
+                        padding_x: Some(12.0),
+                        ..ResolvedComponentStyle::default()
+                    },
+                ),
+                (
+                    ComponentSize::Md,
+                    ResolvedComponentStyle {
+                        height: Some(40.0),
+                        padding_x: Some(12.0),
+                        ..ResolvedComponentStyle::default()
+                    },
+                ),
+            ],
+            states: ComponentStateStyles {
+                default: ResolvedComponentStyle {
+                    background: Some(Fill::Solid(tokens.colors.surface)),
+                    text_color: Some(tokens.colors.text_primary),
+                    border: Some(ComponentBorder {
+                        fill: Fill::Solid(tokens.colors.border),
+                        width: 1.0,
+                    }),
+                    shadows: tokens
+                        .elevations
+                        .level1
+                        .map(shadow_layer_from_box)
+                        .into_iter()
+                        .collect(),
+                    ..ResolvedComponentStyle::default()
+                },
+                focus: Some(ResolvedComponentStyle {
+                    border: Some(ComponentBorder {
+                        fill: Fill::Solid(tokens.colors.focus_ring),
+                        width: 2.0,
+                    }),
+                    shadows: tokens
+                        .elevations
+                        .focus
+                        .map(shadow_layer_from_box)
+                        .into_iter()
+                        .collect(),
+                    padding_x: Some(11.0),
+                    ..ResolvedComponentStyle::default()
+                }),
+                error: Some(ResolvedComponentStyle {
+                    border: Some(ComponentBorder {
+                        fill: Fill::Solid(tokens.colors.error),
+                        width: 1.0,
+                    }),
+                    ..ResolvedComponentStyle::default()
+                }),
+                disabled: Some(ResolvedComponentStyle {
+                    background: Some(Fill::Solid(tokens.colors.surface_sunken)),
+                    text_color: Some(tokens.colors.text_secondary),
+                    ..ResolvedComponentStyle::default()
+                }),
+                ..ComponentStateStyles::default()
+            },
+            placeholder_style: ResolvedComponentStyle {
+                text_color: Some(tokens.colors.text_muted),
+                ..ResolvedComponentStyle::default()
+            },
+            label_style: ResolvedComponentStyle {
+                font_size: Some(tokens.typography.font_size_base),
+                font_weight: Some(tokens.typography.font_weight_medium),
+                text_color: Some(tokens.colors.text_primary),
+                ..ResolvedComponentStyle::default()
+            },
+            helper_style: ResolvedComponentStyle {
+                font_size: Some(tokens.typography.font_size_base),
+                text_color: Some(tokens.colors.text_muted),
+                ..ResolvedComponentStyle::default()
+            },
         }
+    }
+
+    pub fn size_style(&self, size: ComponentSize) -> ResolvedComponentStyle {
+        self.sizes
+            .iter()
+            .find(|(candidate, _)| *candidate == size)
+            .map(|(_, style)| style.clone())
+            .or_else(|| {
+                self.sizes
+                    .iter()
+                    .find(|(candidate, _)| *candidate == ComponentSize::Md)
+                    .map(|(_, style)| style.clone())
+            })
+            .unwrap_or_else(|| ResolvedComponentStyle {
+                height: Some(self.height),
+                padding_x: Some(self.padding_h),
+                ..ResolvedComponentStyle::default()
+            })
+    }
+
+    pub fn resolve(&self, size: ComponentSize, state: ComponentState) -> ResolvedComponentStyle {
+        let base = ResolvedComponentStyle {
+            height: Some(self.height),
+            padding_x: Some(self.padding_h),
+            radius: Some(self.radius),
+            font_size: Some(self.font_size),
+            line_height: Some(self.line_height),
+            font_weight: Some(self.font_weight),
+            text_color: Some(self.text_color),
+            border: Some(ComponentBorder {
+                fill: Fill::Solid(self.border_color),
+                width: self.border_width,
+            }),
+            ..ResolvedComponentStyle::default()
+        };
+        base.merge(&self.size_style(size))
+            .merge(&self.states.resolve(state))
     }
 }
 
@@ -931,6 +1573,9 @@ impl AlertTheme {
 pub struct BadgeTheme {
     pub radius: f32,
     pub font_size: f32,
+    pub font_weight: u16,
+    pub sizes: Vec<(ComponentSize, ResolvedComponentStyle)>,
+    pub tones: Vec<(BadgeTone, ResolvedComponentStyle)>,
 }
 
 impl BadgeTheme {
@@ -938,7 +1583,111 @@ impl BadgeTheme {
         Self {
             radius: tokens.radii.full,
             font_size: 10.0,
+            font_weight: tokens.typography.font_weight_medium,
+            sizes: vec![
+                (
+                    ComponentSize::Sm,
+                    ResolvedComponentStyle {
+                        height: Some(20.0),
+                        padding_x: Some(8.0),
+                        font_size: Some(tokens.typography.font_size_xs),
+                        line_height: Some(18.0),
+                        ..ResolvedComponentStyle::default()
+                    },
+                ),
+                (
+                    ComponentSize::Md,
+                    ResolvedComponentStyle {
+                        height: Some(24.0),
+                        padding_x: Some(10.0),
+                        font_size: Some(tokens.typography.font_size_base),
+                        line_height: Some(20.0),
+                        ..ResolvedComponentStyle::default()
+                    },
+                ),
+            ],
+            tones: vec![
+                (
+                    BadgeTone::Brand,
+                    badge_tone(
+                        tokens.colors.primary_subtle,
+                        tokens.colors.primary,
+                        tokens.colors.primary,
+                    ),
+                ),
+                (
+                    BadgeTone::Gray,
+                    badge_tone(
+                        tokens.colors.surface_sunken,
+                        tokens.colors.border,
+                        tokens.colors.text_primary,
+                    ),
+                ),
+                (
+                    BadgeTone::Success,
+                    badge_tone(
+                        tokens.colors.success.with_alpha(26),
+                        tokens.colors.success.with_alpha(80),
+                        tokens.colors.success,
+                    ),
+                ),
+                (
+                    BadgeTone::Warning,
+                    badge_tone(
+                        tokens.colors.warning.with_alpha(26),
+                        tokens.colors.warning.with_alpha(80),
+                        tokens.colors.warning,
+                    ),
+                ),
+                (
+                    BadgeTone::Error,
+                    badge_tone(
+                        tokens.colors.error.with_alpha(26),
+                        tokens.colors.error.with_alpha(80),
+                        tokens.colors.error,
+                    ),
+                ),
+                (
+                    BadgeTone::Blue,
+                    badge_tone(
+                        tokens.colors.info.with_alpha(26),
+                        tokens.colors.info.with_alpha(80),
+                        tokens.colors.info,
+                    ),
+                ),
+                (
+                    BadgeTone::Orange,
+                    badge_tone(
+                        tokens.colors.warning.with_alpha(26),
+                        tokens.colors.warning.with_alpha(80),
+                        tokens.colors.warning,
+                    ),
+                ),
+            ],
         }
+    }
+
+    pub fn resolve(&self, tone: BadgeTone, size: ComponentSize) -> ResolvedComponentStyle {
+        let base = ResolvedComponentStyle {
+            radius: Some(self.radius),
+            font_size: Some(self.font_size),
+            font_weight: Some(self.font_weight),
+            ..ResolvedComponentStyle::default()
+        };
+        let size_style = find_size_style(&self.sizes, size);
+        let tone_style = self
+            .tones
+            .iter()
+            .find(|(candidate, _)| *candidate == tone)
+            .map(|(_, style)| style.clone())
+            .or_else(|| {
+                self.tones
+                    .iter()
+                    .find(|(candidate, _)| *candidate == BadgeTone::Brand)
+                    .map(|(_, style)| style.clone())
+            })
+            .unwrap_or_default();
+        base.merge(&size_style).merge(&tone_style)
     }
 }
 
@@ -950,6 +1699,9 @@ pub struct TabsTheme {
     pub indicator_height: f32,
     pub background: Color,
     pub divider_color: Color,
+    pub sizes: Vec<(ComponentSize, ResolvedComponentStyle)>,
+    pub states: ComponentStateStyles,
+    pub track_style: ResolvedComponentStyle,
 }
 
 impl TabsTheme {
@@ -960,7 +1712,74 @@ impl TabsTheme {
             indicator_height: 3.0,
             background: tokens.colors.background,
             divider_color: tokens.colors.border.with_alpha(120),
+            sizes: vec![
+                (
+                    ComponentSize::Sm,
+                    ResolvedComponentStyle {
+                        padding_y: Some(10.0),
+                        font_size: Some(tokens.typography.font_size_base),
+                        line_height: Some(20.0),
+                        height: Some(40.0),
+                        ..ResolvedComponentStyle::default()
+                    },
+                ),
+                (
+                    ComponentSize::Md,
+                    ResolvedComponentStyle {
+                        padding_y: Some(12.0),
+                        font_size: Some(tokens.typography.font_size_base),
+                        line_height: Some(20.0),
+                        height: Some(44.0),
+                        ..ResolvedComponentStyle::default()
+                    },
+                ),
+            ],
+            states: ComponentStateStyles {
+                default: ResolvedComponentStyle {
+                    text_color: Some(tokens.colors.text_secondary),
+                    border: Some(ComponentBorder {
+                        fill: Fill::Solid(Color {
+                            r: 0,
+                            g: 0,
+                            b: 0,
+                            a: 0,
+                        }),
+                        width: 2.0,
+                    }),
+                    ..ResolvedComponentStyle::default()
+                },
+                hover: Some(ResolvedComponentStyle {
+                    text_color: Some(tokens.colors.text_primary),
+                    ..ResolvedComponentStyle::default()
+                }),
+                active: Some(ResolvedComponentStyle {
+                    text_color: Some(tokens.colors.primary),
+                    border: Some(ComponentBorder {
+                        fill: Fill::Solid(tokens.colors.primary),
+                        width: 2.0,
+                    }),
+                    font_weight: Some(tokens.typography.font_weight_semibold),
+                    ..ResolvedComponentStyle::default()
+                }),
+                ..ComponentStateStyles::default()
+            },
+            track_style: ResolvedComponentStyle {
+                background: Some(Fill::Solid(tokens.colors.background)),
+                border: Some(ComponentBorder {
+                    fill: Fill::Solid(tokens.colors.border.with_alpha(120)),
+                    width: 1.0,
+                }),
+                ..ResolvedComponentStyle::default()
+            },
         }
+    }
+
+    pub fn resolve_tab(
+        &self,
+        size: ComponentSize,
+        state: ComponentState,
+    ) -> ResolvedComponentStyle {
+        find_size_style(&self.sizes, size).merge(&self.states.resolve(state))
     }
 }
 
@@ -973,6 +1792,9 @@ pub struct ModalTheme {
     pub radius: f32,
     pub shadow: Option<BoxShadow>,
     pub max_width: f32,
+    pub container_style: ResolvedComponentStyle,
+    pub scrim_style: ResolvedComponentStyle,
+    pub scrim_blur: f32,
 }
 
 impl ModalTheme {
@@ -982,6 +1804,28 @@ impl ModalTheme {
             radius: tokens.radii.large,
             shadow: tokens.elevations.level3,
             max_width: 600.0,
+            container_style: ResolvedComponentStyle {
+                background: Some(Fill::Solid(tokens.colors.surface)),
+                radius: Some(tokens.radii.large),
+                max_width: Some(600.0),
+                shadows: tokens
+                    .elevations
+                    .level3
+                    .map(shadow_layer_from_box)
+                    .into_iter()
+                    .collect(),
+                ..ResolvedComponentStyle::default()
+            },
+            scrim_style: ResolvedComponentStyle {
+                background: Some(Fill::Solid(Color {
+                    r: 15,
+                    g: 23,
+                    b: 42,
+                    a: 153,
+                })),
+                ..ResolvedComponentStyle::default()
+            },
+            scrim_blur: 4.0,
         }
     }
 }
@@ -1010,6 +1854,9 @@ pub struct ProgressTheme {
     pub height: f32,
     pub track_color: Color,
     pub bar_color: Color,
+    pub radius: f32,
+    pub track_style: ResolvedComponentStyle,
+    pub fill_style: ResolvedComponentStyle,
 }
 
 impl ProgressTheme {
@@ -1018,6 +1865,19 @@ impl ProgressTheme {
             height: 8.0,
             track_color: tokens.colors.border,
             bar_color: tokens.colors.primary,
+            radius: tokens.radii.full,
+            track_style: ResolvedComponentStyle {
+                height: Some(8.0),
+                radius: Some(tokens.radii.full),
+                background: Some(Fill::Solid(tokens.colors.border)),
+                ..ResolvedComponentStyle::default()
+            },
+            fill_style: ResolvedComponentStyle {
+                height: Some(8.0),
+                radius: Some(tokens.radii.full),
+                background: Some(Fill::Solid(tokens.colors.primary)),
+                ..ResolvedComponentStyle::default()
+            },
         }
     }
 }
@@ -1029,6 +1889,10 @@ pub struct TooltipTheme {
     pub text_color: Color,
     pub radius: f32,
     pub font_size: f32,
+    pub padding_x: f32,
+    pub padding_y: f32,
+    pub max_width: f32,
+    pub style: ResolvedComponentStyle,
 }
 
 impl TooltipTheme {
@@ -1043,8 +1907,255 @@ impl TooltipTheme {
             text_color: Color::WHITE,
             radius: tokens.radii.small,
             font_size: 12.0,
+            padding_x: 10.0,
+            padding_y: 8.0,
+            max_width: 240.0,
+            style: ResolvedComponentStyle {
+                background: Some(Fill::Solid(Color {
+                    r: 50,
+                    g: 50,
+                    b: 50,
+                    a: 255,
+                })),
+                text_color: Some(Color::WHITE),
+                radius: Some(tokens.radii.small),
+                font_size: Some(12.0),
+                padding_x: Some(10.0),
+                padding_y: Some(8.0),
+                max_width: Some(240.0),
+                shadows: tokens
+                    .elevations
+                    .level2
+                    .map(shadow_layer_from_box)
+                    .into_iter()
+                    .collect(),
+                ..ResolvedComponentStyle::default()
+            },
         }
     }
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct CardTheme {
+    pub padding: f32,
+    pub radius: f32,
+    pub default_pattern: CardPattern,
+    pub patterns: Vec<(CardPattern, ResolvedComponentStyle)>,
+    pub hover_style: ResolvedComponentStyle,
+}
+
+impl CardTheme {
+    pub fn from_tokens(tokens: &Tokens) -> Self {
+        let base_border = ComponentBorder {
+            fill: Fill::Solid(tokens.colors.border),
+            width: 1.0,
+        };
+        Self {
+            padding: tokens.spacing.l,
+            radius: tokens.radii.xl,
+            default_pattern: CardPattern::Raised,
+            patterns: vec![
+                (
+                    CardPattern::Plain,
+                    ResolvedComponentStyle {
+                        background: Some(Fill::Solid(tokens.colors.surface)),
+                        border: Some(base_border.clone()),
+                        radius: Some(tokens.radii.xl),
+                        padding_x: Some(tokens.spacing.l),
+                        padding_y: Some(tokens.spacing.l),
+                        ..ResolvedComponentStyle::default()
+                    },
+                ),
+                (
+                    CardPattern::Raised,
+                    ResolvedComponentStyle {
+                        background: Some(Fill::Solid(tokens.colors.surface)),
+                        border: Some(base_border.clone()),
+                        radius: Some(tokens.radii.xl),
+                        padding_x: Some(tokens.spacing.l),
+                        padding_y: Some(tokens.spacing.l),
+                        shadows: tokens
+                            .elevations
+                            .level2
+                            .map(shadow_layer_from_box)
+                            .into_iter()
+                            .collect(),
+                        ..ResolvedComponentStyle::default()
+                    },
+                ),
+                (
+                    CardPattern::Tinted,
+                    ResolvedComponentStyle {
+                        background: Some(Fill::Solid(tokens.colors.primary_subtle)),
+                        border: Some(ComponentBorder {
+                            fill: Fill::Solid(tokens.colors.primary.with_alpha(80)),
+                            width: 1.0,
+                        }),
+                        radius: Some(tokens.radii.xl),
+                        padding_x: Some(tokens.spacing.l),
+                        padding_y: Some(tokens.spacing.l),
+                        ..ResolvedComponentStyle::default()
+                    },
+                ),
+                (
+                    CardPattern::Elevated,
+                    ResolvedComponentStyle {
+                        background: Some(Fill::Solid(tokens.colors.surface)),
+                        border: Some(base_border),
+                        radius: Some(tokens.radii.xl),
+                        padding_x: Some(tokens.spacing.l),
+                        padding_y: Some(tokens.spacing.l),
+                        shadows: tokens
+                            .elevations
+                            .level1
+                            .map(shadow_layer_from_box)
+                            .into_iter()
+                            .collect(),
+                        ..ResolvedComponentStyle::default()
+                    },
+                ),
+            ],
+            hover_style: ResolvedComponentStyle {
+                shadows: tokens
+                    .elevations
+                    .level2
+                    .map(shadow_layer_from_box)
+                    .into_iter()
+                    .collect(),
+                ..ResolvedComponentStyle::default()
+            },
+        }
+    }
+
+    pub fn resolve(&self, pattern: CardPattern, hovered: bool) -> ResolvedComponentStyle {
+        let base = self
+            .patterns
+            .iter()
+            .find(|(candidate, _)| *candidate == pattern)
+            .map(|(_, style)| style.clone())
+            .or_else(|| {
+                self.patterns
+                    .iter()
+                    .find(|(candidate, _)| *candidate == self.default_pattern)
+                    .map(|(_, style)| style.clone())
+            })
+            .unwrap_or_default();
+        if hovered {
+            base.merge(&self.hover_style)
+        } else {
+            base
+        }
+    }
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct FeatureIconTheme {
+    pub sizes: Vec<(ComponentSize, ResolvedComponentStyle)>,
+    pub tones: Vec<(FeatureIconTone, ResolvedComponentStyle)>,
+    pub shadow: Option<BoxShadow>,
+}
+
+impl FeatureIconTheme {
+    pub fn from_tokens(tokens: &Tokens) -> Self {
+        Self {
+            sizes: vec![
+                (
+                    ComponentSize::Md,
+                    ResolvedComponentStyle {
+                        width: Some(40.0),
+                        height: Some(40.0),
+                        radius: Some(tokens.radii.medium),
+                        icon_size: Some(20.0),
+                        ..ResolvedComponentStyle::default()
+                    },
+                ),
+                (
+                    ComponentSize::Lg,
+                    ResolvedComponentStyle {
+                        width: Some(48.0),
+                        height: Some(48.0),
+                        radius: Some(10.0),
+                        icon_size: Some(24.0),
+                        ..ResolvedComponentStyle::default()
+                    },
+                ),
+                (
+                    ComponentSize::Xl,
+                    ResolvedComponentStyle {
+                        width: Some(56.0),
+                        height: Some(56.0),
+                        radius: Some(12.0),
+                        icon_size: Some(28.0),
+                        ..ResolvedComponentStyle::default()
+                    },
+                ),
+            ],
+            tones: vec![
+                (
+                    FeatureIconTone::Brand,
+                    badge_tone(
+                        tokens.colors.primary_subtle,
+                        tokens.colors.primary.with_alpha(40),
+                        tokens.colors.primary,
+                    ),
+                ),
+                (
+                    FeatureIconTone::Gray,
+                    badge_tone(
+                        tokens.colors.surface_sunken,
+                        tokens.colors.border,
+                        tokens.colors.text_primary,
+                    ),
+                ),
+                (
+                    FeatureIconTone::Blue,
+                    badge_tone(
+                        tokens.colors.info.with_alpha(26),
+                        tokens.colors.info.with_alpha(80),
+                        tokens.colors.info,
+                    ),
+                ),
+                (
+                    FeatureIconTone::Orange,
+                    badge_tone(
+                        tokens.colors.warning.with_alpha(26),
+                        tokens.colors.warning.with_alpha(80),
+                        tokens.colors.warning,
+                    ),
+                ),
+            ],
+            shadow: tokens.elevations.level1,
+        }
+    }
+}
+
+fn badge_tone(background: Color, border: Color, text_color: Color) -> ResolvedComponentStyle {
+    ResolvedComponentStyle {
+        background: Some(Fill::Solid(background)),
+        text_color: Some(text_color),
+        border: Some(ComponentBorder {
+            fill: Fill::Solid(border),
+            width: 1.0,
+        }),
+        ..ResolvedComponentStyle::default()
+    }
+}
+
+fn find_size_style(
+    styles: &[(ComponentSize, ResolvedComponentStyle)],
+    size: ComponentSize,
+) -> ResolvedComponentStyle {
+    styles
+        .iter()
+        .find(|(candidate, _)| *candidate == size)
+        .map(|(_, style)| style.clone())
+        .or_else(|| {
+            styles
+                .iter()
+                .find(|(candidate, _)| *candidate == ComponentSize::Md)
+                .map(|(_, style)| style.clone())
+        })
+        .unwrap_or_default()
 }
 
 /// Aggregates all per-component visual themes.
@@ -1066,6 +2177,8 @@ pub struct ComponentTheme {
     pub tree_view: TreeViewTheme,
     pub progress: ProgressTheme,
     pub tooltip: TooltipTheme,
+    pub card: CardTheme,
+    pub feature_icon: FeatureIconTheme,
 }
 
 impl ComponentTheme {
@@ -1084,6 +2197,8 @@ impl ComponentTheme {
             tree_view: TreeViewTheme::from_tokens(tokens),
             progress: ProgressTheme::from_tokens(tokens),
             tooltip: TooltipTheme::from_tokens(tokens),
+            card: CardTheme::from_tokens(tokens),
+            feature_icon: FeatureIconTheme::from_tokens(tokens),
         }
     }
 }
