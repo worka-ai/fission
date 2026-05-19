@@ -1,5 +1,8 @@
 #![allow(unexpected_cfgs)]
-#![cfg_attr(target_arch = "wasm32", allow(dead_code, unused_imports, unused_variables))]
+#![cfg_attr(
+    target_arch = "wasm32",
+    allow(dead_code, unused_imports, unused_variables)
+)]
 
 use anyhow::Result;
 use base64::Engine;
@@ -1494,6 +1497,44 @@ fn normalize_winit_scroll_delta(delta: &MouseScrollDelta, scale_factor: f64) -> 
     }
 }
 
+fn physical_position_to_layout_point(
+    position: PhysicalPosition<f64>,
+    scale_factor: f64,
+    content_origin: PhysicalPosition<i32>,
+) -> LayoutPoint {
+    let scale_factor = normalize_scale_factor(scale_factor);
+    LayoutPoint::new(
+        ((position.x - content_origin.x as f64) / scale_factor) as f32,
+        ((position.y - content_origin.y as f64) / scale_factor) as f32,
+    )
+}
+
+fn window_content_origin_physical(window: &Window) -> PhysicalPosition<i32> {
+    #[cfg(target_os = "ios")]
+    {
+        // Winit's iOS backend reports touches in the full UIView/window
+        // coordinate space, while `inner_size` is the safe-area viewport.
+        // Convert input into the same safe-area-relative space used by layout.
+        if let (Ok(inner), Ok(outer)) = (window.inner_position(), window.outer_position()) {
+            return PhysicalPosition::new(inner.x - outer.x, inner.y - outer.y);
+        }
+    }
+
+    let _ = window;
+    PhysicalPosition::new(0, 0)
+}
+
+fn window_physical_position_to_layout_point(
+    window: &Window,
+    position: PhysicalPosition<f64>,
+) -> LayoutPoint {
+    physical_position_to_layout_point(
+        position,
+        window.scale_factor(),
+        window_content_origin_physical(window),
+    )
+}
+
 /// Handle cursor/mouse move — shared by WindowEvent::CursorMoved and TestEvent::MouseMove.
 fn handle_cursor_moved(
     x: f32,
@@ -1767,13 +1808,8 @@ fn handle_cursor_left(
     invalidations: &mut InvalidationSet,
 ) {
     if let Some(ir) = &pipeline.prev_ir {
-        let point = last_cursor_position.map(|position| {
-            let scale_factor = window.scale_factor();
-            LayoutPoint::new(
-                (position.x / scale_factor) as f32,
-                (position.y / scale_factor) as f32,
-            )
-        });
+        let point = last_cursor_position
+            .map(|position| window_physical_position_to_layout_point(window, position));
         match runtime.clear_hover_state(ir, point) {
             Ok(changed) => {
                 sync_window_cursor(window, runtime);
@@ -4354,12 +4390,11 @@ impl<S: AppState + Default, W: Widget<S> + 'static> WinitApp<S, W> {
                             // that TestEvent handlers use.
                             WindowEvent::CursorMoved { position, .. } => {
                                 last_cursor_position = Some(position);
-                                let scale_factor = window.scale_factor();
-                                let x = (position.x / scale_factor) as f32;
-                                let y = (position.y / scale_factor) as f32;
+                                let point =
+                                    window_physical_position_to_layout_point(window, position);
                                 handle_cursor_moved(
-                                    x,
-                                    y,
+                                    point.x,
+                                    point.y,
                                     current_mods,
                                     &mut runtime,
                                     &pipeline,
@@ -4401,14 +4436,13 @@ impl<S: AppState + Default, W: Widget<S> + 'static> WinitApp<S, W> {
                             }
                             WindowEvent::MouseInput { state, button, .. } => {
                                 if let Some(position) = last_cursor_position {
-                                    let scale_factor = window.scale_factor();
-                                    let x = (position.x / scale_factor) as f32;
-                                    let y = (position.y / scale_factor) as f32;
+                                    let point =
+                                        window_physical_position_to_layout_point(window, position);
                                     if let Some(btn) = map_mouse_button(button) {
                                         let is_pressed = state.is_pressed();
                                         handle_mouse_button(
-                                            x,
-                                            y,
+                                            point.x,
+                                            point.y,
                                             btn,
                                             is_pressed,
                                             current_mods,
@@ -4439,8 +4473,8 @@ impl<S: AppState + Default, W: Widget<S> + 'static> WinitApp<S, W> {
                             WindowEvent::MouseWheel { delta, .. } => {
                                 if let Some(position) = last_cursor_position {
                                     let scale_factor = window.scale_factor();
-                                    let point_x = (position.x / scale_factor) as f32;
-                                    let point_y = (position.y / scale_factor) as f32;
+                                    let point =
+                                        window_physical_position_to_layout_point(window, position);
 
                                     let (dx, dy) =
                                         normalize_winit_scroll_delta(&delta, scale_factor);
@@ -4450,12 +4484,12 @@ impl<S: AppState + Default, W: Widget<S> + 'static> WinitApp<S, W> {
                                     {
                                         eprintln!(
                                             "[scroll-trace] mousewheel raw={:?} point=({:.1},{:.1}) delta=({:.1},{:.1})",
-                                            delta, point_x, point_y, dx, dy
+                                            delta, point.x, point.y, dx, dy
                                         );
                                     }
                                     handle_scroll(
-                                        point_x,
-                                        point_y,
+                                        point.x,
+                                        point.y,
                                         dx,
                                         dy,
                                         current_mods,
@@ -4491,9 +4525,8 @@ impl<S: AppState + Default, W: Widget<S> + 'static> WinitApp<S, W> {
                                 };
                                 last_cursor_position = Some(position);
 
-                                let scale_factor = window.scale_factor();
-                                let x = (position.x / scale_factor) as f32;
-                                let y = (position.y / scale_factor) as f32;
+                                let point =
+                                    window_physical_position_to_layout_point(window, position);
 
                                 match touch.phase {
                                     TouchPhase::Started => {
@@ -4503,8 +4536,8 @@ impl<S: AppState + Default, W: Widget<S> + 'static> WinitApp<S, W> {
                                         }
                                         if active_primary_touch == Some(touch.id) {
                                             handle_cursor_moved(
-                                                x,
-                                                y,
+                                                point.x,
+                                                point.y,
                                                 current_mods,
                                                 &mut runtime,
                                                 &pipeline,
@@ -4523,8 +4556,8 @@ impl<S: AppState + Default, W: Widget<S> + 'static> WinitApp<S, W> {
                                                 &mut invalidations,
                                             );
                                             handle_mouse_button(
-                                                x,
-                                                y,
+                                                point.x,
+                                                point.y,
                                                 PointerButton::Primary,
                                                 true,
                                                 current_mods,
@@ -4555,8 +4588,8 @@ impl<S: AppState + Default, W: Widget<S> + 'static> WinitApp<S, W> {
                                         touch_positions.insert(touch.id, position);
                                         if active_primary_touch == Some(touch.id) {
                                             handle_cursor_moved(
-                                                x,
-                                                y,
+                                                point.x,
+                                                point.y,
                                                 current_mods,
                                                 &mut runtime,
                                                 &pipeline,
@@ -4579,8 +4612,8 @@ impl<S: AppState + Default, W: Widget<S> + 'static> WinitApp<S, W> {
                                     TouchPhase::Ended | TouchPhase::Cancelled => {
                                         if active_primary_touch == Some(touch.id) {
                                             handle_cursor_moved(
-                                                x,
-                                                y,
+                                                point.x,
+                                                point.y,
                                                 current_mods,
                                                 &mut runtime,
                                                 &pipeline,
@@ -4599,8 +4632,8 @@ impl<S: AppState + Default, W: Widget<S> + 'static> WinitApp<S, W> {
                                                 &mut invalidations,
                                             );
                                             handle_mouse_button(
-                                                x,
-                                                y,
+                                                point.x,
+                                                point.y,
                                                 PointerButton::Primary,
                                                 false,
                                                 current_mods,
@@ -5132,10 +5165,10 @@ mod tests {
         animation_redraw_interval, clamp_copy_extent_to_texture, cursor_icon_for,
         downscale_rgba_box, layout_size_to_image_dimensions, logical_viewport_to_physical_size,
         logical_viewport_to_render_target_size, native_window_size_for_logical_viewport,
-        normalize_scale_factor, normalize_winit_scroll_delta, physical_size_to_layout_size,
-        repeating_animation_redraw_interval, resize_is_unsettled, resolve_build_viewport,
-        sync_tracked_target_texture_size_to_surface, texture_plans_fit_device_limits,
-        LiveResizeController, WindowViewportState,
+        normalize_scale_factor, normalize_winit_scroll_delta, physical_position_to_layout_point,
+        physical_size_to_layout_size, repeating_animation_redraw_interval, resize_is_unsettled,
+        resolve_build_viewport, sync_tracked_target_texture_size_to_surface,
+        texture_plans_fit_device_limits, LiveResizeController, WindowViewportState,
     };
     use crate::pipeline::CompositorTexturePlan;
     use crate::InvalidationSet;
@@ -5177,6 +5210,26 @@ mod tests {
             ),
             (10.0, 20.0)
         );
+    }
+
+    #[test]
+    fn physical_input_position_maps_into_layout_space() {
+        let point = physical_position_to_layout_point(
+            PhysicalPosition::new(240.0, 360.0),
+            2.0,
+            PhysicalPosition::new(0, 0),
+        );
+        assert_eq!(point, fission_render::LayoutPoint::new(120.0, 180.0));
+    }
+
+    #[test]
+    fn physical_input_position_subtracts_content_origin_before_scaling() {
+        let point = physical_position_to_layout_point(
+            PhysicalPosition::new(240.0, 460.0),
+            2.0,
+            PhysicalPosition::new(0, 100),
+        );
+        assert_eq!(point, fission_render::LayoutPoint::new(120.0, 180.0));
     }
 
     #[test]
