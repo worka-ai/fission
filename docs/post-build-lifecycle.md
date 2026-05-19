@@ -13,9 +13,9 @@ Fission should manage the whole lifecycle of an application, not just compile an
 3. Can this artifact be distributed to the selected store, track, bucket, drive, or folder?
 4. If any answer is no, what exact setup step is missing?
 
-This document specifies the required command model, package formats, store distribution flows, cloud upload flows, release metadata, release-content automation, beta testing operations, credential storage model, readiness checks, and acceptance criteria for that post-build lifecycle. `fission.toml` is the authoritative source for release metadata: store listing text, release notes, tester configuration, review instructions, provider IDs, and asset paths. Release-content commands produce or validate the files referenced by that metadata, such as screenshots, app preview videos, trailers, review attachments, receipts, and generated manifests.
+This document specifies the required command model, package formats, store distribution flows, cloud upload flows, release metadata, release-content automation, beta testing operations, credential storage model, readiness checks, and acceptance criteria for that post-build lifecycle. `fission.toml` is the authoritative release root: it declares provider IDs, active releases, tracks, locales, asset paths, and references to release-specific metadata files. Long-form store text, full release notes, review instructions, privacy declarations, and other bulky per-release content should live in referenced files so `fission.toml` remains reviewable by humans. Release-content commands produce or validate the files referenced by that root, such as screenshots, app preview videos, trailers, review attachments, receipts, and generated manifests.
 
-The design is Rust-first. The implementation should use Rust crates and libraries where they are production-ready. It should shell out only where the platform owner requires a proprietary tool, where no Rust implementation exists, or where the Rust implementation is not mature enough for production release automation.
+The design is Rust-first at the orchestration layer. Fission should use Rust crates and libraries for project configuration, manifests, readiness checks, release-content generation, cloud uploads, receipts, credential handling, and provider API clients where they are production-ready. Platform-owned packaging, signing, notarization, validation, device deployment, and store upload paths remain anchored on the tools, SDKs, command-line programs, and APIs provided by Apple, Google/Android, and Microsoft.
 
 ## 2. Requirement language
 
@@ -107,7 +107,7 @@ fission auth audit
 
 The `release-config`, `release-content`, `beta`, `signing`, and `reviews` commands are part of the release workflow, but they must not become hidden side effects of packaging. A package command may point to the content manifest it expects, but release metadata editing, content capture, beta group management, and customer review response are explicit operations. The `readiness` commands MUST emit both human output and JSON output. JSON output is required for CI and IDE integrations.
 
-`fission.toml` is the authoritative source for release metadata. The CLI MUST support three ways to maintain it:
+`fission.toml` is the authoritative release root. It can contain short metadata directly, but bulky release-specific content should be referenced by path. The CLI MUST support three ways to maintain it:
 
 - manual editing for developers who prefer normal text files and code review;
 - TUI editing for interactive guided setup on a developer machine;
@@ -148,9 +148,9 @@ Severity is `error`, `warning`, or `info`. `error` blocks packaging or distribut
 
 ## 5. Project configuration
 
-Release configuration and store metadata belong in `fission.toml`. Secrets do not belong in `fission.toml`. Asset files such as screenshots, app preview videos, trailers, icons, review attachments, and large generated images live on disk and are referenced by path from `fission.toml`. Generated manifests and provider receipts live under `release-content/` or `target/fission/`, but they are outputs, not the source of truth.
+Release configuration and release metadata are rooted in `fission.toml`. Secrets do not belong in `fission.toml`. The root file should stay compact: it contains stable app identity, provider configuration, the list of releases, short labels, tracks, locales, and paths to the files that hold long-form release content. Asset files such as screenshots, app preview videos, trailers, icons, review attachments, and large generated images live on disk and are referenced by path from `fission.toml`. Generated manifests and provider receipts live under `release-content/` or `target/fission/`; they are audit outputs, not editable inputs.
 
-`fission.toml` must remain hand-editable. The schema should be explicit enough for code review and precise enough for automation. The CLI may reorganize, normalize, or populate fields, but it must preserve comments where practical and avoid destructive rewrites of unrelated sections. `fission release-config edit` opens the configured text editor by default; `fission release-config edit --tui` opens the guided terminal UI. Both edit the same file and must produce the same validation result.
+`fission.toml` must remain hand-editable. The schema should be explicit enough for code review and precise enough for automation, but it must not become a dumping ground for every localized paragraph of every release. The CLI may reorganize, normalize, or populate fields, but it must preserve comments where practical and avoid destructive rewrites of unrelated sections. `fission release-config edit` opens the configured text editor by default; `fission release-config edit --tui` opens the guided terminal UI. Both edit the same root manifest and the referenced content files, and both must produce the same validation result.
 
 ```toml
 [app]
@@ -231,36 +231,39 @@ package_identity_name = "ExampleSoftware.Todo"
 default_locales = ["en-US"]
 default_theme_modes = ["light", "dark"]
 content_output_dir = "release-content"
+metadata_root = "release-content/metadata"
+active_release = "1.2.3+42"
 
-[release.metadata.app_store.en-US]
+[[releases]]
+id = "1.2.3+42"
+version = "1.2.3"
+build = 42
+status = "candidate"
+tracks = ["app-store:testflight", "play-store:internal", "microsoft-store:private"]
+locales = ["en-US", "fr-FR"]
+metadata = "release-content/metadata/1.2.3+42/release.toml"
+release_notes = "release-content/metadata/1.2.3+42/notes"
+review = "release-content/metadata/1.2.3+42/review.toml"
+privacy = "release-content/metadata/1.2.3+42/privacy.toml"
+
+[release.store_listing.app_store.en-US]
 name = "Todo"
 subtitle = "Plan the work that matters"
-description = "Todo is a focused task manager built with Fission."
 keywords = ["todo", "tasks", "productivity"]
-promotional_text = "A fast, native task list for every screen."
-release_notes = "This release improves task editing and sync reliability."
 support_url = "https://example.com/support"
 marketing_url = "https://example.com/todo"
 privacy_url = "https://example.com/privacy"
+# Long description, promotional text, release notes, and review notes are read from the active release files.
 
-[release.metadata.app_store.review]
-contact_first_name = "Release"
-contact_last_name = "Team"
-contact_email = "review@example.com"
-contact_phone = "+1-555-0100"
-notes = "Use demo@example.com / password123 to access the demo workspace."
-
-[release.metadata.play_store.en-US]
+[release.store_listing.play_store.en-US]
 title = "Todo"
 short_description = "A focused task manager built with Fission."
-full_description = "Todo helps you capture, plan, and finish work across desktop, web, Android, and iOS."
-release_notes = "This release improves task editing and sync reliability."
+# Full description and per-release notes are read from the active release files.
 
-[release.metadata.microsoft_store.en-US]
+[release.store_listing.microsoft_store.en-US]
 title = "Todo"
 short_description = "A focused task manager built with Fission."
-description = "Todo helps you capture, plan, and finish work across Windows devices."
-release_notes = "This release improves task editing and sync reliability."
+# Full description and per-release notes are read from the active release files.
 
 [release.screenshots]
 raw_dir = "release-content/screenshots/raw"
@@ -317,7 +320,8 @@ The CLI MUST validate that:
 - `app.version` is semantic for Fission metadata, but platform-specific build numbers follow platform rules.
 - secrets are referenced by key name or provider account, not embedded as plaintext values.
 - icon and store asset paths exist before packaging.
-- `fission.toml` contains the required store metadata for the selected provider and locales.
+- `fission.toml` contains the required release root entries for the selected provider, release, and locales.
+- every file referenced by `[[releases]]` exists, is inside an allowed project path, and validates against the release-content schema.
 - release-content output roots are inside the project or an explicitly allowed workspace path.
 - screenshot scenarios reference runnable Fission test scripts or declarative app states.
 - beta group names, track names, and tester sources are valid for the selected provider.
@@ -378,7 +382,7 @@ target/fission/<profile>/<target>/<format>/distribution/<provider>/<timestamp>.j
 
 Distribution receipts MUST contain provider IDs, URLs, submitted track/channel, uploaded bytes, hashes, release status, and any manual follow-up required.
 
-Release-content commands MUST emit a separate content manifest because screenshots, preview media, and rendered store assets can change without rebuilding the binary. Store metadata values in the manifest are resolved from `fission.toml`; the manifest records the exact values and hashes submitted, but does not become the editable source of truth.
+Release-content commands MUST emit a separate content manifest because screenshots, preview media, rendered store assets, and referenced release files can change without rebuilding the binary. Store metadata values in the manifest are resolved from `fission.toml` plus the files referenced by the active `[[releases]]` entry. The manifest records the exact values and hashes submitted, but does not become an editable input.
 
 ```text
 release-content/content-manifest.json
@@ -405,8 +409,18 @@ Minimum content manifest schema:
   "metadata": [
     {
       "locale": "en-US",
-      "source": "fission.toml:release.metadata.app_store.en-US",
-      "sha256": "..."
+      "source": "fission.toml:[[releases]].metadata + release.store_listing.app_store.en-US",
+      "files": [
+        {
+          "path": "release-content/metadata/1.2.3+42/release.toml",
+          "sha256": "..."
+        },
+        {
+          "path": "release-content/metadata/1.2.3+42/notes/en-US.md",
+          "sha256": "..."
+        }
+      ],
+      "resolved_sha256": "..."
     }
   ],
   "beta": {
@@ -416,7 +430,7 @@ Minimum content manifest schema:
 }
 ```
 
-A distribution command that submits store metadata or screenshots MUST record both the artifact manifest and content manifest hashes in the distribution receipt. If the command updates provider metadata directly from `fission.toml`, it MUST first materialize a content manifest so the exact submitted state is auditable.
+A distribution command that submits store metadata or screenshots MUST record both the artifact manifest and content manifest hashes in the distribution receipt. If the command updates provider metadata from `fission.toml` and referenced release files, it MUST first materialize a content manifest so the exact submitted state is auditable.
 
 ## 7. Packaging architecture
 
@@ -496,23 +510,23 @@ trait Distributor {
 }
 ```
 
-Readiness checks MUST be available without building or packaging. Package validation MUST be available without uploading. Release-config validation MUST validate `fission.toml` without contacting a store unless the user explicitly requests provider-side diffing. Release-content validation MUST validate rendered assets without contacting a store unless provider-side validation is requested. Beta tester and signing asset operations MUST have dry-run modes that show intended changes before modifying provider state.
+Readiness checks MUST be available without building or packaging. Package validation MUST be available without uploading. Release-config validation MUST validate `fission.toml` and all referenced release files without contacting a store unless the user explicitly requests provider-side diffing. Release-content validation MUST validate rendered assets without contacting a store unless provider-side validation is requested. Beta tester and signing asset operations MUST have dry-run modes that show intended changes before modifying provider state.
 
 ## 8. Rust-first dependency policy
 
-The release tooling should prefer these Rust ecosystem pieces where they are appropriate:
+The release tooling should prefer Rust for Fission-owned control flow and data handling while using provider tooling for provider-owned artifact semantics:
 
-| Area | Preferred Rust path | External fallback or required tool | Notes |
+| Area | Fission/Rust responsibility | Provider/platform tool | Notes |
 | --- | --- | --- | --- |
-| Desktop bundle generation | `cargo-packager` library where it fits | platform-specific packager | `cargo-packager` supports macOS `.app`, Linux AppImage/deb, Windows NSIS/WiX, but not every Fission-required format such as Linux `.run`, macOS `.pkg`, MSIX, AAB, or IPA [R25]. |
-| macOS `.app` basics | Rust packager plus Fission-owned bundle writer | Xcode tools for signing/notarization when required | `.app` bundle structure and `Info.plist` requirements are Apple platform rules [R8][R9]. |
-| macOS `.pkg` | Fission-owned orchestration | `pkgbuild` and `productbuild` | Apple's package tools create installer component packages and product archives [R13]. |
-| Apple signing/notarization | `apple-codesign`/`rcodesign` MAY be used where mature | `codesign`, `xcrun notarytool`, `stapler`, Transporter | Apple notarization officially uses Xcode command-line tools; non-Apple-host Rust signing can be valuable but must be validated per release path [R7][R28]. |
-| Windows MSI | `cargo-wix` or `cargo-packager` WiX backend | WiX Toolset, Windows SDK SignTool | `cargo-wix` builds MSI installers and can sign through SignTool [R27]. |
-| Windows MSIX | Fission-owned manifest/block map orchestration where feasible | WinApp CLI, MakeAppx, SignTool, MSIX SDK | MSIX is the modern Windows package format and all sideloaded MSIX packages must be signed [R16][R17]. |
-| Android APK | Fission-owned Rust orchestration | Android SDK `aapt2`, `zipalign`, `apksigner` | Android package signing and SDK tooling are platform requirements. |
-| Android AAB | Fission-owned writer when validated | `bundletool` | `bundletool` is the underlying tool used by Android Studio, Android Gradle Plugin, and Google Play for app bundles [R1]. |
-| iOS IPA | Fission-owned staging/zip orchestration | Xcode codesign/provisioning/export tools | Device/App Store IPAs require Apple signing assets and provisioning. |
+| Desktop bundle generation | `cargo-packager` integration where it fits, plus Fission manifest and asset staging | platform-specific packager | `cargo-packager` supports macOS `.app`, Linux AppImage/deb, Windows NSIS/WiX, but not every Fission-required format such as Linux `.run`, macOS `.pkg`, MSIX, AAB, or IPA [R25]. |
+| macOS `.app` basics | bundle metadata, assets, `Info.plist` inputs, and readiness checks | Xcode command-line tools for signing/notarization | `.app` bundle structure and `Info.plist` requirements are Apple platform rules [R8][R9]. |
+| macOS `.pkg` | configuration, staging, receipts, and readiness checks | `pkgbuild`, `productbuild`, `productsign` | Apple's package tools create installer component packages and product archives [R13]. |
+| Apple signing/notarization | credential discovery, command orchestration, logs, receipts, and diagnostics | `codesign`, `xcrun notarytool`, `stapler`, Transporter | Apple notarization officially uses Xcode command-line tools [R7]. |
+| Windows MSI | `cargo-wix` or `cargo-packager` integration plus manifest/readiness handling | WiX Toolset, Windows SDK SignTool | `cargo-wix` builds MSI installers and can sign through SignTool [R27]. |
+| Windows MSIX | manifest inputs, visual assets, package identity checks, and receipt handling | MakeAppx/MSIX tooling, Windows SDK SignTool, Store APIs | MSIX is the modern Windows package format and all sideloaded MSIX packages must be signed [R16][R17]. |
+| Android APK | manifest/resources/native-library staging, SDK discovery, and readiness checks | Android SDK `aapt2`, `zipalign`, `apksigner` | Android package signing and SDK tooling are platform requirements. |
+| Android AAB | bundle inputs, feature/module configuration, validation orchestration, and receipts | `bundletool` and Android SDK tools | `bundletool` is the underlying tool used by Android Studio, Android Gradle Plugin, and Google Play for app bundles [R1]. |
+| iOS IPA | app metadata, asset staging, provisioning selection, and readiness checks | Xcode signing/export tools and Transporter | Device/App Store IPAs require Apple signing assets and provisioning. |
 | S3-compatible upload | AWS SDK for Rust | none by default | AWS provides Rust SDK S3 examples for upload and multipart flows [R20]. |
 | Google Drive | `reqwest` + OAuth crates | none by default | Drive supports resumable uploads for large files [R21]. |
 | OneDrive | `reqwest` + OAuth crates | none by default | Microsoft Graph supports upload sessions for large files [R23]. |
@@ -521,7 +535,7 @@ The release tooling should prefer these Rust ecosystem pieces where they are app
 | Vault encryption | `age` for export/import, `chacha20poly1305` for local AEAD records | none by default | `age` supports file encryption; `chacha20poly1305` provides XChaCha20Poly1305 AEAD [R30][R31]. |
 | Secret handling | `secrecy`, `zeroize` | none by default | These reduce accidental secret exposure and wipe memory on drop [R32][R33]. |
 | Screenshot capture | Fission platform test runner and platform device APIs | browser/device/simulator command-line tools where required | Capture must reuse Fission smoke/integration infrastructure instead of inventing a separate UI automation stack. |
-| Screenshot rendering | Rust image/vector/text rendering crates owned through Fission abstractions | platform image tools only when required by asset format | Raw captures and rendered marketing assets must be deterministic and reproducible from `fission.toml` config plus asset inputs. |
+| Screenshot rendering | Rust image/vector/text rendering crates owned through Fission abstractions | platform image tools only when required by asset format | Raw captures and rendered marketing assets must be deterministic and reproducible from `fission.toml` config plus referenced release files and asset inputs. |
 | Store metadata sync | `reqwest` + provider API clients generated or maintained by Fission | provider CLIs only when upload APIs are incomplete or unstable | Apple, Google, and Microsoft all expose APIs for metadata or asset submission in at least some release paths [R39][R41][R45][R18]. |
 | Review/customer feedback | provider APIs through Rust HTTP clients | none by default | Store review listing/reply support belongs in release operations, not in application runtime code [R52][R53]. |
 
@@ -679,7 +693,7 @@ Required direct distribution pipeline:
 3. sign the outer `.app` using Developer ID Application;
 4. verify codesign state;
 5. create the distributable archive when needed;
-6. submit to notary service with `notarytool` or validated Rust equivalent;
+6. submit to notary service with `notarytool`;
 7. poll or wait for result;
 8. download and store the notary log on failure;
 9. staple the ticket to the app or package;
@@ -710,7 +724,7 @@ target/fission/release/macos/pkg/Todo-1.2.3.pkg
 target/fission/release/macos/pkg/artifact-manifest.json
 ```
 
-Fission MUST generate a product archive `.pkg` suitable for direct installation. Apple's package tools distinguish component packages from product archives; `pkgbuild` builds component packages and `productbuild` creates deployable product archives [R13].
+Fission MUST produce a product archive `.pkg` suitable for direct installation by orchestrating Apple's package tools. Apple's package tools distinguish component packages from product archives; `pkgbuild` builds component packages and `productbuild` creates deployable product archives [R13].
 
 Required `.pkg` behavior:
 
@@ -727,11 +741,11 @@ Readiness MUST detect `pkgbuild`, `productbuild`, `productsign` when used, insta
 
 Mac App Store distribution is a separate distribution provider, not the same as direct `.pkg` distribution. It normally requires sandboxing, App Store provisioning, App Store signing identities, App Store Connect metadata, screenshots, app previews, privacy information, beta testing configuration, and review submission.
 
-Fission MUST guide the first setup because App Store Connect app records are created on the website, not by the Apps API. Apple's Apps API documentation states not to use that API to create new apps; new apps must be created in App Store Connect on the web [R14]. For binary upload, the CLI SHOULD use Transporter with App Store Connect API JWTs until a Rust-native build upload path is complete and proven against Apple's current requirements [R15].
+Fission MUST guide the first setup because App Store Connect app records are created on the website, not by the Apps API. Apple's Apps API documentation states not to use that API to create new apps; new apps must be created in App Store Connect on the web [R14]. For binary upload, the CLI SHOULD use Transporter with App Store Connect API JWTs or another Apple-supported upload path that satisfies current App Store Connect requirements [R15].
 
 Mac App Store release-content readiness MUST validate screenshot and app preview requirements before review submission. Apple documents one to ten screenshots per supported device size and supports app previews as separate video assets [R38][R39]. App Store Connect API screenshot sets group screenshots by locale and display target, and Apple's asset upload APIs use a reservation/upload/commit/processing workflow for screenshots, previews, review attachments, and routing files [R40][R41]. Fission must model those as release-content objects, not as loose files.
 
-Mac App Store metadata sync MUST use `fission.toml` as the local, version-controlled source of truth. Required data includes localized name, subtitle, description, keywords, promotional text, release notes, support URL, marketing URL, privacy URL, review contact, review notes, screenshot captions where used, and optional preview-video metadata. The CLI MUST support import, diff, validate, and push operations so a user can import existing store state before Fission becomes authoritative for a listing.
+Mac App Store metadata sync MUST use `fission.toml` as the local, version-controlled root of truth, with long-form per-release content stored in referenced files. Required data includes localized name, subtitle, description, keywords, promotional text, release notes, support URL, marketing URL, privacy URL, review contact, review notes, screenshot captions where used, and optional preview-video metadata. Short stable listing fields may live directly in `fission.toml`; long localized descriptions, release notes, and review instructions should live in release files referenced by the active `[[releases]]` entry. The CLI MUST support import, diff, validate, and push operations so a user can import existing store state before Fission becomes authoritative for a listing.
 
 ## 11. Windows packaging
 
@@ -766,15 +780,15 @@ fission package --target windows --format msix --release
 
 MSIX is the required modern Windows package model for Store-like installation and package identity. Microsoft documents MSIX as the modern Windows packaging format and package identity as the key concept for Store distribution and Windows platform features [R16]. MSIX packages contain an app manifest, block map, payload, and signature [R16].
 
-Fission MUST generate:
+Fission MUST provide the inputs required by Microsoft packaging tools and verify the generated package outputs:
 
 ```text
 AppxManifest.xml
-AppxBlockMap.xml
-AppxSignature.p7x when locally signed
 Assets/<visual-assets>
 VFS or app payload tree as required
 ```
+
+The MSIX package, block map, and local signature are produced through Microsoft-supported packaging and signing tools. Fission records those outputs in the artifact manifest and validates that they match the configured identity, payload, capabilities, and signing mode.
 
 The MSIX manifest MUST include:
 
@@ -810,7 +824,7 @@ Readiness MUST check:
 - product id or reserved app name;
 - package identity name matches the Store product identity;
 - required visual assets exist;
-- `fission.toml` release metadata exists for each configured language;
+- `fission.toml` release root entries and referenced release metadata files exist for each configured language;
 - screenshot/trailer assets match Microsoft Store requirements for the selected app type;
 - flight names and package-flight targets exist when distributing to a private flight;
 - age rating/category metadata exists;
@@ -839,10 +853,7 @@ fission package --target android --format aab --release
 
 Android App Bundle is the primary Google Play publishing format. Android documents AAB as a publishing format that contains compiled code and resources while deferring APK generation and signing to Google Play [R3]. `bundletool` is the underlying tool Android Studio, Android Gradle Plugin, and Google Play use to build and work with app bundles [R1].
 
-Fission MUST either:
-
-1. generate the AAB structure directly and validate it with `bundletool`; or
-2. invoke a proven Android build pipeline only for the packaging step while keeping Fission's project model as the source of truth.
+Fission MUST construct the Android bundle inputs from the Fission project model, then invoke Android-supported build and validation tooling for the final AAB. Fission remains authoritative for package identity, versions, assets, native library selection, and release metadata, while `bundletool` and Android SDK tools remain authoritative for app-bundle packaging and validation.
 
 AAB readiness MUST check:
 
@@ -923,7 +934,7 @@ Payload/Todo.app/
   Frameworks/<optional-frameworks>
 ```
 
-Then it MUST sign the app with the selected certificate, provisioning profile, entitlements, bundle id, team id, build number, and marketing version.
+Then it MUST invoke Apple signing/export tooling with the selected certificate, provisioning profile, entitlements, bundle id, team id, build number, and marketing version.
 
 Readiness MUST check:
 
@@ -959,7 +970,7 @@ Required automated flow after first setup:
 5. assign build to TestFlight group or app version when requested;
 6. sync configured beta groups, tester CSV files, and public-link settings before distribution when requested;
 7. submit for beta review or App Review when configured;
-8. upload or update screenshots, app previews, review attachments, and localized metadata resolved from `fission.toml` when the content manifest requests it;
+8. upload or update screenshots, app previews, review attachments, and localized metadata resolved from `fission.toml` plus referenced release files when the content manifest requests it;
 9. write distribution receipt with build id, processing status, app version id, beta group ids, public-link state, content upload ids, and App Store Connect URL.
 
 Guided first setup output MUST include:
@@ -1196,7 +1207,8 @@ All providers MUST check:
 - overwrite/release policy is explicit;
 - version/build is newer than existing release when provider requires monotonic versions;
 - release notes exist if required;
-- `fission.toml` contains release metadata when the provider requires listing metadata, preview media, or review notes;
+- `fission.toml` contains the release root entries required to resolve listing metadata, preview media, and review notes;
+- referenced release metadata, notes, review, and privacy files exist when required;
 - release-content manifest exists when the provider requires screenshots, rendered assets, preview media, or review attachments;
 - local release-config lock is not stale relative to provider state unless explicit overwrite is requested;
 - beta groups/tracks/flights exist and tester sources are valid when distributing to a beta destination;
@@ -1242,70 +1254,103 @@ Fission MUST support staged rollout where the store supports it. For Google Play
 
 ### 18.3 Release notes and metadata
 
-Store distribution MUST support locale-specific release notes and complete store metadata, not just binary upload. Release notes are one field in the `fission.toml` release metadata tree. The release-content directory is for generated captures, rendered assets, app preview videos, review attachments, and receipts. It is not a parallel metadata source.
+Store distribution MUST support locale-specific release notes and complete store metadata, not just binary upload. `fission.toml` is the authoritative root, but it should not contain every long-form localized paragraph for every release. The release-content directory stores referenced release files, generated captures, rendered assets, app preview videos, review attachments, receipts, and content manifests.
 
-Representative `fission.toml` metadata layout:
+Representative root layout:
 
 ```toml
-[release.metadata.app_store.en-US]
+[release]
+active_release = "1.2.3+42"
+metadata_root = "release-content/metadata"
+default_locales = ["en-US", "fr-FR"]
+
+[[releases]]
+id = "1.2.3+42"
+version = "1.2.3"
+build = 42
+status = "candidate"
+tracks = ["app-store:testflight", "play-store:internal"]
+locales = ["en-US", "fr-FR"]
+metadata = "release-content/metadata/1.2.3+42/release.toml"
+release_notes = "release-content/metadata/1.2.3+42/notes"
+review = "release-content/metadata/1.2.3+42/review.toml"
+privacy = "release-content/metadata/1.2.3+42/privacy.toml"
+
+[release.store_listing.app_store.en-US]
 name = "Todo"
 subtitle = "Plan the work that matters"
-description = "Todo is a focused task manager built with Fission."
 keywords = ["todo", "tasks", "productivity"]
-promotional_text = "A fast, native task list for every screen."
-release_notes = "This release improves task editing and sync reliability."
 support_url = "https://example.com/support"
 marketing_url = "https://example.com/todo"
 privacy_url = "https://example.com/privacy"
+```
 
-[release.metadata.play_store.en-US]
-title = "Todo"
-short_description = "A focused task manager built with Fission."
-full_description = "Todo helps you capture, plan, and finish work."
-release_notes = "This release improves task editing and sync reliability."
+Representative referenced release file:
 
-[release.metadata.microsoft_store.en-US]
-title = "Todo"
-short_description = "A focused task manager built with Fission."
-description = "Todo helps you capture, plan, and finish work."
-release_notes = "This release improves task editing and sync reliability."
+```toml
+# release-content/metadata/1.2.3+42/release.toml
+[app_store.en-US]
+description = """
+Todo helps you capture, plan, and finish work across every Fission platform.
+"""
+promotional_text = "A faster task list with improved editing."
+
+[play_store.en-US]
+full_description = """
+Todo helps you capture, plan, and finish work across desktop, web, Android, and iOS.
+"""
+
+[microsoft_store.en-US]
+description = """
+Todo helps you capture, plan, and finish work across Windows devices.
+"""
+```
+
+Representative release notes layout:
+
+```text
+release-content/metadata/1.2.3+42/notes/
+  en-US.md
+  fr-FR.md
 ```
 
 The distributor MUST validate maximum lengths, supported locales, prohibited empty fields, required URLs, and provider-specific file requirements before upload when provider limits are known. Release-config sync MUST support:
 
-- `import` to populate `fission.toml` from current provider state;
+- `import` to populate `fission.toml` and referenced release files from current provider state;
 - `diff` to show local-vs-remote changes without mutation;
 - `validate` to run local rules and optional provider-side validation;
-- `push` to upload local `fission.toml` changes;
-- `lock` to record the provider revision or timestamp the local content was based on.
+- `push` to upload the resolved metadata from `fission.toml` and referenced release files;
+- `lock` to record the provider revision or timestamp the local root and files were based on.
 
-A push MUST fail by default if the remote provider state has changed since the last import or lock, unless the user passes an explicit overwrite flag.
+A push MUST fail by default if the remote provider state has changed since the last import or lock, unless the user passes an explicit overwrite flag. A push MUST also fail if a referenced release file has changed since the content manifest was materialized.
 
 
-### 18.3.1 Interactive and non-interactive metadata editing
+### 18.3.1 Interactive and non-interactive release editing
 
-Fission MUST provide both TUI and non-interactive ways to edit release metadata in `fission.toml`. The TUI is a guided editor for humans; non-interactive commands are the stable automation interface for scripts and CI. Both paths update the same schema.
+Fission MUST provide both TUI and non-interactive ways to edit the release root and referenced release files. The TUI is a guided editor for humans; non-interactive commands are the stable automation interface for scripts and CI. Both paths update the same schema and must keep `fission.toml` as the root manifest.
 
 Required TUI behavior:
 
 - `fission release-config edit --tui` opens a provider-aware guided editor.
 - The TUI shows missing required fields, provider limits, current local values, and remote values when authenticated.
-- The TUI can import remote metadata into `fission.toml`, but it must preview changes before writing.
+- The TUI can import remote metadata into `fission.toml` and referenced release files, but it must preview changes before writing.
 - The TUI can select screenshot scenarios and asset paths, but it must not hide generated files outside the project.
-- The TUI writes normal TOML and exits with a summary of changed fields.
+- The TUI writes normal TOML/Markdown files and exits with a summary of changed files and fields.
 
 Required non-interactive behavior:
 
 ```text
 fission release-config set app.version 1.2.4
-fission release-config set 'release.metadata.play_store."en-US".short_description' "A focused task manager."
-fission release-config unset 'release.metadata.app_store."fr-FR".promotional_text'
+fission release-config set 'release.active_release' '1.2.4+43'
+fission release-config add-release --version 1.2.4 --build 43 --from 1.2.3+42
+fission release-config set 'release.store_listing.play_store."en-US".short_description' "A focused task manager."
+fission release-config edit-file --release 1.2.4+43 --kind notes --locale en-US
 fission release-config import --provider app-store --locales en-US,fr-FR --yes
 fission release-config validate --provider play-store --json
 fission release-config push --provider microsoft-store --locales en-US --dry-run --json
 ```
 
-Non-interactive commands MUST support stable field paths, structured JSON output, `--dry-run`, `--yes`, and clear exit codes. Field paths use TOML dotted-key semantics; segments that contain characters such as `-` must be quoted. Commands MUST fail instead of prompting when `--non-interactive` or CI mode is active.
+Non-interactive commands MUST support stable field paths, structured JSON output, `--dry-run`, `--yes`, and clear exit codes. Field paths use TOML dotted-key semantics; segments that contain characters such as `-` must be quoted. Commands that edit referenced files MUST address them by release id, kind, provider, and locale instead of making scripts know the physical path. Commands MUST fail instead of prompting when `--non-interactive` or CI mode is active.
 
 ### 18.4 Store assets
 
@@ -1331,7 +1376,7 @@ Fission MUST provide a release screenshot pipeline that uses the same platform r
 
 Required capture flow:
 
-1. read screenshot scenarios and metadata captions from `fission.toml`;
+1. read screenshot scenarios, captions, and active release metadata from `fission.toml` and referenced release files;
 2. build or reuse the requested app artifact;
 3. launch the app on the requested browser, simulator, emulator, or device;
 4. apply locale, theme, text scale, orientation, viewport, and seeded test data;
@@ -1371,7 +1416,7 @@ Fission MUST run a pre-submission validation pass before sending a store submiss
 
 Validation MUST check:
 
-- required metadata is present for each configured locale;
+- required metadata is present for each configured locale after resolving `fission.toml` and referenced release files;
 - screenshots and videos match provider dimensions, file formats, and count rules;
 - URLs are reachable and use HTTPS where required;
 - app id, bundle id, package name, Store identity, and manifest identifiers agree;
@@ -1529,7 +1574,7 @@ These are implementation milestones, not partial product definitions. The final 
 
 1. Add release config schema and artifact/distribution receipt schema.
 2. Add credential vault and `fission auth` commands.
-3. Add release-config schema in `fission.toml`, TUI editing, non-interactive edit/import/diff/validate/push commands, screenshot scenario model, and content manifest.
+3. Add release-config root schema in `fission.toml`, `[[releases]]` file references, referenced release-file schemas, TUI editing, non-interactive edit/import/diff/validate/push commands, screenshot scenario model, and content manifest.
 4. Add readiness engine with JSON output and stable error IDs.
 5. Implement Linux `.run` packager and smoke install/uninstall checks.
 6. Implement macOS `.app`, `.pkg`, signing, notarization, and readiness checks.
@@ -1538,7 +1583,7 @@ These are implementation milestones, not partial product definitions. The final 
 9. Implement iOS IPA packaging, signing/provisioning readiness, and App Store/TestFlight distribution path.
 10. Implement web static packaging with MIME/cache metadata.
 11. Implement screenshot capture/rendering for web, Android, iOS, macOS, and Windows where device automation is available.
-12. Implement store metadata import/diff/validate/push for supported providers using `fission.toml` as the source of truth.
+12. Implement store metadata import/diff/validate/push for supported providers using `fission.toml` plus referenced release files as the authoritative inputs.
 13. Implement beta group/tester/flight management for supported providers.
 14. Implement version-state queries, release recipes, and provider-side status observation.
 15. Implement S3-compatible distribution and receipts.
@@ -1560,7 +1605,7 @@ The post-build lifecycle work is accepted when the following are true:
 - Package commands write artifact manifests with hashes and signing/notarization state.
 - Distribution commands consume artifact manifests and write distribution receipts.
 - Store distributors guide first-release manual setup where platform APIs cannot create the required store state.
-- Release-config commands edit, import, diff, validate, and push store metadata through `fission.toml` in TUI and non-interactive modes.
+- Release-config commands edit, import, diff, validate, and push store metadata through `fission.toml` plus referenced release files in TUI and non-interactive modes.
 - Release-content commands capture and render screenshots/previews and validate provider requirements without rebuilding the binary.
 - Beta commands manage provider groups/tracks/flights, tester lists, build assignment, and beta distribution receipts.
 - Version-state commands can report provider-side latest build/release status and block invalid monotonic version changes.
