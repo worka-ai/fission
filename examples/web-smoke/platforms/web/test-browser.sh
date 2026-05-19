@@ -3,11 +3,10 @@ set -euo pipefail
 
 SCRIPT_DIR=$(cd -- "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 PROJECT_DIR=$(cd -- "$SCRIPT_DIR/../.." && pwd)
-REPO_ROOT=$(cd -- "$PROJECT_DIR/../.." && pwd)
 HOST="${FISSION_WEB_HOST:-127.0.0.1}"
 PORT="${FISSION_WEB_PORT:-8123}"
 CDP_PORT="${FISSION_WEB_CDP_PORT:-9222}"
-URL="http://${HOST}:${PORT}/examples/web-smoke/platforms/web/"
+URL="http://${HOST}:${PORT}/platforms/web/"
 PROFILE_DIR="$SCRIPT_DIR/build/chrome-profile"
 
 require_node_websocket() {
@@ -49,7 +48,7 @@ require_node_websocket
 "$SCRIPT_DIR/build-wasm.sh"
 
 mkdir -p "$SCRIPT_DIR/build"
-cd "$REPO_ROOT"
+cd "$PROJECT_DIR"
 python3 -m http.server "$PORT" --bind "$HOST" >"$SCRIPT_DIR/build/web-server.log" 2>&1 &
 SERVER_PID=$!
 
@@ -84,7 +83,7 @@ raise SystemExit(f"web server did not serve {url}: {last_error}")
 PY
 
 CHROME=$(detect_chrome) || {
-  printf 'Chrome/Chromium was not found. Set FISSION_CHROME=/path/to/chrome or run `cargo fission doctor web --project-dir examples/web-smoke`.\n' >&2
+  printf 'Chrome/Chromium was not found. Set FISSION_CHROME=/path/to/chrome or run `cargo fission doctor web --project-dir .`.\n' >&2
   exit 1
 }
 
