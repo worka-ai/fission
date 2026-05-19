@@ -4,6 +4,7 @@
 
 - `fission init`
 - `fission add-target`
+- `fission doctor`
 - `cargo fission ...`
 
 ## Usage
@@ -26,6 +27,12 @@ Add more platform targets:
 cargo fission add-target web ios android --project-dir my-app
 ```
 
+Check local SDKs, emulators, browsers, and Rust targets:
+
+```sh
+cargo fission doctor web ios android --project-dir my-app
+```
+
 ## Current platform status
 
 - `windows`, `macos`, `linux`: scaffolded and runnable through the generated desktop entrypoint
@@ -39,12 +46,14 @@ The CLI writes platform state to `fission.toml` and creates `platforms/<target>/
 - `platforms/ios/Info.plist`
 - `platforms/ios/package-sim.sh`
 - `platforms/ios/run-sim.sh`
+- `platforms/ios/test-sim.sh`
 
 For Android it also generates:
 
 - `platforms/android/AndroidManifest.xml`
 - `platforms/android/package-apk.sh`
 - `platforms/android/run-emulator.sh`
+- `platforms/android/test-emulator.sh`
 
 For Web it also generates:
 
@@ -52,6 +61,7 @@ For Web it also generates:
 - `platforms/web/bootstrap.mjs`
 - `platforms/web/build-wasm.sh`
 - `platforms/web/run-browser.sh`
+- `platforms/web/test-browser.sh`
 
 The generated iOS bundle, Android package, and browser host page all use `assets/app-icon.png` as the default app icon seed.
 
