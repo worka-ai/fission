@@ -26,6 +26,38 @@ Diagnose local SDKs, emulators, browsers, and Rust targets:
 cargo fission doctor web ios android --project-dir my-app
 ```
 
+List the devices and runtime targets the CLI can launch:
+
+```sh
+cargo fission devices --project-dir my-app
+cargo fission devices --project-dir my-app --json
+```
+
+Run an app on the selected target. The command attaches by default, so desktop stdout/stderr, web server requests, iOS simulator logs, or Android `logcat` output stay in the terminal until you stop them:
+
+```sh
+cargo fission run --project-dir my-app
+cargo fission run --project-dir my-app --target web
+cargo fission run --project-dir my-app --target ios --device <simulator-udid>
+cargo fission run --project-dir my-app --target android --device emulator-5554
+```
+
+Start without attaching when you want the app to keep running in the background:
+
+```sh
+cargo fission run --project-dir my-app --target web --detach
+cargo fission logs --project-dir my-app --target web --follow
+```
+
+Build or smoke-test a configured target:
+
+```sh
+cargo fission build --project-dir my-app --target web --release
+cargo fission test --project-dir my-app --target web
+cargo fission test --project-dir my-app --target ios --headless
+cargo fission test --project-dir my-app --target android --headless
+```
+
 The generated project contains:
 
 - `src/main.rs` desktop entrypoint
@@ -51,12 +83,13 @@ cargo check
 Generated-app commands from the scaffolded project root:
 
 ```sh
-./platforms/ios/run-sim.sh
-./platforms/ios/test-sim.sh
-./platforms/android/run-emulator.sh
-./platforms/android/test-emulator.sh
-./platforms/web/run-browser.sh
-./platforms/web/test-browser.sh
+cargo fission devices --project-dir .
+cargo fission run --target web --project-dir .
+cargo fission run --target ios --project-dir .
+cargo fission run --target android --project-dir .
+cargo fission test --target web --project-dir .
+cargo fission test --target ios --project-dir .
+cargo fission test --target android --project-dir .
 ```
 
 The repository also keeps checked-in smoke examples:
@@ -80,6 +113,20 @@ The repository also keeps checked-in smoke examples:
 | iOS | yes | yes | yes (simulator) | simulator app bundles are generated and can be health-checked through test control |
 | Android | yes | yes | yes (emulator) | package scripts auto-detect SDK, NDK, toolchain, platform, and build-tools where possible |
 | Web | yes | yes | yes (browser) | `wasm-pack` builds the app and `test-browser.sh` launches Chrome/Chromium with CDP enabled |
+
+## Development workflow
+
+The intended daily workflow is:
+
+1. `cargo fission doctor --project-dir .` before starting platform work, especially on a new machine or CI runner.
+2. `cargo fission devices --project-dir .` to see the local desktop target, Chrome/Chromium, Android devices/emulators, and iOS simulators.
+3. `cargo fission run --target <target> --device <id> --project-dir .` while developing. Omit `--device` for the interactive selector when more than one runnable device exists.
+4. `cargo fission run --target <target> --detach --project-dir .` when you want the launched app/server to keep running without owning the terminal.
+5. `cargo fission logs --target <target> --device <id> --project-dir . --follow` to attach logs later.
+6. `cargo fission build --target <target> --project-dir . --release` before producing artifacts for a tester.
+7. `cargo fission test --target <target> --project-dir .` to run the generated platform smoke test.
+
+Device ids are stable enough for scripts: Android uses the `adb` serial, iOS uses the simulator UDID, web uses `chrome`, and desktop uses `desktop`.
 
 ## Toolchains, env vars, and paths
 
@@ -113,8 +160,8 @@ Commands:
 Generated app command after `cargo fission add-target ios`:
 
 ```sh
-./platforms/ios/run-sim.sh
-./platforms/ios/test-sim.sh
+cargo fission run --target ios --project-dir .
+cargo fission test --target ios --project-dir .
 ```
 
 The generated iOS script opens the Simulator app by default. Set `IOS_SIM_HEADLESS=1` for CI or background-only runs.
@@ -152,8 +199,8 @@ Commands:
 Generated app command after `cargo fission add-target android`:
 
 ```sh
-./platforms/android/run-emulator.sh
-./platforms/android/test-emulator.sh
+cargo fission run --target android --project-dir .
+cargo fission test --target android --project-dir .
 ```
 
 ### Web / WASM
@@ -179,8 +226,8 @@ Commands:
 Generated app command after `cargo fission add-target web`:
 
 ```sh
-./platforms/web/run-browser.sh
-./platforms/web/test-browser.sh
+cargo fission run --target web --project-dir .
+cargo fission test --target web --project-dir .
 ```
 
 Relevant paths:

@@ -5,6 +5,11 @@
 - `fission init`
 - `fission add-target`
 - `fission doctor`
+- `fission devices`
+- `fission run`
+- `fission build`
+- `fission test`
+- `fission logs`
 - `cargo fission ...`
 
 ## Usage
@@ -33,12 +38,43 @@ Check local SDKs, emulators, browsers, and Rust targets:
 cargo fission doctor web ios android --project-dir my-app
 ```
 
+List runnable devices and targets:
+
+```sh
+cargo fission devices --project-dir my-app
+cargo fission devices --project-dir my-app --json
+```
+
+Run and attach to app output/logs:
+
+```sh
+cargo fission run --project-dir my-app
+cargo fission run --project-dir my-app --target web
+cargo fission run --project-dir my-app --target android --device emulator-5554
+cargo fission run --project-dir my-app --target ios --device <simulator-udid>
+```
+
+`fission run` attaches by default. Use `--detach` to start the app and return, then use `fission logs` to attach later where the platform supports it:
+
+```sh
+cargo fission run --project-dir my-app --target web --detach
+cargo fission logs --project-dir my-app --target web --follow
+```
+
+Build or run smoke tests without launching the full attached workflow:
+
+```sh
+cargo fission build --project-dir my-app --target web --release
+cargo fission test --project-dir my-app --target web
+cargo fission test --project-dir my-app --target ios --headless
+```
+
 ## Current platform status
 
-- `windows`, `macos`, `linux`: scaffolded and runnable through the generated desktop entrypoint
-- `ios`: scaffolded by the CLI and runnable on the simulator through `platforms/ios/run-sim.sh`
-- `android`: scaffolded by the CLI and runnable on the emulator through `platforms/android/run-emulator.sh`
-- `web`: scaffolded by the CLI and runnable in a browser through `platforms/web/run-browser.sh`
+- `windows`, `macos`, `linux`: scaffolded and runnable through `fission run`
+- `ios`: scaffolded by the CLI and runnable on the simulator through `fission run --target ios`
+- `android`: scaffolded by the CLI and runnable on a device or emulator through `fission run --target android`
+- `web`: scaffolded by the CLI and runnable in a browser through `fission run --target web`
 
 The CLI writes platform state to `fission.toml` and creates `platforms/<target>/README.md` notes with the current prerequisites and next steps for each target. For iOS it also generates:
 
