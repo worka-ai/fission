@@ -695,6 +695,8 @@ fn command_for_script(script: &Path) -> Result<Command> {
     if !script.exists() {
         bail!("script is missing at {}", script.display());
     }
+    let script = fs::canonicalize(script)
+        .with_context(|| format!("failed to resolve script {}", script.display()))?;
     if cfg!(windows) {
         if find_in_path("bash").is_none() {
             bail!(

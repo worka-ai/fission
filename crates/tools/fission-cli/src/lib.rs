@@ -447,15 +447,29 @@ fn add_targets(project_dir: &Path, targets: &[Target]) -> Result<()> {
     }
     let mut project = read_project_config(project_dir)?;
     for target in targets {
+        let target_exists =
+            project.targets.contains(target) || target_scaffold_dir_exists(project_dir, *target);
         project.targets.insert(*target);
-        scaffold_target(project_dir, &project, *target)?;
+        let write_policy = if target_exists {
+            WritePolicy::PreserveExisting
+        } else {
+            WritePolicy::Overwrite
+        };
+        scaffold_target_with_policy(project_dir, &project, *target, write_policy)?;
     }
     write_project_config(project_dir, &project)?;
-    write_file(
+    write_file_with_policy(
         &project_dir.join("README.md"),
         &render_project_readme(&project),
+        WritePolicy::PreserveExisting,
     )?;
     Ok(())
+}
+
+fn target_scaffold_dir_exists(project_dir: &Path, target: Target) -> bool {
+    Path::new(target.scaffold_relative_path())
+        .parent()
+        .is_some_and(|relative| project_dir.join(relative).exists())
 }
 
 fn write_project_config(root: &Path, project: &FissionProject) -> Result<()> {
@@ -473,10 +487,6 @@ fn read_project_config(root: &Path) -> Result<FissionProject> {
         )
     })?;
     toml::from_str(&data).with_context(|| format!("failed to parse {}", path.display()))
-}
-
-fn scaffold_target(root: &Path, project: &FissionProject, target: Target) -> Result<()> {
-    scaffold_target_with_policy(root, project, target, WritePolicy::Overwrite)
 }
 
 fn scaffold_target_with_policy(
@@ -2084,6 +2094,48 @@ mod tests {
             manifest
         );
         assert_eq!(fs::read_to_string(dir.join("src/main.rs")).unwrap(), main);
+    }
+
+    #[test]
+    fn add_target_preserves_existing_target_files() {
+        let dir = unique_dir("preserve-target");
+        run([
+            "fission",
+            "init",
+            dir.to_str().unwrap(),
+            "--name",
+            "preserve-target",
+        ])
+        .unwrap();
+        fs::create_dir_all(dir.join("platforms/web")).unwrap();
+        fs::write(
+            dir.join("platforms/web/index.html"),
+            "<!doctype html><title>custom</title>\n",
+        )
+        .unwrap();
+        fs::write(dir.join("README.md"), "# custom readme\n").unwrap();
+
+        run([
+            "fission",
+            "add-target",
+            "web",
+            "--project-dir",
+            dir.to_str().unwrap(),
+        ])
+        .unwrap();
+
+        assert_eq!(
+            fs::read_to_string(dir.join("platforms/web/index.html")).unwrap(),
+            "<!doctype html><title>custom</title>\n"
+        );
+        assert_eq!(
+            fs::read_to_string(dir.join("README.md")).unwrap(),
+            "# custom readme\n"
+        );
+        assert!(dir.join("platforms/web/README.md").exists());
+        assert!(dir.join("platforms/web/bootstrap.mjs").exists());
+        let project = read_project_config(&dir).unwrap();
+        assert!(project.targets.contains(&Target::Web));
     }
 
     #[test]
