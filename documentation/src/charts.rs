@@ -16,7 +16,11 @@ struct ChartEntry {
     image: String,
 }
 
-pub(crate) fn expand_documentation_mdx(body: &str, project_dir: &Path) -> Result<String> {
+pub(crate) fn expand_documentation_mdx(
+    body: &str,
+    project_dir: &Path,
+    _source_file: &Path,
+) -> Result<String> {
     let mut output = String::new();
     for line in body.lines() {
         let trimmed = line.trim();
@@ -78,33 +82,32 @@ fn render_chart_family_summary(project_dir: &Path) -> Result<String> {
         entry.1 += 1;
     }
 
-    let mut html = String::from("<div class=\"chart-summary-grid\">\n");
+    let mut markdown = String::from("## Chart families\n\n");
     for (family, (family_slug, count)) in families {
-        html.push_str(&format!(
-            "<a class=\"chart-summary-card\" href=\"/reference/charts/{}/overview/\"><p>{} variants</p><h3>{}</h3><span>Open the family reference</span></a>\n",
-            escape_attr(&family_slug),
+        markdown.push_str(&format!(
+            "- [{}](/reference/charts/{}/overview/) - {} variants\n",
+            escape_markdown(&family),
+            family_slug,
             count,
-            escape_html(&family),
         ));
     }
-    html.push_str("</div>");
-    Ok(html)
+    Ok(markdown)
 }
 
 fn render_compact_chart_grid(charts: &[ChartEntry]) -> String {
-    let mut html = String::from("<div class=\"chart-compact-grid\">\n");
+    let mut markdown = String::new();
     for chart in charts {
-        html.push_str(&format!(
-            "<a class=\"chart-compact-card\" href=\"{}\"><img src=\"{}\" alt=\"{} chart screenshot\" loading=\"lazy\" /><div><p>{}</p><h3>{}</h3></div></a>\n",
+        markdown.push_str(&format!(
+            "### {}\n\n[Open {}]({})\n\nFamily: {}\n\n![{} chart screenshot]({})\n\n",
+            escape_markdown(&chart.title),
+            escape_markdown(&chart.title),
             chart_href(chart),
-            escape_attr(&chart.image),
-            escape_attr(&chart.title),
-            escape_html(&chart.family),
-            escape_html(&chart.title),
+            escape_markdown(&chart.family),
+            escape_markdown(&chart.title),
+            chart.image,
         ));
     }
-    html.push_str("</div>");
-    html
+    markdown
 }
 
 fn render_full_chart_grid(charts: &[ChartEntry]) -> String {
@@ -116,29 +119,25 @@ fn render_full_chart_grid(charts: &[ChartEntry]) -> String {
             .push(chart);
     }
 
-    let mut html = String::from("<div class=\"chart-catalog-groups\">\n");
+    let mut markdown = String::new();
     for (family, family_charts) in by_family {
-        html.push_str(&format!(
-            "<section class=\"chart-family-group\"><div class=\"chart-family-header\"><p>Chart family</p><h2>{}</h2></div><div class=\"chart-catalog-grid\">\n",
-            escape_html(&family),
-        ));
+        markdown.push_str(&format!("## {}\n\n", escape_markdown(&family)));
         for chart in family_charts {
-            html.push_str(&format!(
-                "<a class=\"chart-card\" href=\"{}\"><img src=\"{}\" alt=\"{} chart screenshot\" loading=\"lazy\" /><div class=\"chart-card-body\"><h3>{}</h3><p>{}</p><dl><div><dt>Data</dt><dd>{}</dd></div><div><dt>Use when</dt><dd>{}</dd></div></dl>{}</div></a>\n",
+            markdown.push_str(&format!(
+                "### {}\n\n[Open {}]({})\n\n![{} chart screenshot]({})\n\n{}\n\nData: {}\n\nUse when: {}\n\n{}\n\n",
+                escape_markdown(&chart.title),
+                escape_markdown(&chart.title),
                 chart_href(chart),
-                escape_attr(&chart.image),
-                escape_attr(&chart.title),
-                escape_html(&chart.title),
-                escape_html(&chart.description),
-                escape_html(&chart.data_shape),
-                escape_html(&chart.use_when),
+                escape_markdown(&chart.title),
+                chart.image,
+                chart.description,
+                chart.data_shape,
+                chart.use_when,
                 render_tags(&chart.tags),
             ));
         }
-        html.push_str("</div></section>\n");
     }
-    html.push_str("</div>");
-    html
+    markdown
 }
 
 fn load_chart_entries(project_dir: &Path) -> Result<Vec<ChartEntry>> {
@@ -327,20 +326,11 @@ fn render_tags(tags: &[String]) -> String {
     if tags.is_empty() {
         return String::new();
     }
-    let mut html = String::from("<div class=\"chart-tags\">");
-    for tag in tags {
-        html.push_str(&format!("<span>{}</span>", escape_html(tag)));
-    }
-    html.push_str("</div>");
-    html
+    format!("Tags: `{}`", tags.join(", "))
 }
 
 fn chart_href(chart: &ChartEntry) -> String {
-    format!(
-        "/reference/charts/{}/{}/",
-        escape_attr(&chart.family_slug),
-        escape_attr(&chart.slug)
-    )
+    format!("/reference/charts/{}/{}/", chart.family_slug, chart.slug)
 }
 
 fn title_from_slug(slug: &str) -> String {
@@ -359,15 +349,4 @@ fn title_from_slug(slug: &str) -> String {
 
 fn escape_markdown(value: &str) -> String {
     value.replace(['#', '*', '`'], "")
-}
-
-fn escape_html(value: &str) -> String {
-    value
-        .replace('&', "&amp;")
-        .replace('<', "&lt;")
-        .replace('>', "&gt;")
-}
-
-fn escape_attr(value: &str) -> String {
-    escape_html(value).replace('"', "&quot;")
 }

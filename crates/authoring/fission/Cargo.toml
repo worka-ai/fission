@@ -13,7 +13,6 @@ fission-layout = { path = "../../core/fission-layout", version = "0.1.1" }
 fission-theme = { path = "../../core/fission-theme", version = "0.1.1" }
 fission-i18n = { path = "../../core/fission-i18n", version = "0.1.1" }
 fission-widgets = { path = "../fission-widgets", version = "0.1.1" }
-fission-site = { path = "../fission-site", version = "0.1.1" }
 fission-macros = { path = "../fission-macros", version = "0.1.1" }
 fission-icons = { path = "../fission-icons", version = "0.1.1" }
 fission-render = { path = "../../rendering/fission-render", version = "0.1.1" }

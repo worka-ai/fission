@@ -1136,7 +1136,6 @@ dependencies = [
  "fission-shell-desktop",
  "fission-shell-mobile",
  "fission-shell-web",
- "fission-site",
  "fission-test-driver",
  "fission-theme",
  "fission-widgets",
@@ -1174,6 +1173,7 @@ version = "0.1.1"
 dependencies = [
  "anyhow",
  "clap",
+ "fission-shell-site",
  "serde",
  "serde_json",
  "toml",
@@ -1226,6 +1226,7 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "fission",
+ "fission-shell-site",
 ]
 
 [[package]]
@@ -1385,6 +1386,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "fission-shell-site"
+version = "0.1.1"
+dependencies = [
+ "anyhow",
+ "fission-core",
+ "fission-ir",
+ "fission-layout",
+ "fission-widgets",
+ "serde",
+ "toml",
+]
+
+[[package]]
 name = "fission-shell-web"
 version = "0.1.1"
 dependencies = [
@@ -1434,17 +1448,6 @@ dependencies = [
  "web-sys",
  "web-time",
  "winit",
-]
-
-[[package]]
-name = "fission-site"
-version = "0.1.1"
-dependencies = [
- "anyhow",
- "rushdown",
- "serde",
- "serde_json",
- "toml",
 ]
 
 [[package]]

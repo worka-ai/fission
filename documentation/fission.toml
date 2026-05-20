@@ -2,14 +2,14 @@ targets = ["site"]
 
 [app]
 name = "fission-documentation"
-app_id = "com.fission.documentation"
+app_id = "io.github.worka-ai.fission"
 
 [site]
 entry = "crate::site_app"
-base_url = "https://fission.example.com"
+base_url = "https://worka-ai.github.io/fission"
 out_dir = "dist/site"
-default_locale = "en-US"
-locales = ["en-US"]
+default_locale = "en-GB"
+locales = ["en-GB"]
 pretty_urls = true
 generate_sitemap = true
 generate_robots = true
@@ -21,20 +21,19 @@ asset_dirs = ["../website/static"]
 kind = "content"
 path = "/docs"
 source = "content/docs"
-template = "fission::site::DocumentationTemplate"
+template = "fission_shell_site::documentation"
 sidebar = "site/docs-sidebar.toml"
 
 [[site.routes]]
 kind = "content"
 path = "/reference"
 source = "content/reference"
-template = "fission::site::DocumentationTemplate"
+template = "fission_shell_site::documentation"
 sidebar = "site/reference-sidebar.toml"
 
 [[site.routes]]
 kind = "content"
 path = "/blog"
 source = "content/blog"
-template = "fission::site::DocumentationTemplate"
+template = "fission_shell_site::documentation"
 sidebar = "site/blog-sidebar.toml"
-

@@ -1,0 +1,16 @@
+[package]
+name = "fission-shell-site"
+version = "0.1.1"
+edition = "2021"
+license = "MIT"
+repository = "https://github.com/worka-ai/fission"
+description = "Static site shell for lowering real Fission UI to static HTML"
+
+[dependencies]
+anyhow = "1.0"
+fission-core = { path = "../../core/fission-core", version = "0.1.1" }
+fission-ir = { path = "../../core/fission-ir", version = "0.1.1" }
+fission-layout = { path = "../../core/fission-layout", version = "0.1.1" }
+fission-widgets = { path = "../../authoring/fission-widgets", version = "0.1.1" }
+serde = { version = "1.0", features = ["derive"] }
+toml = "0.8"
