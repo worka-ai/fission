@@ -48,7 +48,7 @@ Charts can emit typed `ChartInteractionEvent` values when interaction is enabled
 
 ## Testing guidance
 
-For this chart, test the data mapping first, then test lowering, then capture a live screenshot when visual output changes. The screenshot for this page is refreshed with `npm run charts:generate` from the website package.
+For this chart, test the data mapping first, then test lowering, then capture a live screenshot when visual output changes. The screenshot for this page is refreshed by running the ignored chart-gallery screenshot capture test with `FISSION_UPDATE_CHART_DOCS=1`, which updates `documentation/static/img/charts` before the static site build.
 
 Tags: `graph`, `journey`.
 

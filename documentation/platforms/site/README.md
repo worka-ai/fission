@@ -2,6 +2,13 @@
 
 This project uses the Fission static site target only.
 
-- `cargo fission site build --project-dir documentation`
-- `cargo fission site serve --project-dir documentation`
-- `cargo fission site routes --project-dir documentation`
+The site is a real Fission app: custom pages are Rust widgets, Markdown and MDX files under `content/` become content routes, sidebars live under `site/`, and static assets live under `static/`.
+
+Useful commands:
+
+- `cargo fission site routes --project-dir documentation` -- list generated custom and content routes
+- `cargo fission site check --project-dir documentation` -- render all routes and validate internal links
+- `cargo fission site build --project-dir documentation` -- write the configured output directory
+- `cargo fission site serve --project-dir documentation` -- build and serve locally on `127.0.0.1:8123`
+
+The generated output under `dist/site` is build output and should not be committed.

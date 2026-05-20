@@ -1,5 +1,6 @@
 use fission_test_driver::LiveTestClient;
 use std::net::TcpListener;
+use std::path::Path;
 use std::process::{Child, Command};
 
 fn reserve_control_port() -> u16 {
@@ -45,25 +46,46 @@ fn screenshot_dir() -> String {
 }
 
 fn chart_doc_slugs() -> Vec<String> {
-    let catalog_path = format!(
-        "{}/../../website/src/data/chartCatalog.ts",
+    let docs_root = format!(
+        "{}/../../documentation/content/reference/charts",
         env!("CARGO_MANIFEST_DIR")
     );
-    let catalog = std::fs::read_to_string(&catalog_path)
-        .unwrap_or_else(|err| panic!("read chart catalog at {catalog_path}: {err}"));
     let mut slugs = Vec::new();
-    let mut rest = catalog.as_str();
-    let needle = "\"slug\": \"";
-    while let Some(index) = rest.find(needle) {
-        let after = &rest[index + needle.len()..];
-        let end = after
-            .find('"')
-            .unwrap_or_else(|| panic!("unterminated slug in chart catalog near {after:?}"));
-        slugs.push(after[..end].to_string());
-        rest = &after[end + 1..];
-    }
-    assert!(!slugs.is_empty(), "chart catalog did not contain any slugs");
+    collect_chart_doc_slugs(Path::new(&docs_root), &mut slugs);
+    slugs.sort();
+    slugs.dedup();
+    assert!(
+        !slugs.is_empty(),
+        "chart reference docs did not contain any chart pages"
+    );
     slugs
+}
+
+fn collect_chart_doc_slugs(dir: &Path, slugs: &mut Vec<String>) {
+    let entries = std::fs::read_dir(dir)
+        .unwrap_or_else(|err| panic!("read chart reference directory {}: {err}", dir.display()));
+    for entry in entries {
+        let path = entry
+            .unwrap_or_else(|err| panic!("read chart reference entry in {}: {err}", dir.display()))
+            .path();
+        if path.is_dir() {
+            collect_chart_doc_slugs(&path, slugs);
+            continue;
+        }
+        if !matches!(
+            path.extension().and_then(|value| value.to_str()),
+            Some("md" | "mdx")
+        ) {
+            continue;
+        }
+        if path.file_stem().and_then(|value| value.to_str()) == Some("overview") {
+            continue;
+        }
+        let Some(slug) = path.file_stem().and_then(|value| value.to_str()) else {
+            continue;
+        };
+        slugs.push(slug.to_string());
+    }
 }
 
 #[test]
@@ -103,15 +125,15 @@ fn sidebar_scroll_reaches_lower_entries() {
 #[ignore]
 fn generate_real_chart_doc_screenshots() {
     if std::env::var("FISSION_UPDATE_CHART_DOCS").ok().as_deref() != Some("1") {
-        eprintln!("set FISSION_UPDATE_CHART_DOCS=1 to refresh website chart screenshots");
+        eprintln!("set FISSION_UPDATE_CHART_DOCS=1 to refresh documentation chart screenshots");
         return;
     }
 
     let output_dir = format!(
-        "{}/../../website/static/img/charts",
+        "{}/../../documentation/static/img/charts",
         env!("CARGO_MANIFEST_DIR")
     );
-    std::fs::create_dir_all(&output_dir).expect("create website chart screenshot dir");
+    std::fs::create_dir_all(&output_dir).expect("create documentation chart screenshot dir");
 
     for slug in chart_doc_slugs() {
         let control_port = reserve_control_port();

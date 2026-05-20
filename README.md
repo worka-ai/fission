@@ -39,28 +39,28 @@ Cross-platform, GPU-accelerated UI framework for Rust. Fission uses a Flutter-in
 
 ## Documentation and product site
 
-The project documentation and marketing site live in Docusaurus:
-
-- Marketing site: `website/` (landing page, examples, playground and showcase)
-- Narrative docs: `/docs`
-- Framework/API reference: `/reference`
+The project documentation and marketing site are now a Fission static site under `documentation/`. This is a real Fission site project: the landing page and footer are Rust widgets, the docs and reference pages come from Markdown content routes, static assets live in `documentation/static`, and the generated output is written to `documentation/dist/site`.
 
 Run locally:
 
 ```sh
-cd website
-yarn
-yarn start
+cargo fission site serve --project-dir documentation
 ```
 
 Build for deployment:
 
 ```sh
-cd website
-yarn build
+cargo fission site build --project-dir documentation
 ```
 
-Read the docs site guide in `website/README.md`.
+Useful checks:
+
+```sh
+cargo fission site routes --project-dir documentation
+cargo fission site check --project-dir documentation
+```
+
+The static site supports custom widget routes, Markdown/MDX content routes, sidebars, generated table-of-contents navigation, copied assets, favicon support, light and dark themes, generated CSS, optional client-side search, optional code highlighting, sitemap and robots output, JSON-LD structured data, and internal-link validation.
 
 ## Quick start
 

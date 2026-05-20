@@ -42,6 +42,10 @@ Fission exposes these public command-line interface entry points:
 | `cargo fission build` | Builds a target without launching it | Before sharing an artifact with someone else |
 | `cargo fission test` | Runs the generated platform smoke test | Before merging target-specific work |
 | `cargo fission logs` | Attaches to logs for a running or detached target where supported | When you launched with `--detach` or need to reconnect |
+| `cargo fission site routes` | Lists generated custom and content site routes | Before checking navigation or publishing a static site |
+| `cargo fission site check` | Renders all static site routes and validates links without writing the final site | In pull-request validation for site content |
+| `cargo fission site build` | Builds the static site into the configured output directory | Before publishing documentation or marketing pages |
+| `cargo fission site serve` | Builds and serves the generated static site locally | When reviewing site pages in a browser |
 
 You may also see `cargo-fission` in the repository. That binary exists so the command can be used naturally through Cargo as `cargo fission ...`.
 
@@ -286,6 +290,57 @@ cargo fission logs [--target <target>] [--device <id>] [--project-dir <dir>] [--
 ```
 
 Attaches to logs for a selected running or detached target where the platform exposes a log stream.
+
+### `cargo fission site routes`
+
+```sh
+cargo fission site routes [--project-dir <dir>]
+```
+
+Lists the custom and content routes known to the static site target. Use it when you add Markdown files, change sidebars, or register custom widget routes and want to confirm the generated URL set before building the site.
+
+### `cargo fission site check`
+
+```sh
+cargo fission site check [--project-dir <dir>] [--release]
+```
+
+Renders every static site route and validates generated internal links without producing a deployable output directory. This is the fastest command to use in pull-request checks for documentation and reference changes.
+
+### `cargo fission site build`
+
+```sh
+cargo fission site build [--project-dir <dir>] [--release]
+```
+
+Builds the static site into the output directory configured by `[site].out_dir` in `fission.toml`. For the Fission documentation site, that means `documentation/dist/site`. The build writes HTML, `site.css`, copied assets, optional search files, optional code-highlighting hooks, `sitemap.xml`, and `robots.txt` when those features are enabled.
+
+### `cargo fission site serve`
+
+```sh
+cargo fission site serve [--project-dir <dir>] [--host <host>] [--port <port>] [--release] [--no-open]
+```
+
+Builds the static site and serves the generated output with a local static file server. By default it binds to `127.0.0.1:8123` and opens the browser. Use `--no-open` for scripts or remote development environments.
+
+## Static site workflow
+
+The `site` commands are for documentation, marketing, reference, blog, and other mostly-static routes. They are separate from `cargo fission run --target web`, which launches an interactive web application. A site build starts from the same Fission widget model but resolves it ahead of time into crawlable HTML and CSS.
+
+The Fission documentation site in `documentation/` is the production example in this repository. It uses a custom home page widget, Markdown content routes, sidebars, a generated table of contents, light and dark themes, a custom footer, copied static assets, favicon support, generated search, optional code highlighting, sitemap and robots output, JSON-LD structured data, and link validation. You can inspect the route set with:
+
+```sh
+cargo fission site routes --project-dir documentation
+```
+
+Then check or build it with:
+
+```sh
+cargo fission site check --project-dir documentation
+cargo fission site build --project-dir documentation
+```
+
+The generated output directory is build output, not source. Keep the site project, content, sidebars, assets, and Rust widgets in source control; publish the generated directory from continuous integration.
 
 ## What the command-line interface does not do
 
