@@ -1,7 +1,7 @@
 mod charts;
 
 use anyhow::Result;
-use fission::op::{AlignItems, Color, Fill, FlexWrap, JustifyContent};
+use fission::op::{AlignItems, Color, Fill, FlexWrap, JustifyContent, TextAlign};
 use fission::prelude::*;
 use fission_shell_site::{build_from_cli, FissionSite};
 use std::sync::Arc;
@@ -12,6 +12,7 @@ fn main() -> Result<()> {
 
 fn site_app() -> FissionSite {
     FissionSite::new()
+        .theme(Theme::dark())
         .route_widget::<DocsState, _>(
             "/",
             "Fission",
@@ -53,51 +54,88 @@ impl Widget<DocsState> for RoutedHomePage {
 struct HomePage;
 
 impl Widget<DocsState> for HomePage {
-    fn build(&self, _ctx: &mut BuildCtx<DocsState>, _view: &View<DocsState>) -> Node {
+    fn build(&self, _ctx: &mut BuildCtx<DocsState>, view: &View<DocsState>) -> Node {
+        let tokens = &view.env.theme.tokens;
         Container::new(
             Column {
                 children: vec![
-                    top_nav(),
-                    hero(),
-                    proof_strip(),
-                    architecture_section(),
-                    targets_section(),
-                    charts_section(),
-                    final_cta(),
+                    top_nav(tokens),
+                    Row {
+                        children: vec![Container::new(
+                            Column {
+                                children: vec![
+                                    hero(tokens),
+                                    architecture_section(tokens),
+                                    proof_strip(tokens),
+                                    targets_section(tokens),
+                                    charts_section(tokens),
+                                    final_cta(tokens),
+                                ],
+                                gap: Some(tokens.spacing.xxxl),
+                                align_items: AlignItems::Center,
+                                ..Default::default()
+                            }
+                            .into_node(),
+                        )
+                        .width(content_width(tokens))
+                        .padding([0.0, 0.0, tokens.spacing.xxl, tokens.spacing.xxxxl])
+                        .into_node()],
+                        justify_content: JustifyContent::Center,
+                        ..Default::default()
+                    }
+                    .into_node(),
                 ],
-                gap: Some(28.0),
+                gap: Some(0.0),
                 flex_grow: 1.0,
                 ..Default::default()
             }
             .into_node(),
         )
-        .min_height(900.0)
-        .padding([28.0, 28.0, 24.0, 42.0])
-        .bg_fill(Fill::LinearGradient {
-            start: (0.0, 0.0),
-            end: (1.0, 1.0),
-            stops: vec![(0.0, paper()), (0.55, mist()), (1.0, warm())],
-        })
+        .min_height(tokens.spacing.xxxxl * 9.0)
+        .bg_fill(page_fill(tokens))
         .into_node()
     }
 }
 
-fn top_nav() -> Node {
+const NAV_ITEMS: &[(&str, &str)] = &[
+    ("Learn", "/docs/learn/overview/"),
+    ("Guides", "/docs/guides/app-structure/"),
+    ("Charts", "/reference/charts/overview/"),
+    ("Cookbook", "/docs/cookbook/build-a-counter/"),
+    ("Reference", "/reference/overview/overview/"),
+    ("Examples", "/docs/learn/examples-and-targets/"),
+];
+
+fn top_nav(tokens: &Tokens) -> Node {
     Container::new(
         Row {
             children: vec![
-                Text::new("Fission")
-                    .size(20.0)
-                    .weight(820)
-                    .color(ink())
-                    .into_node(),
                 Row {
                     children: vec![
-                        nav_link("Docs", "/docs/intro/"),
-                        nav_link("Reference", "/reference/overview/overview/"),
-                        nav_link("Charts", "/reference/charts/overview/"),
+                        Image {
+                            source: "/img/fission-mark.svg".to_string(),
+                            width: Some(tokens.spacing.l),
+                            height: Some(tokens.spacing.l),
+                            ..Default::default()
+                        }
+                        .into_node(),
+                        Text::new("Fission")
+                            .size(tokens.typography.font_size_lg)
+                            .weight(tokens.typography.font_weight_bold)
+                            .color(tokens.colors.heading)
+                            .into_node(),
                     ],
-                    gap: Some(18.0),
+                    gap: Some(tokens.spacing.s),
+                    align_items: AlignItems::Center,
+                    ..Default::default()
+                }
+                .into_node(),
+                Row {
+                    children: NAV_ITEMS
+                        .iter()
+                        .map(|(label, href)| nav_link(label, href, tokens))
+                        .collect(),
+                    gap: Some(tokens.spacing.l),
                     justify_content: JustifyContent::End,
                     ..Default::default()
                 }
@@ -109,471 +147,510 @@ fn top_nav() -> Node {
         }
         .into_node(),
     )
-    .padding([24.0, 24.0, 18.0, 18.0])
-    .bg_fill(Fill::Solid(glass()))
-    .border(border(), 1.0)
-    .border_radius(24.0)
+    .padding([
+        nav_inset(tokens),
+        nav_inset(tokens),
+        tokens.spacing.m,
+        tokens.spacing.m,
+    ])
+    .bg_fill(Fill::Solid(tokens.colors.surface.with_alpha(232)))
+    .border(tokens.colors.border, 1.0)
     .into_node()
 }
 
-fn hero() -> Node {
-    shell_section(
-        Row {
+fn hero(tokens: &Tokens) -> Node {
+    Container::new(
+        Column {
             children: vec![
-                Container::new(
-                    Column {
-                        children: vec![
-                            pill("Production Rust UI for every target family"),
-                            Text::new("Build serious apps with one Rust interface model.")
-                                .size(58.0)
-                                .line_height(62.0)
-                                .weight(860)
-                                .color(ink())
-                                .into_node(),
-                            Text::new("Fission is a production-ready UI framework for desktop, web, Android, and iOS. State, reducers, layout, semantics, rendering, diagnostics, and tests stay in one coherent Rust architecture.")
-                                .size(20.0)
-                                .line_height(32.0)
-                                .color(muted())
-                                .into_node(),
-                            Row {
-                                children: vec![cta("Start building", "/docs/learn/quickstart/", true), cta("Understand the model", "/docs/learn/runtime-model/", false)],
-                                gap: Some(14.0),
-                                wrap: FlexWrap::Wrap,
-                                ..Default::default()
-                            }
-                            .into_node(),
-                        ],
-                        gap: Some(22.0),
-                        flex_grow: 1.0,
-                        ..Default::default()
-                    }
+                pill("Production-ready Rust user interface", tokens),
+                Text::new("Build desktop, web, Android, and iOS apps in Rust.")
+                    .size(tokens.typography.display_md_size)
+                    .family(tokens.typography.font_family_serif.clone())
+                    .line_height(
+                        tokens.typography.display_md_size * tokens.typography.line_height_display,
+                    )
+                    .weight(tokens.typography.font_weight_bold)
+                    .color(tokens.colors.heading)
+                    .width(hero_text_width(tokens))
+                    .max_width(hero_text_width(tokens))
+                    .text_align(TextAlign::Center)
+                    .flex_shrink(1.0)
                     .into_node(),
-                )
-                .flex_grow(1.0)
+                Text::new("Fission is a cross-platform user interface framework with one shared runtime, explicit state, explicit side effects, and a GPU-backed rendering pipeline.")
+                    .size(tokens.typography.font_size_lg)
+                    .line_height(tokens.typography.font_size_lg * tokens.typography.line_height_relaxed)
+                    .color(tokens.colors.text_secondary)
+                    .width(prose_width(tokens))
+                    .max_width(prose_width(tokens))
+                    .text_align(TextAlign::Center)
+                    .flex_shrink(1.0)
+                    .into_node(),
+                Text::new("You write app state as plain Rust data, update it with reducers, and let Fission keep layout, input, time, rendering, and platform boundaries consistent across every target.")
+                    .size(tokens.typography.body_large_size)
+                    .line_height(tokens.typography.body_large_size * tokens.typography.line_height_relaxed)
+                    .color(tokens.colors.text_muted)
+                    .width(prose_width(tokens))
+                    .max_width(prose_width(tokens))
+                    .text_align(TextAlign::Center)
+                    .flex_shrink(1.0)
+                    .into_node(),
+                Row {
+                    children: vec![
+                        cta("Start with Quickstart", "/docs/learn/quickstart/", true, tokens),
+                        cta("Read Learn overview", "/docs/learn/overview/", false, tokens),
+                        nav_link("Browse Reference", "/reference/overview/overview/", tokens),
+                    ],
+                    gap: Some(tokens.spacing.m),
+                    wrap: FlexWrap::Wrap,
+                    justify_content: JustifyContent::Center,
+                    ..Default::default()
+                }
                 .into_node(),
-                command_panel(),
+                command_panel(tokens),
             ],
-            gap: Some(34.0),
-            wrap: FlexWrap::Wrap,
+            gap: Some(tokens.spacing.l),
             align_items: AlignItems::Center,
             ..Default::default()
         }
         .into_node(),
     )
+    .padding([0.0, 0.0, tokens.spacing.xxxl, tokens.spacing.xxxxl])
+    .into_node()
 }
 
-fn command_panel() -> Node {
+fn command_panel(tokens: &Tokens) -> Node {
     Container::new(
-        Column {
+        Row {
             children: vec![
-                Text::new("Create and run")
-                    .size(14.0)
-                    .weight(760)
-                    .color(muted())
-                    .into_node(),
-                code_card("Create", "cargo fission init my-app"),
-                code_card("Run", "cargo fission run --target web"),
-                code_card("Inspect", "cargo fission doctor --project-dir ."),
+                code_card("Run a real app", "cargo run -p counter", tokens),
+                code_card("Create your project", "fission init my-app", tokens),
             ],
-            gap: Some(12.0),
+            gap: Some(tokens.spacing.m),
+            wrap: FlexWrap::Wrap,
+            justify_content: JustifyContent::Center,
             ..Default::default()
         }
         .into_node(),
     )
-    .width(390.0)
-    .padding_all(20.0)
-    .bg_fill(Fill::Solid(charcoal()))
-    .border_radius(26.0)
     .into_node()
 }
 
-fn proof_strip() -> Node {
+fn proof_strip(tokens: &Tokens) -> Node {
     shell_section(
         Row {
             children: vec![
-                signal("One shared runtime", "State, reducers, layout, semantics, rendering, and diagnostics stay in one app model.", "/docs/learn/runtime-model/"),
-                signal("Real target families", "Desktop, web, Android, and iOS shells host the same Rust application code.", "/docs/learn/examples-and-targets/"),
-                signal("Built for verification", "Live tests, diagnostics, semantics, and layout inspection are part of the product workflow.", "/docs/guides/testing-and-diagnostics/"),
+                signal("One shared runtime", "State, reducers, layout, semantics, rendering, and diagnostics stay in one app model.", "/docs/learn/runtime-model/", tokens),
+                signal("Real target families", "Desktop, web, Android, and iOS shells host the same Rust application code.", "/docs/learn/examples-and-targets/", tokens),
+                signal("Built for verification", "Live tests, diagnostics, semantics, and layout inspection are part of the product workflow.", "/docs/guides/testing-and-diagnostics/", tokens),
             ],
-            gap: Some(18.0),
+            gap: Some(tokens.spacing.m),
             wrap: FlexWrap::Wrap,
             ..Default::default()
         }
         .into_node(),
+        tokens,
     )
 }
 
-fn architecture_section() -> Node {
-    split_section(
-        "The app flow stays explicit from input to pixels.",
-        "Fission keeps the important parts of a product easy to reason about: data is plain Rust, changes have named causes, outside work has an explicit path, and rendering stays inspectable.",
+fn architecture_section(tokens: &Tokens) -> Node {
+    centered_section(
+        "What Fission is",
+        "A cross-platform Rust framework built for real products.",
+        "Fission keeps state flow, layout, semantics, input routing, and rendering in one runtime, while platform shells handle packaging, windows, browser surfaces, lifecycle, and operating-system integration.",
         vec![
-            mini_step("01", "State", "Plain Rust data holds product truth instead of hiding it in widgets or host callbacks."),
-            mini_step("02", "Reducers", "Typed actions describe user intent and reducers make durable state changes reviewable."),
-            mini_step("03", "Host work", "Files, timers, services, capabilities, and background jobs use explicit runtime paths."),
-            mini_step("04", "Render", "Layout, semantics, paint order, and diagnostics remain available for tests and debugging."),
+            mini_step("01", "State", "Plain Rust data holds product truth instead of hiding it in widgets or host callbacks.", tokens),
+            mini_step("02", "Reducers", "Typed actions describe user intent and reducers make durable state changes reviewable.", tokens),
+            mini_step("03", "Host work", "Files, timers, services, capabilities, and background jobs use explicit runtime paths.", tokens),
+            mini_step("04", "Render", "Layout, semantics, paint order, and diagnostics remain available for tests and debugging.", tokens),
         ],
+        tokens,
     )
 }
 
-fn targets_section() -> Node {
-    split_section(
+fn targets_section(tokens: &Tokens) -> Node {
+    centered_section(
+        "Targets",
         "Ship across desktop, web, Android, and iOS.",
         "The shells are platform-specific where they need to be, but the application model stays shared. That is the difference between porting a product and rebuilding it four times.",
         vec![
-            target("Desktop", "Windows, macOS, and Linux shells for local development and production desktop apps."),
-            target("Web", "Browser-hosted Fission apps with generated scaffolding and smoke tests."),
-            target("Android", "Android target scaffolding, emulator workflow, device logs, and CLI-driven runs."),
-            target("iOS", "iOS simulator workflow, bundle generation, test control, and platform integration."),
+            target("Desktop", "Windows, macOS, and Linux shells for local development and production desktop apps.", tokens),
+            target("Web", "Browser-hosted Fission apps with generated scaffolding and smoke tests.", tokens),
+            target("Android", "Android target scaffolding, emulator workflow, device logs, and CLI-driven runs.", tokens),
+            target("iOS", "iOS simulator workflow, bundle generation, test control, and platform integration.", tokens),
         ],
+        tokens,
     )
 }
 
-fn charts_section() -> Node {
-    split_section(
+fn charts_section(tokens: &Tokens) -> Node {
+    centered_section(
+        "Beautiful charts",
         "Beautiful charts belong in the framework.",
         "Fission Charts is a first-class visualization layer for product dashboards, analytics tools, operations consoles, and interactive reports.",
         vec![
-            chart_tile("Cartesian and radial", "Line, bar, area, pie, radar, gauge, and polar families."),
-            chart_tile("Operations and analytics", "Heatmaps, timelines, funnels, sankey, treemaps, graph, and monitoring views."),
-            chart_tile("3D and GL", "Surface, globe, scatter3D, graph3D, terrain, mesh, and point-cloud catalog entries."),
+            chart_tile("Cartesian and radial", "Line, bar, area, pie, radar, gauge, and polar families.", tokens),
+            chart_tile("Operations and analytics", "Heatmaps, timelines, funnels, sankey, treemaps, graph, and monitoring views.", tokens),
+            chart_tile("3D and GL", "Surface, globe, scatter3D, graph3D, terrain, mesh, and point-cloud catalog entries.", tokens),
         ],
+        tokens,
     )
 }
 
-fn final_cta() -> Node {
+fn final_cta(tokens: &Tokens) -> Node {
     shell_section(
         Column {
             children: vec![
                 Text::new("Start with the hand-held path, then go deeper.")
-                    .size(34.0)
-                    .line_height(40.0)
-                    .weight(820)
-                    .color(ink())
+                    .size(tokens.typography.heading2_size)
+                    .line_height(tokens.typography.heading2_size * tokens.typography.line_height_heading)
+                    .weight(tokens.typography.font_weight_bold)
+                    .color(tokens.colors.heading)
                     .into_node(),
                 Text::new("The documentation introduces each concept before relying on it, then backs the explanation with examples and reference pages.")
-                    .size(18.0)
-                    .line_height(28.0)
-                    .color(muted())
+                    .size(tokens.typography.body_large_size)
+                    .line_height(tokens.typography.body_large_size * tokens.typography.line_height_relaxed)
+                    .color(tokens.colors.text_secondary)
                     .into_node(),
                 Row {
-                    children: vec![cta("Read the docs", "/docs/intro/", true), cta("Open the reference", "/reference/overview/overview/", false)],
-                    gap: Some(14.0),
+                    children: vec![
+                        cta("Read the docs", "/docs/intro/", true, tokens),
+                        cta("Open the reference", "/reference/overview/overview/", false, tokens),
+                    ],
+                    gap: Some(tokens.spacing.m),
                     wrap: FlexWrap::Wrap,
                     ..Default::default()
                 }
                 .into_node(),
             ],
-            gap: Some(18.0),
+            gap: Some(tokens.spacing.l),
             ..Default::default()
         }
         .into_node(),
+        tokens,
     )
 }
 
-fn shell_section(child: Node) -> Node {
+fn shell_section(child: Node, tokens: &Tokens) -> Node {
     Container::new(child)
-        .padding_all(30.0)
-        .bg_fill(Fill::Solid(surface()))
-        .border(border(), 1.0)
-        .border_radius(30.0)
+        .padding_all(tokens.spacing.xl)
+        .bg_fill(Fill::Solid(tokens.colors.surface))
+        .border(tokens.colors.border, 1.0)
+        .border_radius(tokens.radii.xxl)
         .into_node()
 }
 
-fn split_section(title: &str, body: &str, cards: Vec<Node>) -> Node {
-    shell_section(
+fn centered_section(
+    eyebrow: &str,
+    title: &str,
+    body: &str,
+    cards: Vec<Node>,
+    tokens: &Tokens,
+) -> Node {
+    Container::new(
         Column {
             children: vec![
-                Row {
-                    children: vec![
-                        Text::new(title.to_string())
-                            .size(36.0)
-                            .line_height(42.0)
-                            .weight(820)
-                            .color(ink())
-                            .into_node(),
-                        Text::new(body.to_string())
-                            .size(17.0)
-                            .line_height(28.0)
-                            .color(muted())
-                            .into_node(),
-                    ],
-                    gap: Some(36.0),
-                    wrap: FlexWrap::Wrap,
-                    align_items: AlignItems::Start,
-                    ..Default::default()
-                }
-                .into_node(),
+                Text::new(eyebrow.to_string())
+                    .size(tokens.typography.font_size_sm)
+                    .weight(tokens.typography.font_weight_bold)
+                    .color(tokens.colors.secondary)
+                    .into_node(),
+                Text::new(title.to_string())
+                    .size(tokens.typography.heading2_size)
+                    .family(tokens.typography.font_family_serif.clone())
+                    .line_height(
+                        tokens.typography.heading2_size * tokens.typography.line_height_heading,
+                    )
+                    .weight(tokens.typography.font_weight_bold)
+                    .color(tokens.colors.heading)
+                    .max_width(headline_width(tokens))
+                    .text_align(TextAlign::Center)
+                    .flex_shrink(1.0)
+                    .into_node(),
+                Text::new(body.to_string())
+                    .size(tokens.typography.body_large_size)
+                    .line_height(
+                        tokens.typography.body_large_size * tokens.typography.line_height_relaxed,
+                    )
+                    .color(tokens.colors.text_secondary)
+                    .max_width(prose_width(tokens))
+                    .text_align(TextAlign::Center)
+                    .flex_shrink(1.0)
+                    .into_node(),
                 Row {
                     children: cards,
-                    gap: Some(16.0),
+                    gap: Some(tokens.spacing.m),
                     wrap: FlexWrap::Wrap,
+                    justify_content: JustifyContent::Center,
                     ..Default::default()
                 }
                 .into_node(),
             ],
-            gap: Some(24.0),
+            gap: Some(tokens.spacing.l),
+            align_items: AlignItems::Center,
             ..Default::default()
         }
         .into_node(),
     )
+    .into_node()
 }
 
-fn nav_link(label: &str, href: &str) -> Node {
+fn nav_link(label: &str, href: &str, tokens: &Tokens) -> Node {
     Text::new(label.to_string())
-        .size(14.0)
-        .weight(650)
-        .color(ink())
+        .size(tokens.typography.label_large_size)
+        .weight(tokens.typography.font_weight_semibold)
+        .color(tokens.colors.text_link)
         .semantics_identifier(format!("site-route:{href}"))
         .into_node()
 }
 
-fn cta(label: &str, href: &str, primary: bool) -> Node {
+fn cta(label: &str, href: &str, primary: bool, tokens: &Tokens) -> Node {
+    let (background, foreground, border) = if primary {
+        (
+            tokens.colors.primary,
+            tokens.colors.on_primary,
+            tokens.colors.primary,
+        )
+    } else {
+        (
+            tokens.colors.surface_raised,
+            tokens.colors.text_primary,
+            tokens.colors.border,
+        )
+    };
     Container::new(
         Text::new(label.to_string())
-            .size(15.0)
-            .weight(760)
-            .color(if primary { paper() } else { ink() })
+            .size(tokens.typography.label_large_size)
+            .weight(tokens.typography.font_weight_bold)
+            .color(foreground)
             .semantics_identifier(format!("site-route:{href}"))
             .into_node(),
     )
-    .padding([18.0, 18.0, 12.0, 12.0])
-    .bg_fill(Fill::Solid(if primary { accent() } else { surface_alt() }))
-    .border(if primary { accent() } else { border() }, 1.0)
-    .border_radius(999.0)
+    .padding([
+        tokens.spacing.l,
+        tokens.spacing.l,
+        tokens.spacing.m,
+        tokens.spacing.m,
+    ])
+    .bg_fill(Fill::Solid(background))
+    .border(border, 1.0)
+    .border_radius(tokens.radii.full)
     .into_node()
 }
 
-fn pill(label: &str) -> Node {
+fn pill(label: &str, tokens: &Tokens) -> Node {
     Container::new(
         Text::new(label.to_string())
-            .size(13.0)
-            .weight(760)
-            .color(accent())
+            .size(tokens.typography.font_size_sm)
+            .weight(tokens.typography.font_weight_bold)
+            .color(tokens.colors.primary)
             .into_node(),
     )
-    .padding([14.0, 14.0, 8.0, 8.0])
-    .bg_fill(Fill::Solid(accent_wash()))
-    .border(accent_border(), 1.0)
-    .border_radius(999.0)
+    .padding([
+        tokens.spacing.m,
+        tokens.spacing.m,
+        tokens.spacing.s,
+        tokens.spacing.s,
+    ])
+    .bg_fill(Fill::Solid(tokens.colors.primary_subtle))
+    .border(tokens.colors.focus_ring, 1.0)
+    .border_radius(tokens.radii.full)
     .into_node()
 }
 
-fn code_card(label: &str, command: &str) -> Node {
+fn code_card(label: &str, command: &str, tokens: &Tokens) -> Node {
     Container::new(
         Column {
             children: vec![
                 Text::new(label.to_string())
-                    .size(12.0)
-                    .weight(760)
-                    .color(warm_text())
+                    .size(tokens.typography.font_size_xs)
+                    .weight(tokens.typography.font_weight_bold)
+                    .color(tokens.colors.secondary)
                     .into_node(),
                 Text::new(command.to_string())
-                    .size(14.0)
-                    .line_height(20.0)
-                    .family("SFMono-Regular, Consolas, monospace")
-                    .color(paper())
+                    .size(tokens.typography.font_size_sm)
+                    .line_height(
+                        tokens.typography.font_size_sm * tokens.typography.line_height_snug,
+                    )
+                    .family(tokens.typography.font_family_mono.clone())
+                    .color(tokens.colors.text_primary)
                     .into_node(),
             ],
-            gap: Some(6.0),
+            gap: Some(tokens.spacing.s),
             ..Default::default()
         }
         .into_node(),
     )
-    .padding_all(14.0)
-    .bg_fill(Fill::Solid(code_bg()))
-    .border(code_border(), 1.0)
-    .border_radius(16.0)
+    .padding_all(tokens.spacing.m)
+    .bg_fill(Fill::Solid(tokens.colors.surface_raised))
+    .border(tokens.colors.border_strong, 1.0)
+    .border_radius(tokens.radii.xl)
     .into_node()
 }
 
-fn signal(title: &str, body: &str, href: &str) -> Node {
+fn signal(title: &str, body: &str, href: &str, tokens: &Tokens) -> Node {
     card(
         vec![
             Text::new(title.to_string())
-                .size(20.0)
-                .weight(780)
-                .color(ink())
+                .size(tokens.typography.font_size_lg)
+                .weight(tokens.typography.font_weight_bold)
+                .color(tokens.colors.heading)
                 .semantics_identifier(format!("site-route:{href}"))
                 .into_node(),
-            Text::new(body.to_string())
-                .size(15.0)
-                .line_height(23.0)
-                .color(muted())
-                .into_node(),
+            paragraph(body, tokens),
         ],
-        355.0,
+        tile_width(tokens),
+        tokens,
     )
 }
 
-fn mini_step(number: &str, title: &str, body: &str) -> Node {
+fn mini_step(number: &str, title: &str, body: &str, tokens: &Tokens) -> Node {
     card(
         vec![
             Text::new(number.to_string())
-                .size(12.0)
-                .weight(820)
-                .color(accent())
+                .size(tokens.typography.font_size_xs)
+                .weight(tokens.typography.font_weight_bold)
+                .color(tokens.colors.primary)
                 .into_node(),
             Text::new(title.to_string())
-                .size(21.0)
-                .weight(800)
-                .color(ink())
+                .size(tokens.typography.font_size_lg)
+                .weight(tokens.typography.font_weight_bold)
+                .color(tokens.colors.heading)
                 .into_node(),
-            Text::new(body.to_string())
-                .size(15.0)
-                .line_height(23.0)
-                .color(muted())
-                .into_node(),
+            paragraph(body, tokens),
         ],
-        270.0,
+        compact_tile_width(tokens),
+        tokens,
     )
 }
 
-fn target(title: &str, body: &str) -> Node {
+fn target(title: &str, body: &str, tokens: &Tokens) -> Node {
     card(
         vec![
             Text::new(title.to_string())
-                .size(21.0)
-                .weight(800)
-                .color(ink())
+                .size(tokens.typography.font_size_lg)
+                .weight(tokens.typography.font_weight_bold)
+                .color(tokens.colors.heading)
                 .into_node(),
-            Text::new(body.to_string())
-                .size(15.0)
-                .line_height(23.0)
-                .color(muted())
-                .into_node(),
-            Text::new("See target workflow")
-                .size(14.0)
-                .weight(700)
-                .color(accent())
-                .semantics_identifier("site-route:/docs/guides/platform-shells-cli-and-testing/")
-                .into_node(),
+            paragraph(body, tokens),
+            nav_link(
+                "See target workflow",
+                "/docs/guides/platform-shells-cli-and-testing/",
+                tokens,
+            ),
         ],
-        270.0,
+        compact_tile_width(tokens),
+        tokens,
     )
 }
 
-fn chart_tile(title: &str, body: &str) -> Node {
+fn chart_tile(title: &str, body: &str, tokens: &Tokens) -> Node {
     card(
         vec![
-            chart_preview(),
+            chart_preview(tokens),
             Text::new(title.to_string())
-                .size(21.0)
-                .weight(800)
-                .color(ink())
+                .size(tokens.typography.font_size_lg)
+                .weight(tokens.typography.font_weight_bold)
+                .color(tokens.colors.heading)
                 .semantics_identifier("site-route:/reference/charts/overview/")
                 .into_node(),
-            Text::new(body.to_string())
-                .size(15.0)
-                .line_height(23.0)
-                .color(muted())
-                .into_node(),
+            paragraph(body, tokens),
         ],
-        355.0,
+        tile_width(tokens),
+        tokens,
     )
 }
 
-fn card(children: Vec<Node>, width: f32) -> Node {
+fn paragraph(body: &str, tokens: &Tokens) -> Node {
+    Text::new(body.to_string())
+        .size(tokens.typography.body_medium_size)
+        .line_height(tokens.typography.body_medium_size * tokens.typography.line_height_normal)
+        .color(tokens.colors.text_secondary)
+        .flex_shrink(1.0)
+        .into_node()
+}
+
+fn card(children: Vec<Node>, width: f32, tokens: &Tokens) -> Node {
     Container::new(
         Column {
             children,
-            gap: Some(12.0),
+            gap: Some(tokens.spacing.m),
             ..Default::default()
         }
         .into_node(),
     )
     .width(width)
-    .padding_all(20.0)
-    .bg_fill(Fill::Solid(surface_alt()))
-    .border(border(), 1.0)
-    .border_radius(22.0)
+    .flex_shrink(1.0)
+    .padding_all(tokens.spacing.l)
+    .bg_fill(Fill::Solid(tokens.colors.surface_raised))
+    .border(tokens.colors.border, 1.0)
+    .border_radius(tokens.radii.xl)
     .into_node()
 }
 
-fn chart_preview() -> Node {
+fn chart_preview(tokens: &Tokens) -> Node {
     Row {
         children: vec![
-            bar(28.0, accent()),
-            bar(46.0, teal()),
-            bar(34.0, gold()),
-            bar(56.0, ink()),
+            bar(tokens.spacing.xl, tokens.colors.primary, tokens),
+            bar(tokens.spacing.xxxl, tokens.colors.info, tokens),
+            bar(tokens.spacing.xxl, tokens.colors.warning, tokens),
+            bar(
+                tokens.spacing.xxxl + tokens.spacing.m,
+                tokens.colors.secondary,
+                tokens,
+            ),
         ],
-        gap: Some(10.0),
+        gap: Some(tokens.spacing.s),
         align_items: AlignItems::End,
         ..Default::default()
     }
     .into_node()
 }
 
-fn bar(height: f32, color: Color) -> Node {
+fn bar(height: f32, color: Color, tokens: &Tokens) -> Node {
     Container::new(Text::new("").into_node())
-        .width(22.0)
+        .width(tokens.spacing.l)
         .height(height)
         .bg_fill(Fill::Solid(color))
-        .border_radius(8.0)
+        .border_radius(tokens.radii.medium)
         .into_node()
 }
 
-fn color(r: u8, g: u8, b: u8) -> Color {
-    Color { r, g, b, a: 255 }
-}
-
-fn ink() -> Color {
-    color(29, 25, 20)
-}
-fn muted() -> Color {
-    color(101, 92, 82)
-}
-fn paper() -> Color {
-    color(255, 252, 246)
-}
-fn mist() -> Color {
-    color(246, 241, 232)
-}
-fn warm() -> Color {
-    color(247, 229, 211)
-}
-fn surface() -> Color {
-    color(255, 250, 242)
-}
-fn surface_alt() -> Color {
-    color(252, 244, 233)
-}
-fn glass() -> Color {
-    Color {
-        r: 255,
-        g: 250,
-        b: 242,
-        a: 228,
+fn page_fill(tokens: &Tokens) -> Fill {
+    Fill::LinearGradient {
+        start: (0.0, 0.0),
+        end: (1.0, 1.0),
+        stops: vec![
+            (0.0, tokens.colors.background),
+            (0.6, tokens.colors.surface_sunken),
+            (1.0, tokens.colors.surface),
+        ],
     }
 }
-fn border() -> Color {
-    color(224, 211, 195)
+
+fn hero_text_width(tokens: &Tokens) -> f32 {
+    tokens.spacing.xxxxl * 8.25
 }
-fn accent() -> Color {
-    color(189, 84, 42)
+
+fn prose_width(tokens: &Tokens) -> f32 {
+    tokens.spacing.xxxxl * 9.0
 }
-fn accent_wash() -> Color {
-    color(255, 235, 220)
+
+fn headline_width(tokens: &Tokens) -> f32 {
+    tokens.spacing.xxxxl * 6.5
 }
-fn accent_border() -> Color {
-    color(231, 176, 141)
+
+fn tile_width(tokens: &Tokens) -> f32 {
+    tokens.spacing.xxxxl * 3.5
 }
-fn charcoal() -> Color {
-    color(34, 31, 27)
+
+fn compact_tile_width(tokens: &Tokens) -> f32 {
+    tokens.spacing.xxxxl * 2.8
 }
-fn code_bg() -> Color {
-    color(48, 44, 38)
+
+fn content_width(tokens: &Tokens) -> f32 {
+    tokens.spacing.xxxxl * 17.5
 }
-fn code_border() -> Color {
-    color(83, 74, 63)
-}
-fn warm_text() -> Color {
-    color(236, 186, 132)
-}
-fn teal() -> Color {
-    color(54, 143, 139)
-}
-fn gold() -> Color {
-    color(220, 161, 65)
+
+fn nav_inset(tokens: &Tokens) -> f32 {
+    tokens.spacing.xxxxl
 }

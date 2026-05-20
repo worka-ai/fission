@@ -15,7 +15,32 @@ generate_sitemap = true
 generate_robots = true
 title = "Fission"
 description = "Build production desktop, web, Android, and iOS apps with Fission."
+logo = "/img/fission-mark.svg"
 asset_dirs = ["../website/static"]
+
+[[site.nav]]
+title = "Learn"
+href = "/docs/learn/overview/"
+
+[[site.nav]]
+title = "Guides"
+href = "/docs/guides/app-structure/"
+
+[[site.nav]]
+title = "Charts"
+href = "/reference/charts/overview/"
+
+[[site.nav]]
+title = "Cookbook"
+href = "/docs/cookbook/build-a-counter/"
+
+[[site.nav]]
+title = "Reference"
+href = "/reference/overview/overview/"
+
+[[site.nav]]
+title = "Examples"
+href = "/docs/learn/examples-and-targets/"
 
 [[site.routes]]
 kind = "content"
