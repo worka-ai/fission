@@ -6,6 +6,7 @@ use crate::html::{
     render_ir_to_html_with_styles, theme_variables_css, CodeHighlightingOptions, CssVariableMap,
     HtmlRenderOptions, StyleRegistry,
 };
+use crate::search::{write_search_index, SiteSearchOptions};
 use crate::site::{normalize_site_path, ContentTransform, FissionSite, SiteRenderContext};
 use anyhow::{bail, Context, Result};
 use fission_core::ui::Column;
@@ -18,6 +19,7 @@ use std::fs;
 use std::path::{Path, PathBuf};
 
 const SITE_CSS: &str = include_str!("../assets/site.css");
+const SEARCH_JS: &str = include_str!("../assets/search.js");
 
 #[derive(Clone, Debug)]
 pub struct SiteBuildOptions {
@@ -35,6 +37,7 @@ pub struct SiteBuildOptions {
     pub generate_sitemap: bool,
     pub generate_robots: bool,
     pub code_highlighting: CodeHighlightingOptions,
+    pub search: SiteSearchOptions,
     pub clean: bool,
 }
 
@@ -69,6 +72,7 @@ impl SiteBuildOptions {
             generate_sitemap: false,
             generate_robots: false,
             code_highlighting: CodeHighlightingOptions::default(),
+            search: SiteSearchOptions::default(),
             clean: true,
         }
     }
@@ -149,6 +153,7 @@ impl SiteBuildOptions {
             .code_highlighting
             .map(CodeHighlightingOptions::from)
             .unwrap_or_default();
+        let search = site.search.map(SiteSearchOptions::from).unwrap_or_default();
         Ok(Self {
             project_dir,
             output_dir,
@@ -164,6 +169,7 @@ impl SiteBuildOptions {
             generate_sitemap,
             generate_robots,
             code_highlighting,
+            search,
             clean: true,
         })
     }
@@ -237,6 +243,7 @@ pub fn build_site(options: &SiteBuildOptions, site: &FissionSite) -> Result<Site
         });
     }
 
+    write_search_assets_if_needed(options, &routes)?;
     write_root_index_if_needed(options, &routes)?;
     write_sitemap_if_needed(options, &routes)?;
     write_robots_if_needed(options)?;
@@ -386,6 +393,32 @@ fn write_robots_if_needed(options: &SiteBuildOptions) -> Result<()> {
             options.output_dir.join("robots.txt").display()
         )
     })
+}
+
+fn write_search_assets_if_needed(
+    options: &SiteBuildOptions,
+    routes: &[ContentRoute],
+) -> Result<()> {
+    if !options.search.enabled {
+        return Ok(());
+    }
+    let search_dir = options
+        .output_dir
+        .join(options.search.output_path.trim_matches('/'));
+    fs::create_dir_all(&search_dir).with_context(|| {
+        format!(
+            "failed to create search output dir {}",
+            search_dir.display()
+        )
+    })?;
+    fs::write(search_dir.join("search.js"), SEARCH_JS)
+        .with_context(|| format!("failed to write {}", search_dir.join("search.js").display()))?;
+    write_search_index(
+        &search_dir,
+        routes,
+        &options.default_locale,
+        &options.search,
+    )
 }
 
 fn site_theme_css(site: &FissionSite) -> String {
@@ -634,6 +667,7 @@ fn render_route(
         site_logo: options.site_logo.as_deref(),
         site_nav: &options.site_nav,
         theme_switching: site.theme_switching,
+        search_enabled: options.search.enabled,
         route,
         all_routes: routes,
     };
@@ -683,6 +717,10 @@ fn render_node_to_html(
         default_theme_mode: site.default_theme_mode,
         theme_switching: site.theme_switching,
         code_highlighting: options.code_highlighting.clone(),
+        search_script_href: options
+            .search
+            .enabled
+            .then(|| search_script_href_for_route(route_path, &options.search.output_path)),
         structured_data: structured_data_for_route(
             options,
             title,
@@ -857,6 +895,38 @@ fn stylesheet_href_for_route(route_path: &str) -> String {
         "site.css".to_string()
     } else {
         format!("{}site.css", "../".repeat(depth))
+    }
+}
+
+fn search_script_href_for_route(route_path: &str, search_path: &str) -> String {
+    let target = format!(
+        "/{}/search.js",
+        search_path.trim_matches('/').trim_end_matches('/')
+    );
+    relative_href_for_route(route_path, &target)
+}
+
+fn relative_href_for_route(current_route_path: &str, target: &str) -> String {
+    let suffix_start = target
+        .find('#')
+        .or_else(|| target.find('?'))
+        .unwrap_or(target.len());
+    let (path, suffix) = target.split_at(suffix_start);
+    let depth = current_route_path
+        .trim_matches('/')
+        .split('/')
+        .filter(|segment| !segment.is_empty())
+        .count();
+    let prefix = "../".repeat(depth);
+    let trimmed = path.trim_start_matches('/');
+    if trimmed.is_empty() {
+        if prefix.is_empty() {
+            format!("./{suffix}")
+        } else {
+            format!("{prefix}{suffix}")
+        }
+    } else {
+        format!("{prefix}{trimmed}{suffix}")
     }
 }
 
@@ -1127,6 +1197,8 @@ struct ProjectSite {
     generate_robots: Option<bool>,
     #[serde(default)]
     code_highlighting: Option<ProjectCodeHighlighting>,
+    #[serde(default)]
+    search: Option<ProjectSearch>,
 }
 
 #[derive(Debug, Deserialize, Default)]
@@ -1143,6 +1215,24 @@ impl From<ProjectCodeHighlighting> for CodeHighlightingOptions {
             enabled: value.enabled.unwrap_or(false),
             stylesheet_href: value.stylesheet_href.unwrap_or(defaults.stylesheet_href),
             script_src: value.script_src.unwrap_or(defaults.script_src),
+        }
+    }
+}
+
+#[derive(Debug, Deserialize, Default)]
+struct ProjectSearch {
+    enabled: Option<bool>,
+    output_path: Option<String>,
+    min_token_len: Option<usize>,
+}
+
+impl From<ProjectSearch> for SiteSearchOptions {
+    fn from(value: ProjectSearch) -> Self {
+        let defaults = SiteSearchOptions::default();
+        Self {
+            enabled: value.enabled.unwrap_or(false),
+            output_path: value.output_path.unwrap_or(defaults.output_path),
+            min_token_len: value.min_token_len.unwrap_or(defaults.min_token_len),
         }
     }
 }
@@ -1224,6 +1314,7 @@ mod tests {
         options.generate_sitemap = true;
         options.generate_robots = true;
         options.code_highlighting.enabled = true;
+        options.search.enabled = true;
         let report = build_content_site(&options).unwrap();
         let output = temp.join("target/fission/site/content/getting-started/index.html");
         assert_eq!(report.routes.len(), 1);
@@ -1243,6 +1334,12 @@ mod tests {
         assert!(css.contains(".fs_"));
         assert!(temp.join("target/fission/site/sitemap.xml").exists());
         assert!(temp.join("target/fission/site/robots.txt").exists());
+        assert!(temp.join("target/fission/site/search/search.js").exists());
+        assert!(temp
+            .join("target/fission/site/search/manifest.json")
+            .exists());
+        let docs = fs::read_to_string(temp.join("target/fission/site/search/docs.json")).unwrap();
+        assert!(docs.contains("Getting started"));
         let _ = fs::remove_dir_all(temp);
     }
 

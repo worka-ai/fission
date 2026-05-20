@@ -22,6 +22,7 @@ pub struct HtmlRenderOptions {
     pub default_theme_mode: Option<DesignMode>,
     pub theme_switching: bool,
     pub code_highlighting: CodeHighlightingOptions,
+    pub search_script_href: Option<String>,
     pub structured_data: Vec<String>,
 }
 
@@ -40,6 +41,7 @@ impl Default for HtmlRenderOptions {
             default_theme_mode: None,
             theme_switching: false,
             code_highlighting: CodeHighlightingOptions::default(),
+            search_script_href: None,
             structured_data: Vec::new(),
         }
     }
@@ -182,9 +184,10 @@ fn render_document(body_html: &str, options: &HtmlRenderOptions, has_code_blocks
         })
         .unwrap_or_default();
     let code_highlighting_assets = code_highlighting_assets(options, has_code_blocks);
+    let search_script = search_script(options);
     let enhancement_script = site_enhancement_script(options.theme_switching);
     format!(
-        "<!doctype html>\n<html lang=\"{}\"{theme_attr}>\n  <head>\n    <meta charset=\"utf-8\">\n    <meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">{metadata}\n    <title>{}</title>\n    <link rel=\"stylesheet\" href=\"{}\">{code_highlighting_assets}{enhancement_script}\n  </head>\n  <body>\n    {body_html}\n  </body>\n</html>\n",
+        "<!doctype html>\n<html lang=\"{}\"{theme_attr}>\n  <head>\n    <meta charset=\"utf-8\">\n    <meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">{metadata}\n    <title>{}</title>\n    <link rel=\"stylesheet\" href=\"{}\">{code_highlighting_assets}{search_script}{enhancement_script}\n  </head>\n  <body>\n    {body_html}\n  </body>\n</html>\n",
         escape_attr(&options.lang),
         escape_text(&options.document_title),
         escape_attr(&options.stylesheet_href)
@@ -200,6 +203,19 @@ fn code_highlighting_assets(options: &HtmlRenderOptions, has_code_blocks: bool) 
         escape_attr(&options.code_highlighting.stylesheet_href),
         escape_attr(&options.code_highlighting.script_src),
     )
+}
+
+fn search_script(options: &HtmlRenderOptions) -> String {
+    options
+        .search_script_href
+        .as_ref()
+        .map(|href| {
+            format!(
+                "\n    <script defer src=\"{}\"></script>",
+                escape_attr(href)
+            )
+        })
+        .unwrap_or_default()
 }
 
 fn site_enhancement_script(theme_switching: bool) -> &'static str {
@@ -807,6 +823,13 @@ impl HtmlRenderer<'_> {
                 let children = self.render_children(&node.children, &HashSet::new())?;
                 return Ok(format!(
                     "<button class=\"fission-site-node fission-site-theme-toggle\" type=\"button\" data-fission-theme-toggle data-fission-node=\"{}\">{children}</button>",
+                    node.id
+                ));
+            }
+            if identifier == "site-search-trigger" {
+                let children = self.render_children(&node.children, &HashSet::new())?;
+                return Ok(format!(
+                    "<button class=\"fission-site-node fission-site-search-trigger\" type=\"button\" data-fission-search-trigger data-fission-node=\"{}\">{children}</button>",
                     node.id
                 ));
             }

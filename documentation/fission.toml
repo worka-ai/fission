@@ -21,6 +21,9 @@ asset_dirs = ["../website/static"]
 [site.code_highlighting]
 enabled = true
 
+[site.search]
+enabled = true
+
 [[site.nav]]
 title = "Learn"
 href = "/docs/learn/overview/"

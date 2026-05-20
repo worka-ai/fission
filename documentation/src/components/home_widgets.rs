@@ -273,40 +273,30 @@ pub(super) struct SearchPill;
 impl Widget<DocsState> for SearchPill {
     fn build(&self, _ctx: &mut BuildCtx<DocsState>, view: &View<DocsState>) -> Node {
         let tokens = &view.env.theme.tokens;
-        Container::new(
-            Row {
-                children: vec![
-                    Text::new("Search")
-                        .size(tokens.typography.label_large_size)
-                        .color(tokens.colors.text_secondary)
-                        .into_node(),
-                    Container::new(
-                        Text::new("Cmd K")
-                            .size(tokens.typography.font_size_xs)
-                            .family(tokens.typography.font_family_mono.clone())
-                            .color(tokens.colors.text_muted)
-                            .into_node(),
-                    )
-                    .padding([tokens.spacing.s, tokens.spacing.s, 2.0, 2.0])
-                    .border(tokens.colors.border_strong, 1.0)
-                    .border_radius(tokens.radii.medium)
+        semantic_row(
+            "site-search-trigger",
+            vec![
+                Text::new("Search")
+                    .size(tokens.typography.label_large_size)
+                    .color(tokens.colors.text_secondary)
                     .into_node(),
-                ],
-                gap: Some(tokens.spacing.s),
-                align_items: AlignItems::Center,
-                ..Default::default()
-            }
-            .into_node(),
+                Container::new(
+                    Text::new("Cmd K")
+                        .size(tokens.typography.font_size_xs)
+                        .family(tokens.typography.font_family_mono.clone())
+                        .color(tokens.colors.text_muted)
+                        .into_node(),
+                )
+                .padding([tokens.spacing.s, tokens.spacing.s, 2.0, 2.0])
+                .border(tokens.colors.border_strong, 1.0)
+                .border_radius(tokens.radii.medium)
+                .into_node(),
+            ],
+            Some(tokens.spacing.s),
+            FlexWrap::NoWrap,
+            AlignItems::Center,
+            JustifyContent::Start,
         )
-        .padding([
-            tokens.spacing.m,
-            tokens.spacing.m,
-            tokens.spacing.s,
-            tokens.spacing.s,
-        ])
-        .border(tokens.colors.border, 1.0)
-        .border_radius(tokens.radii.full)
-        .into_node()
     }
 }
 

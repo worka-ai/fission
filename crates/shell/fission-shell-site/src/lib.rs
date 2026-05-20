@@ -9,6 +9,7 @@ mod build;
 mod document;
 mod front_matter;
 mod html;
+mod search;
 mod site;
 
 pub use build::{

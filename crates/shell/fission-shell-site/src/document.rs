@@ -47,6 +47,7 @@ pub(crate) struct DocumentationPage<'a> {
     pub site_logo: Option<&'a str>,
     pub site_nav: &'a [SiteNavLink],
     pub theme_switching: bool,
+    pub search_enabled: bool,
     pub route: &'a ContentRoute,
     pub all_routes: &'a [ContentRoute],
 }
@@ -89,6 +90,9 @@ impl DocumentationPage<'_> {
         }
         if self.theme_switching {
             children.push(theme_toggle(tokens));
+        }
+        if self.search_enabled {
+            children.push(search_trigger(tokens));
         }
         Container::new(
             Row {
@@ -416,6 +420,28 @@ fn theme_toggle(tokens: &Tokens) -> Node {
         .color(tokens.colors.text_link)
         .semantics_identifier("site-theme-toggle")
         .into_node()
+}
+
+fn search_trigger(tokens: &Tokens) -> Node {
+    Row {
+        children: vec![
+            Text::new("Search")
+                .size(tokens.typography.label_large_size)
+                .weight(tokens.typography.font_weight_semibold)
+                .color(tokens.colors.text_link)
+                .into_node(),
+            Text::new("Cmd K")
+                .size(tokens.typography.font_size_xs)
+                .family(tokens.typography.font_family_mono.clone())
+                .color(tokens.colors.text_muted)
+                .into_node(),
+        ],
+        gap: Some(tokens.spacing.s),
+        align_items: AlignItems::Center,
+        semantics: Some(site_semantics("site-search-trigger")),
+        ..Default::default()
+    }
+    .into_node()
 }
 
 pub(crate) fn extract_page_links(markdown: &str) -> Vec<HeadingLink> {
