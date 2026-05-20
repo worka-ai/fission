@@ -57,6 +57,7 @@ where
     runtime: Runtime,
     layout_engine: LayoutEngine,
     env: Env,
+    sync_env: Option<Box<dyn Fn(&S, &mut Env)>>,
     measurer: Arc<dyn TextMeasurer>,
     last_ir: Option<CoreIR>,
     last_snapshot: Option<LayoutSnapshot>,
@@ -91,6 +92,7 @@ where
             runtime,
             layout_engine: LayoutEngine::new().with_measurer(measurer.clone()),
             env,
+            sync_env: None,
             measurer,
             last_ir: None,
             last_snapshot: None,
@@ -108,12 +110,29 @@ where
         self
     }
 
+    pub fn with_sync_env<F>(mut self, sync: F) -> Self
+    where
+        F: Fn(&S, &mut Env) + 'static,
+    {
+        self.sync_env = Some(Box::new(sync));
+        self
+    }
+
     pub fn render_frame(&mut self, width: u16, height: u16) -> Result<TerminalFrame> {
         let width = width.max(1);
         let height = height.max(1);
         let viewport = LayoutSize::new(f32::from(width), f32::from(height));
         self.env.viewport_size = viewport;
         self.env.measurer = Some(self.measurer.clone());
+        if let Some(sync_env) = &self.sync_env {
+            let state = self
+                .runtime
+                .get_app_state::<S>()
+                .context("terminal app state is missing")?;
+            sync_env(state, &mut self.env);
+            self.env.viewport_size = viewport;
+            self.env.measurer = Some(self.measurer.clone());
+        }
 
         let node_tree = self.build_node_tree(viewport)?;
         let mut cx = LoweringContext::new(
