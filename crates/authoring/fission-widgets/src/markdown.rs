@@ -1,8 +1,11 @@
 use crate::stack::VStack;
 use fission_core::op::Color;
-use fission_core::ui::{Container, Node, RichText, RichTextRun, Row, Scroll, Text, TextFontStyle};
+use fission_core::ui::{
+    Column, Container, Image, Node, RichText, RichTextRun, Row, Scroll, Text, TextFontStyle,
+};
 use fission_core::{BuildCtx, FlexDirection, View, Widget};
-use fission_ir::op::AlignItems;
+use fission_ir::op::{AlignItems, ImageFit};
+use fission_ir::{Role, Semantics};
 use rushdown::ast::{
     Arena, CodeBlock, CodeSpan, Heading, HtmlBlock, Image as MarkdownImage, KindData, Link,
     NodeRef, TableCellAlignment, Text as MarkdownText, TextQualifier,
@@ -90,6 +93,11 @@ struct MarkdownRenderer<'a> {
     palette: MarkdownPalette,
     body_size: f32,
     line_height: f32,
+    heading_family: String,
+    heading_sizes: [f32; 6],
+    heading_line_height: f32,
+    image_width: f32,
+    image_height: f32,
     code_family: String,
 }
 
@@ -110,6 +118,18 @@ impl<'a> MarkdownRenderer<'a> {
             },
             body_size: tokens.typography.body_medium_size,
             line_height: tokens.typography.body_medium_size * tokens.typography.line_height_normal,
+            heading_family: tokens.typography.font_family_serif.clone(),
+            heading_sizes: [
+                tokens.typography.heading1_size,
+                tokens.typography.heading2_size,
+                tokens.typography.heading_size,
+                tokens.typography.font_size_xl,
+                tokens.typography.font_size_lg,
+                tokens.typography.font_size_base,
+            ],
+            heading_line_height: tokens.typography.line_height_heading,
+            image_width: tokens.spacing.xxxxl * 8.0,
+            image_height: tokens.spacing.xxxxl * 6.0,
             code_family: tokens.typography.font_family_mono.clone(),
         }
     }
@@ -158,24 +178,25 @@ impl<'a> MarkdownRenderer<'a> {
 
     fn heading(&self, node_ref: NodeRef, heading: &Heading) -> Node {
         let level = heading.level().clamp(1, 6);
-        let size = match level {
-            1 => 32.0,
-            2 => 26.0,
-            3 => 22.0,
-            4 => 19.0,
-            5 => 17.0,
-            _ => 15.0,
-        };
+        let size = self.heading_sizes[(level - 1) as usize];
 
         let mut style = self.inline_style(size);
         style.font_weight = Some(700);
+        style.font_family = Some(self.heading_family.clone());
 
         RichText::new(self.inline_runs(node_ref, style))
-            .semantics_identifier(format!("markdown-heading-{level}"))
+            .strut_line_height(size * self.heading_line_height)
+            .semantics_identifier(format!(
+                "markdown-heading-{level}:{}",
+                markdown_anchor(&self.plain_text(node_ref))
+            ))
             .into_node()
     }
 
     fn paragraph(&self, node_ref: NodeRef, font_size: f32) -> Node {
+        if let Some((image_ref, image)) = self.single_image(node_ref) {
+            return self.image_block(image_ref, image);
+        }
         let runs = self.inline_runs(node_ref, self.inline_style(font_size));
         if runs.is_empty() {
             self.text_node(
@@ -188,6 +209,30 @@ impl<'a> MarkdownRenderer<'a> {
         }
     }
 
+    fn single_image(&self, node_ref: NodeRef) -> Option<(NodeRef, &MarkdownImage)> {
+        let mut children = self.arena[node_ref].children(self.arena);
+        let child_ref = children.next()?;
+        if children.next().is_some() {
+            return None;
+        }
+        match self.arena[child_ref].kind_data() {
+            KindData::Image(image) => Some((child_ref, image)),
+            _ => None,
+        }
+    }
+
+    fn image_block(&self, _node_ref: NodeRef, image: &MarkdownImage) -> Node {
+        let source = image.destination_str(self.source).to_string();
+        Image {
+            source,
+            width: Some(self.image_width),
+            height: Some(self.image_height),
+            fit: Some(ImageFit::Contain),
+            ..Default::default()
+        }
+        .into_node()
+    }
+
     fn code_block(&self, code: &CodeBlock) -> Node {
         let text = code
             .value()
@@ -196,7 +241,7 @@ impl<'a> MarkdownRenderer<'a> {
                 out.push_str(line.as_ref());
                 out
             });
-        let language = code.language_str(self.source).unwrap_or("").trim();
+        let language = markdown_code_language(code.language_str(self.source).unwrap_or(""));
         let mut children = Vec::new();
         if !language.is_empty() {
             children.push(
@@ -208,7 +253,7 @@ impl<'a> MarkdownRenderer<'a> {
             );
         }
         children.push(
-            Text::new(text)
+            Text::new(text.clone())
                 .size(13.0)
                 .line_height(18.0)
                 .family(self.code_family.clone())
@@ -216,7 +261,7 @@ impl<'a> MarkdownRenderer<'a> {
                 .into_node(),
         );
 
-        Container::new(
+        let code_content = Container::new(
             VStack {
                 spacing: Some(6.0),
                 children,
@@ -227,6 +272,13 @@ impl<'a> MarkdownRenderer<'a> {
         .border(self.palette.border.with_alpha(130), 1.0)
         .border_radius(8.0)
         .padding_all(12.0)
+        .into_node();
+
+        Column {
+            children: vec![code_content],
+            semantics: Some(markdown_code_semantics(language, text)),
+            ..Default::default()
+        }
         .into_node()
     }
 
@@ -331,9 +383,11 @@ impl<'a> MarkdownRenderer<'a> {
         }
 
         Container::new(
-            VStack {
-                spacing: Some(0.0),
+            Column {
                 children: rows,
+                semantics: Some(markdown_semantics("markdown-table")),
+                gap: Some(0.0),
+                ..Default::default()
             }
             .into_node(),
         )
@@ -349,6 +403,11 @@ impl<'a> MarkdownRenderer<'a> {
             .collect();
         Row {
             children: cells,
+            semantics: Some(markdown_semantics(if is_header {
+                "markdown-table-row:header"
+            } else {
+                "markdown-table-row:body"
+            })),
             gap: Some(0.0),
             align_items: AlignItems::Start,
             ..Default::default()
@@ -383,7 +442,24 @@ impl<'a> MarkdownRenderer<'a> {
             _ => {}
         }
 
-        cell.into_node()
+        let alignment = match alignment {
+            TableCellAlignment::Left => "left",
+            TableCellAlignment::Center => "center",
+            TableCellAlignment::Right => "right",
+            TableCellAlignment::None => "none",
+            _ => "none",
+        };
+        Row {
+            children: vec![cell.into_node()],
+            semantics: Some(markdown_semantics(format!(
+                "markdown-table-cell:{}:{alignment}",
+                if is_header { "header" } else { "body" }
+            ))),
+            flex_grow: 1.0,
+            align_items: AlignItems::Start,
+            ..Default::default()
+        }
+        .into_node()
     }
 
     fn readable_plain_block(&self, node_ref: NodeRef) -> Node {
@@ -606,4 +682,48 @@ impl<'a> MarkdownRenderer<'a> {
             }
         }
     }
+}
+
+fn markdown_semantics(identifier: impl Into<String>) -> Semantics {
+    Semantics {
+        role: Role::Generic,
+        identifier: Some(identifier.into()),
+        ..Semantics::default()
+    }
+}
+
+fn markdown_code_semantics(language: &str, code: String) -> Semantics {
+    Semantics {
+        role: Role::Generic,
+        identifier: Some(format!("markdown-code-block:{language}")),
+        label: Some(if language.is_empty() {
+            "Code block".to_string()
+        } else {
+            format!("{language} code block")
+        }),
+        value: Some(code),
+        ..Semantics::default()
+    }
+}
+
+fn markdown_code_language(raw: &str) -> &str {
+    raw.trim()
+        .split(|ch: char| ch.is_whitespace() || ch == ',' || ch == ';')
+        .next()
+        .unwrap_or("")
+}
+
+fn markdown_anchor(value: &str) -> String {
+    let mut out = String::new();
+    let mut previous_dash = false;
+    for ch in value.chars().flat_map(char::to_lowercase) {
+        if ch.is_ascii_alphanumeric() {
+            out.push(ch);
+            previous_dash = false;
+        } else if !previous_dash && !out.is_empty() {
+            out.push('-');
+            previous_dash = true;
+        }
+    }
+    out.trim_matches('-').to_string()
 }

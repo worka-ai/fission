@@ -121,6 +121,11 @@ enum Command {
         #[arg(long)]
         headless: bool,
     },
+    /// Build, check, serve, or list routes for a static Fission site.
+    Site {
+        #[command(subcommand)]
+        command: SiteCommand,
+    },
     /// Attach to logs for an already-running Fission app.
     Logs {
         /// Restrict device selection to one target.
@@ -157,6 +162,7 @@ enum Target {
     Ios,
     Linux,
     Macos,
+    Site,
     Web,
     Windows,
 }
@@ -168,6 +174,7 @@ impl Target {
             Self::Ios => "ios",
             Self::Linux => "linux",
             Self::Macos => "macos",
+            Self::Site => "site",
             Self::Web => "web",
             Self::Windows => "windows",
         }
@@ -179,10 +186,57 @@ impl Target {
             Self::Ios => "platforms/ios/README.md",
             Self::Linux => "platforms/linux/README.md",
             Self::Macos => "platforms/macos/README.md",
+            Self::Site => "platforms/site/README.md",
             Self::Web => "platforms/web/README.md",
             Self::Windows => "platforms/windows/README.md",
         }
     }
+}
+
+#[derive(Subcommand, Debug)]
+enum SiteCommand {
+    /// Build the static site into its configured output directory.
+    Build {
+        /// Project directory; defaults to the current working directory.
+        #[arg(long, default_value = ".")]
+        project_dir: PathBuf,
+        /// Build in release mode.
+        #[arg(long)]
+        release: bool,
+    },
+    /// Check the static site by rendering all routes.
+    Check {
+        /// Project directory; defaults to the current working directory.
+        #[arg(long, default_value = ".")]
+        project_dir: PathBuf,
+        /// Build in release mode.
+        #[arg(long)]
+        release: bool,
+    },
+    /// Serve the generated static site locally.
+    Serve {
+        /// Project directory; defaults to the current working directory.
+        #[arg(long, default_value = ".")]
+        project_dir: PathBuf,
+        /// Host for the local site server.
+        #[arg(long, default_value = "127.0.0.1")]
+        host: String,
+        /// Port for the local site server.
+        #[arg(long, default_value_t = 8123)]
+        port: u16,
+        /// Build in release mode before serving.
+        #[arg(long)]
+        release: bool,
+        /// Do not open a browser.
+        #[arg(long)]
+        no_open: bool,
+    },
+    /// List custom and content routes.
+    Routes {
+        /// Project directory; defaults to the current working directory.
+        #[arg(long, default_value = ".")]
+        project_dir: PathBuf,
+    },
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -286,6 +340,24 @@ where
             target,
             headless,
         }),
+        Command::Site { command } => match command {
+            SiteCommand::Build {
+                project_dir,
+                release,
+            } => workflow::site_build(&project_dir, release),
+            SiteCommand::Check {
+                project_dir,
+                release,
+            } => workflow::site_check(&project_dir, release),
+            SiteCommand::Serve {
+                project_dir,
+                host,
+                port,
+                release,
+                no_open,
+            } => workflow::site_serve(&project_dir, release, host, port, !no_open),
+            SiteCommand::Routes { project_dir } => workflow::site_routes(&project_dir),
+        },
         Command::Logs {
             target,
             device,
@@ -431,6 +503,7 @@ fn detect_project_targets(root: &Path) -> BTreeSet<Target> {
         (Target::Ios, "platforms/ios"),
         (Target::Linux, "platforms/linux"),
         (Target::Macos, "platforms/macos"),
+        (Target::Site, "content"),
         (Target::Web, "platforms/web"),
         (Target::Windows, "platforms/windows"),
     ] {
@@ -556,6 +629,24 @@ fn scaffold_target_with_policy(
                     "Set `FISSION_WEB_PORT=<port>` or `FISSION_WEB_HOST=<host>` if the default `127.0.0.1:8123` does not suit your machine.",
                     "Set `FISSION_WEB_OPEN=1` if you want the helper script to open a browser tab automatically.",
                     "The generated page uses `assets/app-icon.png` as its default favicon/app icon seed.",
+                ],
+            )
+        }
+        Target::Site => {
+            write_file_with_policy(
+                &root.join("content/getting-started.md"),
+                "---\ntitle: Site content\ndescription: Static site content rendered by the Fission static site shell.\n---\n\n# Site content\n\nAdd Markdown files under `content/`. `cargo fission site build` renders them through real Fission widgets, lowers the nodes to Core IR, and emits static HTML.\n",
+                write_policy,
+            )?;
+            platform_readme(
+                "Static site",
+                "Static multi-page website target. The site shell renders Markdown content through real Fission widgets, lowers nodes to Core IR, and emits semantic static HTML.",
+                &[
+                    "Add Markdown or MDX content under `content/`.",
+                    "Run `cargo fission site routes --project-dir .` to list generated routes.",
+                    "Run `cargo fission site build --project-dir .` to render HTML into `target/fission/site`.",
+                    "Run `cargo fission site serve --project-dir .` to build and serve the generated site locally.",
+                    "Unsupported interactive widgets fail during the static render instead of silently falling back to JavaScript.",
                 ],
             )
         }

@@ -1,0 +1,71 @@
+targets = ["site"]
+
+[app]
+name = "fission-documentation"
+app_id = "io.github.worka-ai.fission"
+
+[site]
+entry = "crate::site_app"
+base_url = "https://worka-ai.github.io/fission"
+out_dir = "dist/site"
+default_locale = "en-GB"
+locales = ["en-GB"]
+pretty_urls = true
+generate_sitemap = true
+generate_robots = true
+title = "Fission"
+description = "Build production desktop, web, Android, and iOS apps with Fission."
+logo = "/img/fission-mark.svg"
+favicon = "/img/fission-mark.svg"
+asset_dirs = ["static"]
+
+[site.code_highlighting]
+enabled = true
+
+[site.search]
+enabled = true
+
+[[site.nav]]
+title = "Learn"
+href = "/docs/learn/overview/"
+
+[[site.nav]]
+title = "Guides"
+href = "/docs/guides/app-structure/"
+
+[[site.nav]]
+title = "Charts"
+href = "/reference/charts/overview/"
+
+[[site.nav]]
+title = "Cookbook"
+href = "/docs/cookbook/build-a-counter/"
+
+[[site.nav]]
+title = "Reference"
+href = "/reference/overview/overview/"
+
+[[site.nav]]
+title = "Examples"
+href = "/docs/learn/examples-and-targets/"
+
+[[site.routes]]
+kind = "content"
+path = "/docs"
+source = "content/docs"
+template = "fission_shell_site::documentation"
+sidebar = "site/docs-sidebar.toml"
+
+[[site.routes]]
+kind = "content"
+path = "/reference"
+source = "content/reference"
+template = "fission_shell_site::documentation"
+sidebar = "site/reference-sidebar.toml"
+
+[[site.routes]]
+kind = "content"
+path = "/blog"
+source = "content/blog"
+template = "fission_shell_site::documentation"
+sidebar = "site/blog-sidebar.toml"

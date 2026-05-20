@@ -131,6 +131,13 @@ pub(crate) fn run_app(options: RunOptions) -> Result<()> {
     match device.target {
         Target::Linux | Target::Macos | Target::Windows => run_desktop(&options, &device),
         Target::Web => run_web(&options, &device),
+        Target::Site => site_serve(
+            &options.project_dir,
+            options.release,
+            options.host,
+            options.port,
+            !options.no_open,
+        ),
         Target::Ios => run_ios(&project, &options, &device),
         Target::Android => run_android(&project, &options, &device),
     }
@@ -147,6 +154,7 @@ pub(crate) fn build_app(options: BuildOptions) -> Result<()> {
             build_desktop(&options.project_dir, options.release)
         }
         Target::Web => build_web(&options.project_dir, options.release),
+        Target::Site => site_build(&options.project_dir, options.release),
         Target::Ios => {
             require_host(Target::Ios)?;
             let script = options.project_dir.join("platforms/ios/package-sim.sh");
@@ -182,6 +190,7 @@ pub(crate) fn test_app(options: TestOptions) -> Result<()> {
             "platforms/web/test-browser.sh",
             |_| {},
         ),
+        Target::Site => site_check(&options.project_dir, false),
         Target::Ios => {
             require_host(Target::Ios)?;
             run_target_script(
@@ -220,6 +229,10 @@ pub(crate) fn attach_logs(options: LogOptions) -> Result<()> {
             &detached_log_path(&options.project_dir, "web"),
             options.follow,
         ),
+        Target::Site => tail_log_file(
+            &detached_log_path(&options.project_dir, "site"),
+            options.follow,
+        ),
         Target::Linux | Target::Macos | Target::Windows => tail_log_file(
             &detached_log_path(&options.project_dir, "desktop"),
             options.follow,
@@ -234,6 +247,139 @@ pub(crate) fn serve_web(options: ServeWebOptions) -> Result<()> {
         options.port,
         options.open,
     )
+}
+
+pub(crate) fn site_build(project_dir: &Path, release: bool) -> Result<()> {
+    if site_entry_configured(project_dir)? {
+        return run_site_builder(project_dir, release, "build", &[]);
+    }
+    let project = read_project_config(project_dir)?;
+    let options = site_build_options(project_dir, &project)?;
+    let report = fission_shell_site::build_content_site(&options)?;
+    println!(
+        "Built {} static route(s) into {}",
+        report.routes.len(),
+        report.output_dir.display()
+    );
+    for route in report.routes {
+        println!("{} -> {}", route.path, route.output.display());
+    }
+    Ok(())
+}
+
+pub(crate) fn site_check(project_dir: &Path, release: bool) -> Result<()> {
+    if site_entry_configured(project_dir)? {
+        return run_site_builder(project_dir, release, "check", &[]);
+    }
+    let project = read_project_config(project_dir)?;
+    let options = site_build_options(project_dir, &project)?;
+    let report = fission_shell_site::check_content_site(&options)?;
+    println!(
+        "Checked {} static route(s); output would be {}",
+        report.routes.len(),
+        report.output_dir.display()
+    );
+    Ok(())
+}
+
+pub(crate) fn site_routes(project_dir: &Path) -> Result<()> {
+    if site_entry_configured(project_dir)? {
+        return run_site_builder(project_dir, false, "routes", &[]);
+    }
+    let project = read_project_config(project_dir)?;
+    let options = site_build_options(project_dir, &project)?;
+    let routes = fission_shell_site::list_content_routes(&options)?;
+    for route in routes {
+        println!(
+            "{}  {}  {}",
+            route.path,
+            route.title,
+            route.source.display()
+        );
+    }
+    Ok(())
+}
+
+pub(crate) fn site_serve(
+    project_dir: &Path,
+    release: bool,
+    host: String,
+    port: u16,
+    open: bool,
+) -> Result<()> {
+    if site_entry_configured(project_dir)? {
+        let port = port.to_string();
+        let open_flag = if open { "" } else { "--no-open" };
+        let mut args = vec!["--host", host.as_str(), "--port", port.as_str()];
+        if !open {
+            args.push(open_flag);
+        }
+        return run_site_builder(project_dir, release, "serve", &args);
+    }
+    site_build(project_dir, release)?;
+    let project = read_project_config(project_dir)?;
+    let options = site_build_options(project_dir, &project)?;
+    serve_static(options.output_dir, host, port, open)
+}
+
+fn site_build_options(
+    project_dir: &Path,
+    project: &FissionProject,
+) -> Result<fission_shell_site::SiteBuildOptions> {
+    fission_shell_site::SiteBuildOptions::from_project_dir(project_dir, project.app.name.clone())
+        .or_else(|_| {
+            Ok(fission_shell_site::SiteBuildOptions::for_project(
+                project_dir,
+                project.app.name.clone(),
+            ))
+        })
+}
+
+fn site_entry_configured(project_dir: &Path) -> Result<bool> {
+    let path = project_dir.join("fission.toml");
+    let data =
+        fs::read_to_string(&path).with_context(|| format!("failed to read {}", path.display()))?;
+    let value: toml::Value =
+        toml::from_str(&data).with_context(|| format!("failed to parse {}", path.display()))?;
+    Ok(value
+        .get("site")
+        .and_then(|site| site.get("entry"))
+        .and_then(|entry| entry.as_str())
+        .is_some())
+}
+
+fn run_site_builder(
+    project_dir: &Path,
+    release: bool,
+    command_name: &str,
+    extra_args: &[&str],
+) -> Result<()> {
+    let manifest_path = project_dir.join("Cargo.toml");
+    if !manifest_path.exists() {
+        bail!(
+            "site entry is configured but {} is missing",
+            manifest_path.display()
+        );
+    }
+    let mut command = Command::new("cargo");
+    command
+        .arg("run")
+        .arg("--manifest-path")
+        .arg(&manifest_path);
+    if release {
+        command.arg("--release");
+    }
+    command
+        .arg("--")
+        .arg(command_name)
+        .arg("--project-dir")
+        .arg(project_dir);
+    for arg in extra_args {
+        if !arg.is_empty() {
+            command.arg(arg);
+        }
+    }
+    run_status(&mut command, "site builder")
 }
 
 fn discover_devices(_project_dir: &Path) -> Vec<Device> {
@@ -272,6 +418,15 @@ fn discover_devices(_project_dir: &Path) -> Vec<Device> {
 
     devices.extend(discover_ios_simulators());
     devices.extend(discover_android_devices());
+    devices.push(Device {
+        id: "site".to_string(),
+        name: "Static site".to_string(),
+        target: Target::Site,
+        kind: "site-server".to_string(),
+        status: "available".to_string(),
+        detail: "multi-page static output".to_string(),
+        available: true,
+    });
     devices
 }
 
@@ -730,7 +885,11 @@ fn open_log(path: &Path) -> Result<File> {
 fn serve_static(root: PathBuf, host: String, port: u16, open: bool) -> Result<()> {
     let listener = TcpListener::bind((host.as_str(), port))
         .with_context(|| format!("failed to bind {}:{}", host, port))?;
-    let url = web_url(&host, port);
+    let url = if root.join("index.html").exists() {
+        format!("http://{host}:{port}/")
+    } else {
+        web_url(&host, port)
+    };
     println!("Serving {} at {}", root.display(), url);
     println!("Press Ctrl+C to stop.");
     if open {
@@ -768,10 +927,17 @@ fn handle_http_request(mut stream: TcpStream, root: &Path) -> Result<()> {
 fn static_response(root: &Path, request_path: &str) -> Result<Vec<u8>> {
     let mut relative = request_path.trim_start_matches('/').to_string();
     if relative.is_empty() {
-        relative = "platforms/web/".to_string();
+        relative = if root.join("index.html").exists() {
+            "index.html".to_string()
+        } else {
+            "platforms/web/".to_string()
+        };
     }
     if relative.ends_with('/') {
         relative.push_str("index.html");
+    }
+    if !relative.ends_with(".html") && !relative.contains('.') {
+        relative.push_str("/index.html");
     }
     let path = sanitize_static_path(root, &relative)?;
     if !path.exists() || !path.is_file() {

@@ -1173,6 +1173,7 @@ version = "0.1.1"
 dependencies = [
  "anyhow",
  "clap",
+ "fission-shell-site",
  "serde",
  "serde_json",
  "toml",
@@ -1217,6 +1218,15 @@ dependencies = [
  "parking_lot",
  "serde",
  "serde_json",
+]
+
+[[package]]
+name = "fission-documentation"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "fission",
+ "fission-shell-site",
 ]
 
 [[package]]
@@ -1373,6 +1383,21 @@ dependencies = [
  "fission-shell-winit",
  "fission-theme",
  "winit",
+]
+
+[[package]]
+name = "fission-shell-site"
+version = "0.1.1"
+dependencies = [
+ "anyhow",
+ "fission-core",
+ "fission-ir",
+ "fission-layout",
+ "fission-theme",
+ "fission-widgets",
+ "serde",
+ "serde_json",
+ "toml",
 ]
 
 [[package]]

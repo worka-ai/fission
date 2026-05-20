@@ -387,7 +387,7 @@
       { "asset": "Components · Tabs & progress",   "group": "Components", "path": "preview/comp-tabs-progress.html" },
       { "asset": "Components · Iconography",       "group": "Components", "path": "preview/comp-icons.html" },
       { "asset": "Components · CTA strip",         "group": "Components", "path": "preview/comp-cta-pattern.html" },
-      { "asset": "Fission Website",                "group": "Components", "path": "ui_kits/website/index.html" }
+      { "asset": "Fission documentation site",     "group": "Components", "path": "ui_kits/documentation-site/index.html" }
     ]
   },
 
@@ -396,12 +396,12 @@
     "github_repos": [
       {
         "url": "https://github.com/worka-ai/fission",
-        "purpose": "The framework itself. fission-theme crate defines the Material 3 token structure; website/ is the canonical brand surface.",
+        "purpose": "The framework itself. fission-theme crate defines the Material 3 token structure; documentation/ is the canonical brand surface.",
         "key_files": [
           "crates/core/fission-theme/src/lib.rs",
-          "website/src/css/custom.css",
-          "website/src/pages/index.module.css",
-          "website/static/img/fission_logo.png"
+          "documentation/site/overrides.css",
+          "documentation/src/components/home_sections.rs",
+          "documentation/static/img/fission_logo.png"
         ]
       }
     ],
