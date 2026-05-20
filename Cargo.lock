@@ -1393,6 +1393,7 @@ dependencies = [
  "fission-core",
  "fission-ir",
  "fission-layout",
+ "fission-theme",
  "fission-widgets",
  "serde",
  "toml",

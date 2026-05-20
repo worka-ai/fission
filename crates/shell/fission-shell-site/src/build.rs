@@ -1,5 +1,5 @@
 use crate::document::{
-    extract_h1_links, ContentRoute, DocumentationPage, SidebarLink, SitePageState,
+    extract_page_links, ContentRoute, DocumentationPage, SidebarLink, SiteNavLink, SitePageState,
 };
 use crate::front_matter::split_front_matter;
 use crate::html::{render_ir_to_html, HtmlRenderOptions};
@@ -19,6 +19,8 @@ pub struct SiteBuildOptions {
     pub output_dir: PathBuf,
     pub site_title: String,
     pub site_description: Option<String>,
+    pub site_logo: Option<String>,
+    pub site_nav: Vec<SiteNavLink>,
     pub content_routes: Vec<SiteContentRouteConfig>,
     pub asset_dirs: Vec<PathBuf>,
     pub clean: bool,
@@ -40,6 +42,8 @@ impl SiteBuildOptions {
             project_dir: project_dir.clone(),
             site_title: site_title.into(),
             site_description: None,
+            site_logo: None,
+            site_nav: Vec::new(),
             content_routes: vec![SiteContentRouteConfig {
                 path: "/content".to_string(),
                 source: project_dir.join("content"),
@@ -67,6 +71,15 @@ impl SiteBuildOptions {
             .title
             .or(app_name)
             .unwrap_or_else(|| fallback_title.into());
+        let site_logo = site.logo.as_deref().map(normalize_site_asset_href);
+        let site_nav = site
+            .nav
+            .into_iter()
+            .map(|link| SiteNavLink {
+                title: link.title,
+                href: normalize_site_link_href(&link.href),
+            })
+            .collect();
         let output_dir = resolve_project_path(
             &project_dir,
             site.out_dir
@@ -104,6 +117,8 @@ impl SiteBuildOptions {
             output_dir,
             site_title,
             site_description: site.description,
+            site_logo,
+            site_nav,
             content_routes,
             asset_dirs,
             clean: true,
@@ -157,7 +172,7 @@ pub fn build_site(options: &SiteBuildOptions, site: &FissionSite) -> Result<Site
 
     let mut report_routes = Vec::new();
     for route in &routes {
-        let html = render_route(route, &routes, options)?;
+        let html = render_route(route, &routes, options, &site.theme)?;
         let output = output_path_for_route(&options.output_dir, &route.path);
         if let Some(parent) = output.parent() {
             fs::create_dir_all(parent)?;
@@ -188,7 +203,7 @@ pub fn check_site(options: &SiteBuildOptions, site: &FissionSite) -> Result<Site
 
     let mut report_routes = Vec::new();
     for route in &routes {
-        render_route(route, &routes, options)?;
+        render_route(route, &routes, options, &site.theme)?;
         report_routes.push(SiteRouteReport {
             path: route.path.clone(),
             title: route.title.clone(),
@@ -305,6 +320,7 @@ fn load_content_routes(
             if let Some(transform) = transform {
                 body = transform(&body, &options.project_dir, &file)?;
             }
+            body = resolve_relative_markdown_links(&body, &config.path, &config.source, &file);
             let title = front
                 .title
                 .or_else(|| first_h1(&body))
@@ -317,7 +333,7 @@ fn load_content_routes(
                 path: normalize_site_path(&route_path),
                 title,
                 description: front.description,
-                headings: extract_h1_links(&body),
+                headings: extract_page_links(&body),
                 sidebar: sidebar.clone(),
                 body,
                 source_path: file,
@@ -380,6 +396,7 @@ fn render_custom_routes(
                 .clone()
                 .or_else(|| options.site_description.clone()),
             &route.path,
+            &site.theme,
         )?;
         routes.push(ContentRoute {
             path: route.path.clone(),
@@ -421,18 +438,22 @@ fn render_route(
     route: &ContentRoute,
     routes: &[ContentRoute],
     options: &SiteBuildOptions,
+    theme: &fission_theme::Theme,
 ) -> Result<String> {
     if let Some(rendered) = &route.rendered {
         return Ok(rendered.clone());
     }
     let runtime = RuntimeState::default();
     let mut env = Env::default();
+    env.theme = theme.clone();
     env.viewport_size = LayoutSize::new(1280.0, 900.0);
     let state = SitePageState;
     let view = View::new(&state, &runtime, &env, None);
     let mut build_ctx = BuildCtx::<SitePageState>::new();
     let page = DocumentationPage {
         site_title: &options.site_title,
+        site_logo: options.site_logo.as_deref(),
+        site_nav: &options.site_nav,
         route,
         all_routes: routes,
     };
@@ -445,6 +466,7 @@ fn render_route(
             .clone()
             .or_else(|| options.site_description.clone()),
         &route.path,
+        theme,
     )
 }
 
@@ -453,9 +475,11 @@ fn render_node_to_html(
     title: &str,
     description: Option<String>,
     route_path: &str,
+    theme: &fission_theme::Theme,
 ) -> Result<String> {
     let runtime = RuntimeState::default();
-    let env = Env::default();
+    let mut env = Env::default();
+    env.theme = theme.clone();
     let mut lowering = LoweringContext::new(&env, &runtime, None, None);
     let root = node.lower(&mut lowering);
     lowering.ir.set_root(root);
@@ -542,6 +566,87 @@ fn route_path_from_slug(prefix: &str, slug: &str) -> String {
     }
 }
 
+fn resolve_relative_markdown_links(
+    markdown: &str,
+    route_prefix: &str,
+    content_dir: &Path,
+    source_file: &Path,
+) -> String {
+    let mut out = String::with_capacity(markdown.len());
+    let mut rest = markdown;
+    while let Some(open) = rest.find("](") {
+        let (before, after_open) = rest.split_at(open + 2);
+        out.push_str(before);
+        let Some(close) = after_open.find(')') else {
+            out.push_str(after_open);
+            return out;
+        };
+        let (target, after_target) = after_open.split_at(close);
+        out.push_str(&resolve_markdown_link_target(
+            target,
+            route_prefix,
+            content_dir,
+            source_file,
+        ));
+        out.push(')');
+        rest = &after_target[1..];
+    }
+    out.push_str(rest);
+    out
+}
+
+fn resolve_markdown_link_target(
+    target: &str,
+    route_prefix: &str,
+    content_dir: &Path,
+    source_file: &Path,
+) -> String {
+    let (path, suffix) = split_link_suffix(target);
+    if !(path.starts_with("./") || path.starts_with("../")) {
+        return target.to_string();
+    }
+    let Some(parent) = source_file.parent() else {
+        return target.to_string();
+    };
+    let raw_target = parent.join(path);
+    let Some(target_file) = resolve_markdown_target_file(&raw_target) else {
+        return target.to_string();
+    };
+    let route = normalize_site_path(&route_path_from_file(
+        route_prefix,
+        content_dir,
+        &target_file,
+    ));
+    format!("{route}{suffix}")
+}
+
+fn split_link_suffix(target: &str) -> (&str, &str) {
+    let end = target
+        .find('#')
+        .or_else(|| target.find('?'))
+        .unwrap_or(target.len());
+    target.split_at(end)
+}
+
+fn resolve_markdown_target_file(path: &Path) -> Option<PathBuf> {
+    if path.extension().is_some() && path.exists() {
+        return Some(path.to_path_buf());
+    }
+    for extension in ["mdx", "md"] {
+        let candidate = path.with_extension(extension);
+        if candidate.exists() {
+            return Some(candidate);
+        }
+    }
+    for extension in ["mdx", "md"] {
+        let candidate = path.join(format!("index.{extension}"));
+        if candidate.exists() {
+            return Some(candidate);
+        }
+    }
+    None
+}
+
 fn stylesheet_href_for_route(route_path: &str) -> String {
     let depth = route_path
         .trim_matches('/')
@@ -588,6 +693,38 @@ fn resolve_project_path(project_dir: &Path, path: PathBuf) -> PathBuf {
     }
 }
 
+fn normalize_site_link_href(value: &str) -> String {
+    let value = value.trim();
+    if is_absolute_href(value) || value.starts_with('#') {
+        value.to_string()
+    } else {
+        normalize_site_path(value)
+    }
+}
+
+fn normalize_site_asset_href(value: &str) -> String {
+    let value = value.trim();
+    if is_absolute_href(value) || value.starts_with("data:") {
+        return value.to_string();
+    }
+    let mut out = if value.starts_with('/') {
+        value.to_string()
+    } else {
+        format!("/{value}")
+    };
+    while out.contains("//") {
+        out = out.replace("//", "/");
+    }
+    out
+}
+
+fn is_absolute_href(value: &str) -> bool {
+    value.starts_with("http://")
+        || value.starts_with("https://")
+        || value.starts_with("mailto:")
+        || value.starts_with("tel:")
+}
+
 fn escape_text(value: &str) -> String {
     value
         .replace('&', "&amp;")
@@ -616,11 +753,20 @@ struct ProjectApp {
 struct ProjectSite {
     title: Option<String>,
     description: Option<String>,
+    logo: Option<String>,
     out_dir: Option<String>,
+    #[serde(default)]
+    nav: Vec<ProjectSiteNavLink>,
     #[serde(default)]
     routes: Vec<ProjectSiteRoute>,
     #[serde(default)]
     asset_dirs: Vec<String>,
+}
+
+#[derive(Debug, Deserialize)]
+struct ProjectSiteNavLink {
+    title: String,
+    href: String,
 }
 
 #[derive(Debug, Deserialize)]
@@ -696,6 +842,35 @@ mod tests {
         let html = fs::read_to_string(output).unwrap();
         assert!(html.contains("This is rendered by"));
         assert!(html.contains("Fission."));
+        let _ = fs::remove_dir_all(temp);
+    }
+
+    #[test]
+    fn relative_markdown_links_are_resolved_to_site_routes() {
+        let temp = std::env::temp_dir().join(format!(
+            "fission-site-link-test-{}",
+            SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        let content = temp.join("content/reference/charts/bar");
+        fs::create_dir_all(&content).unwrap();
+        fs::write(content.join("overview.mdx"), "# Bar").unwrap();
+        fs::write(content.join("bar-ranked.mdx"), "# Ranked").unwrap();
+
+        let source_file = content.join("bar-ranked.mdx");
+        let resolved = resolve_relative_markdown_links(
+            "[Bar family overview](./overview) and [Ranked](./bar-ranked#example)",
+            "/reference",
+            &temp.join("content/reference"),
+            &source_file,
+        );
+
+        assert_eq!(
+            resolved,
+            "[Bar family overview](/reference/charts/bar/overview/) and [Ranked](/reference/charts/bar/bar-ranked/#example)"
+        );
         let _ = fs::remove_dir_all(temp);
     }
 }

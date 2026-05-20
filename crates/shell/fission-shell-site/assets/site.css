@@ -10,9 +10,12 @@ a:hover { text-decoration: underline; }
 img, svg { max-width: 100%; }
 .fission-site-root { min-height: 100vh; }
 .fission-site-node { min-width: 0; }
+.fission-site-route-link,
+.fission-site-heading-link { display: contents; }
+.fission-site-markdown-link { display: inline; }
 .fission-site-scroll { overflow: auto; }
 .fission-site-text,
-.fission-site-rich-text { overflow-wrap: anywhere; }
+.fission-site-rich-text { overflow-wrap: break-word; }
 .fission-site-rich-text span { white-space: pre-wrap; }
 .fission-site-img { display: block; height: auto; }
 .fission-site-svg svg { display: inline-block; max-width: 100%; }

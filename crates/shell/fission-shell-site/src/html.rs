@@ -19,7 +19,7 @@ pub struct HtmlRenderOptions {
 impl Default for HtmlRenderOptions {
     fn default() -> Self {
         Self {
-            document_title: "Fission site".to_string(),
+            document_title: "Static site".to_string(),
             description: None,
             stylesheet_href: "/site.css".to_string(),
             root_class: "fission-site-root".to_string(),
@@ -397,7 +397,7 @@ impl HtmlRenderer<'_> {
                 ))
             }
             PaintOp::DrawImage { source, fit } => Ok(format!(
-                "<img class=\"fission-site-img\" src=\"{}\" alt=\"\" style=\"object-fit:{}\" data-fission-node=\"{}\">",
+                "<img class=\"fission-site-img\" src=\"{}\" alt=\"\" style=\"width:100%;height:100%;object-fit:{}\" data-fission-node=\"{}\">",
                 escape_attr(source),
                 image_fit_css(*fit),
                 node.id
@@ -426,17 +426,28 @@ impl HtmlRenderer<'_> {
         };
         if let Some(identifier) = semantics.identifier.as_deref() {
             if let Some(target) = identifier.strip_prefix("site-route:") {
-                return self.render_semantic_link(node, target, semantics.label.as_deref());
+                return self.render_semantic_link(
+                    node,
+                    target,
+                    semantics.label.as_deref(),
+                    "fission-site-route-link",
+                );
             }
             if let Some(anchor) = identifier.strip_prefix("site-heading:") {
                 return self.render_semantic_link(
                     node,
                     &format!("#{anchor}"),
                     semantics.label.as_deref(),
+                    "fission-site-heading-link",
                 );
             }
             if let Some(target) = identifier.strip_prefix("markdown-link:") {
-                return self.render_semantic_link(node, target, semantics.label.as_deref());
+                return self.render_semantic_link(
+                    node,
+                    target,
+                    semantics.label.as_deref(),
+                    "fission-site-markdown-link",
+                );
             }
         }
         let tag = match semantics.role {
@@ -483,6 +494,7 @@ impl HtmlRenderer<'_> {
         node: &CoreNode,
         target: &str,
         label: Option<&str>,
+        link_class: &str,
     ) -> Result<String> {
         let mut attrs = format!(" href=\"{}\"", escape_attr(&self.resolve_link_href(target)));
         if let Some(label) = label {
@@ -494,7 +506,7 @@ impl HtmlRenderer<'_> {
         ));
         let children = self.render_children(&node.children, &HashSet::new())?;
         Ok(format!(
-            "<a class=\"fission-site-node fission-site-link\"{attrs} data-fission-node=\"{}\">{children}</a>",
+            "<a class=\"fission-site-node fission-site-link {link_class}\"{attrs} data-fission-node=\"{}\">{children}</a>",
             node.id
         ))
     }

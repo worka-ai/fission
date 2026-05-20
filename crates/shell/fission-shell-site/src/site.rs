@@ -2,6 +2,7 @@ use crate::build::{build_site, check_site, list_site_routes, SiteBuildOptions};
 use anyhow::{bail, Context, Result};
 use fission_core::{AppState, BuildCtx, Env, Node, RuntimeState, View, Widget};
 use fission_layout::LayoutSize;
+use fission_theme::Theme;
 use std::fs;
 use std::io::{self, BufRead, Write};
 use std::net::{TcpListener, TcpStream};
@@ -26,15 +27,31 @@ pub struct SiteRenderContext<'a> {
     pub route_path: &'a str,
 }
 
-#[derive(Clone, Default)]
+#[derive(Clone)]
 pub struct FissionSite {
     pub(crate) custom_routes: Vec<CustomRoute>,
     pub(crate) content_transform: Option<Arc<ContentTransform>>,
+    pub(crate) theme: Theme,
+}
+
+impl Default for FissionSite {
+    fn default() -> Self {
+        Self {
+            custom_routes: Vec::new(),
+            content_transform: None,
+            theme: Theme::default(),
+        }
+    }
 }
 
 impl FissionSite {
     pub fn new() -> Self {
         Self::default()
+    }
+
+    pub fn theme(mut self, theme: Theme) -> Self {
+        self.theme = theme;
+        self
     }
 
     pub fn route_widget<S, W>(
@@ -49,6 +66,7 @@ impl FissionSite {
         W: Widget<S> + Clone + Send + Sync + 'static,
     {
         let widget = Arc::new(widget);
+        let theme = self.theme.clone();
         self.custom_routes.push(CustomRoute {
             path: normalize_site_path(&path.into()),
             title: title.into(),
@@ -56,6 +74,7 @@ impl FissionSite {
             render: Arc::new(move |_ctx| {
                 let runtime = RuntimeState::default();
                 let mut env = Env::default();
+                env.theme = theme.clone();
                 env.viewport_size = LayoutSize::new(1280.0, 900.0);
                 let state = S::default();
                 let view = View::new(&state, &runtime, &env, None);
@@ -77,7 +96,7 @@ impl FissionSite {
 
 pub fn build_from_cli(site: FissionSite) -> Result<()> {
     let args = SiteCliArgs::parse(std::env::args().skip(1))?;
-    let options = SiteBuildOptions::from_project_dir(&args.project_dir, "Fission")?;
+    let options = SiteBuildOptions::from_project_dir(&args.project_dir, "Site")?;
     match args.command.as_str() {
         "build" => {
             let report = build_site(&options, &site)?;
