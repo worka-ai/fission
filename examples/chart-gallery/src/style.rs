@@ -1,4 +1,4 @@
-use fission_core::op::Color;
+use fission::core::op::Color;
 
 pub(crate) fn rgb(r: u8, g: u8, b: u8) -> Color {
     Color { r, g, b, a: 255 }

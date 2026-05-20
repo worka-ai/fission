@@ -1,8 +1,8 @@
 use crate::model::*;
-use fission_core::op::Color;
-use fission_core::ui::{Button, ButtonContentAlign, ButtonVariant, Container, GestureDetector, Node, Positioned, Text, ZStack};
-use fission_core::{ActionEnvelope, BuildCtx, reduce_with, PortalLayer, View, Widget, WidgetNodeId};
-use fission_widgets::{HStack, VStack, Spacer};
+use fission::core::op::Color;
+use fission::core::ui::{Button, ButtonContentAlign, ButtonVariant, Container, GestureDetector, Node, Positioned, Text, ZStack};
+use fission::core::{ActionEnvelope, BuildCtx, reduce_with, PortalLayer, View, Widget, WidgetNodeId};
+use fission::widgets::{HStack, VStack, Spacer};
 
 pub struct MenuBar;
 

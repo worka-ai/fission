@@ -2,12 +2,12 @@ use crate::model::{
     CancelRename, CreateFile, CreateFolder, EditorState, FileEntry, OpenFile, RefreshTree,
     SelectTreeNode, ShowContextMenu, ToggleTreeNode, UpdateRenameInput,
 };
-use fission_core::op::Color;
-use fission_core::ui::{
+use fission::core::op::Color;
+use fission::core::ui::{
     Button, ButtonContentAlign, ButtonVariant, Container, GestureDetector, Node, Text, TextInput,
 };
-use fission_core::{reduce_with, ActionEnvelope, BuildCtx, View, Widget};
-use fission_widgets::{HStack, Icon, Spacer, VStack};
+use fission::core::{reduce_with, ActionEnvelope, BuildCtx, View, Widget};
+use fission::widgets::{HStack, Icon, Spacer, VStack};
 use serde_json;
 
 pub struct FileTree;
@@ -64,9 +64,9 @@ impl Widget<EditorState> for FileTree {
                 reduce_with!(
                     (|s: &mut EditorState,
                       a: ShowContextMenu,
-                      rctx: &mut fission_core::ReducerContext<EditorState>| {
+                      rctx: &mut fission::core::ReducerContext<EditorState>| {
                         let (px, py) = match rctx.input {
-                            fission_core::ActionInput::Pointer { x, y, .. } => (*x, *y),
+                            fission::core::ActionInput::Pointer { x, y, .. } => (*x, *y),
                             _ => (a.x, a.y),
                         };
                         let final_x = if px < 10.0 { 100.0 } else { px };
@@ -193,7 +193,7 @@ impl Widget<EditorState> for FileTree {
                         variant: ButtonVariant::Ghost,
                         on_press: Some(new_file_action),
                         child: Some(Box::new(
-                            Icon::svg(fission_icons::material::content::add::round())
+                            Icon::svg(fission::icons::material::content::add::round())
                                 .size(18.0)
                                 .color(icon_color)
                                 .into_node(),
@@ -208,7 +208,7 @@ impl Widget<EditorState> for FileTree {
                         variant: ButtonVariant::Ghost,
                         on_press: Some(new_folder_action),
                         child: Some(Box::new(
-                            Icon::svg(fission_icons::material::file::create_new_folder::round())
+                            Icon::svg(fission::icons::material::file::create_new_folder::round())
                                 .size(18.0)
                                 .color(icon_color)
                                 .into_node(),
@@ -223,7 +223,7 @@ impl Widget<EditorState> for FileTree {
                         variant: ButtonVariant::Ghost,
                         on_press: Some(refresh_action),
                         child: Some(Box::new(
-                            Icon::svg(fission_icons::material::navigation::refresh::round())
+                            Icon::svg(fission::icons::material::navigation::refresh::round())
                                 .size(18.0)
                                 .color(icon_color)
                                 .into_node(),
@@ -258,9 +258,9 @@ impl Widget<EditorState> for FileTree {
             );
         }
 
-        let tree_scroll = fission_core::ui::Scroll {
-            id: Some(fission_ir::NodeId::explicit("file_tree_scroll")),
-            direction: fission_ir::op::FlexDirection::Column,
+        let tree_scroll = fission::core::ui::Scroll {
+            id: Some(fission::ir::NodeId::explicit("file_tree_scroll")),
+            direction: fission::ir::op::FlexDirection::Column,
             show_scrollbar: true,
             flex_grow: 1.0,
             flex_shrink: 1.0,
@@ -295,10 +295,10 @@ fn build_tree_rows(
     depth: usize,
     rows: &mut Vec<Node>,
     view: &View<EditorState>,
-    toggle_id: fission_core::ActionId,
-    open_id: fission_core::ActionId,
-    select_id: fission_core::ActionId,
-    context_menu_id: fission_core::ActionId,
+    toggle_id: fission::core::ActionId,
+    open_id: fission::core::ActionId,
+    select_id: fission::core::ActionId,
+    context_menu_id: fission::core::ActionId,
     rename_input_action: &ActionEnvelope,
 ) {
     let tokens = &view.env.theme.tokens;
@@ -332,12 +332,12 @@ fn build_tree_rows(
 
     let file_icon = if entry.is_dir {
         if is_expanded {
-            fission_icons::material::file::folder_open::regular()
+            fission::icons::material::file::folder_open::regular()
         } else {
-            fission_icons::material::file::folder::regular()
+            fission::icons::material::file::folder::regular()
         }
     } else {
-        fission_icons::material::action::description::regular()
+        fission::icons::material::action::description::regular()
     };
 
     let bg = if is_selected {
@@ -381,7 +381,7 @@ fn build_tree_rows(
     // Build the name column: either a TextInput (renaming) or a Text label
     let name_node = if is_renaming {
         TextInput {
-            id: Some(fission_ir::NodeId::explicit("rename_input")),
+            id: Some(fission::ir::NodeId::explicit("rename_input")),
             value: view.state.rename_input.clone(),
             placeholder: Some("New name".into()),
             on_change: Some(rename_input_action.clone()),

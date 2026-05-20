@@ -1,8 +1,8 @@
 use crate::model::{EditorState, ToggleFindReplace, UpdateFindQuery, UpdateReplaceQuery, FindNext, FindPrevious, ReplaceOne, ReplaceAll};
-use fission_core::op::Color;
-use fission_core::ui::{Button, ButtonVariant, Container, Node, Text, TextInput};
-use fission_core::{BuildCtx, reduce_with, View, Widget};
-use fission_widgets::{HStack, Spacer};
+use fission::core::op::Color;
+use fission::core::ui::{Button, ButtonVariant, Container, Node, Text, TextInput};
+use fission::core::{BuildCtx, reduce_with, View, Widget};
+use fission::widgets::{HStack, Spacer};
 
 pub struct FindReplaceBar;
 
@@ -69,7 +69,7 @@ impl Widget<EditorState> for FindReplaceBar {
             format!("{} of {}", view.state.find_match_index + 1, view.state.find_matches.len())
         };
 
-        let small_btn = |label: &str, action: fission_core::ActionEnvelope| -> Node {
+        let small_btn = |label: &str, action: fission::core::ActionEnvelope| -> Node {
             Button {
                 variant: ButtonVariant::Ghost,
                 child: Some(Box::new(
@@ -88,7 +88,7 @@ impl Widget<EditorState> for FindReplaceBar {
             children: vec![
                 Container::new(
                     TextInput {
-                        id: Some(fission_ir::NodeId::explicit("editor_find_query_input")),
+                        id: Some(fission::ir::NodeId::explicit("editor_find_query_input")),
                         value: view.state.find_query.clone(),
                         placeholder: Some("Find".into()),
                         on_change: Some(update_find),
@@ -114,7 +114,7 @@ impl Widget<EditorState> for FindReplaceBar {
             children: vec![
                 Container::new(
                     TextInput {
-                        id: Some(fission_ir::NodeId::explicit("editor_replace_query_input")),
+                        id: Some(fission::ir::NodeId::explicit("editor_replace_query_input")),
                         value: view.state.replace_query.clone(),
                         placeholder: Some("Replace".into()),
                         on_change: Some(update_replace),
@@ -138,7 +138,7 @@ impl Widget<EditorState> for FindReplaceBar {
                 spacing: Some(8.0),
                 children: vec![
                     Container::new(
-                        fission_widgets::VStack {
+                        fission::widgets::VStack {
                             spacing: Some(4.0),
                             children: vec![find_row, replace_row],
                         }.into_node(),

@@ -19,7 +19,7 @@ use winit::platform::macos::{ActivationPolicy, EventLoopBuilderExtMacOS};
 #[cfg(target_arch = "wasm32")]
 use winit::platform::web::{EventLoopExtWebSys, WindowBuilderExtWebSys, WindowExtWebSys};
 use winit::{
-    dpi::{LogicalSize, PhysicalPosition, PhysicalSize},
+    dpi::{PhysicalPosition, PhysicalSize},
     event::{Event, Ime, MouseButton, MouseScrollDelta, TouchPhase, WindowEvent},
     event_loop::{ControlFlow, EventLoopBuilder, EventLoopProxy, EventLoopWindowTarget},
     window::{CursorIcon, Window, WindowBuilder, WindowId},
@@ -164,6 +164,7 @@ struct ActivePlayer {
 struct RenderState<'w> {
     surface: RenderSurface<'w>,
     target_texture_size: (u32, u32),
+    #[cfg(feature = "three-d")]
     scene3d_renderer: fission_3d::render::Scene3DRenderer,
     main_renderer: MainRenderer,
 }
@@ -318,6 +319,7 @@ fn create_render_state<'w>(
         target_texture_size.1,
     );
 
+    #[cfg(feature = "three-d")]
     let scene3d_renderer = fission_3d::render::Scene3DRenderer::new(
         &device_handle.device,
         viewport.physical_size.width,
@@ -350,6 +352,7 @@ fn create_render_state<'w>(
     Ok(RenderState {
         surface,
         target_texture_size,
+        #[cfg(feature = "three-d")]
         scene3d_renderer,
         main_renderer,
     })
@@ -3835,9 +3838,6 @@ impl<S: AppState + Default, W: Widget<S> + 'static> WinitApp<S, W> {
                                         );
                                         surface_target_replaced = true;
                                     }
-                                    let device_handle =
-                                        &render_cx.devices[render_state.surface.dev_id];
-
                                     if surface_target_replaced
                                         || render_target_size != render_state.target_texture_size
                                     {
@@ -3847,12 +3847,17 @@ impl<S: AppState + Default, W: Widget<S> + 'static> WinitApp<S, W> {
                                             render_target_size.0,
                                             render_target_size.1,
                                         );
-                                        // Keep the 3D depth target in lockstep with the shared render target.
-                                        render_state.scene3d_renderer.resize(
-                                            &device_handle.device,
-                                            render_target_size.0,
-                                            render_target_size.1,
-                                        );
+                                        #[cfg(feature = "three-d")]
+                                        {
+                                            let device_handle =
+                                                &render_cx.devices[render_state.surface.dev_id];
+                                            // Keep the 3D depth target in lockstep with the shared render target.
+                                            render_state.scene3d_renderer.resize(
+                                                &device_handle.device,
+                                                render_target_size.0,
+                                                render_target_size.1,
+                                            );
+                                        }
                                         render_state.target_texture_size = render_target_size;
                                     }
                                 }
@@ -4264,30 +4269,37 @@ impl<S: AppState + Default, W: Widget<S> + 'static> WinitApp<S, W> {
                                                 }
                                             }
 
-                                            for (_, rect, payload) in &pipeline.scene_3d_surfaces {
-                                                if let Ok(primitives) = bincode::deserialize::<
-                                                    Vec<fission_3d::Primitive3D>,
-                                                >(
-                                                    payload
-                                                ) {
-                                                    let scene3d = fission_3d::Scene3D {
-                                                        width: Some(rect.size.width),
-                                                        height: Some(rect.size.height),
-                                                        primitives,
-                                                    };
-                                                    let scale = scale_factor as f32;
-                                                    render_state.scene3d_renderer.render_in_rect(
-                                                        &device_handle.device,
-                                                        &device_handle.queue,
-                                                        &render_state.surface.target_view,
-                                                        &scene3d,
-                                                        fission_3d::render::Scene3DViewport {
-                                                            x: rect.origin.x * scale,
-                                                            y: rect.origin.y * scale,
-                                                            width: rect.size.width * scale,
-                                                            height: rect.size.height * scale,
-                                                        },
-                                                    );
+                                            #[cfg(feature = "three-d")]
+                                            {
+                                                for (_, rect, payload) in
+                                                    &pipeline.scene_3d_surfaces
+                                                {
+                                                    if let Ok(primitives) = bincode::deserialize::<
+                                                        Vec<fission_3d::Primitive3D>,
+                                                    >(
+                                                        payload
+                                                    ) {
+                                                        let scene3d = fission_3d::Scene3D {
+                                                            width: Some(rect.size.width),
+                                                            height: Some(rect.size.height),
+                                                            primitives,
+                                                        };
+                                                        let scale = scale_factor as f32;
+                                                        render_state
+                                                            .scene3d_renderer
+                                                            .render_in_rect(
+                                                            &device_handle.device,
+                                                            &device_handle.queue,
+                                                            &render_state.surface.target_view,
+                                                            &scene3d,
+                                                            fission_3d::render::Scene3DViewport {
+                                                                x: rect.origin.x * scale,
+                                                                y: rect.origin.y * scale,
+                                                                width: rect.size.width * scale,
+                                                                height: rect.size.height * scale,
+                                                            },
+                                                        );
+                                                    }
                                                 }
                                             }
 
@@ -5155,8 +5167,9 @@ fn sync_tracked_target_texture_size_to_surface(
     *target_texture_size = (surface_size.width.max(1), surface_size.height.max(1));
 }
 
-fn native_window_size_for_logical_viewport(size: LayoutSize) -> LogicalSize<f64> {
-    LogicalSize::new(size.width as f64, size.height as f64)
+#[cfg(any(test, not(any(target_os = "android", target_os = "ios"))))]
+fn native_window_size_for_logical_viewport(size: LayoutSize) -> winit::dpi::LogicalSize<f64> {
+    winit::dpi::LogicalSize::new(size.width as f64, size.height as f64)
 }
 
 #[cfg(test)]

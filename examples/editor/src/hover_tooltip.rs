@@ -1,10 +1,10 @@
 //! Floating tooltip widget that displays LSP hover information.
 
 use crate::model::*;
-use fission_core::op::Color;
-use fission_core::ui::{Container, GestureDetector, Node, Positioned, Text, ZStack};
-use fission_core::{BuildCtx, reduce_with, PortalLayer, View, Widget, WidgetNodeId};
-use fission_widgets::Spacer;
+use fission::core::op::Color;
+use fission::core::ui::{Container, GestureDetector, Node, Positioned, Text, ZStack};
+use fission::core::{BuildCtx, reduce_with, PortalLayer, View, Widget, WidgetNodeId};
+use fission::widgets::Spacer;
 
 pub struct HoverTooltip;
 

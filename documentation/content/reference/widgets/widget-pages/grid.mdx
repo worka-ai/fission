@@ -15,7 +15,7 @@ Use `Grid` when track definitions are meaningful. Do not use it when you only ne
 
 ```rust
 use fission::core::ui::{Grid, GridItem, Text};
-use fission_ir::op::GridTrack;
+use fission::ir::op::GridTrack;
 
 let node = Grid {
     columns: vec![GridTrack::Fr(2.0), GridTrack::Fr(1.0)],

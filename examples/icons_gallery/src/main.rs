@@ -1,15 +1,15 @@
+use fission::core::op::Color;
+use fission::core::AppState;
 use fission::op::AlignItems;
-use fission_core::op::Color;
-use fission_core::AppState;
-use fission_shell_desktop::DesktopApp;
-use fission_widgets::{
+use fission::prelude::DesktopApp;
+use fission::widgets::{
     BuildCtx, Column, Container, Icon, LazyColumn, Node, Row, Text, View, Widget,
 };
 use lazy_static::lazy_static;
 use std::sync::Arc;
 
 fn build_icon_rows() -> Vec<Node> {
-    let all = fission_icons::material::all_icons();
+    let all = fission::icons::material::all_icons();
     let mut items = Vec::with_capacity(all.len());
 
     for (idx, (cat, name, variant, func)) in all.into_iter().enumerate() {

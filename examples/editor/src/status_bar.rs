@@ -1,9 +1,9 @@
 use crate::model::EditorState;
-use fission_core::op::Color;
-use fission_core::ui::{Container, Icon, Node, Text};
-use fission_core::{BuildCtx, View, Widget};
-use fission_icons::material;
-use fission_widgets::{HStack, Spacer};
+use fission::core::op::Color;
+use fission::core::ui::{Container, Icon, Node, Text};
+use fission::core::{BuildCtx, View, Widget};
+use fission::icons::material;
+use fission::widgets::{HStack, Spacer};
 
 pub struct StatusBar;
 

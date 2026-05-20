@@ -1,6 +1,6 @@
+use fission::charts::{ChartHitKind, ChartInteractionEvent};
+use fission::core::AppState;
 use fission::prelude::fission_reducer;
-use fission_charts::{ChartHitKind, ChartInteractionEvent};
-use fission_core::AppState;
 use serde::{Deserialize, Serialize};
 
 pub(crate) const SHOWCASE_CATEGORY: usize = usize::MAX;
@@ -75,7 +75,7 @@ pub(crate) fn toggle_markers(state: &mut GalleryState, _value: bool) {
 pub(crate) fn record_chart_interaction(
     state: &mut GalleryState,
     event: ChartInteractionEvent,
-    _ctx: &mut fission_core::ReducerContext<GalleryState>,
+    _ctx: &mut fission::core::ReducerContext<GalleryState>,
 ) {
     let hit = event
         .hit

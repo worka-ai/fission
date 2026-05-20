@@ -4,15 +4,15 @@ use crate::charts::gallery::{
 use crate::data::{sample_lines, sample_tree, SIMPLE_GEOJSON};
 use crate::state::GalleryState;
 use crate::style::{amber, blue, teal};
-use fission_charts::{
+use fission::charts::{
     Axis, BarSeries, BoxplotSeries, CandlestickSeries, Chart, DataValue, DataZoom, Dataset,
     EffectScatterSeries, Encode, FunnelSeries, GaugeSeries, GraphNode, GraphSeries, HeatmapSeries,
     Legend, LineSeries, LinesSeries, LiquidfillSeries, MapSeries, ParallelSeries,
     PictorialBarSeries, PieSeries, RadarSeries, SankeySeries, ScatterSeries, SunburstSeries,
     ThemeRiverSeries, TreeSeries, TreemapNode, TreemapSeries, VisualMap, WordcloudSeries,
 };
-use fission_core::ui::Node;
-use fission_core::{BuildCtx, View, Widget};
+use fission::core::ui::Node;
+use fission::core::{BuildCtx, View, Widget};
 
 pub(crate) fn chart_for_doc_slug(
     slug: &str,
@@ -458,15 +458,15 @@ pub(crate) fn chart_for_doc_slug(
                     },
                 ])
                 .edges(vec![
-                    fission_charts::series::graph::GraphEdge {
+                    fission::charts::series::graph::GraphEdge {
                         source: "0".into(),
                         target: "1".into(),
                     },
-                    fission_charts::series::graph::GraphEdge {
+                    fission::charts::series::graph::GraphEdge {
                         source: "0".into(),
                         target: "2".into(),
                     },
-                    fission_charts::series::graph::GraphEdge {
+                    fission::charts::series::graph::GraphEdge {
                         source: "0".into(),
                         target: "3".into(),
                     },
@@ -592,11 +592,11 @@ pub(crate) fn chart_for_doc_slug(
                     },
                 ])
                 .edges(vec![
-                    fission_charts::series::graph::GraphEdge {
+                    fission::charts::series::graph::GraphEdge {
                         source: "a".into(),
                         target: "c".into(),
                     },
-                    fission_charts::series::graph::GraphEdge {
+                    fission::charts::series::graph::GraphEdge {
                         source: "b".into(),
                         target: "c".into(),
                     },

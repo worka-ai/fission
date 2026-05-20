@@ -10,7 +10,7 @@
 //! back to plain unstyled text.
 
 use crate::model::Language;
-use fission_core::op::Color;
+use fission::core::op::Color;
 
 use std::collections::hash_map::DefaultHasher;
 use std::collections::HashMap;

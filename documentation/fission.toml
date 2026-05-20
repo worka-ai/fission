@@ -53,19 +53,19 @@ href = "/docs/learn/examples-and-targets/"
 kind = "content"
 path = "/docs"
 source = "content/docs"
-template = "fission_shell_site::documentation"
+template = "fission::site::documentation"
 sidebar = "site/docs-sidebar.toml"
 
 [[site.routes]]
 kind = "content"
 path = "/reference"
 source = "content/reference"
-template = "fission_shell_site::documentation"
+template = "fission::site::documentation"
 sidebar = "site/reference-sidebar.toml"
 
 [[site.routes]]
 kind = "content"
 path = "/blog"
 source = "content/blog"
-template = "fission_shell_site::documentation"
+template = "fission::site::documentation"
 sidebar = "site/blog-sidebar.toml"

@@ -15,7 +15,7 @@ Both systems are explicit in Fission. Widgets read them through `Env` instead of
 
 ## Theme surface
 
-The top-level theme type is `Theme` from `fission-theme`.
+The top-level theme type is `Theme` from `fission::theme`, and it is also available through `fission::prelude::*`.
 
 A theme includes both primitive design tokens and component-level derived themes. In practice, that means the theme can answer questions about colors, spacing, typography, radius, elevation, and the styling rules for concrete components such as buttons, inputs, tabs, tooltips, and other widgets.
 

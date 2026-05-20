@@ -1,7 +1,7 @@
 use super::email::{seed_mailbox, Email, Folder};
 use chrono::NaiveDate;
-use fission_core::AppState;
-use fission_i18n::Locale;
+use fission::core::AppState;
+use fission::i18n::Locale;
 use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
 

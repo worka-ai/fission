@@ -3,12 +3,16 @@ name = "fission-shell-desktop"
 version = "0.1.1"
 edition = "2021"
 
+[features]
+default = []
+three-d = ["fission-shell-winit/three-d"]
+
 [dependencies]
 fission-shell = { path = "../fission-shell" }
-fission-shell-winit = { path = "../fission-shell-winit" }
+fission-shell-winit = { path = "../fission-shell-winit", default-features = false }
 fission-core = { path = "../../core/fission-core" }
 fission-theme = { path = "../../core/fission-theme" }
-winit = { version = "0.29.15", features = ["android-native-activity"] }
+winit = "0.29.15"
 anyhow = "1.0"
 
 [dev-dependencies]

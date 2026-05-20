@@ -1,11 +1,11 @@
 use super::GalleryBuildExt;
 use crate::state::GalleryState;
 use crate::style::{blue, teal};
-use fission_charts::{
+use fission::charts::{
     CalendarHeatmapSeries, Chart, PolarBarSeries, PolarLineSeries, SingleAxisSeries, VisualMap,
 };
-use fission_core::ui::Node;
-use fission_core::{BuildCtx, View};
+use fission::core::ui::Node;
+use fission::core::{BuildCtx, View};
 
 pub(super) fn build_chart(
     chart: usize,

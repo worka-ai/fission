@@ -1,8 +1,7 @@
 use crate::data::{sample_lines, sample_tree, SIMPLE_GEOJSON};
 use crate::state::GalleryState;
 use crate::style::{amber, blue, teal};
-use fission_3d::Scene3D;
-use fission_charts::{
+use fission::charts::{
     Axis, BarSeries, BoxplotSeries, BubbleSeries, CalendarHeatmapSeries, CandlestickSeries, Chart,
     ChartBrush, ChartGraphic, ChartInteraction, ChartTimeline, ChartToolAction, DataZoom,
     EffectScatterSeries, FunnelSeries, GaugeSeries, GraphNode, GraphSeries, HeatmapSeries, Legend,
@@ -11,9 +10,10 @@ use fission_charts::{
     ScatterSeries, SingleAxisSeries, SunburstSeries, ThemeRiverSeries, TreeSeries, TreemapNode,
     TreemapSeries, VisualMap,
 };
-use fission_core::op::Color;
-use fission_core::ui::Node;
-use fission_core::{BuildCtx, View, Widget};
+use fission::core::op::Color;
+use fission::core::ui::Node;
+use fission::core::{BuildCtx, View, Widget};
+use fission::three_d::Scene3D;
 
 use super::dataset_3d;
 
@@ -3328,11 +3328,11 @@ fn sankey_chart(title: &str, _seed: usize, _s: f32) -> Chart {
                 },
             ])
             .edges(vec![
-                fission_charts::series::graph::GraphEdge {
+                fission::charts::series::graph::GraphEdge {
                     source: "a".into(),
                     target: "b".into(),
                 },
-                fission_charts::series::graph::GraphEdge {
+                fission::charts::series::graph::GraphEdge {
                     source: "b".into(),
                     target: "c".into(),
                 },
@@ -3388,15 +3388,15 @@ fn graph_chart(title: &str, seed: usize, s: f32) -> Chart {
                 },
             ])
             .edges(vec![
-                fission_charts::series::graph::GraphEdge {
+                fission::charts::series::graph::GraphEdge {
                     source: "0".into(),
                     target: "1".into(),
                 },
-                fission_charts::series::graph::GraphEdge {
+                fission::charts::series::graph::GraphEdge {
                     source: "0".into(),
                     target: "2".into(),
                 },
-                fission_charts::series::graph::GraphEdge {
+                fission::charts::series::graph::GraphEdge {
                     source: "0".into(),
                     target: "3".into(),
                 },
@@ -3451,7 +3451,7 @@ fn route_map_chart(title: &str, seed: usize, s: f32) -> Chart {
 
 fn tooltip_chart(title: &str, seed: usize, s: f32) -> Chart {
     grouped_bar_chart(title, seed, s)
-        .tooltip(fission_charts::Tooltip::axis_trigger())
+        .tooltip(fission::charts::Tooltip::axis_trigger())
         .interaction(ChartInteraction::new().emit_events(true))
 }
 

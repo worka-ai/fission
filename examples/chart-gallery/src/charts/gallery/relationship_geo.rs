@@ -2,12 +2,12 @@ use super::GalleryBuildExt;
 use crate::data::{sample_lines, sample_tree, SIMPLE_GEOJSON};
 use crate::state::GalleryState;
 use crate::style::teal;
-use fission_charts::{
+use fission::charts::{
     Chart, GraphNode, GraphSeries, Legend, LinesSeries, MapSeries, ParallelSeries, SankeySeries,
     SunburstSeries, ThemeRiverSeries, TreeSeries, TreemapNode, TreemapSeries, VisualMap,
 };
-use fission_core::ui::Node;
-use fission_core::{BuildCtx, View};
+use fission::core::ui::Node;
+use fission::core::{BuildCtx, View};
 
 pub(super) fn build_chart(
     chart: usize,
@@ -43,15 +43,15 @@ pub(super) fn build_chart(
                     },
                 ])
                 .edges(vec![
-                    fission_charts::series::graph::GraphEdge {
+                    fission::charts::series::graph::GraphEdge {
                         source: "1".into(),
                         target: "0".into(),
                     },
-                    fission_charts::series::graph::GraphEdge {
+                    fission::charts::series::graph::GraphEdge {
                         source: "2".into(),
                         target: "0".into(),
                     },
-                    fission_charts::series::graph::GraphEdge {
+                    fission::charts::series::graph::GraphEdge {
                         source: "3".into(),
                         target: "0".into(),
                     },
@@ -134,7 +134,7 @@ pub(super) fn build_chart(
                         value: 0.0,
                     },
                 ])
-                .edges(vec![fission_charts::series::graph::GraphEdge {
+                .edges(vec![fission::charts::series::graph::GraphEdge {
                     source: "a".into(),
                     target: "b".into(),
                 }])

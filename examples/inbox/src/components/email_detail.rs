@@ -3,11 +3,11 @@ use crate::model::{
     ToggleDetails, ToggleToast,
 };
 use chrono::Local;
-use fission_core::op::ImageFit;
-use fission_core::ui::{Button, ButtonVariant, Container, Node, Scroll, Text, TextContent, Video};
-use fission_core::{reduce_with, ActionEnvelope, BuildCtx, View, Widget, WidgetNodeId};
-use fission_icons::material;
-use fission_widgets::{
+use fission::core::op::ImageFit;
+use fission::core::ui::{Button, ButtonVariant, Container, Node, Scroll, Text, TextContent, Video};
+use fission::core::{reduce_with, ActionEnvelope, BuildCtx, View, Widget, WidgetNodeId};
+use fission::icons::material;
+use fission::widgets::{
     Accordion, AccordionItem, Alert, AlertKind, AspectRatio, Avatar, Card, Code, Divider, HStack,
     Hero, Icon, Image, Kbd, Radio, SimpleGrid, Spinner, Tag, Timeline, TimelineItem, VStack, Wrap,
 };
@@ -149,7 +149,7 @@ impl Widget<InboxState> for EmailDetail {
                     Navigate(folder_path.clone()),
                     reduce_with!((|s: &mut InboxState, a: Navigate, _| s.navigate_to(a.0))),
                 )),
-                content_align: fission_core::ui::ButtonContentAlign::Start,
+                content_align: fission::core::ui::ButtonContentAlign::Start,
                 ..Default::default()
             }
             .into_node(),
@@ -233,7 +233,7 @@ impl Widget<InboxState> for EmailDetail {
         // ── 5. Tags row ────────────────────────────────────────────
         let tags_row = if !email.labels.is_empty() {
             Wrap {
-                direction: fission_ir::op::FlexDirection::Row,
+                direction: fission::ir::op::FlexDirection::Row,
                 spacing: Some(6.0),
                 children: email
                     .labels
@@ -288,7 +288,7 @@ impl Widget<InboxState> for EmailDetail {
 
         // ── 7. Divider between header and body ─────────────────────
         let header_divider = Divider {
-            orientation: fission_widgets::divider::Orientation::Horizontal,
+            orientation: fission::widgets::divider::Orientation::Horizontal,
         }
         .build(ctx, view);
 
@@ -459,7 +459,7 @@ impl Widget<InboxState> for EmailDetail {
 
         // ── 12. Divider before reply ───────────────────────────────
         let reply_divider = Divider {
-            orientation: fission_widgets::divider::Orientation::Horizontal,
+            orientation: fission::widgets::divider::Orientation::Horizontal,
         }
         .build(ctx, view);
 
@@ -523,7 +523,7 @@ impl Widget<InboxState> for EmailDetail {
                     Text::new(TextContent::Key("email.reply".into()))
                         .size(14.0)
                         .into_node(),
-                    fission_widgets::TextInput {
+                    fission::widgets::TextInput {
                         value: view.state.reply_body.clone(),
                         placeholder: Some(TextContent::Key("email.reply_placeholder".into())),
                         on_change: Some(ActionEnvelope {
@@ -538,7 +538,7 @@ impl Widget<InboxState> for EmailDetail {
                     HStack {
                         spacing: Some(8.0),
                         children: vec![
-                            fission_core::ui::widgets::Spacer {
+                            fission::core::ui::widgets::Spacer {
                                 flex_grow: 1.0,
                                 ..Default::default()
                             }

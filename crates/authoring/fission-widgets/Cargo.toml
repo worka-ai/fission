@@ -6,6 +6,15 @@ license = "MIT"
 repository = "https://github.com/worka-ai/fission"
 description = "Widgets"
 
+[features]
+default = []
+terminal = [
+    "dep:arboard",
+    "dep:portable-pty",
+    "dep:wezterm-term",
+    "dep:wezterm-surface",
+]
+
 [dependencies]
 fission-macros = { path = "../fission-macros", version = "0.1.1" }
 fission-core = { path = "../../core/fission-core", version = "0.1.1" }
@@ -25,7 +34,7 @@ rushdown = "0.18.0"
 fission-layout = { path = "../../core/fission-layout", version = "0.1.1" }
 
 [target.'cfg(not(any(target_os = "ios", target_os = "android", target_arch = "wasm32")))'.dependencies]
-arboard = "3.4"
-portable-pty = "0.9"
-wezterm-term = { git = "https://github.com/wezterm/wezterm", package = "wezterm-term" }
-wezterm-surface = { git = "https://github.com/wezterm/wezterm", package = "wezterm-surface" }
+arboard = { version = "3.4", optional = true }
+portable-pty = { version = "0.9", optional = true }
+wezterm-term = { git = "https://github.com/wezterm/wezterm", package = "wezterm-term", optional = true }
+wezterm-surface = { git = "https://github.com/wezterm/wezterm", package = "wezterm-surface", optional = true }

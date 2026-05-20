@@ -7,7 +7,7 @@
 //!
 //! ```toml
 //! [dependencies]
-//! fission = { path = "..." }
+//! fission = { path = "...", default-features = false, features = ["desktop"] }
 //! ```
 //!
 //! Then use via:
@@ -51,9 +51,26 @@ pub mod i18n {
     pub use fission_i18n::*;
 }
 
+/// Text editing engine — rope-backed buffers, line indexes, and edit history.
+pub mod text_engine {
+    pub use fission_text_engine::*;
+}
+
 /// Authoring widgets — Modal, Popover, Tooltip, Menu, Combobox, SplitView, etc.
 pub mod widgets {
     pub use fission_widgets::*;
+}
+
+/// Chart widgets and data-visualization primitives.
+#[cfg(feature = "charts")]
+pub mod charts {
+    pub use fission_charts::*;
+}
+
+/// 3D scene and embed primitives.
+#[cfg(feature = "three-d")]
+pub mod three_d {
+    pub use fission_3d::*;
 }
 
 /// Derive and attribute macros — `#[fission_action]`, `#[fission_reducer]`, and friends.
@@ -70,14 +87,33 @@ pub mod icons {
 /// Platform shells — desktop, mobile, and web wrappers over the shared runtime.
 pub mod shell {
     #[cfg(all(
-        feature = "platform-shells",
+        any(feature = "desktop", feature = "platform-shells"),
         not(any(target_os = "android", target_os = "ios", target_arch = "wasm32"))
     ))]
     pub use fission_shell_desktop::*;
-    #[cfg(all(feature = "platform-shells", any(target_os = "android", target_os = "ios")))]
+    #[cfg(all(
+        any(
+            feature = "android",
+            feature = "ios",
+            feature = "mobile",
+            feature = "platform-shells"
+        ),
+        any(target_os = "android", target_os = "ios")
+    ))]
     pub use fission_shell_mobile::*;
-    #[cfg(all(feature = "platform-shells", target_arch = "wasm32"))]
+    #[cfg(feature = "site")]
+    pub use fission_shell_site::*;
+    #[cfg(all(
+        any(feature = "web", feature = "platform-shells"),
+        target_arch = "wasm32"
+    ))]
     pub use fission_shell_web::*;
+}
+
+/// Static site shell APIs.
+#[cfg(feature = "site")]
+pub mod site {
+    pub use fission_shell_site::*;
 }
 
 /// Rendering primitives — DisplayList, DisplayOp, TextStyle, Color.
@@ -93,9 +129,8 @@ pub mod diagnostics {
 /// Serialization traits and derives used by Fission action macros.
 pub use serde;
 
-// text_engine re-export will be added when fission-text-engine is restored
-
 /// Test driver — LiveTestClient, TestCommand, TestResponse.
+#[cfg(feature = "test-driver")]
 pub mod test_driver {
     pub use fission_test_driver::*;
 }
@@ -131,13 +166,24 @@ pub use fission_widgets::{HStack, Icon, Spacer, VStack};
 
 // Platform shells
 #[cfg(all(
-    feature = "platform-shells",
+    any(feature = "desktop", feature = "platform-shells"),
     not(any(target_os = "android", target_os = "ios", target_arch = "wasm32"))
 ))]
 pub use fission_shell_desktop::DesktopApp;
-#[cfg(all(feature = "platform-shells", any(target_os = "android", target_os = "ios")))]
+#[cfg(all(
+    any(
+        feature = "android",
+        feature = "ios",
+        feature = "mobile",
+        feature = "platform-shells"
+    ),
+    any(target_os = "android", target_os = "ios")
+))]
 pub use fission_shell_mobile::MobileApp;
-#[cfg(all(feature = "platform-shells", target_arch = "wasm32"))]
+#[cfg(all(
+    any(feature = "web", feature = "platform-shells"),
+    target_arch = "wasm32"
+))]
 pub use fission_shell_web::WebApp;
 
 // Macros
@@ -180,15 +226,31 @@ pub mod prelude {
 
     // Shell
     #[cfg(all(
-        feature = "platform-shells",
+        any(feature = "desktop", feature = "platform-shells"),
         not(any(target_os = "android", target_os = "ios", target_arch = "wasm32"))
     ))]
     pub use fission_shell_desktop::DesktopApp;
-    #[cfg(all(feature = "platform-shells", target_os = "android"))]
+    #[cfg(all(
+        any(feature = "android", feature = "mobile", feature = "platform-shells"),
+        target_os = "android"
+    ))]
     pub use fission_shell_mobile::AndroidApp;
-    #[cfg(all(feature = "platform-shells", any(target_os = "android", target_os = "ios")))]
+    #[cfg(all(
+        any(
+            feature = "android",
+            feature = "ios",
+            feature = "mobile",
+            feature = "platform-shells"
+        ),
+        any(target_os = "android", target_os = "ios")
+    ))]
     pub use fission_shell_mobile::MobileApp;
-    #[cfg(all(feature = "platform-shells", target_arch = "wasm32"))]
+    #[cfg(feature = "site")]
+    pub use fission_shell_site::*;
+    #[cfg(all(
+        any(feature = "web", feature = "platform-shells"),
+        target_arch = "wasm32"
+    ))]
     pub use fission_shell_web::WebApp;
 
     // Serde (commonly needed for actions)

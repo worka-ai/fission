@@ -1,10 +1,10 @@
 use super::GalleryBuildExt;
 use crate::state::GalleryState;
-use fission_3d::{Point3D, Primitive3D, Scene3D};
-use fission_charts::{Axis, BarSeries, Chart, DataValue, Dataset, Encode, Legend, LineSeries};
-use fission_core::op::Color;
-use fission_core::ui::Node;
-use fission_core::{BuildCtx, View};
+use fission::charts::{Axis, BarSeries, Chart, DataValue, Dataset, Encode, Legend, LineSeries};
+use fission::core::op::Color;
+use fission::core::ui::Node;
+use fission::core::{BuildCtx, View};
+use fission::three_d::{Point3D, Primitive3D, Scene3D};
 
 pub(super) fn build_chart(
     chart: usize,

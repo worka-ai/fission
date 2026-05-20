@@ -1,13 +1,13 @@
-use fission::prelude::fission_action;
-use fission_core::op::Color as IrColor;
-use fission_core::ui::{
+use fission::core::op::Color as IrColor;
+use fission::core::ui::{
     Button, ButtonVariant, Checkbox, Container, Node, Scroll, Slider, Switch, Text, TextInput,
 };
-use fission_core::{
+use fission::core::{
     reduce_with, ActionEnvelope, AppState, BuildCtx, FlexDirection, View, Widget, WidgetNodeId,
 };
-use fission_shell_desktop::DesktopApp;
-use fission_widgets::{
+use fission::prelude::fission_action;
+use fission::prelude::DesktopApp;
+use fission::widgets::{
     Accordion, AccordionItem, Alert, AlertKind, Avatar, Badge, Breadcrumb, BreadcrumbItem, Card,
     CircularProgress, Code, Divider, Drawer, DrawerSide, EmptyState, HStack, Kbd, Link, MenuButton,
     MenuItem, Modal, ModalAction, NumberInput, Pagination, ProgressBar, SegmentedControl, Select,
@@ -169,7 +169,7 @@ trait BuildInline {
 
 impl BuildInline for Divider {
     fn build_inline(self) -> Node {
-        Container::new(fission_core::ui::widgets::Spacer::default().into_node())
+        Container::new(fission::core::ui::widgets::Spacer::default().into_node())
             .height(1.0)
             .bg(IrColor {
                 r: 200,
@@ -888,9 +888,9 @@ impl Widget<GalleryState> for GalleryApp {
             }
             .build(ctx, view);
             ctx.register_portal_with_layer(
-                fission_core::PortalLayer::Toast,
+                fission::core::PortalLayer::Toast,
                 Some(WidgetNodeId::explicit("gallery_toast")),
-                fission_widgets::Positioned {
+                fission::widgets::Positioned {
                     right: Some(20.0),
                     bottom: Some(20.0),
                     child: Some(Box::new(toast)),

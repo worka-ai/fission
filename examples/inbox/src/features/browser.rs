@@ -1,7 +1,7 @@
 use crate::model::{InboxState, OpenInAppLink, OpenSystemLink, ToggleBrowserDemo};
-use fission_core::ui::{Container, Node, Text};
-use fission_core::{reduce_with, BuildCtx, View, Widget, WidgetNodeId};
-use fission_widgets::{HStack, Modal, ModalAction, VStack, WebView};
+use fission::core::ui::{Container, Node, Text};
+use fission::core::{reduce_with, BuildCtx, View, Widget, WidgetNodeId};
+use fission::widgets::{HStack, Modal, ModalAction, VStack, WebView};
 
 pub struct BrowserModal;
 
@@ -64,8 +64,8 @@ impl Widget<InboxState> for BrowserModal {
                                 HStack {
                                     spacing: Some(16.0),
                                     children: vec![
-                                        fission_widgets::Button {
-                                            variant: fission_widgets::ButtonVariant::Outline,
+                                        fission::widgets::Button {
+                                            variant: fission::widgets::ButtonVariant::Outline,
                                             child: Some(Box::new(
                                                 Text::new("Open System Browser").into_node(),
                                             )),
@@ -75,8 +75,8 @@ impl Widget<InboxState> for BrowserModal {
                                             ..Default::default()
                                         }
                                         .build(ctx, view),
-                                        fission_widgets::Button {
-                                            variant: fission_widgets::ButtonVariant::Filled,
+                                        fission::widgets::Button {
+                                            variant: fission::widgets::ButtonVariant::Filled,
                                             child: Some(Box::new(
                                                 Text::new("Open In-App (Custom Tab)")
                                                     .color(tokens.colors.on_primary)

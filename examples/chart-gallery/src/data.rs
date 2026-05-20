@@ -1,4 +1,4 @@
-use fission_charts::{LineSegment, TreemapNode};
+use fission::charts::{LineSegment, TreemapNode};
 
 pub(crate) const SIMPLE_GEOJSON: &str = r#"
 {

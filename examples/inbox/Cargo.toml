@@ -4,24 +4,14 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
-fission = { path = "../../crates/authoring/fission" }
-fission-shell-desktop = { path = "../../crates/shell/fission-shell-desktop" }
-fission-ir = { path = "../../crates/core/fission-ir" }
-fission-widgets = { path = "../../crates/authoring/fission-widgets" }
-fission-icons = { path = "../../crates/authoring/fission-icons" }
-fission-core = { path = "../../crates/core/fission-core" }
-fission-macros = { path = "../../crates/authoring/fission-macros" }
-fission-render = { path = "../../crates/rendering/fission-render" }
-fission-theme = { path = "../../crates/core/fission-theme" }
+fission = { path = "../../crates/authoring/fission", default-features = false, features = ["desktop"] }
 serde = { version = "1.0", features = ["derive"] }
 anyhow = "1.0"
 chrono = { version = "0.4", default-features = false, features = ["alloc", "clock", "serde"] }
 lazy_static = "1.4"
 serde_json = "1.0"
-fission-i18n = { version = "0.1.0", path = "../../crates/core/fission-i18n" }
 
 [dev-dependencies]
 fission-test = { path = "../../crates/tools/fission-test" }
 fission-test-driver = { path = "../../crates/tools/fission-test-driver" }
-fission-layout = { path = "../../crates/core/fission-layout" }
 image = "0.25"

@@ -2,10 +2,10 @@ use crate::model::{
     Folder, InboxState, SetCalendarSelected, SetMeetCameraOn, SetMeetMicOn, ShowToast,
 };
 use chrono::{Datelike, Local};
-use fission_core::ui::{Button, ButtonVariant, Container, Node, Row, Switch, Text, TextContent};
-use fission_core::{reduce_with, BuildCtx, View, Widget, WidgetNodeId};
-use fission_icons::material;
-use fission_widgets::{
+use fission::core::ui::{Button, ButtonVariant, Container, Node, Row, Switch, Text, TextContent};
+use fission::core::{reduce_with, BuildCtx, View, Widget, WidgetNodeId};
+use fission::icons::material;
+use fission::widgets::{
     Calendar, Card, HStack, Icon, Menu, MenuItem, Skeleton, Spinner, Stepper, VStack,
 };
 use serde_json;
@@ -72,7 +72,7 @@ impl Widget<InboxState> for RightSidebar {
                 MenuItem {
                     label: t("quick.new_event"),
                     icon: None,
-                    on_select: Some(fission_core::ActionEnvelope {
+                    on_select: Some(fission::core::ActionEnvelope {
                         id: toast_id,
                         payload: serde_json::to_vec(&ShowToast(t("toast.new_event"))).unwrap(),
                     }),
@@ -80,7 +80,7 @@ impl Widget<InboxState> for RightSidebar {
                 MenuItem {
                     label: t("quick.new_task"),
                     icon: None,
-                    on_select: Some(fission_core::ActionEnvelope {
+                    on_select: Some(fission::core::ActionEnvelope {
                         id: toast_id,
                         payload: serde_json::to_vec(&ShowToast(t("toast.new_task"))).unwrap(),
                     }),
@@ -88,7 +88,7 @@ impl Widget<InboxState> for RightSidebar {
                 MenuItem {
                     label: t("quick.add_reminder"),
                     icon: None,
-                    on_select: Some(fission_core::ActionEnvelope {
+                    on_select: Some(fission::core::ActionEnvelope {
                         id: toast_id,
                         payload: serde_json::to_vec(&ShowToast(t("toast.add_reminder"))).unwrap(),
                     }),
@@ -128,8 +128,8 @@ impl Widget<InboxState> for RightSidebar {
         };
 
         Container::new(
-            fission_core::ui::Scroll {
-                direction: fission_ir::op::FlexDirection::Column,
+            fission::core::ui::Scroll {
+                direction: fission::ir::op::FlexDirection::Column,
                 show_scrollbar: true,
                 flex_grow: 1.0,
                 flex_shrink: 1.0,
@@ -192,7 +192,7 @@ impl Widget<InboxState> for RightSidebar {
                                 month: today.month(),
                                 selected_date: view.state.calendar_selected.or(Some(today)),
                                 on_select: Some(std::sync::Arc::new(move |d| {
-                                    fission_core::ActionEnvelope {
+                                    fission::core::ActionEnvelope {
                                         id: calendar_id,
                                         payload: serde_json::to_vec(&SetCalendarSelected(d))
                                             .unwrap(),
@@ -235,7 +235,7 @@ impl Widget<InboxState> for RightSidebar {
                                                     ))
                                                     .size(14.0)
                                                     .into_node(),
-                                                    fission_core::ui::widgets::Spacer {
+                                                    fission::core::ui::widgets::Spacer {
                                                         flex_grow: 1.0,
                                                         ..Default::default()
                                                     }
@@ -243,7 +243,7 @@ impl Widget<InboxState> for RightSidebar {
                                                     Switch {
                                                         checked: view.state.meet_camera_on,
                                                         on_toggle: Some(
-                                                            fission_core::ActionEnvelope {
+                                                            fission::core::ActionEnvelope {
                                                                 id: meet_camera_id,
                                                                 payload: serde_json::to_vec(
                                                                     &SetMeetCameraOn(
@@ -267,7 +267,7 @@ impl Widget<InboxState> for RightSidebar {
                                                     ))
                                                     .size(14.0)
                                                     .into_node(),
-                                                    fission_core::ui::widgets::Spacer {
+                                                    fission::core::ui::widgets::Spacer {
                                                         flex_grow: 1.0,
                                                         ..Default::default()
                                                     }
@@ -275,7 +275,7 @@ impl Widget<InboxState> for RightSidebar {
                                                     Switch {
                                                         checked: view.state.meet_mic_on,
                                                         on_toggle: Some(
-                                                            fission_core::ActionEnvelope {
+                                                            fission::core::ActionEnvelope {
                                                                 id: meet_mic_id,
                                                                 payload: serde_json::to_vec(
                                                                     &SetMeetMicOn(
@@ -291,7 +291,7 @@ impl Widget<InboxState> for RightSidebar {
                                                 ],
                                             }
                                             .into_node(),
-                                            fission_core::ui::widgets::Spacer {
+                                            fission::core::ui::widgets::Spacer {
                                                 height: Some(4.0),
                                                 ..Default::default()
                                             }
@@ -343,7 +343,7 @@ impl Widget<InboxState> for RightSidebar {
                                                     16.0
                                                 }),
                                                 children: vec![
-                                                    fission_widgets::CircularProgress {
+                                                    fission::widgets::CircularProgress {
                                                         value: Some(0.65),
                                                         size: if ultra_compact_sidebar {
                                                             34.0

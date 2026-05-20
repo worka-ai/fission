@@ -6,17 +6,17 @@ mod state;
 mod style;
 
 use app::GalleryApp;
-use fission_shell_desktop::DesktopApp;
+use fission::prelude::DesktopApp;
 use state::GalleryState;
 
 fn main() -> anyhow::Result<()> {
     let app = DesktopApp::new(GalleryApp)
         .with_title("Fission Chart Gallery")
-        .with_sync_env(|state: &GalleryState, env: &mut fission_core::Env| {
+        .with_sync_env(|state: &GalleryState, env: &mut fission::core::Env| {
             env.theme = if state.dark_theme {
-                fission_theme::Theme::dark()
+                fission::theme::Theme::dark()
             } else {
-                fission_theme::Theme::default()
+                fission::theme::Theme::default()
             };
         });
 

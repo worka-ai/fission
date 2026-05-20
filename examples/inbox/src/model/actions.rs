@@ -35,7 +35,7 @@ pub struct SetDatePickerOpen(pub bool);
 pub struct FileSelected;
 
 #[fission_action]
-pub struct SetLocale(pub fission_i18n::Locale);
+pub struct SetLocale(pub fission::i18n::Locale);
 
 #[fission_action]
 pub struct ToggleBrowserDemo(pub bool);

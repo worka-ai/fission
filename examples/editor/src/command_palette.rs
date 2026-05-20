@@ -2,13 +2,13 @@ use crate::model::{
     EditorState, RefreshGitStatus, SaveAllFiles, SaveFile, SetSidebarSection, SidebarSection,
     ToggleCommandPalette, ToggleSidebar, ToggleTerminal, UpdateCommandQuery,
 };
-use fission_core::op::Color;
-use fission_core::ui::{
+use fission::core::op::Color;
+use fission::core::ui::{
     Button, ButtonContentAlign, ButtonVariant, Container, GestureDetector, Node, Positioned, Text,
     TextInput, ZStack,
 };
-use fission_core::{reduce_with, BuildCtx, View, Widget, WidgetNodeId};
-use fission_widgets::{HStack, Spacer, VStack};
+use fission::core::{reduce_with, BuildCtx, View, Widget, WidgetNodeId};
+use fission::widgets::{HStack, Spacer, VStack};
 
 pub struct CommandPalette;
 
@@ -166,7 +166,7 @@ impl Widget<EditorState> for CommandPalette {
             ),
         );
 
-        let action_for = |label: &str| -> fission_core::ActionEnvelope {
+        let action_for = |label: &str| -> fission::core::ActionEnvelope {
             match label {
                 "Save" => save.clone(),
                 "Save All" => save_all.clone(),
@@ -237,7 +237,7 @@ impl Widget<EditorState> for CommandPalette {
             a: 255,
         };
 
-        let shadow = fission_core::op::BoxShadow {
+        let shadow = fission::core::op::BoxShadow {
             color: Color {
                 r: 0,
                 g: 0,
@@ -258,7 +258,9 @@ impl Widget<EditorState> for CommandPalette {
                 children: vec![
                     Container::new(
                         TextInput {
-                            id: Some(fission_ir::NodeId::explicit("editor_command_palette_input")),
+                            id: Some(fission::ir::NodeId::explicit(
+                                "editor_command_palette_input",
+                            )),
                             value: view.state.command_query.clone(),
                             placeholder: Some("Type a command...".into()),
                             on_change: Some(update_query),
@@ -269,8 +271,8 @@ impl Widget<EditorState> for CommandPalette {
                     .padding_all(6.0)
                     .into_node(),
                     Container::new(
-                        fission_core::ui::widgets::scroll::Scroll {
-                            direction: fission_core::op::FlexDirection::Column,
+                        fission::core::ui::widgets::scroll::Scroll {
+                            direction: fission::core::op::FlexDirection::Column,
                             child: Some(Box::new(
                                 VStack {
                                     spacing: Some(0.0),
@@ -334,7 +336,9 @@ impl Widget<EditorState> for CommandPalette {
                         top: Some(40.0),
                         left: Some(0.0),
                         right: Some(0.0),
-                        child: Some(Box::new(fission_core::ui::Align::new(dropdown).into_node())),
+                        child: Some(Box::new(
+                            fission::core::ui::Align::new(dropdown).into_node(),
+                        )),
                         ..Default::default()
                     }
                     .into_node(),
@@ -357,7 +361,7 @@ impl Widget<EditorState> for CommandPalette {
         .into_node();
 
         ctx.register_portal_with_layer(
-            fission_core::PortalLayer::Modal,
+            fission::core::PortalLayer::Modal,
             Some(WidgetNodeId::explicit("command_palette")),
             positioned_root,
         );

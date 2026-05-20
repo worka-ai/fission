@@ -9,7 +9,7 @@ description: Understand datasets, axes, visual maps, zoom, tooltips, and typed i
 Fission Charts has two ways to feed data into a chart. The direct path puts values on the series itself. The dataset path gives the chart named dimensions and lets each series choose which fields it uses. Start with direct series data when the chart is small and local to one screen. Move to datasets when several series read from the same table or when field names make the code easier to review.
 
 ```rust
-use fission_charts::{Axis, BarSeries, Chart, DataValue, Dataset, Encode, LineSeries};
+use fission::charts::{Axis, BarSeries, Chart, DataValue, Dataset, Encode, LineSeries};
 
 let chart = Chart::new()
     .title("Product sales")
@@ -40,8 +40,8 @@ Keep axis labels short. If the labels are long, prefer a horizontal bar chart or
 A visual map turns a number into a color. Heatmaps and scatter charts use this to show intensity without adding another axis. The important rule is consistency: if two charts sit near each other, their color scales should mean the same thing unless the UI clearly says otherwise.
 
 ```rust
-use fission_charts::VisualMap;
-use fission_core::op::Color;
+use fission::charts::VisualMap;
+use fission::core::op::Color;
 
 let visual_map = VisualMap::new()
     .min(0.0)
@@ -60,7 +60,7 @@ Tooltips and axis pointers are interactive readout tools. They should answer "wh
 The chart renderer stores tooltip, axis pointer, brush, toolbox, and data zoom configuration in the typed chart model. Data zoom filters ordered series before domain resolution, so the visible chart and its axes agree. When event emission is enabled, chart hit testing dispatches `ChartInteractionEvent` values with the resolved series index, data index, and values. Your reducer can then update app state in the same explicit path used by buttons, forms, and other Fission widgets.
 
 ```rust
-use fission_charts::{ChartBrush, ChartInteraction, ChartTooltipTrigger};
+use fission::charts::{ChartBrush, ChartInteraction, ChartTooltipTrigger};
 
 let interaction = ChartInteraction::tooltips(ChartTooltipTrigger::Axis)
     .brush(ChartBrush::rect())
