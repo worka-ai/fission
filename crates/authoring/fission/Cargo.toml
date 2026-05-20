@@ -6,6 +6,14 @@ license = "MIT"
 repository = "https://github.com/worka-ai/fission"
 description = "Cross-platform GPU-accelerated UI framework for Rust"
 
+[features]
+default = ["platform-shells"]
+platform-shells = [
+    "dep:fission-shell-desktop",
+    "dep:fission-shell-mobile",
+    "dep:fission-shell-web",
+]
+
 [dependencies]
 fission-core = { path = "../../core/fission-core", version = "0.1.1" }
 fission-ir = { path = "../../core/fission-ir", version = "0.1.1" }
@@ -21,10 +29,10 @@ fission-test-driver = { path = "../../tools/fission-test-driver", version = "0.1
 serde = { version = "1.0", features = ["derive"] }
 
 [target.'cfg(not(any(target_os = "android", target_os = "ios", target_arch = "wasm32")))'.dependencies]
-fission-shell-desktop = { path = "../../shell/fission-shell-desktop", version = "0.1.1" }
+fission-shell-desktop = { path = "../../shell/fission-shell-desktop", version = "0.1.1", optional = true }
 
 [target.'cfg(any(target_os = "android", target_os = "ios"))'.dependencies]
-fission-shell-mobile = { path = "../../shell/fission-shell-mobile", version = "0.1.1" }
+fission-shell-mobile = { path = "../../shell/fission-shell-mobile", version = "0.1.1", optional = true }
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
-fission-shell-web = { path = "../../shell/fission-shell-web", version = "0.1.1" }
+fission-shell-web = { path = "../../shell/fission-shell-web", version = "0.1.1", optional = true }

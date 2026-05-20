@@ -69,11 +69,14 @@ pub mod icons {
 
 /// Platform shells — desktop, mobile, and web wrappers over the shared runtime.
 pub mod shell {
-    #[cfg(not(any(target_os = "android", target_os = "ios", target_arch = "wasm32")))]
+    #[cfg(all(
+        feature = "platform-shells",
+        not(any(target_os = "android", target_os = "ios", target_arch = "wasm32"))
+    ))]
     pub use fission_shell_desktop::*;
-    #[cfg(any(target_os = "android", target_os = "ios"))]
+    #[cfg(all(feature = "platform-shells", any(target_os = "android", target_os = "ios")))]
     pub use fission_shell_mobile::*;
-    #[cfg(target_arch = "wasm32")]
+    #[cfg(all(feature = "platform-shells", target_arch = "wasm32"))]
     pub use fission_shell_web::*;
 }
 
@@ -127,11 +130,14 @@ pub use fission_layout::{LayoutPoint, LayoutRect, LayoutSize, LayoutUnit};
 pub use fission_widgets::{HStack, Icon, Spacer, VStack};
 
 // Platform shells
-#[cfg(not(any(target_os = "android", target_os = "ios", target_arch = "wasm32")))]
+#[cfg(all(
+    feature = "platform-shells",
+    not(any(target_os = "android", target_os = "ios", target_arch = "wasm32"))
+))]
 pub use fission_shell_desktop::DesktopApp;
-#[cfg(any(target_os = "android", target_os = "ios"))]
+#[cfg(all(feature = "platform-shells", any(target_os = "android", target_os = "ios")))]
 pub use fission_shell_mobile::MobileApp;
-#[cfg(target_arch = "wasm32")]
+#[cfg(all(feature = "platform-shells", target_arch = "wasm32"))]
 pub use fission_shell_web::WebApp;
 
 // Macros
@@ -173,13 +179,16 @@ pub mod prelude {
     pub use fission_macros::{fission_action, fission_reducer, Action};
 
     // Shell
-    #[cfg(not(any(target_os = "android", target_os = "ios", target_arch = "wasm32")))]
+    #[cfg(all(
+        feature = "platform-shells",
+        not(any(target_os = "android", target_os = "ios", target_arch = "wasm32"))
+    ))]
     pub use fission_shell_desktop::DesktopApp;
-    #[cfg(target_os = "android")]
+    #[cfg(all(feature = "platform-shells", target_os = "android"))]
     pub use fission_shell_mobile::AndroidApp;
-    #[cfg(any(target_os = "android", target_os = "ios"))]
+    #[cfg(all(feature = "platform-shells", any(target_os = "android", target_os = "ios")))]
     pub use fission_shell_mobile::MobileApp;
-    #[cfg(target_arch = "wasm32")]
+    #[cfg(all(feature = "platform-shells", target_arch = "wasm32"))]
     pub use fission_shell_web::WebApp;
 
     // Serde (commonly needed for actions)
