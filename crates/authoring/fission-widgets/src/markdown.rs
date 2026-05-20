@@ -1,8 +1,10 @@
 use crate::stack::VStack;
 use fission_core::op::Color;
-use fission_core::ui::{Container, Node, RichText, RichTextRun, Row, Scroll, Text, TextFontStyle};
+use fission_core::ui::{
+    Column, Container, Image, Node, RichText, RichTextRun, Row, Scroll, Text, TextFontStyle,
+};
 use fission_core::{BuildCtx, FlexDirection, View, Widget};
-use fission_ir::op::AlignItems;
+use fission_ir::op::{AlignItems, ImageFit};
 use rushdown::ast::{
     Arena, CodeBlock, CodeSpan, Heading, HtmlBlock, Image as MarkdownImage, KindData, Link,
     NodeRef, TableCellAlignment, Text as MarkdownText, TextQualifier,
@@ -171,11 +173,17 @@ impl<'a> MarkdownRenderer<'a> {
         style.font_weight = Some(700);
 
         RichText::new(self.inline_runs(node_ref, style))
-            .semantics_identifier(format!("markdown-heading-{level}"))
+            .semantics_identifier(format!(
+                "markdown-heading-{level}:{}",
+                markdown_anchor(&self.plain_text(node_ref))
+            ))
             .into_node()
     }
 
     fn paragraph(&self, node_ref: NodeRef, font_size: f32) -> Node {
+        if let Some((image_ref, image)) = self.single_image(node_ref) {
+            return self.image_block(image_ref, image);
+        }
         let runs = self.inline_runs(node_ref, self.inline_style(font_size));
         if runs.is_empty() {
             self.text_node(
@@ -186,6 +194,52 @@ impl<'a> MarkdownRenderer<'a> {
         } else {
             RichText::new(runs).into_node()
         }
+    }
+
+    fn single_image(&self, node_ref: NodeRef) -> Option<(NodeRef, &MarkdownImage)> {
+        let mut children = self.arena[node_ref].children(self.arena);
+        let child_ref = children.next()?;
+        if children.next().is_some() {
+            return None;
+        }
+        match self.arena[child_ref].kind_data() {
+            KindData::Image(image) => Some((child_ref, image)),
+            _ => None,
+        }
+    }
+
+    fn image_block(&self, node_ref: NodeRef, image: &MarkdownImage) -> Node {
+        let alt = self.plain_text(node_ref);
+        let source = image.destination_str(self.source).to_string();
+        Container::new(
+            Column {
+                children: vec![
+                    Image {
+                        source,
+                        height: Some(280.0),
+                        fit: Some(ImageFit::Contain),
+                        ..Default::default()
+                    }
+                    .into_node(),
+                    if alt.trim().is_empty() {
+                        Text::new("").size(0.0).into_node()
+                    } else {
+                        Text::new(alt)
+                            .size(12.0)
+                            .color(self.palette.text_secondary)
+                            .into_node()
+                    },
+                ],
+                gap: Some(8.0),
+                ..Default::default()
+            }
+            .into_node(),
+        )
+        .bg(self.palette.surface)
+        .border(self.palette.border.with_alpha(140), 1.0)
+        .border_radius(12.0)
+        .padding_all(10.0)
+        .into_node()
     }
 
     fn code_block(&self, code: &CodeBlock) -> Node {
@@ -606,4 +660,19 @@ impl<'a> MarkdownRenderer<'a> {
             }
         }
     }
+}
+
+fn markdown_anchor(value: &str) -> String {
+    let mut out = String::new();
+    let mut previous_dash = false;
+    for ch in value.chars().flat_map(char::to_lowercase) {
+        if ch.is_ascii_alphanumeric() {
+            out.push(ch);
+            previous_dash = false;
+        } else if !previous_dash && !out.is_empty() {
+            out.push('-');
+            previous_dash = true;
+        }
+    }
+    out.trim_matches('-').to_string()
 }
