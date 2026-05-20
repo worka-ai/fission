@@ -1,14 +1,14 @@
 use crate::showcase::build_showcase;
 use crate::state::{GalleryState, SHOWCASE_CATEGORY};
 use crate::style::{amber, blue};
-use fission_3d::Scene3D;
-use fission_charts::{
+use fission::charts::{
     Chart, ChartAnimation, ChartAnimationKind, ChartSelectionMode, ChartTooltipTrigger, MarkLine,
     MarkPoint,
 };
-use fission_core::op::Color;
-use fission_core::ui::{Container, Node, Text};
-use fission_core::{BuildCtx, View, Widget};
+use fission::core::op::Color;
+use fission::core::ui::{Container, Node, Text};
+use fission::core::{BuildCtx, View, Widget};
+use fission::three_d::Scene3D;
 
 mod cartesian;
 pub(crate) mod cartesian_variants;

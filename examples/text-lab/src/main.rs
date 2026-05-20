@@ -1,10 +1,10 @@
 use anyhow::Result;
-use fission::prelude::fission_reducer;
-use fission_core::{
+use fission::core::{
     with_reducer, ActionEnvelope, AppState, BuildCtx, NodeId, View, Widget, WidgetNodeId,
 };
-use fission_shell_desktop::DesktopApp;
-use fission_widgets::{
+use fission::prelude::fission_reducer;
+use fission::prelude::DesktopApp;
+use fission::widgets::{
     Button, ButtonVariant, Combobox, Container, FocusScope, FormControl, HStack, MenuButton,
     MenuItem, Modal, ModalAction, Node, SafeArea, Scroll, Spacer, Text, TextInput, VStack,
 };
@@ -401,7 +401,7 @@ impl Widget<TextLabState> for TextLabApp {
             }
             .into_node()
         } else {
-            fission_core::ui::widgets::spacer::Spacer::default().into_node()
+            fission::core::ui::widgets::spacer::Spacer::default().into_node()
         };
 
         let modal = Modal {

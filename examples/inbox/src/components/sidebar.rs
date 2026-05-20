@@ -1,11 +1,11 @@
 use crate::model::{
     Folder, InboxState, SelectFolder, SetComposeOpen, SetContactsOpen, SetSettingsOpen,
 };
-use fission_core::ui::{
+use fission::core::ui::{
     Button, ButtonContentAlign, ButtonVariant, Container, Node, Text, TextContent,
 };
-use fission_core::{reduce_with, BuildCtx, View, Widget};
-use fission_widgets::{Divider, Tag, TreeItem, TreeView, VStack, Wrap};
+use fission::core::{reduce_with, BuildCtx, View, Widget};
+use fission::widgets::{Divider, Tag, TreeItem, TreeView, VStack, Wrap};
 use serde_json;
 
 pub struct Sidebar;
@@ -42,8 +42,8 @@ impl Widget<InboxState> for Sidebar {
             .id;
 
         Container::new(
-            fission_core::ui::Scroll {
-                direction: fission_ir::op::FlexDirection::Column,
+            fission::core::ui::Scroll {
+                direction: fission::ir::op::FlexDirection::Column,
                 show_scrollbar: true,
                 flex_grow: 1.0,
                 flex_shrink: 1.0,
@@ -90,7 +90,7 @@ impl Widget<InboxState> for Sidebar {
                                         icon: None,
                                         children: vec![],
                                         on_toggle: None,
-                                        on_select: Some(fission_core::ActionEnvelope {
+                                        on_select: Some(fission::core::ActionEnvelope {
                                             id: select_folder_id,
                                             payload: serde_json::to_vec(&SelectFolder(
                                                 Folder::Inbox,
@@ -104,7 +104,7 @@ impl Widget<InboxState> for Sidebar {
                                         icon: None,
                                         children: vec![],
                                         on_toggle: None,
-                                        on_select: Some(fission_core::ActionEnvelope {
+                                        on_select: Some(fission::core::ActionEnvelope {
                                             id: select_folder_id,
                                             payload: serde_json::to_vec(&SelectFolder(
                                                 Folder::Starred,
@@ -118,7 +118,7 @@ impl Widget<InboxState> for Sidebar {
                                         icon: None,
                                         children: vec![],
                                         on_toggle: None,
-                                        on_select: Some(fission_core::ActionEnvelope {
+                                        on_select: Some(fission::core::ActionEnvelope {
                                             id: select_folder_id,
                                             payload: serde_json::to_vec(&SelectFolder(
                                                 Folder::Sent,
@@ -132,7 +132,7 @@ impl Widget<InboxState> for Sidebar {
                                         icon: None,
                                         children: vec![],
                                         on_toggle: None,
-                                        on_select: Some(fission_core::ActionEnvelope {
+                                        on_select: Some(fission::core::ActionEnvelope {
                                             id: select_folder_id,
                                             payload: serde_json::to_vec(&SelectFolder(
                                                 Folder::Drafts,
@@ -146,7 +146,7 @@ impl Widget<InboxState> for Sidebar {
                                         icon: None,
                                         children: vec![],
                                         on_toggle: None,
-                                        on_select: Some(fission_core::ActionEnvelope {
+                                        on_select: Some(fission::core::ActionEnvelope {
                                             id: select_folder_id,
                                             payload: serde_json::to_vec(&SelectFolder(
                                                 Folder::Trash,
@@ -162,7 +162,7 @@ impl Widget<InboxState> for Sidebar {
                                 .color(tokens.colors.text_secondary)
                                 .into_node(),
                             Wrap {
-                                direction: fission_ir::op::FlexDirection::Row,
+                                direction: fission::ir::op::FlexDirection::Row,
                                 spacing: Some(8.0),
                                 children: vec![
                                     Tag {
@@ -189,7 +189,7 @@ impl Widget<InboxState> for Sidebar {
                             }
                             .build(ctx, view),
                             Divider {
-                                orientation: fission_widgets::divider::Orientation::Horizontal,
+                                orientation: fission::widgets::divider::Orientation::Horizontal,
                             }
                             .build(ctx, view),
                             Button {

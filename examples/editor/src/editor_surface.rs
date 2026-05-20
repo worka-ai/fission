@@ -4,13 +4,13 @@ use crate::model::{
     ApplyEditorEdit, EditorState, SetEditorPreedit, ShiftActiveFileWindow, UpdateCursorPosition,
     UpdateScrollY,
 };
-use fission_core::op::Color;
-use fission_core::ui::custom_render::CustomRenderObject;
-use fission_core::ui::traits::LowerDyn;
-use fission_core::ui::{Container, CustomNode, Node, Row, Scroll, Text};
-use fission_core::{reduce_with, BuildCtx, FlexDirection, View, Widget};
-use fission_ir::NodeId as IrNodeId;
-use fission_widgets::{HStack, Spacer, VStack};
+use fission::core::op::Color;
+use fission::core::ui::custom_render::CustomRenderObject;
+use fission::core::ui::traits::LowerDyn;
+use fission::core::ui::{Container, CustomNode, Node, Row, Scroll, Text};
+use fission::core::{reduce_with, BuildCtx, FlexDirection, View, Widget};
+use fission::ir::NodeId as IrNodeId;
+use fission::widgets::{HStack, Spacer, VStack};
 use std::sync::Arc;
 
 pub struct EditorSurface;
@@ -208,7 +208,7 @@ impl Widget<EditorState> for EditorSurface {
         // Outer row: scrollable editor | separator | minimap
         let editor_row = Row {
             children: vec![scrollable, minimap_separator, minimap_node],
-            align_items: fission_ir::op::AlignItems::Stretch,
+            align_items: fission::ir::op::AlignItems::Stretch,
             flex_grow: 1.0,
             ..Default::default()
         }
@@ -278,7 +278,7 @@ impl EditorSurface {
         };
 
         Container::new(
-            fission_widgets::center::Center {
+            fission::widgets::center::Center {
                 child: Box::new(
                     VStack {
                         spacing: Some(8.0),

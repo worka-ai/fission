@@ -21,6 +21,7 @@ fn test_semantics_serialization() {
         identifier: None,
         value: None,
         actions: ActionSet::default(),
+        action_scope_id: None,
         focusable: true,
         multiline: false,
         masked: false,

@@ -7,8 +7,15 @@ Cross-platform, GPU-accelerated UI framework for Rust. Fission uses a Flutter-in
 Add Fission to your project:
 
 ```sh
-cargo add fission
+cargo add fission --features desktop
 ```
+
+The `fission` facade is the only dependency application code should normally
+need. Portable widgets, state, actions, reducers, theming, icons, layout, and
+render primitives are available by default. Platform shells and heavier optional
+surfaces are enabled explicitly with features such as `desktop`, `web`,
+`android`, `ios`, `site`, `charts`, `three-d`, `terminal-widget`, and
+`test-driver`.
 
 A minimal application:
 
@@ -347,6 +354,7 @@ Output is structured JSON, suitable for piping into analysis tools or dashboards
 | `fission-layout` | Constraint-based layout engine (flexbox + box model + grid) |
 | `fission-theme` | Design tokens, component themes, dark/light mode |
 | `fission-i18n` | Internationalisation -- locale registry and string lookups |
+| `fission-text-engine` | Rope-backed text buffers, line indexes, and edit history |
 | `fission-semantics` | Accessibility roles and semantic tree types |
 | `fission-widgets` | Higher-level authoring widgets (Modal, Popover, Tabs, SplitView, etc.) |
 | `fission-macros` | Action and reducer macros (`#[fission_reducer]`, `#[fission_action]`) |
@@ -360,6 +368,31 @@ Output is structured JSON, suitable for piping into analysis tools or dashboards
 | `fission-diagnostics` | Structured diagnostic logging and performance tracing |
 | `fission-test` | Test utilities and helpers |
 | `fission-test-driver` | LiveTestClient and JSON test protocol |
+
+## Facade features
+
+Applications should depend on `fission` and enable the targets or optional
+surfaces they actually use:
+
+```toml
+[dependencies]
+fission = { version = "0.1.1", default-features = false, features = ["desktop"] }
+```
+
+Common features:
+
+| Feature | Enables |
+|---|---|
+| `desktop` | `DesktopApp` and the desktop shell |
+| `web` | `WebApp` and the WASM/browser shell |
+| `android` | Android mobile shell entry points |
+| `ios` | iOS mobile shell entry points |
+| `site` | Static site shell APIs |
+| `charts` | Chart widgets and data-visualization primitives |
+| `three-d` | 3D scene/embed primitives |
+| `icons-reflection` | Generated icon catalog metadata for icon browsers/search |
+| `terminal-widget` | PTY-backed terminal widget and terminal emulator dependencies |
+| `test-driver` | Live test protocol client and helpers |
 
 ## License
 

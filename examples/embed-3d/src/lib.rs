@@ -1,5 +1,5 @@
 use fission::prelude::*;
-use fission_3d::{Point3D, Primitive3D, Scene3D};
+use fission::three_d::{Point3D, Primitive3D, Scene3D};
 
 #[derive(Default, Debug, Clone, Serialize, Deserialize)]
 pub struct Scene3DEmbedState;

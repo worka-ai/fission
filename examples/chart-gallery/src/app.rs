@@ -8,10 +8,10 @@ use crate::state::{
     UpdateScale, SHOWCASE_CATEGORY,
 };
 use crate::style::rgb;
-use fission_charts::ChartInteractionEvent;
-use fission_core::op::Color;
-use fission_core::ui::{Button, ButtonVariant, Column, Container, Node, Row, Scroll, Text};
-use fission_core::{reduce_with, with_reducer, ActionEnvelope, ActionId, BuildCtx, View, Widget};
+use fission::charts::ChartInteractionEvent;
+use fission::core::op::Color;
+use fission::core::ui::{Button, ButtonVariant, Column, Container, Node, Row, Scroll, Text};
+use fission::core::{reduce_with, with_reducer, ActionEnvelope, ActionId, BuildCtx, View, Widget};
 
 pub(crate) struct GalleryApp;
 
@@ -100,7 +100,7 @@ fn build_sidebar(view: &View<GalleryState>, select_chart_id: ActionId, sidebar_w
             "Showcase overview",
             view.state.selected_category == SHOWCASE_CATEGORY,
         ),
-        fission_widgets::Spacer {
+        fission::widgets::Spacer {
             height: Some(16.0),
             ..Default::default()
         }
@@ -127,7 +127,7 @@ fn build_sidebar(view: &View<GalleryState>, select_chart_id: ActionId, sidebar_w
         }
 
         sidebar_items.push(
-            fission_widgets::Spacer {
+            fission::widgets::Spacer {
                 height: Some(8.0),
                 ..Default::default()
             }
@@ -156,7 +156,7 @@ fn build_sidebar(view: &View<GalleryState>, select_chart_id: ActionId, sidebar_w
         }
 
         sidebar_items.push(
-            fission_widgets::Spacer {
+            fission::widgets::Spacer {
                 height: Some(8.0),
                 ..Default::default()
             }
@@ -166,7 +166,7 @@ fn build_sidebar(view: &View<GalleryState>, select_chart_id: ActionId, sidebar_w
 
     Container::new(
         Scroll {
-            direction: fission_core::FlexDirection::Column,
+            direction: fission::core::FlexDirection::Column,
             child: Some(Box::new(
                 Column {
                     children: sidebar_items,
@@ -238,15 +238,15 @@ fn build_controls(
                     switch_control("Markers", view.state.markers, toggle_markers),
                 ],
                 gap: Some(14.0),
-                align_items: fission_core::op::AlignItems::Center,
-                wrap: fission_core::op::FlexWrap::Wrap,
+                align_items: fission::core::op::AlignItems::Center,
+                wrap: fission::core::op::FlexWrap::Wrap,
                 ..Default::default()
             }
             .into_node(),
             Row {
                 children: vec![
                     Text::new("Data scale").color(Color::WHITE).into_node(),
-                    fission_widgets::Slider {
+                    fission::widgets::Slider {
                         value: view.state.data_scale,
                         min: 0.1,
                         max: 2.0,
@@ -259,7 +259,7 @@ fn build_controls(
                         .into_node(),
                 ],
                 gap: Some(12.0),
-                align_items: fission_core::op::AlignItems::Center,
+                align_items: fission::core::op::AlignItems::Center,
                 ..Default::default()
             }
             .into_node(),
@@ -283,7 +283,7 @@ fn switch_control(label: &str, checked: bool, action: ActionEnvelope) -> Node {
     Row {
         children: vec![
             Text::new(label).color(Color::WHITE).into_node(),
-            fission_widgets::Switch {
+            fission::widgets::Switch {
                 checked,
                 on_toggle: Some(action),
                 ..Default::default()
@@ -291,7 +291,7 @@ fn switch_control(label: &str, checked: bool, action: ActionEnvelope) -> Node {
             .into_node(),
         ],
         gap: Some(7.0),
-        align_items: fission_core::op::AlignItems::Center,
+        align_items: fission::core::op::AlignItems::Center,
         ..Default::default()
     }
     .into_node()
@@ -310,7 +310,7 @@ fn build_content(view: &View<GalleryState>, chart_node: Node, controls: Node) ->
                 Row {
                     children: vec![
                         Text::new(title).size(24.0).color(Color::WHITE).into_node(),
-                        fission_widgets::Spacer {
+                        fission::widgets::Spacer {
                             flex_grow: 1.0,
                             ..Default::default()
                         }
@@ -319,13 +319,13 @@ fn build_content(view: &View<GalleryState>, chart_node: Node, controls: Node) ->
                     ..Default::default()
                 }
                 .into_node(),
-                fission_widgets::Spacer {
+                fission::widgets::Spacer {
                     height: Some(24.0),
                     ..Default::default()
                 }
                 .into_node(),
                 chart_node,
-                fission_widgets::Spacer {
+                fission::widgets::Spacer {
                     height: Some(24.0),
                     ..Default::default()
                 }

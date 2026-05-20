@@ -1,8 +1,8 @@
 use crate::model::{CloseTab, EditorState, SelectTab};
-use fission_core::op::Color;
-use fission_core::ui::{Button, ButtonContentAlign, ButtonVariant, Container, Node, Text};
-use fission_core::{reduce_with, ActionEnvelope, BuildCtx, View, Widget};
-use fission_widgets::{HStack, Spacer};
+use fission::core::op::Color;
+use fission::core::ui::{Button, ButtonContentAlign, ButtonVariant, Container, Node, Text};
+use fission::core::{reduce_with, ActionEnvelope, BuildCtx, View, Widget};
+use fission::widgets::{HStack, Spacer};
 use serde_json;
 
 pub struct TabBar;
@@ -145,7 +145,7 @@ impl Widget<EditorState> for TabBar {
             }
             .into_node();
 
-            let tab_with_accent = fission_core::ui::Column {
+            let tab_with_accent = fission::core::ui::Column {
                 children: vec![
                     top_border,
                     Container::new(tab_content)
@@ -176,8 +176,8 @@ impl Widget<EditorState> for TabBar {
         }
 
         Container::new(
-            fission_core::ui::Scroll {
-                direction: fission_ir::op::FlexDirection::Row,
+            fission::core::ui::Scroll {
+                direction: fission::ir::op::FlexDirection::Row,
                 show_scrollbar: true,
                 flex_grow: 1.0,
                 flex_shrink: 0.0,

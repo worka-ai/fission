@@ -17,16 +17,16 @@ use crate::model::{
     ShiftActiveFileWindow, UpdateCursorPosition, UpdateScrollY, WrapMode,
 };
 use crate::syntax;
-use fission_core::action::ActionEnvelope;
-use fission_core::event::{InputEvent, KeyCode, KeyEvent, PointerEvent};
-use fission_core::lowering::{LoweringContext, NodeBuilder};
-use fission_core::ui::custom_render::{CustomEventResult, CustomHitResult, CustomRenderObject};
-use fission_core::ui::traits::LowerDyn;
-use fission_core::{LayoutPoint, LayoutRect};
-use fission_ir::op::{
+use fission::core::action::ActionEnvelope;
+use fission::core::event::{InputEvent, KeyCode, KeyEvent, PointerEvent};
+use fission::core::lowering::{LoweringContext, NodeBuilder};
+use fission::core::ui::custom_render::{CustomEventResult, CustomHitResult, CustomRenderObject};
+use fission::core::ui::traits::LowerDyn;
+use fission::core::{LayoutPoint, LayoutRect};
+use fission::ir::op::{
     AlignItems, Color as IrColor, Fill, FlexDirection, LayoutOp, Op, PaintOp, TextRun, TextStyle,
 };
-use fission_ir::NodeId;
+use fission::ir::NodeId;
 use std::fmt;
 
 // ---------------------------------------------------------------------------
@@ -359,7 +359,7 @@ impl LowerDyn for EditorRenderNode {
                         font_family: None,
                         locale: None,
                         font_weight: 400,
-                        font_style: fission_ir::op::FontStyle::Normal,
+                        font_style: fission::ir::op::FontStyle::Normal,
                         line_height: None,
                         letter_spacing: 0.0,
                         background_color: None,
@@ -377,7 +377,7 @@ impl LowerDyn for EditorRenderNode {
                             font_family: None,
                             locale: None,
                             font_weight: 400,
-                            font_style: fission_ir::op::FontStyle::Normal,
+                            font_style: fission::ir::op::FontStyle::Normal,
                             line_height: None,
                             letter_spacing: 0.0,
                             background_color: None,
@@ -394,7 +394,7 @@ impl LowerDyn for EditorRenderNode {
                         font_family: None,
                         locale: None,
                         font_weight: 400,
-                        font_style: fission_ir::op::FontStyle::Normal,
+                        font_style: fission::ir::op::FontStyle::Normal,
                         line_height: None,
                         letter_spacing: 0.0,
                         background_color: None,
@@ -445,13 +445,13 @@ impl LowerDyn for EditorRenderNode {
                     id,
                     Op::Layout(LayoutOp::Flex {
                         direction: FlexDirection::Row,
-                        wrap: fission_ir::op::FlexWrap::NoWrap,
+                        wrap: fission::ir::op::FlexWrap::NoWrap,
                         flex_grow: 0.0,
                         flex_shrink: 0.0,
                         padding: [0.0; 4],
                         gap: None,
                         align_items: AlignItems::Center,
-                        justify_content: fission_ir::op::JustifyContent::Start,
+                        justify_content: fission::ir::op::JustifyContent::Start,
                     }),
                 );
                 b.add_child(gutter_box_id);
@@ -518,13 +518,13 @@ impl LowerDyn for EditorRenderNode {
                 id,
                 Op::Layout(LayoutOp::Flex {
                     direction: FlexDirection::Column,
-                    wrap: fission_ir::op::FlexWrap::NoWrap,
+                    wrap: fission::ir::op::FlexWrap::NoWrap,
                     flex_grow: 1.0,
                     flex_shrink: 1.0,
                     padding: [0.0; 4],
                     gap: None,
                     align_items: AlignItems::Stretch,
-                    justify_content: fission_ir::op::JustifyContent::Start,
+                    justify_content: fission::ir::op::JustifyContent::Start,
                 }),
             );
             b.add_children(row_ids);
@@ -684,7 +684,7 @@ impl CustomRenderObject for EditorRenderNode {
                 modifiers,
             }) => self.handle_key(node_id, key_code, *modifiers),
 
-            InputEvent::Ime(fission_core::event::ImeEvent::Preedit { text }) => {
+            InputEvent::Ime(fission::core::event::ImeEvent::Preedit { text }) => {
                 if !self.editable {
                     return CustomEventResult::consumed();
                 }
@@ -694,7 +694,7 @@ impl CustomRenderObject for EditorRenderNode {
                 )])
             }
 
-            InputEvent::Ime(fission_core::event::ImeEvent::Commit { text }) => {
+            InputEvent::Ime(fission::core::event::ImeEvent::Commit { text }) => {
                 self.handle_ime_commit(node_id, text)
             }
 

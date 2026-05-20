@@ -1,15 +1,15 @@
 use super::*;
 use anyhow::Result;
-use fission_core::env::RuntimeState;
-use fission_core::event::{InputEvent, KeyCode, KeyEvent, PointerButton, PointerEvent};
-use fission_core::lowering::LoweringContext;
-use fission_core::{Action, AnimationPropertyId, BuildCtx, Env, LayoutSize, NodeId, WidgetNodeId};
-use fission_ir::op::{FlexDirection, FlexWrap, GridTrack};
-use fission_ir::semantics::{ActionTrigger, Role};
-use fission_ir::{EmbedKind, LayoutOp, Op, PaintOp};
-use fission_layout::LayoutEngine;
-use fission_render::{DisplayOp, LayoutRect};
-use fission_shell_desktop::Pipeline;
+use fission::core::env::RuntimeState;
+use fission::core::event::{InputEvent, KeyCode, KeyEvent, PointerButton, PointerEvent};
+use fission::core::lowering::LoweringContext;
+use fission::core::{Action, AnimationPropertyId, BuildCtx, Env, LayoutSize, NodeId, WidgetNodeId};
+use fission::ir::op::{FlexDirection, FlexWrap, GridTrack};
+use fission::ir::semantics::{ActionTrigger, Role};
+use fission::ir::{EmbedKind, LayoutOp, Op, PaintOp};
+use fission::layout::LayoutEngine;
+use fission::render::{DisplayOp, LayoutRect};
+use fission::shell::Pipeline;
 use fission_test::prelude::*;
 use std::collections::HashMap;
 
@@ -55,7 +55,7 @@ fn state_contacts() -> InboxState {
     state
 }
 
-fn build_lowered_inbox_ir(state: &InboxState) -> (fission_ir::CoreIR, RuntimeState, Env) {
+fn build_lowered_inbox_ir(state: &InboxState) -> (fission::ir::CoreIR, RuntimeState, Env) {
     let mut ctx = BuildCtx::new();
     let runtime_state = RuntimeState::default();
     let env = create_env();
@@ -66,15 +66,15 @@ fn build_lowered_inbox_ir(state: &InboxState) -> (fission_ir::CoreIR, RuntimeSta
     let node_tree = if portals.is_empty() {
         tree
     } else {
-        fission_core::ui::Node::Overlay(fission_core::ui::Overlay {
+        fission::core::ui::Node::Overlay(fission::core::ui::Overlay {
             id: None,
             content: Box::new(
-                fission_core::ui::Container::new(tree)
+                fission::core::ui::Container::new(tree)
                     .width(800.0)
                     .height(600.0)
                     .into_node(),
             ),
-            overlay: Box::new(fission_core::ui::Node::ZStack(fission_core::ui::ZStack {
+            overlay: Box::new(fission::core::ui::Node::ZStack(fission::core::ui::ZStack {
                 id: None,
                 children: portals.into_iter().map(|(_, n)| n).collect(),
             })),
@@ -87,10 +87,10 @@ fn build_lowered_inbox_ir(state: &InboxState) -> (fission_ir::CoreIR, RuntimeSta
     (lower_cx.ir, runtime_state, env)
 }
 
-fn summarize_render_node(node: &fission_render::RenderNode, depth: usize, out: &mut Vec<String>) {
+fn summarize_render_node(node: &fission::render::RenderNode, depth: usize, out: &mut Vec<String>) {
     let indent = "  ".repeat(depth);
     match node {
-        fission_render::RenderNode::Paint(list) => {
+        fission::render::RenderNode::Paint(list) => {
             out.push(format!(
                 "{}Paint ops={} bounds=({}, {}, {}, {})",
                 indent,
@@ -101,7 +101,7 @@ fn summarize_render_node(node: &fission_render::RenderNode, depth: usize, out: &
                 list.bounds.size.height
             ));
         }
-        fission_render::RenderNode::Layer(layer) => {
+        fission::render::RenderNode::Layer(layer) => {
             out.push(format!(
                 "{}Layer node={:?} children={} clip={:?} opacity={} transform={} cache={:?} content_cache={:?}",
                 indent,
@@ -212,7 +212,7 @@ fn display_texts(h: &TestHarness<InboxState>) -> Vec<String> {
     out
 }
 
-fn scene_texts(scene: &fission_render::RenderScene) -> Vec<String> {
+fn scene_texts(scene: &fission::render::RenderScene) -> Vec<String> {
     let mut out = Vec::new();
     for op in scene.flatten().ops {
         match op {
@@ -275,7 +275,7 @@ fn describe_hit_path(h: &TestHarness<InboxState>, node_id: Option<NodeId>) -> St
 
 fn find_semantic_node_rects(
     h: &TestHarness<InboxState>,
-    predicate: impl Fn(&fission_ir::Semantics) -> bool,
+    predicate: impl Fn(&fission::ir::Semantics) -> bool,
 ) -> Vec<(NodeId, LayoutRect)> {
     let mut rects = Vec::new();
     let ir = match h.last_ir.as_ref() {
@@ -372,7 +372,7 @@ fn find_text_node_rect_rightmost(h: &TestHarness<InboxState>, needle: &str) -> O
 }
 
 fn click_rect(h: &mut TestHarness<InboxState>, rect: LayoutRect) -> Result<()> {
-    let point = fission_core::LayoutPoint::new(
+    let point = fission::core::LayoutPoint::new(
         rect.x() + rect.width() / 2.0,
         rect.y() + rect.height() / 2.0,
     );
@@ -438,7 +438,7 @@ where
 
 fn ir_has_semantics<F>(h: &TestHarness<InboxState>, pred: F) -> bool
 where
-    F: Fn(&fission_ir::Semantics) -> bool,
+    F: Fn(&fission::ir::Semantics) -> bool,
 {
     h.last_ir.as_ref().map_or(false, |ir| {
         ir.nodes
@@ -546,7 +546,7 @@ macro_rules! semantics_test {
 }
 
 fn click(h: &mut TestHarness<InboxState>, x: f32, y: f32) -> Result<()> {
-    let point = fission_core::LayoutPoint::new(x, y);
+    let point = fission::core::LayoutPoint::new(x, y);
     h.send_event(InputEvent::Pointer(PointerEvent::Down {
         point,
         button: PointerButton::Primary,
@@ -804,7 +804,7 @@ fn layout_children_exist_after_navigation() -> Result<()> {
     state.current_path = "/inbox/1".into();
 
     let (ir, _runtime_state, env) = build_lowered_inbox_ir(&state);
-    let input_nodes = fission_core::lowering::build_layout_tree(&ir, &env);
+    let input_nodes = fission::core::lowering::build_layout_tree(&ir, &env);
 
     let map: HashMap<_, _> = input_nodes.iter().map(|n| (n.id, n)).collect();
     for n in &input_nodes {

@@ -30,7 +30,7 @@ The `documentation/` project uses the static site target to exercise the feature
 | --- | --- | --- |
 | Custom Fission route | `documentation/src/components/home.rs` renders `/` | The landing page is a normal widget tree, so product pages can use the same component style as apps |
 | Content routes | `documentation/content/docs`, `documentation/content/reference`, and `documentation/content/blog` | Markdown files become generated routes without hand-writing every page |
-| Documentation template | `fission_shell_site::documentation` in `documentation/fission.toml` | Content pages get a header, left sidebar, article body, right table of contents, footer, and responsive layout |
+| Documentation template | `fission::site::documentation` in `documentation/fission.toml` | Content pages get a header, left sidebar, article body, right table of contents, footer, and responsive layout |
 | Sidebar files | `documentation/site/*.toml` | Navigation is explicit, reviewable, and independent from the Markdown body |
 | Content transform | `documentation/src/charts.rs` | The site can expand generated chart catalog sections before rendering Markdown |
 | Light and dark themes | `FissionSite::light_dark_themes(...)` in `documentation/src/main.rs` | The generated CSS contains both theme modes and the page includes a small theme toggle script |
@@ -98,7 +98,7 @@ Custom pages are normal widgets registered as routes.
 ```rust
 use anyhow::Result;
 use fission::prelude::*;
-use fission_shell_site::{build_from_cli, FissionSite};
+use fission::site::{build_from_cli, FissionSite};
 
 #[derive(Default)]
 struct SiteState;
@@ -144,7 +144,7 @@ Content routes let you add many documentation pages without registering every ro
 kind = "content"
 path = "/docs"
 source = "content/docs"
-template = "fission_shell_site::documentation"
+template = "fission::site::documentation"
 sidebar = "site/docs-sidebar.toml"
 ```
 
@@ -190,7 +190,7 @@ Files under each `asset_dirs` entry are copied into the output directory. This i
 
 The generated `site.css` combines three layers in order:
 
-1. shell CSS from `fission-shell-site`, including reset, documentation layout, search, and progressive-enhancement rules;
+1. shell CSS from the site shell, including reset, documentation layout, search, and progressive-enhancement rules;
 2. CSS variables and shared classes generated from the Fission theme and rendered widget tree;
 3. user CSS listed in `css_files` or added with `FissionSite::user_css(...)`.
 

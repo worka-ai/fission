@@ -1,12 +1,12 @@
 use super::GalleryBuildExt;
 use crate::state::GalleryState;
-use fission_charts::{
+use fission::charts::{
     Axis, BarSeries, Chart, DataZoom, Legend, LineSeries, PieSeries, ScatterSeries, Tooltip,
     VisualMap,
 };
-use fission_core::op::Color;
-use fission_core::ui::Node;
-use fission_core::{BuildCtx, View};
+use fission::core::op::Color;
+use fission::core::ui::Node;
+use fission::core::{BuildCtx, View};
 
 pub(super) fn build_chart(
     chart: usize,

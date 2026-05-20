@@ -1,15 +1,15 @@
 //! Auto-complete popup widget that displays LSP completion suggestions.
 
 use crate::model::*;
-use fission_core::op::Color;
-use fission_core::ui::{
+use fission::core::op::Color;
+use fission::core::ui::{
     Button, ButtonContentAlign, ButtonVariant, Container, GestureDetector, Node, Positioned,
     Scroll, Text, ZStack,
 };
-use fission_core::{
+use fission::core::{
     reduce_with, ActionEnvelope, BuildCtx, FlexDirection, PortalLayer, View, Widget, WidgetNodeId,
 };
-use fission_widgets::{HStack, Spacer, VStack};
+use fission::widgets::{HStack, Spacer, VStack};
 
 pub struct CompletionPopup;
 

@@ -4,9 +4,9 @@ use crate::model::{
     SetScheduleTime,
 };
 use chrono::Local;
-use fission_core::ui::Node;
-use fission_core::{reduce_with, ActionEnvelope, BuildCtx, NodeId, View, Widget, WidgetNodeId};
-use fission_widgets::{
+use fission::core::ui::Node;
+use fission::core::{reduce_with, ActionEnvelope, BuildCtx, NodeId, View, Widget, WidgetNodeId};
+use fission::widgets::{
     Combobox, DatePicker, Dropzone, FileUpload, FocusScope, FormControl, Modal, ModalAction,
     TextInput, TimePicker, VStack, Wrap,
 };
@@ -235,7 +235,7 @@ impl Widget<InboxState> for ComposeModal {
                 .build(ctx, view),
                 // Schedule
                 Wrap {
-                    direction: fission_ir::op::FlexDirection::Row,
+                    direction: fission::ir::op::FlexDirection::Row,
                     spacing: Some(12.0),
                     children: vec![
                         DatePicker {
@@ -359,8 +359,8 @@ impl Widget<InboxState> for ComposeModal {
 mod tests {
     use super::*;
     use anyhow::Result;
-    use fission_core::event::{InputEvent, KeyCode, KeyEvent, PointerButton, PointerEvent};
-    use fission_core::Action;
+    use fission::core::event::{InputEvent, KeyCode, KeyEvent, PointerButton, PointerEvent};
+    use fission::core::Action;
     use fission_test::TestHarness;
 
     #[test]
@@ -381,7 +381,7 @@ mod tests {
             .unwrap()
             .get_node_rect(subject_node_id)
             .expect("subject rect");
-        let subject_center = fission_core::LayoutPoint::new(
+        let subject_center = fission::core::LayoutPoint::new(
             subject_rect.x() + subject_rect.width() / 2.0,
             subject_rect.y() + subject_rect.height() / 2.0,
         );
@@ -416,7 +416,7 @@ mod tests {
             .unwrap()
             .get_node_rect(body_node_id)
             .expect("body rect");
-        let body_center = fission_core::LayoutPoint::new(
+        let body_center = fission::core::LayoutPoint::new(
             body_rect.x() + body_rect.width() / 2.0,
             body_rect.y() + body_rect.height() / 2.0,
         );
@@ -437,10 +437,10 @@ mod tests {
             let (role, value) = focused
                 .and_then(|id| ir.nodes.get(&id))
                 .and_then(|n| match &n.op {
-                    fission_ir::Op::Semantics(s) => Some((s.role, s.value.clone())),
+                    fission::ir::Op::Semantics(s) => Some((s.role, s.value.clone())),
                     _ => None,
                 })
-                .unwrap_or((fission_ir::Role::Generic, None));
+                .unwrap_or((fission::ir::Role::Generic, None));
             let snap = h.last_snapshot.as_ref().unwrap();
             let focused_rect = focused.and_then(|id| snap.get_node_rect(id));
             let body_rect_now = snap.get_node_rect(body_node_id);
@@ -478,7 +478,7 @@ mod tests {
             .nodes
             .iter()
             .find_map(|(id, n)| {
-                if let fission_ir::Op::Semantics(s) = &n.op {
+                if let fission::ir::Op::Semantics(s) = &n.op {
                     if s.actions
                         .entries
                         .iter()
@@ -497,7 +497,7 @@ mod tests {
             .unwrap()
             .get_node_rect(toggle_node)
             .unwrap();
-        let center = fission_core::LayoutPoint::new(
+        let center = fission::core::LayoutPoint::new(
             rect.x() + rect.width() / 2.0,
             rect.y() + rect.height() / 2.0,
         );
@@ -527,7 +527,7 @@ mod tests {
             .nodes
             .iter()
             .find_map(|(id, n)| {
-                if let fission_ir::Op::Semantics(s) = &n.op {
+                if let fission::ir::Op::Semantics(s) = &n.op {
                     if s.actions
                         .entries
                         .iter()
@@ -546,7 +546,7 @@ mod tests {
             .unwrap()
             .get_node_rect(day_node)
             .unwrap();
-        let center2 = fission_core::LayoutPoint::new(
+        let center2 = fission::core::LayoutPoint::new(
             rect2.x() + rect2.width() / 2.0,
             rect2.y() + rect2.height() / 2.0,
         );
@@ -555,7 +555,7 @@ mod tests {
         // for SetScheduleDate somewhere up the ancestor chain (otherwise the click
         // will dismiss via backdrop or no-op).
         let mut hits_date_action = false;
-        let hit = fission_core::hit_test::hit_test_with_scroll(
+        let hit = fission::core::hit_test::hit_test_with_scroll(
             ir2,
             h.last_snapshot.as_ref().unwrap(),
             &h.runtime.runtime_state.scroll,
@@ -565,7 +565,7 @@ mod tests {
             let mut cur = Some(hit);
             while let Some(id) = cur {
                 if let Some(n) = ir2.nodes.get(&id) {
-                    if let fission_ir::Op::Semantics(s) = &n.op {
+                    if let fission::ir::Op::Semantics(s) = &n.op {
                         if s.actions
                             .entries
                             .iter()
@@ -589,13 +589,13 @@ mod tests {
             let mut day_desc_drawrect_rect = None;
             while let Some(id) = q.pop() {
                 if let Some(n) = ir2.nodes.get(&id) {
-                    if let fission_ir::Op::Paint(_) = n.op {
+                    if let fission::ir::Op::Paint(_) = n.op {
                         if day_desc_paint_rect.is_none() {
                             day_desc_paint_rect = snap.get_node_rect(id);
                         }
                         if matches!(
                             n.op,
-                            fission_ir::Op::Paint(fission_ir::PaintOp::DrawRect { .. })
+                            fission::ir::Op::Paint(fission::ir::PaintOp::DrawRect { .. })
                         ) {
                             day_desc_drawrect_rect = snap.get_node_rect(id);
                             break;
@@ -610,7 +610,7 @@ mod tests {
             let hit_sem_role = hit
                 .and_then(|hid| ir2.nodes.get(&hid))
                 .and_then(|n| match &n.op {
-                    fission_ir::Op::Semantics(s) => Some(s.role),
+                    fission::ir::Op::Semantics(s) => Some(s.role),
                     _ => None,
                 });
             let hit_op = hit.and_then(|hid| ir2.nodes.get(&hid)).map(|n| &n.op);

@@ -19,7 +19,7 @@ Most small charts should start with direct series data. Move to a DataSet when t
 Direct series data is the easiest model to read and test. The chart owns the values it draws, and the Rust type tells you what kind of chart you are building.
 
 ```rust
-use fission_charts::{Axis, Chart, LineSeries};
+use fission::charts::{Axis, Chart, LineSeries};
 
 let chart = Chart::new()
     .title("Requests")
@@ -43,7 +43,7 @@ A DataSet is a chart-ready table. Rows hold the values, dimensions name what eac
 This is useful for product dashboards because the same rows often drive several charts or several visual layers in one chart. Revenue can be a bar, profit can be a line, region can be a color, and the same row can still be used for tooltips and tests.
 
 ```rust
-use fission_charts::{Axis, BarSeries, Chart, Dataset, Encode, LineSeries};
+use fission::charts::{Axis, BarSeries, Chart, Dataset, Encode, LineSeries};
 
 let sales = Dataset::new()
     .dimensions(vec!["month", "orders", "revenue"])
@@ -97,7 +97,7 @@ That model keeps rendering deterministic. If a test gives the chart the same sta
 
 ```rust
 use fission::prelude::*;
-use fission_charts::{Axis, Chart, LineSeries};
+use fission::charts::{Axis, Chart, LineSeries};
 
 #[derive(Clone, Default)]
 struct TelemetryState {

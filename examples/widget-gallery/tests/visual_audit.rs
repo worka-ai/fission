@@ -1,16 +1,16 @@
-use fission_core::{AppState, BuildCtx, View, Widget, WidgetNodeId};
-use fission_layout::LayoutSize;
-use fission_render::DisplayOp;
+use fission::core::{AppState, BuildCtx, View, Widget, WidgetNodeId};
+use fission::layout::LayoutSize;
+use fission::render::DisplayOp;
 use fission_test::prelude::*;
 use fission_test::TestHarness;
 use std::collections::HashSet;
 
 // Re-create the gallery state and widget inline (they're in the bin crate, not a lib)
-use fission_core::ui::{
+use fission::core::ui::{
     Button, ButtonVariant, Checkbox, Container, Node, Scroll, Slider, Switch, Text, TextInput,
 };
-use fission_core::{ActionEnvelope, FlexDirection};
-use fission_widgets::{
+use fission::core::{ActionEnvelope, FlexDirection};
+use fission::widgets::{
     Accordion, AccordionItem, Alert, AlertKind, Avatar, Badge, Breadcrumb, BreadcrumbItem, Card,
     CircularProgress, Code, EmptyState, Kbd, Link, MenuButton, MenuItem, NumberInput, Pagination,
     ProgressBar, Select, Skeleton, Spinner, Stat, Stepper, TabItem, Tabs, Tag, Timeline,
@@ -35,7 +35,7 @@ fn section(title: &str, children: Vec<Node>) -> Node {
 // Build a minimal version of each widget category to test rendering
 fn build_all_widgets(ctx: &mut BuildCtx<GS>, view: &View<GS>) -> Node {
     let _noop = ActionEnvelope {
-        id: fission_core::ActionId::from_u128(9999),
+        id: fission::core::ActionId::from_u128(9999),
         payload: vec![],
     };
 

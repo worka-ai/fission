@@ -4,18 +4,18 @@ use crate::model::{
     SetQuickTipOpen, SetSettingsOpen, SetSignature, SetSignatureEditing, SetSmartComposeEnabled,
     SetTheme, SetThemeSelectOpen, SetZoomLevel,
 };
-use fission_core::op::{Color, GridTrack};
-use fission_core::ui::widgets::{Clip, GestureDetector, Transform};
-use fission_core::ui::{
+use fission::core::op::{Color, GridTrack};
+use fission::core::ui::widgets::{Clip, GestureDetector, Transform};
+use fission::core::ui::{
     Button, ButtonVariant, Container, Grid, GridItem, Node, Positioned, Scroll, Text, TextContent,
     ZStack,
 };
-use fission_core::{
+use fission::core::{
     reduce_with, ActionEnvelope, ActionId, BuildCtx, FlexDirection, View, Widget, WidgetNodeId,
 };
-use fission_i18n::Locale;
-use fission_icons::material;
-use fission_widgets::{
+use fission::i18n::Locale;
+use fission::icons::material;
+use fission::widgets::{
     Badge, Card, Divider, DragTarget, Draggable, Editable, FormControl, HStack, Icon, Modal,
     ModalAction, NumberInput, SegmentedControl, Select, SelectItem, Slider, Switch, Tag, VStack,
     Wrap,
@@ -73,7 +73,7 @@ fn theme_preview(
                         ZStack {
                             children: vec![
                                 Container::new(
-                                    fission_core::ui::widgets::Spacer::default().into_node(),
+                                    fission::core::ui::widgets::Spacer::default().into_node(),
                                 )
                                 .size(160.0, 96.0)
                                 .bg(bg)
@@ -537,7 +537,7 @@ impl Widget<InboxState> for SettingsModal {
                                 }
                                 .build(ctx, view),
                                 Divider {
-                                    orientation: fission_widgets::divider::Orientation::Horizontal,
+                                    orientation: fission::widgets::divider::Orientation::Horizontal,
                                 }
                                 .build(ctx, view),
                                 Text::new(TextContent::Key("settings.appearance".into()))
@@ -711,7 +711,7 @@ impl Widget<InboxState> for SettingsModal {
                                 }
                                 .into_node(),
                                 Divider {
-                                    orientation: fission_widgets::divider::Orientation::Horizontal,
+                                    orientation: fission::widgets::divider::Orientation::Horizontal,
                                 }
                                 .build(ctx, view),
                                 Text::new(TextContent::Key("settings.signature.title".into()))
@@ -743,7 +743,7 @@ impl Widget<InboxState> for SettingsModal {
                                 }
                                 .into_node(),
                                 Divider {
-                                    orientation: fission_widgets::divider::Orientation::Horizontal,
+                                    orientation: fission::widgets::divider::Orientation::Horizontal,
                                 }
                                 .build(ctx, view),
                                 Text::new(TextContent::Key("settings.labs.title".into()))
@@ -767,7 +767,7 @@ impl Widget<InboxState> for SettingsModal {
                                                             "settings.labs.smart_compose".into(),
                                                         ))
                                                         .into_node(),
-                                                        fission_core::ui::widgets::Spacer {
+                                                        fission::core::ui::widgets::Spacer {
                                                             flex_grow: 1.0,
                                                             ..Default::default()
                                                         }
@@ -805,7 +805,7 @@ impl Widget<InboxState> for SettingsModal {
                                                     "settings.labs.offline".into(),
                                                 ))
                                                 .into_node(),
-                                                fission_core::ui::widgets::Spacer {
+                                                fission::core::ui::widgets::Spacer {
                                                     flex_grow: 1.0,
                                                     ..Default::default()
                                                 }
@@ -837,7 +837,7 @@ impl Widget<InboxState> for SettingsModal {
                                                     "settings.labs.auto_advance".into(),
                                                 ))
                                                 .into_node(),
-                                                fission_core::ui::widgets::Spacer {
+                                                fission::core::ui::widgets::Spacer {
                                                     flex_grow: 1.0,
                                                     ..Default::default()
                                                 }
@@ -870,7 +870,7 @@ impl Widget<InboxState> for SettingsModal {
                                     .size(12.0)
                                     .into_node(),
                                 Wrap {
-                                    direction: fission_ir::op::FlexDirection::Row,
+                                    direction: fission::ir::op::FlexDirection::Row,
                                     spacing: Some(6.0),
                                     children: draggable_labels,
                                 }

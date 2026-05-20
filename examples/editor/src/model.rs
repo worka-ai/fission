@@ -1,6 +1,6 @@
+use fission::core::{AppState, JobRef, JobSpec};
 use fission::prelude::fission_action;
-use fission_core::{AppState, JobRef, JobSpec};
-use fission_widgets::{TerminalLaunchConfig, TerminalSession};
+use fission::widgets::{TerminalLaunchConfig, TerminalSession};
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
 use std::io::{Read, Seek, SeekFrom, Write};
@@ -351,7 +351,7 @@ pub struct TabInfo {
 
 #[derive(Debug, Clone)]
 pub struct FileBuffer {
-    pub buffer: fission_text_engine::TextBuffer,
+    pub buffer: fission::text_engine::TextBuffer,
     pub language: Language,
     pub wrap_mode: WrapMode,
     pub document_mode: DocumentMode,
@@ -362,8 +362,8 @@ pub struct FileBuffer {
     pub anchor_line: usize,
     /// Selection anchor column (same as cursor when no selection).
     pub anchor_col: usize,
-    pub edit_history: fission_text_engine::EditHistory,
-    pub line_index: fission_text_engine::LineIndex,
+    pub edit_history: fission::text_engine::EditHistory,
+    pub line_index: fission::text_engine::LineIndex,
     pub preedit: Option<EditorPreeditState>,
 }
 
@@ -921,7 +921,7 @@ impl FileBuffer {
     }
 
     fn rebuild_line_index(&mut self) {
-        self.line_index = fission_text_engine::LineIndex::build(self.buffer.text());
+        self.line_index = fission::text_engine::LineIndex::build(self.buffer.text());
     }
 
     fn sync_window_backing_from_buffer(&mut self) {
@@ -946,7 +946,7 @@ impl FileBuffer {
         let max_offset = self.buffer.len_bytes();
         let caret = self
             .line_index
-            .line_col_to_byte(fission_text_engine::LineCol {
+            .line_col_to_byte(fission::text_engine::LineCol {
                 line: self.cursor_line,
                 col: self.cursor_col,
             })
@@ -954,7 +954,7 @@ impl FileBuffer {
             .min(max_offset);
         let anchor = self
             .line_index
-            .line_col_to_byte(fission_text_engine::LineCol {
+            .line_col_to_byte(fission::text_engine::LineCol {
                 line: self.anchor_line,
                 col: self.anchor_col,
             })
@@ -970,11 +970,11 @@ impl FileBuffer {
         let caret_lc = self
             .line_index
             .byte_to_line_col(caret)
-            .unwrap_or(fission_text_engine::LineCol { line: 0, col: 0 });
+            .unwrap_or(fission::text_engine::LineCol { line: 0, col: 0 });
         let anchor_lc = self
             .line_index
             .byte_to_line_col(anchor)
-            .unwrap_or(fission_text_engine::LineCol { line: 0, col: 0 });
+            .unwrap_or(fission::text_engine::LineCol { line: 0, col: 0 });
         self.cursor_line = caret_lc.line;
         self.cursor_col = caret_lc.col;
         self.anchor_line = anchor_lc.line;
@@ -984,7 +984,7 @@ impl FileBuffer {
     pub fn set_caret_line_col(&mut self, line: usize, col: usize) {
         let offset = self
             .line_index
-            .line_col_to_byte(fission_text_engine::LineCol { line, col })
+            .line_col_to_byte(fission::text_engine::LineCol { line, col })
             .unwrap_or_else(|| {
                 self.line_index
                     .line_end_byte(line)
@@ -1057,7 +1057,7 @@ impl FileBuffer {
         self.sync_window_backing_from_buffer();
     }
 
-    pub fn apply_transaction(&mut self, txn: &fission_text_engine::EditTransaction) {
+    pub fn apply_transaction(&mut self, txn: &fission::text_engine::EditTransaction) {
         let (caret, anchor) = self.current_offsets();
         self.clear_preedit();
         self.edit_history.apply(txn, &mut self.buffer);
@@ -1090,7 +1090,7 @@ impl FileBuffer {
     pub fn sync_content(&mut self, new_text: &str) {
         let (caret, anchor) = self.current_offsets();
         self.clear_preedit();
-        self.buffer = fission_text_engine::TextBuffer::from_str(new_text);
+        self.buffer = fission::text_engine::TextBuffer::from_str(new_text);
         self.edit_history.clear();
         self.rebuild_line_index();
         self.set_selection_offsets(
@@ -1555,8 +1555,8 @@ impl EditorState {
             ),
         };
 
-        let buffer = fission_text_engine::TextBuffer::from_str(&content);
-        let line_index = fission_text_engine::LineIndex::build(buffer.text());
+        let buffer = fission::text_engine::TextBuffer::from_str(&content);
+        let line_index = fission::text_engine::LineIndex::build(buffer.text());
         self.file_contents.insert(
             path.clone(),
             FileBuffer {
@@ -1569,7 +1569,7 @@ impl EditorState {
                 cursor_col: 0,
                 anchor_line: 0,
                 anchor_col: 0,
-                edit_history: fission_text_engine::EditHistory::new(),
+                edit_history: fission::text_engine::EditHistory::new(),
                 line_index,
                 preedit: None,
             },
@@ -1942,9 +1942,9 @@ impl EditorState {
                 }
 
                 if !matches.is_empty() {
-                    let mut txn = fission_text_engine::EditTransaction::new();
+                    let mut txn = fission::text_engine::EditTransaction::new();
                     for (start, end) in matches.into_iter().rev() {
-                        txn.push(fission_text_engine::TextEdit::new(
+                        txn.push(fission::text_engine::TextEdit::new(
                             start..end,
                             replacement.clone(),
                             &content[start..end],
@@ -2502,7 +2502,7 @@ mod tests {
     #[test]
     fn test_undo_clears_redo_on_new_change() {
         let mut buf = FileBuffer {
-            buffer: fission_text_engine::TextBuffer::from_str("a"),
+            buffer: fission::text_engine::TextBuffer::from_str("a"),
             language: Language::Plain,
             wrap_mode: WrapMode::NoWrap,
             document_mode: DocumentMode::Normal,
@@ -2511,8 +2511,8 @@ mod tests {
             cursor_col: 0,
             anchor_line: 0,
             anchor_col: 0,
-            edit_history: fission_text_engine::EditHistory::new(),
-            line_index: fission_text_engine::LineIndex::build_from_str("a"),
+            edit_history: fission::text_engine::EditHistory::new(),
+            line_index: fission::text_engine::LineIndex::build_from_str("a"),
             preedit: None,
         };
 
@@ -2533,7 +2533,7 @@ mod tests {
     #[test]
     fn test_undo_stack_cap() {
         let mut buf = FileBuffer {
-            buffer: fission_text_engine::TextBuffer::from_str("start"),
+            buffer: fission::text_engine::TextBuffer::from_str("start"),
             language: Language::Plain,
             wrap_mode: WrapMode::NoWrap,
             document_mode: DocumentMode::Normal,
@@ -2542,8 +2542,8 @@ mod tests {
             cursor_col: 0,
             anchor_line: 0,
             anchor_col: 0,
-            edit_history: fission_text_engine::EditHistory::with_max(100),
-            line_index: fission_text_engine::LineIndex::build_from_str("start"),
+            edit_history: fission::text_engine::EditHistory::with_max(100),
+            line_index: fission::text_engine::LineIndex::build_from_str("start"),
             preedit: None,
         };
 
@@ -2557,7 +2557,7 @@ mod tests {
     #[test]
     fn test_sync_content_clears_history() {
         let mut buf = FileBuffer {
-            buffer: fission_text_engine::TextBuffer::from_str("before"),
+            buffer: fission::text_engine::TextBuffer::from_str("before"),
             language: Language::Plain,
             wrap_mode: WrapMode::NoWrap,
             document_mode: DocumentMode::Normal,
@@ -2566,8 +2566,8 @@ mod tests {
             cursor_col: 0,
             anchor_line: 0,
             anchor_col: 0,
-            edit_history: fission_text_engine::EditHistory::new(),
-            line_index: fission_text_engine::LineIndex::build_from_str("before"),
+            edit_history: fission::text_engine::EditHistory::new(),
+            line_index: fission::text_engine::LineIndex::build_from_str("before"),
             preedit: None,
         };
 
@@ -4001,7 +4001,7 @@ mod tests {
     #[test]
     fn test_undo_stack_capped_at_100() {
         let mut buf = FileBuffer {
-            buffer: fission_text_engine::TextBuffer::from_str("initial"),
+            buffer: fission::text_engine::TextBuffer::from_str("initial"),
             language: Language::Plain,
             wrap_mode: WrapMode::NoWrap,
             document_mode: DocumentMode::Normal,
@@ -4010,8 +4010,8 @@ mod tests {
             cursor_col: 0,
             anchor_line: 0,
             anchor_col: 0,
-            edit_history: fission_text_engine::EditHistory::new(),
-            line_index: fission_text_engine::LineIndex::build_from_str("initial"),
+            edit_history: fission::text_engine::EditHistory::new(),
+            line_index: fission::text_engine::LineIndex::build_from_str("initial"),
             preedit: None,
         };
 
@@ -4033,7 +4033,7 @@ mod tests {
     #[test]
     fn test_undo_stack_overflow_still_allows_undo_redo() {
         let mut buf = FileBuffer {
-            buffer: fission_text_engine::TextBuffer::from_str("start"),
+            buffer: fission::text_engine::TextBuffer::from_str("start"),
             language: Language::Plain,
             wrap_mode: WrapMode::NoWrap,
             document_mode: DocumentMode::Normal,
@@ -4042,8 +4042,8 @@ mod tests {
             cursor_col: 0,
             anchor_line: 0,
             anchor_col: 0,
-            edit_history: fission_text_engine::EditHistory::new(),
-            line_index: fission_text_engine::LineIndex::build_from_str("start"),
+            edit_history: fission::text_engine::EditHistory::new(),
+            line_index: fission::text_engine::LineIndex::build_from_str("start"),
             preedit: None,
         };
 

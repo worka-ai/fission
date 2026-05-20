@@ -1,10 +1,10 @@
-use fission_core::op::Color;
-use fission_core::ui::{Container, Node, Text};
-use fission_core::{
+use fission::core::op::Color;
+use fission::core::ui::{Container, Node, Text};
+use fission::core::{
     Action, ActionId, AppState, BuildCtx, ReducerContext, ResourceKey, TimerResource, View, Widget,
 };
-use fission_shell_desktop::DesktopApp;
-use fission_widgets::{
+use fission::prelude::DesktopApp;
+use fission::widgets::{
     HStack, Spacer, TerminalLaunchConfig, TerminalSession, TerminalView, VStack,
 };
 use serde::{Deserialize, Serialize};
@@ -285,8 +285,8 @@ fn main() -> anyhow::Result<()> {
         .with_state_init(move |state: &mut TerminalExampleState| state.cwd = cwd.clone())
         .with_startup_action(StartTerminal)
         .with_sync_env(
-            |_state: &TerminalExampleState, env: &mut fission_core::Env| {
-                env.theme = fission_theme::Theme::dark();
+            |_state: &TerminalExampleState, env: &mut fission::core::Env| {
+                env.theme = fission::theme::Theme::dark();
             },
         )
         .run()

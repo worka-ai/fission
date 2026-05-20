@@ -531,6 +531,7 @@ fn add_targets(project_dir: &Path, targets: &[Target]) -> Result<()> {
         scaffold_target_with_policy(project_dir, &project, *target, write_policy)?;
     }
     write_project_config(project_dir, &project)?;
+    update_cargo_fission_features(project_dir, &project)?;
     write_file_with_policy(
         &project_dir.join("README.md"),
         &render_project_readme(&project),
@@ -560,6 +561,101 @@ fn read_project_config(root: &Path) -> Result<FissionProject> {
         )
     })?;
     toml::from_str(&data).with_context(|| format!("failed to parse {}", path.display()))
+}
+
+fn update_cargo_fission_features(root: &Path, project: &FissionProject) -> Result<()> {
+    let path = root.join("Cargo.toml");
+    let Ok(text) = fs::read_to_string(&path) else {
+        return Ok(());
+    };
+    let feature_list = render_fission_feature_list(&project.targets);
+    let mut changed = false;
+    let mut out = Vec::new();
+    for line in text.lines() {
+        if let Some(updated) = update_inline_fission_dependency(line, &feature_list) {
+            changed |= updated != line;
+            out.push(updated);
+        } else {
+            out.push(line.to_string());
+        }
+    }
+    if changed {
+        fs::write(&path, out.join("\n") + "\n")
+            .with_context(|| format!("failed to update {}", path.display()))?;
+    }
+    Ok(())
+}
+
+fn update_inline_fission_dependency(line: &str, feature_list: &str) -> Option<String> {
+    let trimmed = line.trim_start();
+    if !trimmed.starts_with("fission =") {
+        return None;
+    }
+    let indent = &line[..line.len() - trimmed.len()];
+    let value = trimmed.strip_prefix("fission =")?.trim();
+    if value.starts_with('"') {
+        return Some(format!(
+            "{indent}fission = {{ version = {value}, default-features = false, features = [{feature_list}] }}"
+        ));
+    }
+    if !(value.starts_with('{') && value.ends_with('}')) {
+        return None;
+    }
+    let inner = value
+        .strip_prefix('{')
+        .and_then(|value| value.strip_suffix('}'))?
+        .trim();
+    let mut fields = split_top_level_fields(inner)
+        .into_iter()
+        .filter(|field| {
+            let key = field
+                .split_once('=')
+                .map(|(key, _)| key.trim())
+                .unwrap_or_default();
+            key != "default-features" && key != "features"
+        })
+        .collect::<Vec<_>>();
+    fields.push("default-features = false".to_string());
+    fields.push(format!("features = [{feature_list}]"));
+    Some(format!("{indent}fission = {{ {} }}", fields.join(", ")))
+}
+
+fn split_top_level_fields(input: &str) -> Vec<String> {
+    let mut fields = Vec::new();
+    let mut start = 0;
+    let mut bracket_depth = 0usize;
+    let mut in_string = false;
+    let mut escaped = false;
+    for (index, ch) in input.char_indices() {
+        if in_string {
+            if escaped {
+                escaped = false;
+            } else if ch == '\\' {
+                escaped = true;
+            } else if ch == '"' {
+                in_string = false;
+            }
+            continue;
+        }
+        match ch {
+            '"' => in_string = true,
+            '[' => bracket_depth += 1,
+            ']' => bracket_depth = bracket_depth.saturating_sub(1),
+            ',' if bracket_depth == 0 => {
+                let field = input[start..index].trim();
+                if !field.is_empty() {
+                    fields.push(field.to_string());
+                }
+                start = index + ch.len_utf8();
+            }
+            _ => {}
+        }
+    }
+    let field = input[start..].trim();
+    if !field.is_empty() {
+        fields.push(field.to_string());
+    }
+    fields
 }
 
 fn scaffold_target_with_policy(
@@ -847,21 +943,57 @@ fn write_binary_file_with_policy(
 }
 
 fn render_cargo_toml(project: &FissionProject, local_path: Option<&Path>) -> String {
+    let feature_list = render_fission_feature_list(&project.targets);
     let deps = if let Some(root) = local_path {
         let fission_path = root.join("crates/authoring/fission");
         format!(
-            "fission = {{ path = {:?} }}\n",
+            "fission = {{ path = {:?}, default-features = false, features = [{}] }}\n",
             fission_path.to_string_lossy().to_string(),
+            feature_list
         )
     } else {
-        format!("fission = \"{}\"\n", CURRENT_VERSION)
+        format!(
+            "fission = {{ version = \"{}\", default-features = false, features = [{}] }}\n",
+            CURRENT_VERSION, feature_list
+        )
     };
     let lib_name = project.app.name.replace('-', "_");
 
     format!(
-        "[package]\nname = \"{}\"\nversion = \"0.1.0\"\nedition = \"2021\"\n\n[lib]\nname = \"{}\"\ncrate-type = [\"cdylib\", \"rlib\"]\n\n[dependencies]\nanyhow = \"1\"\nserde = {{ version = \"1\", features = [\"derive\"] }}\nconsole_error_panic_hook = \"0.1\"\n{}\n[target.'cfg(target_arch = \"wasm32\")'.dependencies]\nwasm-bindgen = \"0.2\"\n",
+        "[package]\nname = \"{}\"\nversion = \"0.1.0\"\nedition = \"2021\"\n\n[lib]\nname = \"{}\"\ncrate-type = [\"cdylib\", \"rlib\"]\n\n[dependencies]\nanyhow = \"1\"\nserde = {{ version = \"1\", features = [\"derive\"] }}\n{}\n[target.'cfg(target_arch = \"wasm32\")'.dependencies]\nconsole_error_panic_hook = \"0.1\"\nwasm-bindgen = \"0.2\"\n",
         project.app.name, lib_name, deps
     )
+}
+
+fn render_fission_feature_list(targets: &BTreeSet<Target>) -> String {
+    fission_features_for_targets(targets)
+        .into_iter()
+        .map(|feature| format!("\"{feature}\""))
+        .collect::<Vec<_>>()
+        .join(", ")
+}
+
+fn fission_features_for_targets(targets: &BTreeSet<Target>) -> Vec<&'static str> {
+    let mut features = Vec::new();
+    if targets
+        .iter()
+        .any(|target| matches!(target, Target::Linux | Target::Macos | Target::Windows))
+    {
+        features.push("desktop");
+    }
+    if targets.contains(&Target::Web) {
+        features.push("web");
+    }
+    if targets.contains(&Target::Android) {
+        features.push("android");
+    }
+    if targets.contains(&Target::Ios) {
+        features.push("ios");
+    }
+    if targets.contains(&Target::Site) {
+        features.push("site");
+    }
+    features
 }
 
 fn render_project_readme(project: &FissionProject) -> String {
@@ -2010,6 +2142,9 @@ mod tests {
         assert!(readme.contains("cargo fission logs --target <target>"));
         assert!(readme.contains("cargo fission build --target <target>"));
         assert!(readme.contains("cargo fission test --target <target>"));
+        let manifest = std::fs::read_to_string(dir.join("Cargo.toml")).unwrap();
+        assert!(manifest.contains("default-features = false"));
+        assert!(manifest.contains("features = [\"desktop\"]"));
     }
 
     #[test]
@@ -2031,6 +2166,9 @@ mod tests {
         assert!(project.targets.contains(&Target::Web));
         assert!(project.targets.contains(&Target::Ios));
         assert!(project.targets.contains(&Target::Android));
+        let manifest = std::fs::read_to_string(dir.join("Cargo.toml")).unwrap();
+        assert!(manifest.contains("default-features = false"));
+        assert!(manifest.contains("features = [\"desktop\", \"web\", \"android\", \"ios\"]"));
         assert!(dir.join("platforms/web/README.md").exists());
         assert!(dir.join("platforms/web/index.html").exists());
         assert!(dir.join("platforms/web/bootstrap.mjs").exists());

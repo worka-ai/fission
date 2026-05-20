@@ -2,14 +2,14 @@ use crate::model::{
     Folder, InboxState, Navigate, SelectTab, SetAdvancedFiltersOpen, SetFilterMode, SetPage,
     SetSortOption, ToggleEmailSelection, ToggleFilterDropdown, ToggleFlag, UpdateSearch,
 };
-use fission_core::ui::{
+use fission::core::ui::{
     Button, ButtonContentAlign, ButtonVariant, Checkbox, Container, Node, Row, Text, TextContent,
 };
-use fission_core::ActionEnvelope;
-use fission_core::{reduce_with, BuildCtx, NodeId, View, Widget, WidgetNodeId};
-use fission_icons::material;
-use fission_theme::ComponentSize;
-use fission_widgets::{
+use fission::core::ActionEnvelope;
+use fission::core::{reduce_with, BuildCtx, NodeId, View, Widget, WidgetNodeId};
+use fission::icons::material;
+use fission::theme::ComponentSize;
+use fission::widgets::{
     Badge, DateRangePicker, Divider, DropDown, EmptyState, HStack, Hero, Icon, LazyColumn,
     Pagination, Popover, RangeSlider, SegmentedControl, TabItem, Tabs, Tag, TextInput, VStack,
     Wrap,
@@ -248,7 +248,7 @@ impl Widget<InboxState> for EmailList {
                         })),
                     }
                     .build(ctx, view),
-                    fission_core::ui::widgets::Spacer {
+                    fission::core::ui::widgets::Spacer {
                         flex_grow: 1.0,
                         ..Default::default()
                     }
@@ -347,8 +347,8 @@ impl Widget<InboxState> for EmailList {
                             .border(tokens.colors.border, 1.0)
                             .border_radius(tokens.radii.medium)
                             .shadow(tokens.elevations.level2.unwrap_or(
-                                fission_core::op::BoxShadow {
-                                    color: fission_core::op::Color {
+                                fission::core::op::BoxShadow {
+                                    color: fission::core::op::Color {
                                         r: 0,
                                         g: 0,
                                         b: 0,
@@ -374,7 +374,7 @@ impl Widget<InboxState> for EmailList {
                 items: vec![
                     TabItem {
                         title: t("tabs.primary"),
-                        content: fission_core::ui::widgets::Spacer::default().into_node(),
+                        content: fission::core::ui::widgets::Spacer::default().into_node(),
                         on_press: Some(ActionEnvelope {
                             id: tab_id,
                             payload: serde_json::to_vec(&SelectTab(0)).unwrap(),
@@ -382,7 +382,7 @@ impl Widget<InboxState> for EmailList {
                     },
                     TabItem {
                         title: t("tabs.social"),
-                        content: fission_core::ui::widgets::Spacer::default().into_node(),
+                        content: fission::core::ui::widgets::Spacer::default().into_node(),
                         on_press: Some(ActionEnvelope {
                             id: tab_id,
                             payload: serde_json::to_vec(&SelectTab(1)).unwrap(),
@@ -390,7 +390,7 @@ impl Widget<InboxState> for EmailList {
                     },
                     TabItem {
                         title: t("tabs.promotions"),
-                        content: fission_core::ui::widgets::Spacer::default().into_node(),
+                        content: fission::core::ui::widgets::Spacer::default().into_node(),
                         on_press: Some(ActionEnvelope {
                             id: tab_id,
                             payload: serde_json::to_vec(&SelectTab(2)).unwrap(),
@@ -476,7 +476,7 @@ impl Widget<InboxState> for EmailList {
 
                 let item_content = Row {
                     gap: Some(12.0),
-                    align_items: fission_ir::op::AlignItems::Center,
+                    align_items: fission::ir::op::AlignItems::Center,
                     children: vec![
                         Checkbox {
                             checked: is_selected,
@@ -496,7 +496,7 @@ impl Widget<InboxState> for EmailList {
                                         spacing: Some(8.0),
                                         children: vec![
                                             Text::new(email.sender.clone()).size(16.0).into_node(),
-                                            fission_core::ui::widgets::Spacer {
+                                            fission::core::ui::widgets::Spacer {
                                                 flex_grow: 1.0,
                                                 ..Default::default()
                                             }
@@ -569,10 +569,10 @@ impl Widget<InboxState> for EmailList {
                                     .flex_shrink(1.0)
                                     .into_node(),
                                     if compact_rows || email.labels.is_empty() {
-                                        fission_core::ui::widgets::Spacer::default().into_node()
+                                        fission::core::ui::widgets::Spacer::default().into_node()
                                     } else {
                                         Wrap {
-                                            direction: fission_ir::op::FlexDirection::Row,
+                                            direction: fission::ir::op::FlexDirection::Row,
                                             spacing: Some(6.0),
                                             children: email
                                                 .labels
@@ -613,11 +613,11 @@ impl Widget<InboxState> for EmailList {
                             .into_node(),
                         if idx + 1 < end_idx - start_idx {
                             Divider {
-                                orientation: fission_widgets::divider::Orientation::Horizontal,
+                                orientation: fission::widgets::divider::Orientation::Horizontal,
                             }
                             .build(ctx, view)
                         } else {
-                            fission_core::ui::widgets::Spacer::default().into_node()
+                            fission::core::ui::widgets::Spacer::default().into_node()
                         },
                     ],
                 }
@@ -664,12 +664,12 @@ impl Widget<InboxState> for EmailList {
             VStack {
                 spacing: Some(4.0),
                 children: vec![
-                    fission_core::ui::widgets::Spacer {
+                    fission::core::ui::widgets::Spacer {
                         height: Some(4.0),
                         ..Default::default()
                     }
                     .into_node(),
-                    fission_widgets::center::Center {
+                    fission::widgets::center::Center {
                         child: Box::new(
                             Pagination {
                                 current_page,
@@ -687,7 +687,7 @@ impl Widget<InboxState> for EmailList {
             }
             .build(ctx, view)
         } else {
-            fission_core::ui::widgets::Spacer::default().into_node()
+            fission::core::ui::widgets::Spacer::default().into_node()
         };
 
         Container::new(
@@ -731,12 +731,12 @@ mod tests {
             .filter(|n| {
                 matches!(
                     &n.op,
-                    fission_ir::Op::Paint(fission_ir::PaintOp::DrawText { text, .. })
+                    fission::ir::Op::Paint(fission::ir::PaintOp::DrawText { text, .. })
                         if subjects.contains(text)
                 )
             })
             .filter_map(|n| match &n.op {
-                fission_ir::Op::Paint(fission_ir::PaintOp::DrawText { text, .. })
+                fission::ir::Op::Paint(fission::ir::PaintOp::DrawText { text, .. })
                     if subjects.contains(text) =>
                 {
                     Some(text.clone())

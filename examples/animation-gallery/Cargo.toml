@@ -4,12 +4,7 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
-fission = { path = "../../crates/authoring/fission" }
-fission-core = { path = "../../crates/core/fission-core" }
-fission-ir = { path = "../../crates/core/fission-ir" }
-fission-macros = { path = "../../crates/authoring/fission-macros" }
-fission-shell-desktop = { path = "../../crates/shell/fission-shell-desktop" }
-fission-widgets = { path = "../../crates/authoring/fission-widgets" }
+fission = { path = "../../crates/authoring/fission", default-features = false, features = ["desktop"] }
 lazy_static = "1.4"
 serde = { version = "1.0", features = ["derive"] }
 anyhow = "1.0"

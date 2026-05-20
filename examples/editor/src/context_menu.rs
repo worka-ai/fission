@@ -1,8 +1,8 @@
 use crate::model::*;
-use fission_core::op::Color;
-use fission_core::ui::{Button, ButtonContentAlign, ButtonVariant, Container, GestureDetector, Node, Positioned, Text, ZStack};
-use fission_core::{ActionEnvelope, BuildCtx, reduce_with, PortalLayer, View, Widget, WidgetNodeId};
-use fission_widgets::{VStack, Spacer};
+use fission::core::op::Color;
+use fission::core::ui::{Button, ButtonContentAlign, ButtonVariant, Container, GestureDetector, Node, Positioned, Text, ZStack};
+use fission::core::{ActionEnvelope, BuildCtx, reduce_with, PortalLayer, View, Widget, WidgetNodeId};
+use fission::widgets::{VStack, Spacer};
 
 pub struct ContextMenu;
 
@@ -31,7 +31,7 @@ impl Widget<EditorState> for ContextMenu {
                 content_align: ButtonContentAlign::Start,
                 child: Some(Box::new(
                     Container::new(
-                        fission_widgets::HStack {
+                        fission::widgets::HStack {
                             spacing: Some(0.0),
                             children: vec![
                                 Text::new(label).size(12.0).color(text_color).flex_grow(1.0).into_node(),

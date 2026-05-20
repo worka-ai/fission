@@ -1,9 +1,9 @@
 use crate::model::{BottomPanelTab, EditorState};
-use fission_core::op::Color;
-use fission_core::ui::{Button, ButtonVariant, Container, Node, Text};
-use fission_core::{reduce_with, BuildCtx, View, Widget};
-use fission_ir::NodeId;
-use fission_widgets::{HStack, Spacer, TerminalView, VStack};
+use fission::core::op::Color;
+use fission::core::ui::{Button, ButtonVariant, Container, Node, Text};
+use fission::core::{reduce_with, BuildCtx, View, Widget};
+use fission::ir::NodeId;
+use fission::widgets::{HStack, Spacer, TerminalView, VStack};
 use std::path::Path;
 
 pub struct TerminalPanel;
@@ -64,7 +64,7 @@ impl Widget<EditorState> for TerminalPanel {
         );
 
         let tab =
-            |label: &str, active: bool, action: fission_core::ActionEnvelope, id: &str| -> Node {
+            |label: &str, active: bool, action: fission::core::ActionEnvelope, id: &str| -> Node {
                 Button {
                     id: Some(NodeId::explicit(id)),
                     variant: ButtonVariant::Ghost,
@@ -197,7 +197,7 @@ impl Widget<EditorState> for TerminalPanel {
             .into_node();
 
         Container::new(
-            fission_core::ui::Column {
+            fission::core::ui::Column {
                 children: vec![header, content],
                 flex_grow: 1.0,
                 ..Default::default()

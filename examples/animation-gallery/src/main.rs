@@ -1,12 +1,12 @@
+use fission::core::EasingFunction;
+use fission::prelude::DesktopApp;
 use fission::prelude::*;
+use fission::widgets::{Transition, Wrap};
 use fission::{
     op::Color as IrColor, with_reducer, AnimationPropertyId, AnimationRequest, AnimationStartValue,
     AppState, BuildCtx, Button, ButtonVariant, Column, Composite, Container, FlexDirection, Node,
     Row, Scroll, Text, View, Widget, WidgetNodeId,
 };
-use fission_core::EasingFunction;
-use fission_shell_desktop::DesktopApp;
-use fission_widgets::{Transition, Wrap};
 use lazy_static::lazy_static;
 use serde::{Deserialize, Serialize};
 

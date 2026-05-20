@@ -1,9 +1,9 @@
-use fission_core::ui::{Container, Node, Row};
-use fission_core::{reduce_with, BuildCtx, Env, View, Widget, WidgetNodeId};
-use fission_i18n::{Locale, TranslationBundle};
-use fission_shell_desktop::DesktopApp;
-use fission_theme::Theme;
-use fission_widgets::{
+use fission::core::ui::{Container, Node, Row};
+use fission::core::{reduce_with, BuildCtx, Env, View, Widget, WidgetNodeId};
+use fission::i18n::{Locale, TranslationBundle};
+use fission::prelude::DesktopApp;
+use fission::theme::Theme;
+use fission::widgets::{
     Center, Drawer, DrawerSide, Overlay, Route, Router, SafeArea, SplitDirection, SplitView, Toast,
     ToastKind, Transition,
 };
@@ -16,7 +16,7 @@ mod model;
 
 use components::{EmailDetail, EmailList, RightSidebar, Sidebar};
 use features::{BrowserModal, ComposeModal, ContactsModal, SettingsModal};
-use fission_core::{ActionRegistry, OpenUrlRequest, ReducerContext, OPEN_URL};
+use fission::core::{ActionRegistry, OpenUrlRequest, ReducerContext, OPEN_URL};
 use model::*;
 
 // --- APP ---
@@ -92,7 +92,7 @@ impl Widget<InboxState> for InboxApp {
             .build(ctx, view);
 
             ctx.register_portal(
-                fission_widgets::Positioned {
+                fission::widgets::Positioned {
                     left: Some(20.0),
                     bottom: Some(20.0), // Bottom left toast
                     width: None,
@@ -116,7 +116,7 @@ impl Widget<InboxState> for InboxApp {
                     second: Box::new(
                         Row {
                             gap: None,
-                            align_items: fission_ir::op::AlignItems::Stretch,
+                            align_items: fission::ir::op::AlignItems::Stretch,
                             children: {
                                 let mut children = vec![Container::new(
                                     Router {
@@ -158,7 +158,7 @@ impl Widget<InboxState> for InboxApp {
                                             },
                                         ],
                                         not_found: Some(Arc::new(|_c, _v, _| {
-                                            fission_core::ui::Text::new("Folder not found")
+                                            fission::core::ui::Text::new("Folder not found")
                                                 .into_node()
                                         })),
                                     }
@@ -194,22 +194,22 @@ impl Widget<InboxState> for InboxApp {
             Transition {
                 id: WidgetNodeId::explicit("quick_tip_fade"),
                 value: 1.0,
-                property: fission_core::AnimationPropertyId::Opacity,
+                property: fission::core::AnimationPropertyId::Opacity,
                 duration: 300,
                 delay: 0,
                 child: Box::new(
                     Center {
                         child: Box::new(
-                            fission_widgets::Card {
+                            fission::widgets::Card {
                                 child: Box::new(
-                                    fission_widgets::VStack {
+                                    fission::widgets::VStack {
                                         spacing: Some(6.0),
                                         children: vec![
-                                            fission_core::ui::Text::new(
+                                            fission::core::ui::Text::new(
                                                 "Tip: press ? for shortcuts",
                                             )
                                             .into_node(),
-                                            fission_core::ui::Text::new(
+                                            fission::core::ui::Text::new(
                                                 "You can pin labels and drag to reorder.",
                                             )
                                             .size(12.0)
@@ -228,7 +228,7 @@ impl Widget<InboxState> for InboxApp {
             }
             .build(ctx, view)
         } else {
-            fission_core::ui::widgets::Spacer::default().into_node()
+            fission::core::ui::widgets::Spacer::default().into_node()
         };
 
         Overlay {

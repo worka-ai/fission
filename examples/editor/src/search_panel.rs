@@ -1,10 +1,10 @@
 use crate::model::{EditorState, ExecuteSearch, OpenFile, UpdateSearchQuery};
-use fission_core::op::Color;
-use fission_core::ui::{
+use fission::core::op::Color;
+use fission::core::ui::{
     Button, ButtonContentAlign, ButtonVariant, Column, Container, Node, Scroll, Text, TextInput,
 };
-use fission_core::{reduce_with, ActionEnvelope, BuildCtx, FlexDirection, View, Widget};
-use fission_widgets::{HStack, VStack};
+use fission::core::{reduce_with, ActionEnvelope, BuildCtx, FlexDirection, View, Widget};
+use fission::widgets::{HStack, VStack};
 use serde_json;
 
 pub struct SearchPanel;
@@ -47,7 +47,7 @@ impl Widget<EditorState> for SearchPanel {
                 spacing: Some(0.0),
                 children: vec![
                     TextInput {
-                        id: Some(fission_ir::NodeId::explicit("editor_search_query_input")),
+                        id: Some(fission::ir::NodeId::explicit("editor_search_query_input")),
                         value: view.state.search_query.clone(),
                         placeholder: Some("Search...".into()),
                         on_change: Some(update_query),
@@ -167,7 +167,7 @@ impl Widget<EditorState> for SearchPanel {
                 gap: Some(8.0),
                 children,
                 flex_grow: 1.0,
-                justify_content: fission_core::op::JustifyContent::Start,
+                justify_content: fission::core::op::JustifyContent::Start,
                 ..Default::default()
             }
             .into_node(),

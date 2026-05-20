@@ -4,7 +4,7 @@ mod components;
 use anyhow::Result;
 use components::{DocsFooter, DocsState, RoutedHomePage};
 use fission::prelude::*;
-use fission_shell_site::{build_from_cli, FissionSite};
+use fission::site::{build_from_cli, FissionSite};
 
 fn main() -> Result<()> {
     build_from_cli(site_app())

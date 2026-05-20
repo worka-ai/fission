@@ -1,10 +1,10 @@
 use super::GalleryBuildExt;
 use crate::state::GalleryState;
 use crate::style::{amber, blue, teal};
-use fission_charts::{Axis, BarSeries, BubbleSeries, Chart, Legend, LineSeries, VisualMap};
-use fission_core::op::Color;
-use fission_core::ui::Node;
-use fission_core::{BuildCtx, View};
+use fission::charts::{Axis, BarSeries, BubbleSeries, Chart, Legend, LineSeries, VisualMap};
+use fission::core::op::Color;
+use fission::core::ui::Node;
+use fission::core::{BuildCtx, View};
 
 pub(super) fn build_chart(
     chart: usize,

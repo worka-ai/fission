@@ -67,8 +67,13 @@ The static site supports custom widget routes, Markdown/MDX content routes, side
 Add Fission to your project:
 
 ```sh
-cargo add fission
+cargo add fission --features desktop
 ```
+
+The facade stays as the single application dependency. Common widgets and core
+types are available directly; enable target or heavier capability features such
+as `web`, `android`, `ios`, `site`, `charts`, `three-d`, or `terminal-widget`
+only when the app uses them.
 
 A minimal application:
 

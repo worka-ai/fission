@@ -5,5 +5,4 @@ edition = "2021"
 
 [dependencies]
 anyhow = "1"
-fission = { path = "../crates/authoring/fission", default-features = false }
-fission-shell-site = { path = "../crates/shell/fission-shell-site" }
+fission = { path = "../crates/authoring/fission", default-features = false, features = ["site"] }

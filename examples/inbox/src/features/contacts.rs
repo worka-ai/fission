@@ -1,7 +1,7 @@
 use crate::model::{InboxState, SetContactsOpen, ToggleContactSelection};
-use fission_core::ui::Node;
-use fission_core::{reduce_with, BuildCtx, View, Widget, WidgetNodeId};
-use fission_widgets::{DataTable, Modal, ModalAction, TableColumn, TableRow};
+use fission::core::ui::Node;
+use fission::core::{reduce_with, BuildCtx, View, Widget, WidgetNodeId};
+use fission::widgets::{DataTable, Modal, ModalAction, TableColumn, TableRow};
 use serde_json;
 use std::sync::Arc;
 
@@ -68,7 +68,7 @@ impl Widget<InboxState> for ContactsModal {
                     rows: data,
                     selected_ids: view.state.contact_selected_ids.clone(),
                     on_selection_change: Some(Arc::new(move |row_id| {
-                        fission_core::ActionEnvelope {
+                        fission::core::ActionEnvelope {
                             id: toggle_id,
                             payload: serde_json::to_vec(&ToggleContactSelection(row_id)).unwrap(),
                         }

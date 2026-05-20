@@ -2,13 +2,13 @@ use crate::charts::gallery::configure_chart;
 use crate::data::SIMPLE_GEOJSON;
 use crate::state::GalleryState;
 use crate::style::{amber, blue, rgb, teal};
-use fission_charts::{
+use fission::charts::{
     Axis, Chart, DataZoom, GraphNode, HeatmapSeries, Legend, LineSeries, MapSeries, SankeySeries,
     SunburstSeries, ThemeRiverSeries, TreemapNode, VisualMap,
 };
-use fission_core::op::Color;
-use fission_core::ui::{Column, Container, Node, Row, Scroll, Text};
-use fission_core::{BuildCtx, View, Widget};
+use fission::core::op::Color;
+use fission::core::ui::{Column, Container, Node, Row, Scroll, Text};
+use fission::core::{BuildCtx, View, Widget};
 
 pub(crate) fn build_showcase(
     ctx: &mut BuildCtx<GalleryState>,
@@ -238,11 +238,11 @@ pub(crate) fn build_showcase(
                                 },
                             ])
                             .edges(vec![
-                                fission_charts::series::graph::GraphEdge {
+                                fission::charts::series::graph::GraphEdge {
                                     source: "a".into(),
                                     target: "c".into(),
                                 },
-                                fission_charts::series::graph::GraphEdge {
+                                fission::charts::series::graph::GraphEdge {
                                     source: "b".into(),
                                     target: "c".into(),
                                 },
@@ -315,7 +315,7 @@ pub(crate) fn build_showcase(
     );
 
     Scroll {
-        direction: fission_core::FlexDirection::Column,
+        direction: fission::core::FlexDirection::Column,
         child: Some(Box::new(
             Column {
                 children,

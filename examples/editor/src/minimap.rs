@@ -1,8 +1,8 @@
 use crate::model::EditorState;
-use fission_core::op::Color;
-use fission_core::ui::{Container, Node};
-use fission_core::{BuildCtx, View, Widget};
-use fission_widgets::{Spacer, VStack};
+use fission::core::op::Color;
+use fission::core::ui::{Container, Node};
+use fission::core::{BuildCtx, View, Widget};
+use fission::widgets::{Spacer, VStack};
 
 /// A minimap widget that renders a narrow, scaled-down overview of the file
 /// content on the right side of the editor. Each source line is represented

@@ -1,14 +1,14 @@
-use fission_core::op::Color;
-use fission_core::ui::{
+use fission::core::op::Color;
+use fission::core::ui::{
     Align, Button, ButtonContentAlign, ButtonVariant, Column, Container, GestureDetector, Icon,
     Node, Positioned, Row, Text, TextInput, ZStack,
 };
-use fission_core::{
+use fission::core::{
     reduce_with, ActionEnvelope, BuildCtx, JobResource, PortalLayer, ReducerContext, ResourceKey,
     TimerResource, View, Widget, WidgetNodeId,
 };
-use fission_shell_desktop::DesktopApp;
-use fission_widgets::{Spacer, VStack};
+use fission::prelude::DesktopApp;
+use fission::widgets::{Spacer, VStack};
 use std::path::PathBuf;
 use std::time::Duration;
 
@@ -117,22 +117,22 @@ impl Widget<EditorState> for ActivityBar {
 
         let section_icons = vec![
             (
-                fission_icons::material::action::description::round(),
+                fission::icons::material::action::description::round(),
                 SidebarSection::Explorer,
                 "Explorer",
             ),
             (
-                fission_icons::material::action::search::round(),
+                fission::icons::material::action::search::round(),
                 SidebarSection::Search,
                 "Search",
             ),
             (
-                fission_icons::material::action::commit::round(),
+                fission::icons::material::action::commit::round(),
                 SidebarSection::Git,
                 "Source Control",
             ),
             (
-                fission_icons::material::action::extension::round(),
+                fission::icons::material::action::extension::round(),
                 SidebarSection::Extensions,
                 "Extensions",
             ),
@@ -180,7 +180,7 @@ impl Widget<EditorState> for ActivityBar {
                     child: Some(Box::new(
                         Container::new(
                             Align::new(
-                                fission_widgets::Icon::svg(*icon_svg)
+                                fission::widgets::Icon::svg(*icon_svg)
                                     .size(24.0)
                                     .color(color)
                                     .into_node(),
@@ -223,7 +223,7 @@ struct MenuBar;
 
 impl MenuBar {
     /// Build a single top-level menu button.
-    fn menu_button(label: &str, set_menu_id: fission_core::ActionId) -> Node {
+    fn menu_button(label: &str, set_menu_id: fission::core::ActionId) -> Node {
         let label_owned = label.to_string();
         Button {
             variant: ButtonVariant::Ghost,
@@ -483,7 +483,7 @@ impl Widget<EditorState> for MenuBar {
         let bar = Container::new(
             Row {
                 children: buttons,
-                align_items: fission_ir::op::AlignItems::Center,
+                align_items: fission::ir::op::AlignItems::Center,
                 ..Default::default()
             }
             .into_node(),
@@ -541,7 +541,7 @@ impl Widget<EditorState> for MenuBar {
                     children: items,
                     gap: Some(0.0),
                     flex_grow: 0.0,
-                    justify_content: fission_core::op::JustifyContent::Start,
+                    justify_content: fission::core::op::JustifyContent::Start,
                     ..Default::default()
                 }
                 .into_node(),
@@ -606,7 +606,7 @@ impl Widget<EditorState> for MenuBar {
             .into_node();
 
             ctx.register_portal_with_layer(
-                fission_core::registry::PortalLayer::Modal,
+                fission::core::registry::PortalLayer::Modal,
                 Some(WidgetNodeId::explicit("menu_bar_flyout")),
                 positioned_root,
             );
@@ -707,7 +707,7 @@ impl Widget<EditorState> for FindReplaceBar {
 
         let find_input = Container::new(
             TextInput {
-                id: Some(fission_ir::NodeId::explicit("find_input")),
+                id: Some(fission::ir::NodeId::explicit("find_input")),
                 value: view.state.find_query.clone(),
                 placeholder: Some("Find".into()),
                 on_change: Some(update_find),
@@ -720,7 +720,7 @@ impl Widget<EditorState> for FindReplaceBar {
 
         let replace_input = Container::new(
             TextInput {
-                id: Some(fission_ir::NodeId::explicit("replace_input")),
+                id: Some(fission::ir::NodeId::explicit("replace_input")),
                 value: view.state.replace_query.clone(),
                 placeholder: Some("Replace".into()),
                 on_change: Some(update_replace),
@@ -736,7 +736,7 @@ impl Widget<EditorState> for FindReplaceBar {
             .color(DIM_TEXT)
             .into_node();
 
-        use fission_icons::material;
+        use fission::icons::material;
 
         let btn_prev = Button {
             variant: ButtonVariant::Ghost,
@@ -822,7 +822,7 @@ impl Widget<EditorState> for FindReplaceBar {
                     Container::new(
                         Row {
                             children: vec![find_input, replace_input],
-                            align_items: fission_ir::op::AlignItems::Center,
+                            align_items: fission::ir::op::AlignItems::Center,
                             flex_grow: 1.0,
                             ..Default::default()
                         }
@@ -839,7 +839,7 @@ impl Widget<EditorState> for FindReplaceBar {
                     btn_replace_all,
                     btn_close,
                 ],
-                align_items: fission_ir::op::AlignItems::Center,
+                align_items: fission::ir::op::AlignItems::Center,
                 ..Default::default()
             }
             .into_node(),
@@ -885,7 +885,7 @@ impl Widget<EditorState> for Breadcrumb {
         Container::new(
             Row {
                 children,
-                align_items: fission_ir::op::AlignItems::Center,
+                align_items: fission::ir::op::AlignItems::Center,
                 ..Default::default()
             }
             .into_node(),
@@ -1506,7 +1506,7 @@ impl Widget<EditorState> for EditorApp {
         // Main layout: activity bar | sidebar | divider | center
         let main_layout = Row {
             children: vec![activity_bar, sidebar, sidebar_divider, center],
-            align_items: fission_ir::op::AlignItems::Stretch,
+            align_items: fission::ir::op::AlignItems::Stretch,
             flex_grow: 1.0,
             ..Default::default()
         }
@@ -1555,23 +1555,23 @@ fn main() -> anyhow::Result<()> {
                 run_git_status(request)
             });
         })
-        .with_sync_env(move |_state: &EditorState, env: &mut fission_core::Env| {
-            env.theme = fission_theme::Theme::dark();
+        .with_sync_env(move |_state: &EditorState, env: &mut fission::core::Env| {
+            env.theme = fission::theme::Theme::dark();
         })
         .with_key_handler(
-            move |state: &mut EditorState, key: &fission_core::KeyCode, mods: u8| -> bool {
+            move |state: &mut EditorState, key: &fission::core::KeyCode, mods: u8| -> bool {
                 // Async resources handle background scanning and polling.
 
                 let ctrl = (mods & 2) != 0 || (mods & 8) != 0; // Ctrl or Cmd
                 let shift = (mods & 1) != 0;
 
                 // Dismiss context menu on any keystroke (except Escape which handles it explicitly)
-                if !matches!(key, fission_core::KeyCode::Escape) {
+                if !matches!(key, fission::core::KeyCode::Escape) {
                     state.context_menu_visible = false;
                 }
 
                 // Enter confirms rename if one is in progress
-                if matches!(key, fission_core::KeyCode::Enter) && !ctrl {
+                if matches!(key, fission::core::KeyCode::Enter) && !ctrl {
                     if state.renaming_path.is_some() {
                         state.confirm_rename();
                         return true;
@@ -1588,7 +1588,7 @@ fn main() -> anyhow::Result<()> {
                         .map(|name| state.rename_input == name)
                         .unwrap_or(false);
                     match key {
-                        fission_core::KeyCode::Backspace => {
+                        fission::core::KeyCode::Backspace => {
                             if should_replace_rename_text {
                                 state.rename_input.clear();
                             } else {
@@ -1596,14 +1596,14 @@ fn main() -> anyhow::Result<()> {
                             }
                             return true;
                         }
-                        fission_core::KeyCode::Space => {
+                        fission::core::KeyCode::Space => {
                             if should_replace_rename_text {
                                 state.rename_input.clear();
                             }
                             state.rename_input.push(' ');
                             return true;
                         }
-                        fission_core::KeyCode::Char(ch) => {
+                        fission::core::KeyCode::Char(ch) => {
                             if should_replace_rename_text {
                                 state.rename_input.clear();
                             }
@@ -1615,7 +1615,7 @@ fn main() -> anyhow::Result<()> {
                 }
 
                 // Escape dismisses menus / context menus / find bar / command palette / rename
-                if matches!(key, fission_core::KeyCode::Escape) {
+                if matches!(key, fission::core::KeyCode::Escape) {
                     let mut handled = false;
                     if state.renaming_path.is_some() {
                         state.cancel_rename();
@@ -1646,7 +1646,7 @@ fn main() -> anyhow::Result<()> {
                 }
 
                 match key {
-                    fission_core::KeyCode::Char('s') | fission_core::KeyCode::Char('S') => {
+                    fission::core::KeyCode::Char('s') | fission::core::KeyCode::Char('S') => {
                         if shift {
                             state.save_all_files();
                         } else {
@@ -1654,7 +1654,7 @@ fn main() -> anyhow::Result<()> {
                         }
                         true
                     }
-                    fission_core::KeyCode::Char('p') | fission_core::KeyCode::Char('P')
+                    fission::core::KeyCode::Char('p') | fission::core::KeyCode::Char('P')
                         if shift =>
                     {
                         state.show_command_palette = !state.show_command_palette;
@@ -1663,11 +1663,11 @@ fn main() -> anyhow::Result<()> {
                         }
                         true
                     }
-                    fission_core::KeyCode::Char('b') | fission_core::KeyCode::Char('B') => {
+                    fission::core::KeyCode::Char('b') | fission::core::KeyCode::Char('B') => {
                         state.sidebar_visible = !state.sidebar_visible;
                         true
                     }
-                    fission_core::KeyCode::Char('`') => {
+                    fission::core::KeyCode::Char('`') => {
                         state.terminal_visible = !state.terminal_visible;
                         if state.terminal_visible {
                             state.bottom_panel_tab = BottomPanelTab::Terminal;
@@ -1676,13 +1676,13 @@ fn main() -> anyhow::Result<()> {
                         true
                     }
                     // Ctrl+F: toggle find/replace
-                    fission_core::KeyCode::Char('f') | fission_core::KeyCode::Char('F') => {
+                    fission::core::KeyCode::Char('f') | fission::core::KeyCode::Char('F') => {
                         state.context_menu_visible = false;
                         state.show_find_replace = !state.show_find_replace;
                         true
                     }
                     // Ctrl+G: go to line (toggle command palette with prompt)
-                    fission_core::KeyCode::Char('g') | fission_core::KeyCode::Char('G') => {
+                    fission::core::KeyCode::Char('g') | fission::core::KeyCode::Char('G') => {
                         state.show_command_palette = !state.show_command_palette;
                         if state.show_command_palette {
                             state.command_query = "Go to Line:".into();
@@ -1692,13 +1692,13 @@ fn main() -> anyhow::Result<()> {
                         true
                     }
                     // Ctrl+W: close active tab
-                    fission_core::KeyCode::Char('w') | fission_core::KeyCode::Char('W') => {
+                    fission::core::KeyCode::Char('w') | fission::core::KeyCode::Char('W') => {
                         let idx = state.active_tab;
                         state.close_tab(idx);
                         true
                     }
                     // Ctrl+Z: undo, Ctrl+Shift+Z: redo
-                    fission_core::KeyCode::Char('z') | fission_core::KeyCode::Char('Z') => {
+                    fission::core::KeyCode::Char('z') | fission::core::KeyCode::Char('Z') => {
                         if shift {
                             state.redo_active();
                         } else {
@@ -1707,22 +1707,22 @@ fn main() -> anyhow::Result<()> {
                         true
                     }
                     // Ctrl+Y: redo (alternative)
-                    fission_core::KeyCode::Char('y') | fission_core::KeyCode::Char('Y') => {
+                    fission::core::KeyCode::Char('y') | fission::core::KeyCode::Char('Y') => {
                         state.redo_active();
                         true
                     }
                     // Ctrl+C: copy current line
-                    fission_core::KeyCode::Char('c') | fission_core::KeyCode::Char('C') => {
+                    fission::core::KeyCode::Char('c') | fission::core::KeyCode::Char('C') => {
                         state.copy_line();
                         true
                     }
                     // Ctrl+X: cut current line
-                    fission_core::KeyCode::Char('x') | fission_core::KeyCode::Char('X') => {
+                    fission::core::KeyCode::Char('x') | fission::core::KeyCode::Char('X') => {
                         state.cut_line();
                         true
                     }
                     // Ctrl+V: paste clipboard
-                    fission_core::KeyCode::Char('v') | fission_core::KeyCode::Char('V') => {
+                    fission::core::KeyCode::Char('v') | fission::core::KeyCode::Char('V') => {
                         state.paste();
                         true
                     }

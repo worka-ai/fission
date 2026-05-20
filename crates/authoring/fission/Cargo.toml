@@ -7,25 +7,45 @@ repository = "https://github.com/worka-ai/fission"
 description = "Cross-platform GPU-accelerated UI framework for Rust"
 
 [features]
-default = ["platform-shells"]
+default = []
+charts = ["dep:fission-charts"]
+desktop = ["dep:fission-shell-desktop"]
+icons-reflection = ["fission-icons/reflection"]
+ios = ["dep:fission-shell-mobile"]
+android = ["dep:fission-shell-mobile"]
+mobile = ["dep:fission-shell-mobile"]
 platform-shells = [
-    "dep:fission-shell-desktop",
-    "dep:fission-shell-mobile",
-    "dep:fission-shell-web",
+    "desktop",
+    "mobile",
+    "web",
 ]
+site = ["dep:fission-shell-site"]
+terminal-widget = ["fission-widgets/terminal"]
+test-driver = ["dep:fission-test-driver"]
+three-d = [
+    "dep:fission-3d",
+    "fission-shell-desktop?/three-d",
+    "fission-shell-mobile?/three-d",
+    "fission-shell-web?/three-d",
+]
+web = ["dep:fission-shell-web"]
 
 [dependencies]
 fission-core = { path = "../../core/fission-core", version = "0.1.1" }
+fission-3d = { path = "../../core/fission-3d", version = "0.1.1", optional = true }
 fission-ir = { path = "../../core/fission-ir", version = "0.1.1" }
 fission-layout = { path = "../../core/fission-layout", version = "0.1.1" }
+fission-text-engine = { path = "../../core/fission-text-engine", version = "0.1.1" }
 fission-theme = { path = "../../core/fission-theme", version = "0.1.1" }
 fission-i18n = { path = "../../core/fission-i18n", version = "0.1.1" }
 fission-widgets = { path = "../fission-widgets", version = "0.1.1" }
 fission-macros = { path = "../fission-macros", version = "0.1.1" }
 fission-icons = { path = "../fission-icons", version = "0.1.1" }
+fission-charts = { path = "../fission-charts", version = "0.1.1", optional = true }
 fission-render = { path = "../../rendering/fission-render", version = "0.1.1" }
 fission-diagnostics = { path = "../../tools/fission-diagnostics", version = "0.1.1" }
-fission-test-driver = { path = "../../tools/fission-test-driver", version = "0.1.1" }
+fission-shell-site = { path = "../../shell/fission-shell-site", version = "0.1.1", optional = true }
+fission-test-driver = { path = "../../tools/fission-test-driver", version = "0.1.1", optional = true }
 serde = { version = "1.0", features = ["derive"] }
 
 [target.'cfg(not(any(target_os = "android", target_os = "ios", target_arch = "wasm32")))'.dependencies]
