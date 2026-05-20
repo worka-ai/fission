@@ -17,7 +17,7 @@ title = "Fission"
 description = "Build production desktop, web, Android, and iOS apps with Fission."
 logo = "/img/fission-mark.svg"
 favicon = "/img/fission-mark.svg"
-asset_dirs = ["../website/static"]
+asset_dirs = ["static"]
 
 [site.code_highlighting]
 enabled = true
