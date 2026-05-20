@@ -38,8 +38,3 @@ source = "content/blog"
 template = "fission::site::DocumentationTemplate"
 sidebar = "site/blog-sidebar.toml"
 
-[[site.routes]]
-kind = "content"
-path = "/legacy-docs"
-source = "content/legacy-docs"
-template = "fission::site::DocumentationTemplate"
