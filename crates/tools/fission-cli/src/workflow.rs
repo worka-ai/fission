@@ -131,6 +131,13 @@ pub(crate) fn run_app(options: RunOptions) -> Result<()> {
     match device.target {
         Target::Linux | Target::Macos | Target::Windows => run_desktop(&options, &device),
         Target::Web => run_web(&options, &device),
+        Target::Site => site_serve(
+            &options.project_dir,
+            options.release,
+            options.host,
+            options.port,
+            !options.no_open,
+        ),
         Target::Ios => run_ios(&project, &options, &device),
         Target::Android => run_android(&project, &options, &device),
     }
@@ -147,6 +154,7 @@ pub(crate) fn build_app(options: BuildOptions) -> Result<()> {
             build_desktop(&options.project_dir, options.release)
         }
         Target::Web => build_web(&options.project_dir, options.release),
+        Target::Site => site_build(&options.project_dir, options.release),
         Target::Ios => {
             require_host(Target::Ios)?;
             let script = options.project_dir.join("platforms/ios/package-sim.sh");
@@ -182,6 +190,7 @@ pub(crate) fn test_app(options: TestOptions) -> Result<()> {
             "platforms/web/test-browser.sh",
             |_| {},
         ),
+        Target::Site => site_check(&options.project_dir, false),
         Target::Ios => {
             require_host(Target::Ios)?;
             run_target_script(
@@ -220,6 +229,10 @@ pub(crate) fn attach_logs(options: LogOptions) -> Result<()> {
             &detached_log_path(&options.project_dir, "web"),
             options.follow,
         ),
+        Target::Site => tail_log_file(
+            &detached_log_path(&options.project_dir, "site"),
+            options.follow,
+        ),
         Target::Linux | Target::Macos | Target::Windows => tail_log_file(
             &detached_log_path(&options.project_dir, "desktop"),
             options.follow,
@@ -233,6 +246,34 @@ pub(crate) fn serve_web(options: ServeWebOptions) -> Result<()> {
         options.host,
         options.port,
         options.open,
+    )
+}
+
+pub(crate) fn site_build(project_dir: &Path, release: bool) -> Result<()> {
+    run_site_builder(project_dir, "build", release)
+}
+
+pub(crate) fn site_check(project_dir: &Path, release: bool) -> Result<()> {
+    run_site_builder(project_dir, "check", release)
+}
+
+pub(crate) fn site_routes(project_dir: &Path) -> Result<()> {
+    run_site_builder(project_dir, "routes", false)
+}
+
+pub(crate) fn site_serve(
+    project_dir: &Path,
+    release: bool,
+    host: String,
+    port: u16,
+    open: bool,
+) -> Result<()> {
+    site_build(project_dir, release)?;
+    serve_static(
+        project_dir.join(site_output_dir(project_dir)?),
+        host,
+        port,
+        open,
     )
 }
 
@@ -272,6 +313,15 @@ fn discover_devices(_project_dir: &Path) -> Vec<Device> {
 
     devices.extend(discover_ios_simulators());
     devices.extend(discover_android_devices());
+    devices.push(Device {
+        id: "site".to_string(),
+        name: "Static site".to_string(),
+        target: Target::Site,
+        kind: "site-server".to_string(),
+        status: "available".to_string(),
+        detail: "multi-page static output".to_string(),
+        available: true,
+    });
     devices
 }
 
@@ -618,6 +668,40 @@ fn build_web(project_dir: &Path, release: bool) -> Result<()> {
     run_status(&mut command, "web build")
 }
 
+fn run_site_builder(project_dir: &Path, command_name: &str, release: bool) -> Result<()> {
+    let mut command = Command::new("cargo");
+    command
+        .arg("run")
+        .arg("--manifest-path")
+        .arg(project_dir.join("Cargo.toml"));
+    if release {
+        command.arg("--release");
+    }
+    command
+        .arg("--")
+        .arg(command_name)
+        .arg("--project-dir")
+        .arg(project_dir);
+    if release && command_name != "routes" {
+        command.arg("--release");
+    }
+    run_status(&mut command, &format!("site {command_name}"))
+}
+
+fn site_output_dir(project_dir: &Path) -> Result<PathBuf> {
+    let path = project_dir.join("fission.toml");
+    let data =
+        fs::read_to_string(&path).with_context(|| format!("failed to read {}", path.display()))?;
+    let value: toml::Value =
+        toml::from_str(&data).with_context(|| format!("failed to parse {}", path.display()))?;
+    Ok(value
+        .get("site")
+        .and_then(|site| site.get("out_dir"))
+        .and_then(|out_dir| out_dir.as_str())
+        .map(PathBuf::from)
+        .unwrap_or_else(|| PathBuf::from("dist/site")))
+}
+
 fn package_android(project_dir: &Path, release: bool) -> Result<PathBuf> {
     let script = project_dir.join("platforms/android/package-apk.sh");
     let mut command = command_for_script(&script)?;
@@ -730,7 +814,11 @@ fn open_log(path: &Path) -> Result<File> {
 fn serve_static(root: PathBuf, host: String, port: u16, open: bool) -> Result<()> {
     let listener = TcpListener::bind((host.as_str(), port))
         .with_context(|| format!("failed to bind {}:{}", host, port))?;
-    let url = web_url(&host, port);
+    let url = if root.join("index.html").exists() {
+        format!("http://{host}:{port}/")
+    } else {
+        web_url(&host, port)
+    };
     println!("Serving {} at {}", root.display(), url);
     println!("Press Ctrl+C to stop.");
     if open {
@@ -768,10 +856,17 @@ fn handle_http_request(mut stream: TcpStream, root: &Path) -> Result<()> {
 fn static_response(root: &Path, request_path: &str) -> Result<Vec<u8>> {
     let mut relative = request_path.trim_start_matches('/').to_string();
     if relative.is_empty() {
-        relative = "platforms/web/".to_string();
+        relative = if root.join("index.html").exists() {
+            "index.html".to_string()
+        } else {
+            "platforms/web/".to_string()
+        };
     }
     if relative.ends_with('/') {
         relative.push_str("index.html");
+    }
+    if !relative.ends_with(".html") && !relative.contains('.') {
+        relative.push_str("/index.html");
     }
     let path = sanitize_static_path(root, &relative)?;
     if !path.exists() || !path.is_file() {
