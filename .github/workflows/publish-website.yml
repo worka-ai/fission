@@ -5,7 +5,11 @@ on:
     branches:
       - main
     paths:
-      - 'website/**'
+      - 'documentation/**'
+      - 'crates/**'
+      - 'examples/chart-gallery/**'
+      - 'Cargo.toml'
+      - 'Cargo.lock'
       - '.github/workflows/publish-website.yml'
   workflow_dispatch:
 
@@ -23,41 +27,41 @@ jobs:
     runs-on: ubuntu-latest
     environment:
       name: github-pages
-    defaults:
-      run:
-        working-directory: website
     steps:
       - name: Check out repository
         uses: actions/checkout@v4
 
-      - name: Set up Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: 20
-          cache: yarn
-          cache-dependency-path: website/yarn.lock
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache Rust build output
+        uses: Swatinem/rust-cache@v2
 
       - name: Configure GitHub Pages
         uses: actions/configure-pages@v5
 
-      - name: Install website dependencies
-        run: yarn install --frozen-lockfile
+      - name: Check static site routes
+        run: cargo run -p fission-cli --bin fission -- site check --project-dir documentation --release
 
-      - name: Build website
-        run: yarn build
-        env:
-          DOCS_SITE_URL: https://worka-ai.github.io
-          DOCS_BASE_URL: /fission/
+      - name: Build static site
+        run: cargo run -p fission-cli --bin fission -- site build --project-dir documentation --release
 
-      - name: Verify Pagefind search index
+      - name: Verify generated static site
         run: |
-          test -f build/pagefind/pagefind.js
-          test -f build/pagefind/pagefind-entry.json
+          test -f documentation/dist/site/index.html
+          test -f documentation/dist/site/site.css
+          test -f documentation/dist/site/sitemap.xml
+          test -f documentation/dist/site/robots.txt
+          test -f documentation/dist/site/search/search.js
+          test -f documentation/dist/site/search/manifest.json
+          test -f documentation/dist/site/search/docs.json
+          test -f documentation/dist/site/img/fission-mark.svg
+          test -f documentation/dist/site/img/charts/line-gradient-area.png
 
       - name: Upload static site artifact
         uses: actions/upload-pages-artifact@v3
         with:
-          path: website/build
+          path: documentation/dist/site
 
   deploy:
     needs: build
