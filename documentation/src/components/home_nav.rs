@@ -1,0 +1,73 @@
+use super::home_widgets::{nav_inset, NavLink, ThemeToggle};
+use super::state::DocsState;
+use fission::op::{AlignItems, Fill, JustifyContent};
+use fission::prelude::*;
+
+const NAV_ITEMS: &[(&str, &str)] = &[
+    ("Learn", "/docs/learn/overview/"),
+    ("Guides", "/docs/guides/app-structure/"),
+    ("Charts", "/reference/charts/overview/"),
+    ("Cookbook", "/docs/cookbook/build-a-counter/"),
+    ("Reference", "/reference/overview/overview/"),
+    ("Examples", "/docs/learn/examples-and-targets/"),
+];
+
+#[derive(Clone, Debug)]
+pub(super) struct HomePageNav;
+
+impl Widget<DocsState> for HomePageNav {
+    fn build(&self, _ctx: &mut BuildCtx<DocsState>, view: &View<DocsState>) -> Node {
+        let tokens = &view.env.theme.tokens;
+        let mut nav_items = NAV_ITEMS
+            .iter()
+            .map(|(label, href)| NavLink::new(label, href).build(_ctx, view))
+            .collect::<Vec<_>>();
+        nav_items.push(ThemeToggle.build(_ctx, view));
+        Container::new(
+            Row {
+                children: vec![
+                    Row {
+                        children: vec![
+                            Image {
+                                source: "/img/fission-mark.svg".to_string(),
+                                width: Some(tokens.spacing.l),
+                                height: Some(tokens.spacing.l),
+                                ..Default::default()
+                            }
+                            .into_node(),
+                            Text::new("Fission")
+                                .size(tokens.typography.font_size_lg)
+                                .weight(tokens.typography.font_weight_bold)
+                                .color(tokens.colors.heading)
+                                .into_node(),
+                        ],
+                        gap: Some(tokens.spacing.s),
+                        align_items: AlignItems::Center,
+                        ..Default::default()
+                    }
+                    .into_node(),
+                    Row {
+                        children: nav_items,
+                        gap: Some(tokens.spacing.l),
+                        justify_content: JustifyContent::End,
+                        ..Default::default()
+                    }
+                    .into_node(),
+                ],
+                justify_content: JustifyContent::SpaceBetween,
+                align_items: AlignItems::Center,
+                ..Default::default()
+            }
+            .into_node(),
+        )
+        .padding([
+            nav_inset(tokens),
+            nav_inset(tokens),
+            tokens.spacing.m,
+            tokens.spacing.m,
+        ])
+        .bg_fill(Fill::Solid(tokens.colors.surface.with_alpha(232)))
+        .border(tokens.colors.border, 1.0)
+        .into_node()
+    }
+}

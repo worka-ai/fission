@@ -1,0 +1,14 @@
+/* Documentation-specific polish layered after generated Fission styles. */
+.fission-site-theme-toggle {
+  cursor: pointer;
+  border: 1px solid color-mix(in srgb, var(--fs-color-border) 72%, transparent);
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--fs-color-surface-raised) 88%, transparent);
+  color: var(--fs-color-text-link);
+  padding: 0.35rem 0.72rem;
+  font: inherit;
+}
+
+.fission-site-theme-toggle:hover {
+  background: color-mix(in srgb, var(--fs-color-primary-subtle) 62%, transparent);
+}
