@@ -56,6 +56,11 @@ pub mod widgets {
     pub use fission_widgets::*;
 }
 
+/// Static-site authoring and build-time rendering.
+pub mod site {
+    pub use fission_site::*;
+}
+
 /// Derive and attribute macros — `#[fission_action]`, `#[fission_reducer]`, and friends.
 pub mod macros {
     pub use fission_core::{reduce, reduce_with, with_reducer};
@@ -143,6 +148,9 @@ pub use fission_macros::{fission_action, fission_reducer, Action as ActionDerive
 pub mod prelude {
     // Widgets
     pub use fission_core::ui::*;
+    pub use fission_site::{
+        DocumentationTemplate, HtmlPage, PageShell, Router as SiteRouter, StaticPage, StaticSiteApp,
+    };
     pub use fission_widgets::*;
 
     // Actions

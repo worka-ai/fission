@@ -9,6 +9,7 @@ members = [
     "crates/core/fission-theme",
     "crates/authoring/fission-macros",
     "crates/authoring/fission-widgets",
+    "crates/authoring/fission-site",
     "crates/authoring/fission-icons",
     "crates/authoring/fission-charts",
     "crates/core/fission-core",
