@@ -1,0 +1,85 @@
+use super::commands::{execute_ui_command, UiCommand};
+use super::routes::UiRoute;
+use super::state::UiState;
+use crate::Target;
+use fission::prelude::*;
+
+#[fission_reducer(Navigate)]
+pub(crate) fn navigate(state: &mut UiState, route: UiRoute) {
+    state.route = route;
+}
+
+#[fission_reducer(ToggleTheme)]
+pub(crate) fn toggle_theme(state: &mut UiState) {
+    state.theme_mode = state.theme_mode.toggle();
+}
+
+#[fission_reducer(SelectTarget)]
+pub(crate) fn select_target(state: &mut UiState, target: Target) {
+    state.selected_target = Some(target);
+    state.selected_device = state
+        .devices
+        .iter()
+        .find(|device| device.target == target && device.available)
+        .map(|device| device.id.clone());
+}
+
+#[fission_reducer(SelectDevice)]
+pub(crate) fn select_device(state: &mut UiState, id: String) {
+    state.selected_device = Some(id);
+}
+
+#[fission_reducer(SetInitName)]
+pub(crate) fn set_init_name(state: &mut UiState, value: String) {
+    state.init_name = value;
+}
+
+#[fission_reducer(SetInitAppId)]
+pub(crate) fn set_init_app_id(state: &mut UiState, value: String) {
+    state.init_app_id = value;
+}
+
+#[fission_reducer(SetInitLocalPath)]
+pub(crate) fn set_init_local_path(state: &mut UiState, value: String) {
+    state.init_local_path = value;
+}
+
+#[fission_reducer(SetHost)]
+pub(crate) fn set_host(state: &mut UiState, value: String) {
+    state.host = value;
+}
+
+#[fission_reducer(SetPort)]
+pub(crate) fn set_port(state: &mut UiState, value: String) {
+    state.port = value;
+}
+
+#[fission_reducer(ToggleStrict)]
+pub(crate) fn toggle_strict(state: &mut UiState) {
+    state.strict = !state.strict;
+}
+
+#[fission_reducer(ToggleRelease)]
+pub(crate) fn toggle_release(state: &mut UiState) {
+    state.release = !state.release;
+}
+
+#[fission_reducer(ToggleDetach)]
+pub(crate) fn toggle_detach(state: &mut UiState) {
+    state.detach = !state.detach;
+}
+
+#[fission_reducer(ToggleNoOpen)]
+pub(crate) fn toggle_no_open(state: &mut UiState) {
+    state.no_open = !state.no_open;
+}
+
+#[fission_reducer(ToggleHeadless)]
+pub(crate) fn toggle_headless(state: &mut UiState) {
+    state.headless = !state.headless;
+}
+
+#[fission_reducer(ExecuteCommand)]
+pub(crate) fn execute_command(state: &mut UiState, command: UiCommand) {
+    execute_ui_command(state, command);
+}

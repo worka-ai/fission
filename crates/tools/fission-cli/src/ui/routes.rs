@@ -1,0 +1,46 @@
+use serde::{Deserialize, Serialize};
+
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq, Serialize, Deserialize)]
+pub(crate) enum UiRoute {
+    #[default]
+    Dashboard,
+    Project,
+    Doctor,
+    Devices,
+    Run,
+    Build,
+    Test,
+    Site,
+    Logs,
+    Help,
+}
+
+impl UiRoute {
+    pub(crate) const ALL: [Self; 10] = [
+        Self::Dashboard,
+        Self::Project,
+        Self::Doctor,
+        Self::Devices,
+        Self::Run,
+        Self::Build,
+        Self::Test,
+        Self::Site,
+        Self::Logs,
+        Self::Help,
+    ];
+
+    pub(crate) fn title(self) -> &'static str {
+        match self {
+            Self::Dashboard => "Dashboard",
+            Self::Project => "Project",
+            Self::Doctor => "Doctor",
+            Self::Devices => "Devices",
+            Self::Run => "Run",
+            Self::Build => "Build",
+            Self::Test => "Test",
+            Self::Site => "Site",
+            Self::Logs => "Logs",
+            Self::Help => "Help",
+        }
+    }
+}
