@@ -16,6 +16,7 @@ generate_robots = true
 title = "Fission"
 description = "Build production desktop, web, Android, and iOS apps with Fission."
 logo = "/img/fission-mark.svg"
+favicon = "/img/fission-mark.svg"
 asset_dirs = ["../website/static"]
 
 [site.code_highlighting]

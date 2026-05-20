@@ -221,7 +221,7 @@ img, svg { max-width: 100%; }
 .fission-site-doc-toc {
   max-height: 100%;
   overflow-y: auto;
-  overscroll-behavior: contain;
+  overscroll-behavior: auto;
   scrollbar-gutter: stable;
 }
 
@@ -230,6 +230,7 @@ img, svg { max-width: 100%; }
   position: sticky;
   top: 0;
   align-self: stretch;
+  min-height: 100%;
 }
 
 .fission-site-doc-main {
@@ -241,15 +242,28 @@ img, svg { max-width: 100%; }
   display: none !important;
 }
 
-.fission-site-sidebar-item[data-fission-site-sidebar-has-children="true"] > .fission-site-column > .fission-site-box::after {
-  content: "›";
-  float: right;
-  color: var(--fs-color-text-muted);
-  transform: rotate(0deg);
+.fission-site-sidebar-item {
+  position: relative;
 }
 
-.fission-site-sidebar-item[data-fission-site-sidebar-expanded="true"] > .fission-site-column > .fission-site-box::after {
-  transform: rotate(90deg);
+.fission-site-sidebar-item[data-fission-site-sidebar-has-children="true"] > .fission-site-column > .fission-site-box {
+  padding-right: 1.75rem !important;
+}
+
+.fission-site-sidebar-item[data-fission-site-sidebar-has-children="true"]::after {
+  content: "›";
+  position: absolute;
+  top: 50%;
+  right: 0.65rem;
+  color: var(--fs-color-text-muted);
+  pointer-events: none;
+  transform: translateY(-50%) rotate(0deg);
+  transform-origin: center;
+  transition: transform 140ms ease;
+}
+
+.fission-site-sidebar-item[data-fission-site-sidebar-expanded="true"]::after {
+  transform: translateY(-50%) rotate(90deg);
 }
 
 @media (max-width: 960px) {

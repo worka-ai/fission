@@ -15,6 +15,7 @@ pub struct HtmlRenderOptions {
     pub description: Option<String>,
     pub canonical_url: Option<String>,
     pub site_name: Option<String>,
+    pub favicon_href: Option<String>,
     pub stylesheet_href: String,
     pub root_class: String,
     pub current_route_path: String,
@@ -34,6 +35,7 @@ impl Default for HtmlRenderOptions {
             description: None,
             canonical_url: None,
             site_name: None,
+            favicon_href: None,
             stylesheet_href: "/site.css".to_string(),
             root_class: "fission-site-root".to_string(),
             current_route_path: "/".to_string(),
@@ -173,6 +175,9 @@ fn render_document(body_html: &str, options: &HtmlRenderOptions, has_code_blocks
         metadata.push_str(json);
         metadata.push_str("</script>");
     }
+    if let Some(favicon) = options.favicon_href.as_ref() {
+        metadata.push_str(&favicon_link_tags(favicon));
+    }
     let theme_attr = options
         .default_theme_mode
         .map(|mode| {
@@ -192,6 +197,32 @@ fn render_document(body_html: &str, options: &HtmlRenderOptions, has_code_blocks
         escape_text(&options.document_title),
         escape_attr(&options.stylesheet_href)
     )
+}
+
+fn favicon_link_tags(href: &str) -> String {
+    let mime = favicon_mime_type(href);
+    format!(
+        "\n    <link rel=\"icon\" href=\"{}\" type=\"{}\">\n    <link rel=\"shortcut icon\" href=\"{}\" type=\"{}\">",
+        escape_attr(href),
+        mime,
+        escape_attr(href),
+        mime,
+    )
+}
+
+fn favicon_mime_type(href: &str) -> &'static str {
+    let path = href.split(['#', '?']).next().unwrap_or(href);
+    match path
+        .rsplit_once('.')
+        .map(|(_, extension)| extension.to_ascii_lowercase())
+    {
+        Some(extension) if extension == "svg" => "image/svg+xml",
+        Some(extension) if extension == "png" => "image/png",
+        Some(extension) if extension == "jpg" || extension == "jpeg" => "image/jpeg",
+        Some(extension) if extension == "webp" => "image/webp",
+        Some(extension) if extension == "ico" => "image/x-icon",
+        _ => "image/x-icon",
+    }
 }
 
 fn code_highlighting_assets(options: &HtmlRenderOptions, has_code_blocks: bool) -> String {

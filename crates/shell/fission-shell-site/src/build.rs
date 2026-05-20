@@ -28,6 +28,7 @@ pub struct SiteBuildOptions {
     pub site_title: String,
     pub site_description: Option<String>,
     pub site_logo: Option<String>,
+    pub site_favicon: Option<String>,
     pub base_url: Option<String>,
     pub default_locale: String,
     pub site_nav: Vec<SiteNavLink>,
@@ -58,6 +59,7 @@ impl SiteBuildOptions {
             site_title: site_title.into(),
             site_description: None,
             site_logo: None,
+            site_favicon: None,
             base_url: None,
             default_locale: "en".to_string(),
             site_nav: Vec::new(),
@@ -94,6 +96,7 @@ impl SiteBuildOptions {
             .or(app_name)
             .unwrap_or_else(|| fallback_title.into());
         let site_logo = site.logo.as_deref().map(normalize_site_asset_href);
+        let site_favicon = site.favicon.as_deref().map(normalize_site_asset_href);
         let base_url = site
             .base_url
             .map(|url| url.trim_end_matches('/').to_string());
@@ -160,6 +163,7 @@ impl SiteBuildOptions {
             site_title,
             site_description: site.description,
             site_logo,
+            site_favicon,
             base_url,
             default_locale,
             site_nav,
@@ -711,6 +715,10 @@ fn render_node_to_html(
         description: description.clone(),
         canonical_url: canonical_url_for_route(options, route_path),
         site_name: Some(options.site_title.clone()),
+        favicon_href: options
+            .site_favicon
+            .as_deref()
+            .map(|href| page_asset_href_for_route(route_path, href)),
         stylesheet_href: stylesheet_href_for_route(route_path),
         current_route_path: route_path.to_string(),
         css_variables: CssVariableMap::from_theme(&site.theme),
@@ -904,6 +912,14 @@ fn search_script_href_for_route(route_path: &str, search_path: &str) -> String {
         search_path.trim_matches('/').trim_end_matches('/')
     );
     relative_href_for_route(route_path, &target)
+}
+
+fn page_asset_href_for_route(route_path: &str, href: &str) -> String {
+    if href.starts_with('/') {
+        relative_href_for_route(route_path, href)
+    } else {
+        href.to_string()
+    }
 }
 
 fn relative_href_for_route(current_route_path: &str, target: &str) -> String {
@@ -1180,6 +1196,7 @@ struct ProjectSite {
     title: Option<String>,
     description: Option<String>,
     logo: Option<String>,
+    favicon: Option<String>,
     base_url: Option<String>,
     default_locale: Option<String>,
     out_dir: Option<String>,
@@ -1303,6 +1320,8 @@ mod tests {
                 .as_nanos()
         ));
         fs::create_dir_all(temp.join("content")).unwrap();
+        fs::create_dir_all(temp.join("assets")).unwrap();
+        fs::write(temp.join("assets/favicon.svg"), "<svg></svg>").unwrap();
         fs::write(
             temp.join("content/getting-started.md"),
             "---\ntitle: Getting started\ndescription: First page\n---\n# Getting started\n\nThis is rendered by Fission.\n\n```rust\nlet answer = 42;\n```",
@@ -1311,6 +1330,8 @@ mod tests {
         let mut options = SiteBuildOptions::for_project(&temp, "Test site");
         options.base_url = Some("https://example.com/docs".to_string());
         options.default_locale = "en-GB".to_string();
+        options.site_favicon = Some("/favicon.svg".to_string());
+        options.asset_dirs.push(temp.join("assets"));
         options.generate_sitemap = true;
         options.generate_robots = true;
         options.code_highlighting.enabled = true;
@@ -1324,6 +1345,7 @@ mod tests {
         assert!(html.contains("Fission."));
         assert!(!html.contains("style=\""));
         assert!(html.contains("rel=\"canonical\""));
+        assert!(html.contains("rel=\"icon\" href=\"../../favicon.svg\" type=\"image/svg+xml\""));
         assert!(html.contains("property=\"og:locale\" content=\"en_GB\""));
         assert!(html.contains("application/ld+json"));
         assert!(html.contains("<pre class=\"fission-site-code-block\""));
