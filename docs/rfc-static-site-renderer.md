@@ -12,8 +12,10 @@ The primary rule is that page content must exist in the generated HTML before Ja
 
 The target has two primary authoring modes:
 
-1. custom pages, declared explicitly in a `StaticSiteApp` router and rendered from normal Fission widgets; and
+1. custom pages, declared by the site build harness as route entries that render normal Fission widgets through the existing Fission router/widget model; and
 2. content pages, discovered from configured Markdown folders such as `content/`, with front matter used to select metadata and the page template.
+
+The static target is a shell/renderer target. It must not introduce an HTML-first application model, a replacement router, or template APIs that bypass `Widget::build`.
 
 The target should use small progressive-enhancement controllers for simple interactive islands, and WASM-backed islands when a route needs Rust action/reducer logic in the browser. Production builds should be minified locally with Rust tooling where possible and must not require a hosted build service.
 
@@ -64,20 +66,20 @@ Required pipeline:
 
 1. read `fission.toml`;
 2. compile the project for the site build target with the static-site feature set enabled;
-3. build or run a generated site harness that links the user's crate, calls the configured site entry point, and obtains `StaticSiteApp`;
-4. enumerate custom routes from the `StaticSiteApp` router;
+3. build or run a generated site harness that links the user's crate and calls the configured site entry point;
+4. enumerate custom routes from the harness route manifest while using the existing Fission router/widget types to render each route;
 5. scan configured Markdown content collections from `site.routes`;
 6. parse front matter and create content routes;
 7. resolve templates, metadata, canonical URLs, assets, design-system tokens, and data loaders;
-8. render each route into Fission View/Core IR plus Semantics, or into trusted Markdown HTML fragments where the template chooses that path;
-9. lower route structure to semantic HTML and extracted CSS;
+8. render each route by calling `Widget::build`, lowering the resulting `Node` tree to Core IR plus Semantics;
+9. visit the route Core IR and lower it to semantic HTML and extracted CSS;
 10. emit declared DOM controllers and WASM islands only for routes that require them;
 11. generate search indexes, sitemap, robots, route manifest, and asset manifest;
 12. run validation checks;
 13. minify and precompress in release mode when configured;
 14. write the artifact manifest for post-build distribution.
 
-The generated harness exists because the CLI cannot instantiate arbitrary Rust widgets by name at runtime. It must compile and link the user's site crate, then call a known entry point such as `site_app()` selected by convention or project configuration. A configured `entry` path is resolved while generating Rust harness source; it is not runtime reflection. The harness is a build tool; it is not shipped to the browser.
+The generated harness exists because the CLI cannot instantiate arbitrary Rust widgets by name at runtime. It must compile and link the user's site crate, then call a known entry point selected by convention or project configuration. A configured `entry` path is resolved while generating Rust harness source; it is not runtime reflection. The harness is a build tool; it is not shipped to the browser.
 
 ## 5. Configuration
 
@@ -111,38 +113,47 @@ default_image = "site/public/social-card.png"
 kind = "content"
 path = "/content"
 source = "content"
-template = "fission::site::DocumentationTemplate"
+template = "fission_shell_site::documentation"
 ```
 
-`site.routes` is for configured generated route sources such as Markdown content collections. The default content route maps Markdown files under `content/` to URLs under `/content` and renders them with `fission::site::DocumentationTemplate`.
+`site.routes` is for configured generated route sources such as Markdown content collections. The default content route maps Markdown files under `content/` to URLs under `/content` and renders them with the documentation template supplied by the static site shell.
 
 The shorthand form below is equivalent to `kind = "content"`, `source = "content"`, and `path = "/content"`:
 
 ```toml
 [[site.routes]]
 path = "/content"
-template = "fission::site::DocumentationTemplate"
+template = "fission_shell_site::documentation"
 ```
 
-Custom designed pages do not live in `fission.toml`. They are declared in Rust by constructing `StaticSiteApp` with an explicit router:
+Custom designed pages do not live in `fission.toml`. They are declared in Rust as normal Fission widgets and routed with the existing router model. The site harness enumerates the route paths and asks the application to render each path; it does not use a separate site router:
 
 ```rust
 use fission::prelude::*;
-use fission::site::{Router, StaticSiteApp};
+use fission::widgets::{Route, Router};
 
-pub fn site_app() -> StaticSiteApp {
-    StaticSiteApp::new(
-        Router::new()
-            .route("/", HomePage)
-            .route("/showcase/", ShowcasePage)
-            .route("/pricing/", PricingPage),
-    )
+pub fn site_routes() -> &'static [&'static str] {
+    &["/", "/showcase/", "/pricing/"]
+}
+
+pub fn site_root(current_path: String) -> impl Widget<SiteState> {
+    Router {
+        current_path,
+        routes: vec![
+            Route::new("/", HomePage),
+            Route::new("/showcase/", ShowcasePage),
+            Route::new("/pricing/", PricingPage),
+        ],
+        not_found: None,
+    }
 }
 ```
 
+The exact helper constructors can evolve, but the invariant cannot: custom routes render through the existing Fission router/widget path, not through an HTML-first site API.
+
 The static route graph is the union of:
 
-1. custom routes declared in `StaticSiteApp::new(Router { ... })`; and
+1. custom routes declared by the site harness route manifest; and
 2. content routes generated from configured `site.routes` content collections.
 
 The static site builder must not discover the authoritative route graph by launching a browser and crawling links. Link crawling is a validation step, not a route definition mechanism. Markdown discovery is allowed only inside folders explicitly configured in `fission.toml`.
@@ -181,7 +192,7 @@ struct MarkdownContentRoute {
 Rules:
 
 - every output page must correspond to either a custom router route or a configured content route;
-- every custom route must be declared explicitly in the `StaticSiteApp` router;
+- every custom route must be declared explicitly in the site harness route manifest and rendered through the existing Fission router/widget model;
 - every Markdown content route must come from a configured `site.routes` source folder;
 - every generated route must render deterministically at build time;
 - route metadata must be available before rendering the HTML head;
@@ -193,7 +204,7 @@ Dynamic content is allowed if it is resolved at build time through declared data
 
 ### 6.1 Markdown content collections
 
-A content route entry scans a configured folder for Markdown files. The default folder is `content/`; the default URL prefix is `/content`; the default template is `fission::site::DocumentationTemplate`.
+A content route entry scans a configured folder for Markdown files. The default folder is `content/`; the default URL prefix is `/content`; the default template is the documentation template supplied by the static site shell.
 
 Example:
 
@@ -235,11 +246,11 @@ Template resolution order:
 
 1. `template` in the Markdown front matter when present;
 2. `template` on the matching `site.routes` content route;
-3. `fission::site::DocumentationTemplate`.
+3. the static site shell documentation template.
 
 Front matter is page data, not executable code. It must be parsed before route rendering so title, description, canonical URL, sitemap settings, social metadata, and template selection are known before HTML generation.
 
-`fission::site::DocumentationTemplate` is the default template provided by the Fission site crate. It should render a documentation page shell around the Markdown content: site header, sidebar/tree navigation where configured, table of contents, main article, previous/next links, and metadata-derived head tags. Site owners can replace it globally for a content collection or locally for a single Markdown page.
+The documentation template is the default template provided by the Fission static site shell. It should render a documentation page shell around the Markdown content: site header, sidebar/tree navigation where configured, table of contents, main article, previous/next links, and metadata-derived head tags. Site owners can replace it globally for a content collection or locally for a single Markdown page.
 
 ### 6.2 Template input
 
@@ -260,24 +271,21 @@ struct MarkdownRender<'a> {
 
 impl<'a> MarkdownRender<'a> {
     fn ast(&self) -> anyhow::Result<&'a rushdown::ast::Document>;
-    fn html(&self) -> anyhow::Result<TrustedStaticHtml<'a>>;
-    fn widget(&self) -> fission::Markdown<'a>;
+    fn widget(&self) -> fission::widgets::MarkdownViewer;
 }
 
-trait StaticMarkdownTemplate {
-    fn render(&self, page: StaticMarkdownPage<'_>, ctx: &StaticBuildCtx) -> View;
+trait SiteMarkdownTemplate<S: AppState> {
+    type Output: Widget<S>;
+    fn render(&self, page: StaticMarkdownPage<'_>, ctx: &StaticBuildCtx) -> Self::Output;
 }
 ```
 
 The Markdown body is stored as a raw string and parsed on demand through a memoized parser service. A template can:
 
-- place `page.markdown.widget()` inside normal Fission layout widgets;
-- inspect `page.markdown.ast()` and render the AST manually with Fission widgets;
-- call `page.markdown.html()` and emit a trusted static HTML fragment when raw HTML is the right target.
+- place `page.markdown.widget()` inside normal Fission layout widgets; or
+- inspect `page.markdown.ast()` and render the AST manually with Fission widgets.
 
-`TrustedStaticHtml` is only valid for HTML generated by the configured Markdown renderer and sanitizer. User-provided raw HTML in Markdown must follow the site security policy. If raw HTML is disabled, the parser must reject or escape it consistently.
-
-The static HTML renderer must recognize `TrustedStaticHtml` and insert it directly into the output document. It must not attempt to re-lower that fragment through the widget/display pipeline.
+The authoritative path still goes through `Widget::build` and Core IR. Raw HTML fragments are not a separate lowering path because they bypass the Fission node model and make validation weaker. If raw HTML in Markdown is enabled, it must be represented by a Fission node that the static renderer can validate before output.
 
 ## 7. Output layout
 
@@ -308,7 +316,7 @@ Each HTML document must be useful without JavaScript. It must include page conte
 
 The static site renderer lowers Fission View/Core IR and Semantics into semantic HTML. It must not lower from a pixel display list. Display lists are for raster/window renderers; the static site target needs structure, semantics, actions, metadata, and style information that would already be lost or flattened in a display list.
 
-Markdown content has a separate short path. If a template returns a `fission::Markdown` widget, the renderer lowers that widget to semantic HTML using the configured Markdown renderer. If a template returns `TrustedStaticHtml`, the renderer inserts that fragment directly after validation because the fragment is already HTML.
+Markdown content does not have an HTML bypass. If a template returns a Markdown widget, that widget builds normal Fission nodes; the static renderer then lowers those nodes through the same Core IR visitor as every other widget.
 
 Examples:
 
@@ -688,7 +696,7 @@ The static site target is accepted when:
 
 - `fission add-target site` configures the target without changing app runtime code.
 - `fission site build --release` emits a multi-page static site with one HTML document per custom route and generated content route.
-- `content/` Markdown files generate routes using `fission::site::DocumentationTemplate` by default.
+- `content/` Markdown files generate routes using the static site shell documentation template by default.
 - Markdown front matter can override metadata and page template.
 - generated pages contain primary content before JavaScript runs.
 - generated routes have titles, descriptions, canonical URLs, and sitemap entries where configured.
