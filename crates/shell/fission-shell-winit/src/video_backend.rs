@@ -876,3 +876,34 @@ mod mock {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::{create_video_backend, VideoEvent};
+    use fission_ir::WidgetNodeId;
+    use fission_render::LayoutRect;
+    use fission_shell::VideoSurfaceFrame;
+
+    #[test]
+    fn video_backend_without_window_uses_safe_fallback() {
+        let backend = create_video_backend(None);
+        let mut player = backend.create_player("");
+
+        assert!(player.surface_id() > 0);
+
+        backend.present_surfaces(&[VideoSurfaceFrame {
+            widget_id: WidgetNodeId::explicit("fallback-video"),
+            surface_id: player.surface_id(),
+            rect: LayoutRect::new(0.0, 0.0, 320.0, 180.0),
+        }]);
+        backend.present_surfaces(&[]);
+
+        let events = player.poll_events();
+        assert!(
+            events
+                .iter()
+                .any(|event| matches!(event, VideoEvent::Error(_))),
+            "missing source should surface a recoverable error event"
+        );
+    }
+}

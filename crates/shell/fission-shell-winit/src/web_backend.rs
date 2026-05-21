@@ -285,3 +285,22 @@ mod mock {
         pub fn present_surfaces(&self, _frames: &[WebSurfaceFrame]) {}
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::{PlatformWebBackend, WebSurfaceFrame};
+    use fission_ir::WidgetNodeId;
+    use fission_render::LayoutRect;
+
+    #[test]
+    fn web_backend_without_window_uses_safe_fallback() {
+        let backend = PlatformWebBackend::new(None);
+        backend.present_surfaces(&[WebSurfaceFrame {
+            widget_id: WidgetNodeId::explicit("fallback-web"),
+            url: "https://example.invalid".to_string(),
+            user_agent: Some("fission-test".to_string()),
+            rect: LayoutRect::new(0.0, 0.0, 320.0, 180.0),
+        }]);
+        backend.present_surfaces(&[]);
+    }
+}
