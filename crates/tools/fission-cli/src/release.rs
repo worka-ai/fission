@@ -13,6 +13,7 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::time::{SystemTime, UNIX_EPOCH};
 
+mod content;
 mod model;
 
 #[derive(Subcommand, Debug)]
@@ -430,38 +431,27 @@ pub(crate) fn release_content(command: ReleaseContentCommand) -> Result<()> {
             provider,
             project_dir,
             json,
-        } => print_report(validate_release_content(&project_dir, provider), json),
+        } => print_report(
+            content::validate_release_content_model(&project_dir, provider),
+            json,
+        ),
         ReleaseContentCommand::Capture {
             target,
             set,
             project_dir,
             json,
-        } => {
-            let mut report = base_report("release-content.capture", None, Some(target));
-            report.checks.push(path_check(
-                "release_content.scenarios_configured",
-                project_dir.join("fission.toml"),
-                "release screenshot scenarios are declared in fission.toml",
-            ));
-            report.checks.push(warning_check(
-                "release_content.capture.backend",
-                format!("capture set `{set}` requires the Fission test runner screenshot backend for {target:?}"),
-            ));
-            print_report(report, json)
-        }
+        } => print_report(
+            content::capture_release_content(&project_dir, target, &set)?,
+            json,
+        ),
         ReleaseContentCommand::Render {
             provider,
             project_dir,
             json,
-        } => {
-            let mut report = validate_release_content(&project_dir, Some(provider));
-            report.area = "release-content.render".to_string();
-            report.checks.push(warning_check(
-                "release_content.render.backend",
-                "rendering raw captures into provider-specific screenshot/video sets needs the image/video renderer backend".to_string(),
-            ));
-            print_report(report, json)
-        }
+        } => print_report(
+            content::render_release_content(&project_dir, provider)?,
+            json,
+        ),
     }
 }
 
@@ -834,25 +824,6 @@ fn provider_operation_report(
         .checks
         .push(ok_check("release_config.confirmed", yes.to_string()));
     print_report(report, json)
-}
-
-fn validate_release_content(
-    project_dir: &Path,
-    provider: Option<publish::DistributionProvider>,
-) -> LifecycleReport {
-    let mut report = base_report("release-content.validate", provider, None);
-    report.checks.push(path_check(
-        "release_content.root_exists",
-        project_dir.join("release-content"),
-        "release-content directory exists",
-    ));
-    report.checks.push(path_check(
-        "release_content.metadata_root_exists",
-        project_dir.join("release-content/metadata"),
-        "release metadata sidecar directory exists",
-    ));
-    finalize_status(&mut report);
-    report
 }
 
 fn provider_backend_report(
