@@ -452,20 +452,7 @@ pub(crate) fn beta(command: BetaCommand) -> Result<()> {
                 project_dir,
                 dry_run,
                 json,
-            } => {
-                let mut report =
-                    provider_backend_report("beta.groups.sync", &project_dir, provider);
-                report.checks.push(path_check(
-                    "beta.groups.source_exists",
-                    project_dir.join(from),
-                    "beta group source file exists",
-                ));
-                report.checks.push(ok_check(
-                    "beta.groups.sync.intent",
-                    format!("dry_run = {dry_run}"),
-                ));
-                print_report(report, json)
-            }
+            } => store_ops::beta_groups_sync(provider, &from, &project_dir, dry_run, json),
         },
         BetaCommand::Testers { command } => match command {
             BetaTestersCommand::Import {
@@ -507,19 +494,18 @@ pub(crate) fn beta(command: BetaCommand) -> Result<()> {
             project_dir,
             dry_run,
             json,
-        } => {
-            let mut report = provider_backend_report("beta.distribute", &project_dir, provider);
-            report.checks.push(path_check(
-                "beta.distribute.artifact_exists",
-                artifact,
-                "artifact manifest exists",
-            ));
-            report.checks.push(ok_check(
-                "beta.distribute.intent",
-                format!("group = {group:?}, track = {track:?}, dry_run = {dry_run}"),
-            ));
-            print_report(report, json)
-        }
+        } => publish::distribute(publish::DistributeOptions {
+            project_dir,
+            provider,
+            action: publish::DistributeAction::Publish,
+            artifact: Some(artifact),
+            site: group.unwrap_or_else(|| "beta".to_string()),
+            deploy: None,
+            track,
+            dry_run,
+            yes: true,
+            json,
+        }),
     }
 }
 
@@ -741,28 +727,6 @@ fn edit_release_file(
         bail!("editor exited with {status}");
     }
     Ok(())
-}
-
-fn provider_backend_report(
-    area: &str,
-    project_dir: &Path,
-    provider: publish::DistributionProvider,
-) -> LifecycleReport {
-    let mut report = base_report(area, Some(provider), None);
-    report.checks.push(path_check(
-        "release.project_config_exists",
-        project_dir.join("fission.toml"),
-        "fission.toml exists",
-    ));
-    report.checks.push(warning_check(
-        "release.provider_backend",
-        format!(
-            "{} API backend requires provider-specific wiring before mutating remote state",
-            provider.as_str()
-        ),
-    ));
-    finalize_status(&mut report);
-    report
 }
 
 fn auth_report(area: &str, provider: Option<publish::DistributionProvider>) -> LifecycleReport {

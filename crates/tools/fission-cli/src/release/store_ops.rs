@@ -17,6 +17,7 @@ const GOOGLE_TOKEN_URI: &str = "https://oauth2.googleapis.com/token";
 #[derive(Debug, Deserialize, Default)]
 struct ReleaseProviderToml {
     distribution: Option<DistributionToml>,
+    beta: Option<BetaRootToml>,
     release: Option<ReleaseRootToml>,
     #[serde(default)]
     releases: Vec<ReleaseEntryToml>,
@@ -25,6 +26,25 @@ struct ReleaseProviderToml {
 #[derive(Debug, Deserialize, Default)]
 struct DistributionToml {
     play_store: Option<PlayStoreConfig>,
+}
+
+#[derive(Debug, Deserialize, Default)]
+struct BetaRootToml {
+    play_store: Option<PlayBetaToml>,
+}
+
+#[derive(Debug, Deserialize, Default)]
+struct PlayBetaToml {
+    #[serde(default)]
+    tracks: BTreeMap<String, PlayBetaTrackToml>,
+}
+
+#[derive(Debug, Deserialize, Default)]
+struct PlayBetaTrackToml {
+    tester_source: Option<String>,
+    group: Option<String>,
+    #[serde(default)]
+    groups: Vec<String>,
 }
 
 #[derive(Debug, Deserialize, Default)]
@@ -141,6 +161,21 @@ pub(super) fn beta_groups_list(
     match provider {
         publish::DistributionProvider::PlayStore => play_beta_groups_list(project_dir, json_output),
         _ => unsupported_beta(provider, "groups list"),
+    }
+}
+
+pub(super) fn beta_groups_sync(
+    provider: publish::DistributionProvider,
+    from: &Path,
+    project_dir: &Path,
+    dry_run: bool,
+    json_output: bool,
+) -> Result<()> {
+    match provider {
+        publish::DistributionProvider::PlayStore => {
+            play_beta_groups_sync(project_dir, from, dry_run, json_output)
+        }
+        _ => unsupported_beta(provider, "groups sync"),
     }
 }
 
@@ -552,6 +587,110 @@ fn play_beta_groups_list(project_dir: &Path, json_output: bool) -> Result<()> {
     Ok(())
 }
 
+fn play_beta_groups_sync(
+    project_dir: &Path,
+    source: &Path,
+    dry_run: bool,
+    json_output: bool,
+) -> Result<()> {
+    let source = if source.is_absolute() {
+        source.to_path_buf()
+    } else {
+        project_dir.join(source)
+    };
+    let root = read_release_provider_toml_from_path(&source)?;
+    let tracks = root
+        .beta
+        .and_then(|beta| beta.play_store)
+        .map(|play| play.tracks)
+        .unwrap_or_default();
+    if tracks.is_empty() {
+        bail!(
+            "{} does not contain [beta.play_store.tracks.<track>] entries",
+            source.display()
+        );
+    }
+    let updates = tracks
+        .into_iter()
+        .map(|(track, config)| {
+            let mut groups = config.groups;
+            if let Some(group) = config.group {
+                groups.push(group);
+            }
+            groups.retain(|group| !group.trim().is_empty());
+            groups.sort();
+            groups.dedup();
+            if groups.is_empty() {
+                bail!("beta.play_store.tracks.{track} must set group or groups");
+            }
+            if config
+                .tester_source
+                .as_deref()
+                .is_some_and(|source| source != "google_group")
+            {
+                bail!("Google Play beta group sync supports tester_source = \"google_group\" for track {track}");
+            }
+            Ok((track, groups))
+        })
+        .collect::<Result<Vec<_>>>()?;
+    let cfg = play_config(project_dir)?;
+    let package_name = cfg
+        .package_name
+        .as_deref()
+        .context("distribution.play_store.package_name is required for Play beta group sync")?;
+    if dry_run {
+        let value = json!({
+            "provider": "play-store",
+            "package_name": package_name,
+            "tracks": updates.iter().map(|(track, groups)| json!({"track": track, "googleGroups": groups})).collect::<Vec<_>>(),
+            "status": "dry-run"
+        });
+        if json_output {
+            println!("{}", serde_json::to_string_pretty(&value)?);
+        } else {
+            println!(
+                "Would sync Google Play tester groups for {} track(s)",
+                updates.len()
+            );
+        }
+        return Ok(());
+    }
+    let client = http_client()?;
+    let token = google_play_access_token(&cfg, &client)?;
+    let edit_id = create_play_edit(&client, &token, package_name)?;
+    let mut responses = Vec::new();
+    for (track, groups) in &updates {
+        let url = format!(
+            "{PLAY_API}/androidpublisher/v3/applications/{package_name}/edits/{edit_id}/testers/{track}"
+        );
+        let response = client
+            .put(url)
+            .bearer_auth(&token)
+            .json(&json!({ "googleGroups": groups }))
+            .send()
+            .with_context(|| format!("failed to update Google Play testers for {track}"))?;
+        responses.push(json_response(response, "Google Play testers update")?);
+    }
+    validate_play_edit(&client, &token, package_name, &edit_id)?;
+    commit_play_edit(&client, &token, package_name, &edit_id)?;
+    let value = json!({
+        "provider": "play-store",
+        "package_name": package_name,
+        "tracks": updates.iter().map(|(track, groups)| json!({"track": track, "googleGroups": groups})).collect::<Vec<_>>(),
+        "responses": responses,
+        "status": "synced"
+    });
+    if json_output {
+        println!("{}", serde_json::to_string_pretty(&value)?);
+    } else {
+        println!(
+            "Synced Google Play tester groups for {} track(s)",
+            updates.len()
+        );
+    }
+    Ok(())
+}
+
 fn play_beta_testers_import(
     project_dir: &Path,
     track: Option<&str>,
@@ -930,9 +1069,12 @@ fn push_field_diff(diffs: &mut Vec<Value>, locale: &str, field: &str, local: &st
 }
 
 fn read_release_provider_toml(project_dir: &Path) -> Result<ReleaseProviderToml> {
-    let path = project_dir.join("fission.toml");
+    read_release_provider_toml_from_path(&project_dir.join("fission.toml"))
+}
+
+fn read_release_provider_toml_from_path(path: &Path) -> Result<ReleaseProviderToml> {
     let data =
-        fs::read_to_string(&path).with_context(|| format!("failed to read {}", path.display()))?;
+        fs::read_to_string(path).with_context(|| format!("failed to read {}", path.display()))?;
     toml::from_str(&data).with_context(|| format!("failed to parse {}", path.display()))
 }
 
@@ -1240,5 +1382,22 @@ full_description = "A focused task manager."
         assert_eq!(listing.short_description, "Plan work");
         assert_eq!(listing.full_description, "A focused task manager.");
         assert_eq!(listing.video.as_deref(), Some("https://example.com/video"));
+    }
+
+    #[test]
+    fn beta_play_store_tracks_parse_group_and_groups() {
+        let root: ReleaseProviderToml = toml::from_str(
+            r#"
+[beta.play_store.tracks.closed]
+tester_source = "google_group"
+group = "closed@example.com"
+groups = ["qa@example.com"]
+"#,
+        )
+        .unwrap();
+        let tracks = root.beta.unwrap().play_store.unwrap().tracks;
+        let closed = tracks.get("closed").unwrap();
+        assert_eq!(closed.group.as_deref(), Some("closed@example.com"));
+        assert_eq!(closed.groups, vec!["qa@example.com".to_string()]);
     }
 }
