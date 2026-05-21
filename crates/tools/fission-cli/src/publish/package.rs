@@ -3,12 +3,34 @@ use crate::{cargo_package_name, read_project_config, workflow, FissionProject, T
 use anyhow::{bail, Context, Result};
 use flate2::write::GzEncoder;
 use flate2::Compression;
+use serde::Deserialize;
+use std::env;
 use std::ffi::OsStr;
 use std::fs;
 use std::io::{self, Write};
 use std::path::{Path, PathBuf};
 use std::process::Command;
 use tar::Builder as TarBuilder;
+
+#[derive(Debug, Deserialize, Default)]
+struct PackageManifest {
+    package: Option<PackageRoot>,
+}
+
+#[derive(Debug, Deserialize, Default)]
+struct PackageRoot {
+    macos: Option<MacosPackageConfig>,
+}
+
+#[derive(Debug, Deserialize, Default)]
+struct MacosPackageConfig {
+    bundle_id: Option<String>,
+    minimum_os: Option<String>,
+    entitlements: Option<String>,
+    signing_identity: Option<String>,
+    installer_identity: Option<String>,
+    notarize: Option<bool>,
+}
 
 pub(super) fn package_artifact(options: &PackageOptions) -> Result<ArtifactManifest> {
     match options.format {
@@ -129,7 +151,9 @@ fn package_macos_app(options: &PackageOptions) -> Result<ArtifactManifest> {
     let project = read_project_config(&options.project_dir)?;
     let profile = profile_name(options.release);
     let staging_dir = clean_package_dir(options)?;
-    let app_bundle = create_macos_app_bundle(options, &project, &staging_dir)?;
+    let macos = macos_package_config(&options.project_dir)?;
+    let app_bundle = create_macos_app_bundle(options, &project, &staging_dir, &macos)?;
+    sign_macos_app_if_configured(&options.project_dir, &app_bundle, &macos)?;
     println!("{}", app_bundle.display());
     finish_artifact_manifest(&project, options, &staging_dir, profile)
 }
@@ -141,7 +165,9 @@ fn package_macos_pkg(options: &PackageOptions) -> Result<ArtifactManifest> {
     let profile = profile_name(options.release);
     let staging_dir = clean_package_dir(options)?;
     let app_staging = staging_dir.join("app-staging");
-    let app_bundle = create_macos_app_bundle(options, &project, &app_staging)?;
+    let macos = macos_package_config(&options.project_dir)?;
+    let app_bundle = create_macos_app_bundle(options, &project, &app_staging, &macos)?;
+    sign_macos_app_if_configured(&options.project_dir, &app_bundle, &macos)?;
     let pkg_path = staging_dir.join(format!(
         "{}-{}.pkg",
         sanitize_file_stem(&project.app.name),
@@ -155,12 +181,14 @@ fn package_macos_pkg(options: &PackageOptions) -> Result<ArtifactManifest> {
         .arg(&app_bundle)
         .arg("--install-location")
         .arg("/Applications")
+        .args(pkgbuild_signing_args(&macos))
         .arg(&pkg_path)
         .status()
         .context("failed to run pkgbuild")?;
     if !status.success() {
         bail!("pkgbuild failed with {status}");
     }
+    notarize_macos_artifact_if_configured(&pkg_path, &macos)?;
     fs::remove_dir_all(&app_staging).ok();
     finish_artifact_manifest(&project, options, &staging_dir, profile)
 }
@@ -365,6 +393,7 @@ fn create_macos_app_bundle(
     options: &PackageOptions,
     project: &FissionProject,
     staging_dir: &Path,
+    macos: &MacosPackageConfig,
 ) -> Result<PathBuf> {
     let binary = build_desktop_binary(&options.project_dir, options.release)?;
     let executable = binary
@@ -375,11 +404,11 @@ fn create_macos_app_bundle(
     let app_name = display_app_name(&project.app.name);
     let app_bundle = staging_dir.join(format!("{app_name}.app"));
     let contents = app_bundle.join("Contents");
-    let macos = contents.join("MacOS");
+    let macos_dir = contents.join("MacOS");
     let resources = contents.join("Resources");
-    fs::create_dir_all(&macos)?;
+    fs::create_dir_all(&macos_dir)?;
     fs::create_dir_all(&resources)?;
-    fs::copy(&binary, macos.join(&executable)).with_context(|| {
+    fs::copy(&binary, macos_dir.join(&executable)).with_context(|| {
         format!(
             "failed to copy {} into {}",
             binary.display(),
@@ -389,13 +418,26 @@ fn create_macos_app_bundle(
     if let Some(icon) = app_icon_path(&options.project_dir) {
         let _ = fs::copy(icon, resources.join("AppIcon.png"));
     }
-    let plist = render_info_plist(project, &app_name, &executable);
+    let version =
+        cargo_package_version(&options.project_dir).unwrap_or_else(|| "0.1.0".to_string());
+    let plist = render_info_plist(project, &app_name, &executable, macos, &version);
     fs::write(contents.join("Info.plist"), plist)?;
     fs::write(contents.join("PkgInfo"), "APPL????")?;
     Ok(app_bundle)
 }
 
-fn render_info_plist(project: &FissionProject, app_name: &str, executable: &str) -> String {
+fn render_info_plist(
+    project: &FissionProject,
+    app_name: &str,
+    executable: &str,
+    macos: &MacosPackageConfig,
+    version: &str,
+) -> String {
+    let bundle_id = macos
+        .bundle_id
+        .as_deref()
+        .unwrap_or(project.app.app_id.as_str());
+    let minimum_os = macos.minimum_os.as_deref().unwrap_or("13.0");
     format!(
         r#"<?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
@@ -412,19 +454,132 @@ fn render_info_plist(project: &FissionProject, app_name: &str, executable: &str)
   <key>CFBundlePackageType</key>
   <string>APPL</string>
   <key>CFBundleShortVersionString</key>
-  <string>0.1.0</string>
+  <string>{}</string>
   <key>CFBundleVersion</key>
-  <string>1</string>
+  <string>{}</string>
   <key>LSMinimumSystemVersion</key>
-  <string>13.0</string>
+  <string>{}</string>
 </dict>
 </plist>
 "#,
-        escape_xml(&project.app.app_id),
+        escape_xml(bundle_id),
         escape_xml(app_name),
         escape_xml(app_name),
-        escape_xml(executable)
+        escape_xml(executable),
+        escape_xml(version),
+        escape_xml(version),
+        escape_xml(minimum_os)
     )
+}
+
+fn macos_package_config(project_dir: &Path) -> Result<MacosPackageConfig> {
+    let path = project_dir.join("fission.toml");
+    let data =
+        fs::read_to_string(&path).with_context(|| format!("failed to read {}", path.display()))?;
+    let manifest: PackageManifest =
+        toml::from_str(&data).with_context(|| format!("failed to parse {}", path.display()))?;
+    Ok(manifest
+        .package
+        .and_then(|package| package.macos)
+        .unwrap_or_default())
+}
+
+fn sign_macos_app_if_configured(
+    project_dir: &Path,
+    app_bundle: &Path,
+    macos: &MacosPackageConfig,
+) -> Result<()> {
+    let Some(identity) = macos
+        .signing_identity
+        .as_deref()
+        .filter(|value| !value.trim().is_empty())
+    else {
+        return Ok(());
+    };
+    let mut command = Command::new("codesign");
+    command
+        .arg("--force")
+        .arg("--timestamp")
+        .arg("--options")
+        .arg("runtime")
+        .arg("--sign")
+        .arg(identity);
+    if let Some(entitlements) = macos
+        .entitlements
+        .as_deref()
+        .filter(|value| !value.trim().is_empty())
+    {
+        command
+            .arg("--entitlements")
+            .arg(resolve_project_path(project_dir, entitlements.to_string()));
+    }
+    let status = command
+        .arg(app_bundle)
+        .status()
+        .context("failed to run codesign")?;
+    if !status.success() {
+        bail!("codesign failed with {status}");
+    }
+    let verify = Command::new("codesign")
+        .args(["--verify", "--deep", "--strict", "--verbose=2"])
+        .arg(app_bundle)
+        .status()
+        .context("failed to verify macOS code signature")?;
+    if !verify.success() {
+        bail!("codesign verification failed with {verify}");
+    }
+    Ok(())
+}
+
+fn pkgbuild_signing_args(macos: &MacosPackageConfig) -> Vec<String> {
+    macos
+        .installer_identity
+        .as_deref()
+        .filter(|value| !value.trim().is_empty())
+        .map(|identity| vec!["--sign".to_string(), identity.to_string()])
+        .unwrap_or_default()
+}
+
+fn notarize_macos_artifact_if_configured(
+    artifact: &Path,
+    macos: &MacosPackageConfig,
+) -> Result<()> {
+    if !macos.notarize.unwrap_or(false) {
+        return Ok(());
+    }
+    let key = env::var("APP_STORE_CONNECT_API_KEY_PATH")
+        .context("APP_STORE_CONNECT_API_KEY_PATH is required when package.macos.notarize = true")?;
+    let key_id = env::var("APP_STORE_CONNECT_KEY_ID")
+        .context("APP_STORE_CONNECT_KEY_ID is required when package.macos.notarize = true")?;
+    let issuer = env::var("APP_STORE_CONNECT_ISSUER_ID")
+        .context("APP_STORE_CONNECT_ISSUER_ID is required when package.macos.notarize = true")?;
+    let submit = Command::new("xcrun")
+        .args([
+            "notarytool",
+            "submit",
+            artifact.to_string_lossy().as_ref(),
+            "--key",
+            &key,
+            "--key-id",
+            &key_id,
+            "--issuer",
+            &issuer,
+            "--wait",
+        ])
+        .status()
+        .context("failed to run xcrun notarytool")?;
+    if !submit.success() {
+        bail!("notarytool submit failed with {submit}");
+    }
+    let staple = Command::new("xcrun")
+        .args(["stapler", "staple"])
+        .arg(artifact)
+        .status()
+        .context("failed to run xcrun stapler")?;
+    if !staple.success() {
+        bail!("stapler failed with {staple}");
+    }
+    Ok(())
 }
 
 fn write_linux_run(
