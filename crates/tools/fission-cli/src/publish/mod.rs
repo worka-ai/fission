@@ -163,6 +163,9 @@ struct ArtifactProject {
 #[derive(Debug, Serialize, Deserialize)]
 struct ArtifactFile {
     kind: String,
+    purpose: Option<String>,
+    platform: Option<String>,
+    upload_provider: Option<String>,
     path: String,
     relative_path: String,
     sha256: String,
@@ -1165,6 +1168,7 @@ fn readiness_package(
         ));
     }
     readiness_package_tools(project_dir, target, format, &mut checks);
+    package::readiness_secondary_artifacts(project_dir, &mut checks);
     Ok(checks)
 }
 
@@ -1542,6 +1546,9 @@ fn collect_artifacts(root: &Path, current: &Path, files: &mut Vec<ArtifactFile>)
                     "asset"
                 }
                 .to_string(),
+                purpose: None,
+                platform: None,
+                upload_provider: None,
                 path: path.display().to_string(),
                 relative_path: relative,
                 sha256,
@@ -2256,6 +2263,47 @@ base_path = "/site-demo/"
             .artifacts
             .iter()
             .any(|file| file.relative_path == "index.html"));
+        assert!(dir
+            .join("target/fission/release/site/static/fission-route-manifest.json")
+            .exists());
+        assert!(dir
+            .join("target/fission/release/site/static/fission-mime-map.json")
+            .exists());
+    }
+
+    #[test]
+    fn static_package_includes_configured_secondary_artifacts() {
+        let dir = unique_dir("secondary-artifacts");
+        write_minimal_site(&dir);
+        fs::create_dir_all(dir.join("release-content/symbols")).unwrap();
+        fs::write(dir.join("release-content/symbols/app.dSYM.zip"), b"symbols").unwrap();
+        let mut toml = fs::read_to_string(dir.join("fission.toml")).unwrap();
+        toml.push_str(
+            r#"
+[[package.symbols]]
+path = "release-content/symbols/app.dSYM.zip"
+platform = "ios"
+upload_provider = "crash-service"
+"#,
+        );
+        fs::write(dir.join("fission.toml"), toml).unwrap();
+
+        let manifest = package::package_static(&PackageOptions {
+            project_dir: dir.clone(),
+            target: Target::Site,
+            format: PackageFormat::Static,
+            release: true,
+            json: false,
+        })
+        .unwrap();
+
+        let symbols = manifest
+            .artifacts
+            .iter()
+            .find(|file| file.kind == "debug_symbols")
+            .expect("debug symbols should be present");
+        assert_eq!(symbols.platform.as_deref(), Some("ios"));
+        assert_eq!(symbols.upload_provider.as_deref(), Some("crash-service"));
     }
 
     #[test]

@@ -4,6 +4,7 @@ use anyhow::{bail, Context, Result};
 use flate2::write::GzEncoder;
 use flate2::Compression;
 use serde::Deserialize;
+use serde_json::json;
 use std::env;
 use std::ffi::OsStr;
 use std::fs;
@@ -20,6 +21,21 @@ struct PackageManifest {
 #[derive(Debug, Deserialize, Default)]
 struct PackageRoot {
     macos: Option<MacosPackageConfig>,
+    #[serde(default)]
+    secondary_artifacts: Vec<SecondaryArtifactConfig>,
+    #[serde(default)]
+    symbols: Vec<SecondaryArtifactConfig>,
+    #[serde(default)]
+    crash_assets: Vec<SecondaryArtifactConfig>,
+}
+
+#[derive(Clone, Debug, Deserialize, Default)]
+struct SecondaryArtifactConfig {
+    kind: Option<String>,
+    purpose: Option<String>,
+    platform: Option<String>,
+    path: Option<String>,
+    upload_provider: Option<String>,
 }
 
 #[derive(Debug, Deserialize, Default)]
@@ -107,6 +123,7 @@ pub(super) fn package_static(options: &PackageOptions) -> Result<ArtifactManifes
     let profile = profile_name(options.release);
     let staging_dir = clean_package_dir(options)?;
     copy_dir_contents(&source_dir, &staging_dir)?;
+    write_static_package_metadata(&options.project_dir, &staging_dir)?;
 
     finish_artifact_manifest(&project, options, &staging_dir, profile)
 }
@@ -286,7 +303,8 @@ fn finish_artifact_manifest(
     staging_dir: &Path,
     profile: &str,
 ) -> Result<ArtifactManifest> {
-    let manifest = build_artifact_manifest(project, options, staging_dir, profile)?;
+    let mut manifest = build_artifact_manifest(project, options, staging_dir, profile)?;
+    add_configured_secondary_artifacts(&options.project_dir, &mut manifest)?;
     let manifest_path = staging_dir.join(ARTIFACT_MANIFEST);
     fs::write(&manifest_path, serde_json::to_vec_pretty(&manifest)?).with_context(|| {
         format!(
@@ -295,6 +313,328 @@ fn finish_artifact_manifest(
         )
     })?;
     Ok(manifest)
+}
+
+fn add_configured_secondary_artifacts(
+    project_dir: &Path,
+    manifest: &mut ArtifactManifest,
+) -> Result<()> {
+    let config = package_manifest(project_dir)?;
+    for artifact in configured_secondary_artifacts(&config) {
+        let Some(relative_path) = artifact
+            .path
+            .as_deref()
+            .filter(|value| !value.trim().is_empty())
+        else {
+            continue;
+        };
+        let source = resolve_project_path(project_dir, relative_path.to_string());
+        if !source.exists() {
+            bail!(
+                "configured secondary artifact {} does not exist",
+                source.display()
+            );
+        }
+        let kind = artifact
+            .kind
+            .clone()
+            .unwrap_or_else(|| "secondary_artifact".to_string());
+        let purpose = artifact.purpose.clone().or_else(|| Some(kind.clone()));
+        collect_secondary_artifacts(
+            project_dir,
+            &source,
+            &source,
+            &kind,
+            purpose.as_deref(),
+            artifact.platform.as_deref(),
+            artifact.upload_provider.as_deref(),
+            manifest,
+        )?;
+    }
+    Ok(())
+}
+
+#[allow(clippy::too_many_arguments)]
+fn collect_secondary_artifacts(
+    project_dir: &Path,
+    root: &Path,
+    current: &Path,
+    kind: &str,
+    purpose: Option<&str>,
+    platform: Option<&str>,
+    upload_provider: Option<&str>,
+    manifest: &mut ArtifactManifest,
+) -> Result<()> {
+    let metadata = fs::metadata(current)?;
+    if metadata.is_dir() {
+        for entry in fs::read_dir(current)? {
+            let entry = entry?;
+            collect_secondary_artifacts(
+                project_dir,
+                root,
+                &entry.path(),
+                kind,
+                purpose,
+                platform,
+                upload_provider,
+                manifest,
+            )?;
+        }
+        return Ok(());
+    }
+    if !metadata.is_file() {
+        return Ok(());
+    }
+    let relative_path = current
+        .strip_prefix(project_dir)
+        .unwrap_or_else(|_| current.strip_prefix(root).unwrap_or(current))
+        .to_string_lossy()
+        .replace('\\', "/");
+    let (sha256, size_bytes) = hash_file(current)?;
+    manifest.artifacts.push(ArtifactFile {
+        kind: kind.to_string(),
+        purpose: purpose.map(str::to_string),
+        platform: platform.map(str::to_string),
+        upload_provider: upload_provider.map(str::to_string),
+        path: current.display().to_string(),
+        relative_path,
+        sha256,
+        size_bytes,
+        mime_type: content_type(current).to_string(),
+    });
+    Ok(())
+}
+
+fn configured_secondary_artifacts(config: &PackageManifest) -> Vec<SecondaryArtifactConfig> {
+    let Some(package) = config.package.as_ref() else {
+        return Vec::new();
+    };
+    let mut artifacts = Vec::new();
+    artifacts.extend(package.secondary_artifacts.iter().cloned());
+    artifacts.extend(package.symbols.iter().cloned().map(|mut item| {
+        item.kind.get_or_insert_with(|| "debug_symbols".to_string());
+        item
+    }));
+    artifacts.extend(package.crash_assets.iter().cloned().map(|mut item| {
+        item.kind
+            .get_or_insert_with(|| "crash_diagnostics".to_string());
+        item
+    }));
+    artifacts
+}
+
+fn package_manifest(project_dir: &Path) -> Result<PackageManifest> {
+    let path = project_dir.join("fission.toml");
+    let data =
+        fs::read_to_string(&path).with_context(|| format!("failed to read {}", path.display()))?;
+    toml::from_str(&data).with_context(|| format!("failed to parse {}", path.display()))
+}
+
+fn write_static_package_metadata(project_dir: &Path, staging_dir: &Path) -> Result<()> {
+    let fission_toml = project_dir.join("fission.toml");
+    let doc = fs::read_to_string(&fission_toml)
+        .ok()
+        .and_then(|data| toml::from_str::<toml::Value>(&data).ok());
+    let site = doc.as_ref().and_then(|doc| doc.get("site"));
+    let base_path = site
+        .and_then(|site| site.get("base_path"))
+        .and_then(toml::Value::as_str)
+        .unwrap_or("/");
+    let canonical_url = site
+        .and_then(|site| site.get("canonical_url"))
+        .and_then(toml::Value::as_str);
+    let cache_control = site
+        .and_then(|site| site.get("cache_control"))
+        .and_then(toml::Value::as_str)
+        .unwrap_or("public, max-age=31536000, immutable");
+
+    let routes = collect_static_routes(staging_dir, staging_dir)?;
+    let assets = collect_static_assets(staging_dir, staging_dir)?;
+    let mime_map = assets
+        .iter()
+        .map(|asset| {
+            json!({
+                "path": asset,
+                "mime_type": content_type(&staging_dir.join(asset))
+            })
+        })
+        .collect::<Vec<_>>();
+
+    fs::write(
+        staging_dir.join("fission-route-manifest.json"),
+        serde_json::to_vec_pretty(&json!({
+            "schema_version": 1,
+            "base_path": base_path,
+            "canonical_url": canonical_url,
+            "routes": routes
+        }))?,
+    )?;
+    fs::write(
+        staging_dir.join("fission-asset-manifest.json"),
+        serde_json::to_vec_pretty(&json!({
+            "schema_version": 1,
+            "assets": assets
+        }))?,
+    )?;
+    fs::write(
+        staging_dir.join("fission-mime-map.json"),
+        serde_json::to_vec_pretty(&json!({
+            "schema_version": 1,
+            "files": mime_map
+        }))?,
+    )?;
+    fs::write(
+        staging_dir.join("fission-cache-policy.json"),
+        serde_json::to_vec_pretty(&json!({
+            "schema_version": 1,
+            "default": cache_control
+        }))?,
+    )?;
+    write_static_headers(staging_dir, cache_control)?;
+    Ok(())
+}
+
+fn collect_static_routes(root: &Path, current: &Path) -> Result<Vec<String>> {
+    let mut routes = Vec::new();
+    collect_static_routes_inner(root, current, &mut routes)?;
+    routes.sort();
+    routes.dedup();
+    Ok(routes)
+}
+
+fn collect_static_routes_inner(
+    root: &Path,
+    current: &Path,
+    routes: &mut Vec<String>,
+) -> Result<()> {
+    for entry in fs::read_dir(current)? {
+        let entry = entry?;
+        let path = entry.path();
+        if entry.file_type()?.is_dir() {
+            collect_static_routes_inner(root, &path, routes)?;
+            continue;
+        }
+        if path.extension().and_then(OsStr::to_str) != Some("html") {
+            continue;
+        }
+        let relative = path
+            .strip_prefix(root)?
+            .to_string_lossy()
+            .replace('\\', "/");
+        let route = if relative == "index.html" {
+            "/".to_string()
+        } else if let Some(prefix) = relative.strip_suffix("/index.html") {
+            format!("/{prefix}/")
+        } else {
+            format!("/{}", relative.trim_end_matches(".html"))
+        };
+        routes.push(route);
+    }
+    Ok(())
+}
+
+fn collect_static_assets(root: &Path, current: &Path) -> Result<Vec<String>> {
+    let mut assets = Vec::new();
+    collect_static_assets_inner(root, current, &mut assets)?;
+    assets.sort();
+    Ok(assets)
+}
+
+fn collect_static_assets_inner(
+    root: &Path,
+    current: &Path,
+    assets: &mut Vec<String>,
+) -> Result<()> {
+    for entry in fs::read_dir(current)? {
+        let entry = entry?;
+        let path = entry.path();
+        if entry.file_type()?.is_dir() {
+            collect_static_assets_inner(root, &path, assets)?;
+            continue;
+        }
+        let relative = path
+            .strip_prefix(root)?
+            .to_string_lossy()
+            .replace('\\', "/");
+        if !matches!(
+            relative.as_str(),
+            "fission-route-manifest.json"
+                | "fission-asset-manifest.json"
+                | "fission-mime-map.json"
+                | "fission-cache-policy.json"
+        ) {
+            assets.push(relative);
+        }
+    }
+    Ok(())
+}
+
+fn write_static_headers(staging_dir: &Path, cache_control: &str) -> Result<()> {
+    let body = format!(
+        r#"/assets/*
+  Cache-Control: {cache_control}
+
+/*.wasm
+  Content-Type: application/wasm
+  Cache-Control: {cache_control}
+
+/*.js
+  Content-Type: text/javascript; charset=utf-8
+  Cache-Control: {cache_control}
+
+/*.css
+  Content-Type: text/css; charset=utf-8
+  Cache-Control: {cache_control}
+"#
+    );
+    fs::write(staging_dir.join("_headers"), body)?;
+    Ok(())
+}
+
+pub(super) fn readiness_secondary_artifacts(project_dir: &Path, checks: &mut Vec<ReadinessCheck>) {
+    let Ok(config) = package_manifest(project_dir) else {
+        return;
+    };
+    for artifact in configured_secondary_artifacts(&config) {
+        let id = artifact
+            .path
+            .as_deref()
+            .map(sanitize_file_stem)
+            .unwrap_or_else(|| "unnamed".to_string());
+        let path = artifact
+            .path
+            .as_ref()
+            .map(|path| resolve_project_path(project_dir, path.to_string()));
+        checks.push(check(
+            format!("release.package.secondary_artifact.{id}.path"),
+            CheckSeverity::Error,
+            if path.as_ref().is_some_and(|path| path.exists()) {
+                CheckStatus::Passed
+            } else {
+                CheckStatus::Missing
+            },
+            "configured secondary release artifact exists",
+            path.map(|path| path.display().to_string()),
+            vec!["Create the configured symbol/diagnostic artifact before packaging or remove the stale package artifact entry."],
+        ));
+        let kind = artifact.kind.as_deref().unwrap_or("secondary_artifact");
+        if matches!(kind, "debug_symbols" | "crash_diagnostics" | "symbols")
+            && artifact
+                .upload_provider
+                .as_deref()
+                .filter(|value| !value.trim().is_empty())
+                .is_none()
+        {
+            checks.push(check(
+                format!("release.package.secondary_artifact.{id}.upload_provider"),
+                CheckSeverity::Warning,
+                CheckStatus::Warning,
+                "debug/crash artifact has an upload provider",
+                Some(kind.to_string()),
+                vec!["Set upload_provider when symbols must be sent to a store or crash diagnostics backend."],
+            ));
+        }
+    }
 }
 
 fn ensure_package_target(
