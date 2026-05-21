@@ -79,6 +79,8 @@ struct RenderedAsset {
     source: String,
     output: String,
     size_bytes: u64,
+    width: Option<u32>,
+    height: Option<u32>,
 }
 
 pub(super) fn validate_release_content_model(
@@ -431,6 +433,7 @@ fn validate_screenshots(
                 provider.as_str()
             )],
         });
+        validate_rendered_asset_rules(provider, &provider_dir, checks);
     }
 }
 
@@ -550,14 +553,247 @@ fn collect_render_assets(
         }
         fs::copy(&path, &dest)?;
         let size = fs::metadata(&dest)?.len();
+        let dimensions = image_dimensions(&dest).ok().flatten();
         assets.push(RenderedAsset {
             kind: asset_kind(&dest).to_string(),
             source: path.display().to_string(),
             output: dest.display().to_string(),
             size_bytes: size,
+            width: dimensions.map(|(width, _)| width),
+            height: dimensions.map(|(_, height)| height),
         });
     }
     Ok(())
+}
+
+fn validate_rendered_asset_rules(
+    provider: publish::DistributionProvider,
+    provider_dir: &Path,
+    checks: &mut Vec<LifecycleCheck>,
+) {
+    let Ok(files) = rendered_asset_files(provider_dir) else {
+        return;
+    };
+    let image_files = files
+        .iter()
+        .filter(|path| asset_kind(path) == "image")
+        .collect::<Vec<_>>();
+    let video_files = files
+        .iter()
+        .filter(|path| asset_kind(path) == "video")
+        .collect::<Vec<_>>();
+    let (min_images, max_images) = provider_screenshot_count(provider);
+    checks.push(LifecycleCheck {
+        id: format!("release_content.{}.screenshot_count", provider.as_str()),
+        status: if image_files.len() >= min_images && image_files.len() <= max_images {
+            "passed"
+        } else {
+            "failed"
+        }
+        .to_string(),
+        summary: "provider screenshot count is within supported bounds".to_string(),
+        details: Some(format!(
+            "{} screenshots, expected {}..={}",
+            image_files.len(),
+            min_images,
+            max_images
+        )),
+        remediation: vec![format!(
+            "Render a provider screenshot set with between {min_images} and {max_images} images."
+        )],
+    });
+    for path in image_files {
+        validate_image_asset(provider, path, checks);
+    }
+    for path in video_files {
+        validate_video_asset(provider, path, checks);
+    }
+}
+
+fn rendered_asset_files(root: &Path) -> Result<Vec<std::path::PathBuf>> {
+    let mut files = Vec::new();
+    collect_rendered_asset_files(root, &mut files)?;
+    Ok(files)
+}
+
+fn collect_rendered_asset_files(root: &Path, files: &mut Vec<std::path::PathBuf>) -> Result<()> {
+    if !root.exists() {
+        return Ok(());
+    }
+    for entry in fs::read_dir(root)? {
+        let entry = entry?;
+        let path = entry.path();
+        if entry.file_type()?.is_dir() {
+            collect_rendered_asset_files(&path, files)?;
+        } else if is_release_asset(&path) {
+            files.push(path);
+        }
+    }
+    Ok(())
+}
+
+fn validate_image_asset(
+    provider: publish::DistributionProvider,
+    path: &Path,
+    checks: &mut Vec<LifecycleCheck>,
+) {
+    let id_stem = path
+        .file_stem()
+        .and_then(|value| value.to_str())
+        .unwrap_or("image");
+    let ext = path
+        .extension()
+        .and_then(|value| value.to_str())
+        .unwrap_or("")
+        .to_ascii_lowercase();
+    let allowed = provider_image_extensions(provider);
+    checks.push(LifecycleCheck {
+        id: format!(
+            "release_content.{}.image.{id_stem}.format",
+            provider.as_str()
+        ),
+        status: if allowed.contains(&ext.as_str()) {
+            "passed"
+        } else {
+            "failed"
+        }
+        .to_string(),
+        summary: "image format is accepted by the provider".to_string(),
+        details: Some(path.display().to_string()),
+        remediation: vec![format!("Use one of: {}.", allowed.join(", "))],
+    });
+    let size = fs::metadata(path)
+        .map(|metadata| metadata.len())
+        .unwrap_or(0);
+    let max_bytes = provider_max_image_bytes(provider);
+    checks.push(LifecycleCheck {
+        id: format!("release_content.{}.image.{id_stem}.size", provider.as_str()),
+        status: if size > 0 && size <= max_bytes {
+            "passed"
+        } else {
+            "failed"
+        }
+        .to_string(),
+        summary: "image file size is accepted by the provider".to_string(),
+        details: Some(format!("{size} bytes; max {max_bytes} bytes")),
+        remediation: vec![
+            "Re-render the image at an accepted resolution/compression level.".to_string(),
+        ],
+    });
+    match image_dimensions(path) {
+        Ok(Some((width, height))) => {
+            let valid = provider_dimension_check(provider, width, height);
+            checks.push(LifecycleCheck {
+                id: format!(
+                    "release_content.{}.image.{id_stem}.dimensions",
+                    provider.as_str()
+                ),
+                status: if valid { "passed" } else { "failed" }.to_string(),
+                summary: "image dimensions are accepted by the provider".to_string(),
+                details: Some(format!("{width}x{height}")),
+                remediation: vec![
+                    "Capture/render the screenshot at a provider-supported device size."
+                        .to_string(),
+                ],
+            });
+        }
+        Ok(None) | Err(_) => checks.push(LifecycleCheck {
+            id: format!(
+                "release_content.{}.image.{id_stem}.dimensions",
+                provider.as_str()
+            ),
+            status: "failed".to_string(),
+            summary: "image dimensions can be read".to_string(),
+            details: Some(path.display().to_string()),
+            remediation: vec![
+                "Replace the file with a valid PNG/JPEG/WebP screenshot asset.".to_string(),
+            ],
+        }),
+    }
+}
+
+fn validate_video_asset(
+    provider: publish::DistributionProvider,
+    path: &Path,
+    checks: &mut Vec<LifecycleCheck>,
+) {
+    let id_stem = path
+        .file_stem()
+        .and_then(|value| value.to_str())
+        .unwrap_or("video");
+    let ext = path
+        .extension()
+        .and_then(|value| value.to_str())
+        .unwrap_or("")
+        .to_ascii_lowercase();
+    let allowed = provider_video_extensions(provider);
+    checks.push(LifecycleCheck {
+        id: format!(
+            "release_content.{}.video.{id_stem}.format",
+            provider.as_str()
+        ),
+        status: if allowed.contains(&ext.as_str()) {
+            "passed"
+        } else {
+            "failed"
+        }
+        .to_string(),
+        summary: "video format is accepted by the provider".to_string(),
+        details: Some(path.display().to_string()),
+        remediation: vec![format!("Use one of: {}.", allowed.join(", "))],
+    });
+}
+
+fn provider_screenshot_count(provider: publish::DistributionProvider) -> (usize, usize) {
+    match provider {
+        publish::DistributionProvider::AppStore => (1, 10),
+        publish::DistributionProvider::PlayStore => (2, 8),
+        publish::DistributionProvider::MicrosoftStore => (1, 10),
+        _ => (1, usize::MAX),
+    }
+}
+
+fn provider_image_extensions(provider: publish::DistributionProvider) -> &'static [&'static str] {
+    match provider {
+        publish::DistributionProvider::PlayStore => &["png", "jpg", "jpeg", "webp"],
+        publish::DistributionProvider::AppStore => &["png", "jpg", "jpeg"],
+        publish::DistributionProvider::MicrosoftStore => &["png", "jpg", "jpeg"],
+        _ => &["png", "jpg", "jpeg", "webp"],
+    }
+}
+
+fn provider_video_extensions(provider: publish::DistributionProvider) -> &'static [&'static str] {
+    match provider {
+        publish::DistributionProvider::AppStore => &["mov", "m4v", "mp4"],
+        publish::DistributionProvider::MicrosoftStore => &["mp4"],
+        _ => &["mp4"],
+    }
+}
+
+fn provider_max_image_bytes(provider: publish::DistributionProvider) -> u64 {
+    match provider {
+        publish::DistributionProvider::PlayStore => 8 * 1024 * 1024,
+        publish::DistributionProvider::AppStore => 10 * 1024 * 1024,
+        publish::DistributionProvider::MicrosoftStore => 50 * 1024 * 1024,
+        _ => 10 * 1024 * 1024,
+    }
+}
+
+fn provider_dimension_check(
+    provider: publish::DistributionProvider,
+    width: u32,
+    height: u32,
+) -> bool {
+    match provider {
+        publish::DistributionProvider::PlayStore => {
+            let min = width.min(height);
+            let max = width.max(height);
+            min >= 320 && max <= 3840 && max <= min * 2
+        }
+        publish::DistributionProvider::AppStore => width >= 320 && height >= 320,
+        publish::DistributionProvider::MicrosoftStore => width >= 1366 && height >= 768,
+        _ => width > 0 && height > 0,
+    }
 }
 
 fn check_optional_path(
@@ -617,6 +853,97 @@ fn asset_kind(path: &Path) -> &'static str {
     {
         "mp4" | "mov" | "m4v" => "video",
         _ => "image",
+    }
+}
+
+fn image_dimensions(path: &Path) -> Result<Option<(u32, u32)>> {
+    let bytes = fs::read(path)?;
+    if bytes.len() >= 24 && bytes.starts_with(b"\x89PNG\r\n\x1a\n") {
+        let width = u32::from_be_bytes(bytes[16..20].try_into().unwrap());
+        let height = u32::from_be_bytes(bytes[20..24].try_into().unwrap());
+        return Ok(Some((width, height)));
+    }
+    if bytes.len() >= 12 && &bytes[0..4] == b"RIFF" && &bytes[8..12] == b"WEBP" {
+        return Ok(webp_dimensions(&bytes));
+    }
+    if bytes.len() >= 4 && bytes[0] == 0xff && bytes[1] == 0xd8 {
+        return Ok(jpeg_dimensions(&bytes));
+    }
+    Ok(None)
+}
+
+fn jpeg_dimensions(bytes: &[u8]) -> Option<(u32, u32)> {
+    let mut index = 2usize;
+    while index + 9 < bytes.len() {
+        if bytes[index] != 0xff {
+            index += 1;
+            continue;
+        }
+        while index < bytes.len() && bytes[index] == 0xff {
+            index += 1;
+        }
+        if index >= bytes.len() {
+            return None;
+        }
+        let marker = bytes[index];
+        index += 1;
+        if matches!(marker, 0xd8 | 0xd9 | 0x01) {
+            continue;
+        }
+        if index + 2 > bytes.len() {
+            return None;
+        }
+        let len = u16::from_be_bytes([bytes[index], bytes[index + 1]]) as usize;
+        if len < 2 || index + len > bytes.len() {
+            return None;
+        }
+        if matches!(
+            marker,
+            0xc0 | 0xc1
+                | 0xc2
+                | 0xc3
+                | 0xc5
+                | 0xc6
+                | 0xc7
+                | 0xc9
+                | 0xca
+                | 0xcb
+                | 0xcd
+                | 0xce
+                | 0xcf
+        ) && len >= 7
+        {
+            let height = u16::from_be_bytes([bytes[index + 3], bytes[index + 4]]) as u32;
+            let width = u16::from_be_bytes([bytes[index + 5], bytes[index + 6]]) as u32;
+            return Some((width, height));
+        }
+        index += len;
+    }
+    None
+}
+
+fn webp_dimensions(bytes: &[u8]) -> Option<(u32, u32)> {
+    match bytes.get(12..16)? {
+        b"VP8X" if bytes.len() >= 30 => {
+            let width = 1 + u32::from_le_bytes([bytes[24], bytes[25], bytes[26], 0]);
+            let height = 1 + u32::from_le_bytes([bytes[27], bytes[28], bytes[29], 0]);
+            Some((width, height))
+        }
+        b"VP8 " if bytes.len() >= 30 => {
+            let width = u16::from_le_bytes([bytes[26], bytes[27]]) as u32 & 0x3fff;
+            let height = u16::from_le_bytes([bytes[28], bytes[29]]) as u32 & 0x3fff;
+            Some((width, height))
+        }
+        b"VP8L" if bytes.len() >= 25 => {
+            let b0 = bytes[21] as u32;
+            let b1 = bytes[22] as u32;
+            let b2 = bytes[23] as u32;
+            let b3 = bytes[24] as u32;
+            let width = 1 + (((b1 & 0x3f) << 8) | b0);
+            let height = 1 + (((b3 & 0x0f) << 10) | (b2 << 2) | ((b1 & 0xc0) >> 6));
+            Some((width, height))
+        }
+        _ => None,
     }
 }
 
@@ -695,6 +1022,17 @@ feature_graphic = "release-content/screenshots/raw/en-US/home.png"
         .unwrap();
     }
 
+    fn png_header(width: u32, height: u32) -> Vec<u8> {
+        let mut bytes = b"\x89PNG\r\n\x1a\n".to_vec();
+        bytes.extend_from_slice(&13u32.to_be_bytes());
+        bytes.extend_from_slice(b"IHDR");
+        bytes.extend_from_slice(&width.to_be_bytes());
+        bytes.extend_from_slice(&height.to_be_bytes());
+        bytes.extend_from_slice(&[8, 6, 0, 0, 0]);
+        bytes.extend_from_slice(&0u32.to_be_bytes());
+        bytes
+    }
+
     #[test]
     fn render_release_content_copies_raw_assets_and_writes_manifest() {
         let dir = unique_dir("render");
@@ -708,5 +1046,34 @@ feature_graphic = "release-content/screenshots/raw/en-US/home.png"
         assert!(dir
             .join("release-content/screenshots/rendered/play-store/release-content-manifest.json")
             .exists());
+    }
+
+    #[test]
+    fn image_dimensions_reads_png_header() {
+        let dir = unique_dir("png-dimensions");
+        let path = dir.join("screen.png");
+        fs::write(&path, png_header(1440, 2560)).unwrap();
+        assert_eq!(image_dimensions(&path).unwrap(), Some((1440, 2560)));
+    }
+
+    #[test]
+    fn provider_asset_validation_reports_dimensions() {
+        let dir = unique_dir("asset-rules");
+        let provider_dir = dir.join("release-content/screenshots/rendered/play-store/en-US");
+        fs::create_dir_all(&provider_dir).unwrap();
+        fs::write(provider_dir.join("one.png"), png_header(1440, 2560)).unwrap();
+        fs::write(provider_dir.join("two.png"), png_header(1440, 2560)).unwrap();
+        let mut checks = Vec::new();
+        validate_rendered_asset_rules(
+            publish::DistributionProvider::PlayStore,
+            &dir.join("release-content/screenshots/rendered/play-store"),
+            &mut checks,
+        );
+        assert!(checks.iter().any(|check| {
+            check.id == "release_content.play-store.screenshot_count" && check.status == "passed"
+        }));
+        assert!(checks
+            .iter()
+            .any(|check| { check.id.ends_with(".dimensions") && check.status == "passed" }));
     }
 }
