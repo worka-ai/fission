@@ -1,0 +1,1097 @@
+use crate::{publish, Target};
+use anyhow::{bail, Context, Result};
+use clap::Subcommand;
+use serde::Serialize;
+use std::env;
+use std::fs;
+use std::path::{Path, PathBuf};
+use std::process::Command;
+
+#[derive(Subcommand, Debug)]
+pub(crate) enum ReleaseConfigCommand {
+    /// Open release configuration in an editor or the Fission terminal UI.
+    Edit {
+        #[arg(long, default_value = ".")]
+        project_dir: PathBuf,
+        #[arg(long)]
+        tui: bool,
+    },
+    /// Import provider metadata into local release files.
+    Import {
+        #[arg(long, value_enum)]
+        provider: publish::DistributionProvider,
+        #[arg(long)]
+        locales: Option<String>,
+        #[arg(long)]
+        yes: bool,
+        #[arg(long, default_value = ".")]
+        project_dir: PathBuf,
+    },
+    /// Diff local release metadata against provider state.
+    Diff {
+        #[arg(long, value_enum)]
+        provider: publish::DistributionProvider,
+        #[arg(long, default_value = ".")]
+        project_dir: PathBuf,
+        #[arg(long)]
+        json: bool,
+    },
+    /// Validate fission.toml and referenced release files.
+    Validate {
+        #[arg(long, value_enum)]
+        provider: Option<publish::DistributionProvider>,
+        #[arg(long, default_value = ".")]
+        project_dir: PathBuf,
+        #[arg(long)]
+        json: bool,
+    },
+    /// Push release metadata to a provider.
+    Push {
+        #[arg(long, value_enum)]
+        provider: publish::DistributionProvider,
+        #[arg(long)]
+        locales: Option<String>,
+        #[arg(long)]
+        dry_run: bool,
+        #[arg(long)]
+        yes: bool,
+        #[arg(long, default_value = ".")]
+        project_dir: PathBuf,
+        #[arg(long)]
+        json: bool,
+    },
+    /// Set a scalar field in fission.toml.
+    Set {
+        field: String,
+        value: String,
+        #[arg(long, default_value = ".")]
+        project_dir: PathBuf,
+        #[arg(long)]
+        yes: bool,
+    },
+    /// Append a release entry to fission.toml.
+    AddRelease {
+        #[arg(long)]
+        version: String,
+        #[arg(long)]
+        build: u64,
+        #[arg(long)]
+        from: Option<String>,
+        #[arg(long, default_value = ".")]
+        project_dir: PathBuf,
+        #[arg(long)]
+        yes: bool,
+    },
+    /// Open or create a release metadata sidecar file.
+    EditFile {
+        #[arg(long)]
+        release: String,
+        #[arg(long)]
+        kind: String,
+        #[arg(long)]
+        locale: Option<String>,
+        #[arg(long, default_value = ".")]
+        project_dir: PathBuf,
+    },
+}
+
+#[derive(Subcommand, Debug)]
+pub(crate) enum ReleaseContentCommand {
+    /// Capture screenshots/videos from configured release scenarios.
+    Capture {
+        #[arg(long, value_enum)]
+        target: Target,
+        #[arg(long)]
+        set: String,
+        #[arg(long, default_value = ".")]
+        project_dir: PathBuf,
+        #[arg(long)]
+        json: bool,
+    },
+    /// Render store-ready screenshot/video assets from raw captures.
+    Render {
+        #[arg(long, value_enum)]
+        provider: publish::DistributionProvider,
+        #[arg(long, default_value = ".")]
+        project_dir: PathBuf,
+        #[arg(long)]
+        json: bool,
+    },
+    /// Validate release-content assets and manifests.
+    Validate {
+        #[arg(long, value_enum)]
+        provider: Option<publish::DistributionProvider>,
+        #[arg(long, default_value = ".")]
+        project_dir: PathBuf,
+        #[arg(long)]
+        json: bool,
+    },
+}
+
+#[derive(Subcommand, Debug)]
+pub(crate) enum BetaCommand {
+    /// Manage beta groups/flights/tracks.
+    Groups {
+        #[command(subcommand)]
+        command: BetaGroupsCommand,
+    },
+    /// Manage beta testers.
+    Testers {
+        #[command(subcommand)]
+        command: BetaTestersCommand,
+    },
+    /// Distribute an artifact to a beta track/group.
+    Distribute {
+        #[arg(long, value_enum)]
+        provider: publish::DistributionProvider,
+        #[arg(long)]
+        artifact: PathBuf,
+        #[arg(long)]
+        group: Option<String>,
+        #[arg(long)]
+        track: Option<String>,
+        #[arg(long, default_value = ".")]
+        project_dir: PathBuf,
+        #[arg(long)]
+        dry_run: bool,
+        #[arg(long)]
+        json: bool,
+    },
+}
+
+#[derive(Subcommand, Debug)]
+pub(crate) enum BetaGroupsCommand {
+    List {
+        #[arg(long, value_enum)]
+        provider: publish::DistributionProvider,
+        #[arg(long, default_value = ".")]
+        project_dir: PathBuf,
+        #[arg(long)]
+        json: bool,
+    },
+    Sync {
+        #[arg(long, value_enum)]
+        provider: publish::DistributionProvider,
+        #[arg(long, default_value = "fission.toml")]
+        from: PathBuf,
+        #[arg(long, default_value = ".")]
+        project_dir: PathBuf,
+        #[arg(long)]
+        dry_run: bool,
+        #[arg(long)]
+        json: bool,
+    },
+}
+
+#[derive(Subcommand, Debug)]
+pub(crate) enum BetaTestersCommand {
+    Import {
+        #[arg(long, value_enum)]
+        provider: publish::DistributionProvider,
+        #[arg(long)]
+        group: Option<String>,
+        #[arg(long)]
+        track: Option<String>,
+        #[arg(long)]
+        csv: PathBuf,
+        #[arg(long, default_value = ".")]
+        project_dir: PathBuf,
+        #[arg(long)]
+        dry_run: bool,
+        #[arg(long)]
+        json: bool,
+    },
+    Export {
+        #[arg(long, value_enum)]
+        provider: publish::DistributionProvider,
+        #[arg(long)]
+        group: Option<String>,
+        #[arg(long)]
+        track: Option<String>,
+        #[arg(long)]
+        output: PathBuf,
+        #[arg(long, default_value = ".")]
+        project_dir: PathBuf,
+        #[arg(long)]
+        json: bool,
+    },
+}
+
+#[derive(Subcommand, Debug)]
+pub(crate) enum SigningCommand {
+    Status {
+        #[arg(long, value_enum)]
+        target: Target,
+        #[arg(long, default_value = ".")]
+        project_dir: PathBuf,
+        #[arg(long)]
+        json: bool,
+    },
+    Sync {
+        #[arg(long, value_enum)]
+        target: Target,
+        #[arg(long)]
+        readonly: bool,
+        #[arg(long, default_value = ".")]
+        project_dir: PathBuf,
+        #[arg(long)]
+        json: bool,
+    },
+    Import {
+        #[arg(long, value_enum)]
+        target: Target,
+        #[arg(long)]
+        keystore: Option<PathBuf>,
+        #[arg(long)]
+        alias: Option<String>,
+        #[arg(long, default_value = ".")]
+        project_dir: PathBuf,
+        #[arg(long)]
+        json: bool,
+    },
+}
+
+#[derive(Subcommand, Debug)]
+pub(crate) enum ReviewsCommand {
+    List {
+        #[arg(long, value_enum)]
+        provider: publish::DistributionProvider,
+        #[arg(long)]
+        since: Option<String>,
+        #[arg(long, default_value = ".")]
+        project_dir: PathBuf,
+        #[arg(long)]
+        json: bool,
+    },
+    Reply {
+        #[arg(long, value_enum)]
+        provider: publish::DistributionProvider,
+        #[arg(long)]
+        review: String,
+        #[arg(long)]
+        message_file: PathBuf,
+        #[arg(long, default_value = ".")]
+        project_dir: PathBuf,
+        #[arg(long)]
+        dry_run: bool,
+        #[arg(long)]
+        json: bool,
+    },
+}
+
+#[derive(Subcommand, Debug)]
+pub(crate) enum AuthCommand {
+    Login {
+        #[arg(value_enum)]
+        provider: publish::DistributionProvider,
+    },
+    Status {
+        #[arg(value_enum)]
+        provider: Option<publish::DistributionProvider>,
+        #[arg(long)]
+        json: bool,
+    },
+    Logout {
+        #[arg(value_enum)]
+        provider: publish::DistributionProvider,
+        #[arg(long)]
+        yes: bool,
+    },
+    Import {
+        #[arg(value_enum)]
+        provider: publish::DistributionProvider,
+        #[arg(long)]
+        from: String,
+        #[arg(long)]
+        yes: bool,
+    },
+    Rotate {
+        #[arg(value_enum)]
+        provider: publish::DistributionProvider,
+    },
+    Audit {
+        #[arg(long)]
+        json: bool,
+    },
+}
+
+#[derive(Debug, Serialize)]
+struct LifecycleReport {
+    area: String,
+    status: String,
+    provider: Option<String>,
+    target: Option<String>,
+    checks: Vec<LifecycleCheck>,
+}
+
+#[derive(Debug, Serialize)]
+struct LifecycleCheck {
+    id: String,
+    status: String,
+    summary: String,
+    details: Option<String>,
+    remediation: Vec<String>,
+}
+
+pub(crate) fn release_config(command: ReleaseConfigCommand) -> Result<()> {
+    match command {
+        ReleaseConfigCommand::Edit { project_dir, tui } => edit_release_config(&project_dir, tui),
+        ReleaseConfigCommand::Validate {
+            provider,
+            project_dir,
+            json,
+        } => print_report(validate_release_config(&project_dir, provider)?, json),
+        ReleaseConfigCommand::Set {
+            field,
+            value,
+            project_dir,
+            yes,
+        } => set_release_field(&project_dir, &field, &value, yes),
+        ReleaseConfigCommand::AddRelease {
+            version,
+            build,
+            from,
+            project_dir,
+            yes,
+        } => add_release(&project_dir, &version, build, from.as_deref(), yes),
+        ReleaseConfigCommand::EditFile {
+            release,
+            kind,
+            locale,
+            project_dir,
+        } => edit_release_file(&project_dir, &release, &kind, locale.as_deref()),
+        ReleaseConfigCommand::Import {
+            provider,
+            locales,
+            yes,
+            project_dir,
+        } => provider_operation_report(
+            "release-config.import",
+            &project_dir,
+            provider,
+            locales,
+            yes,
+            false,
+        ),
+        ReleaseConfigCommand::Diff {
+            provider,
+            project_dir,
+            json,
+        } => print_report(
+            provider_backend_report("release-config.diff", &project_dir, provider),
+            json,
+        ),
+        ReleaseConfigCommand::Push {
+            provider,
+            locales,
+            dry_run,
+            yes,
+            project_dir,
+            json,
+        } => {
+            let mut report = provider_backend_report("release-config.push", &project_dir, provider);
+            report.checks.push(ok_check(
+                "release_config.push.intent",
+                format!(
+                    "locales = {}, dry_run = {}, confirmed = {}",
+                    locales.unwrap_or_else(|| "<provider default>".to_string()),
+                    dry_run,
+                    yes
+                ),
+            ));
+            print_report(report, json)
+        }
+    }
+}
+
+pub(crate) fn release_content(command: ReleaseContentCommand) -> Result<()> {
+    match command {
+        ReleaseContentCommand::Validate {
+            provider,
+            project_dir,
+            json,
+        } => print_report(validate_release_content(&project_dir, provider), json),
+        ReleaseContentCommand::Capture {
+            target,
+            set,
+            project_dir,
+            json,
+        } => {
+            let mut report = base_report("release-content.capture", None, Some(target));
+            report.checks.push(path_check(
+                "release_content.scenarios_configured",
+                project_dir.join("fission.toml"),
+                "release screenshot scenarios are declared in fission.toml",
+            ));
+            report.checks.push(warning_check(
+                "release_content.capture.backend",
+                format!("capture set `{set}` requires the Fission test runner screenshot backend for {target:?}"),
+            ));
+            print_report(report, json)
+        }
+        ReleaseContentCommand::Render {
+            provider,
+            project_dir,
+            json,
+        } => {
+            let mut report = validate_release_content(&project_dir, Some(provider));
+            report.area = "release-content.render".to_string();
+            report.checks.push(warning_check(
+                "release_content.render.backend",
+                "rendering raw captures into provider-specific screenshot/video sets needs the image/video renderer backend".to_string(),
+            ));
+            print_report(report, json)
+        }
+    }
+}
+
+pub(crate) fn beta(command: BetaCommand) -> Result<()> {
+    match command {
+        BetaCommand::Groups { command } => match command {
+            BetaGroupsCommand::List {
+                provider,
+                project_dir,
+                json,
+            } => print_report(
+                provider_backend_report("beta.groups.list", &project_dir, provider),
+                json,
+            ),
+            BetaGroupsCommand::Sync {
+                provider,
+                from,
+                project_dir,
+                dry_run,
+                json,
+            } => {
+                let mut report =
+                    provider_backend_report("beta.groups.sync", &project_dir, provider);
+                report.checks.push(path_check(
+                    "beta.groups.source_exists",
+                    project_dir.join(from),
+                    "beta group source file exists",
+                ));
+                report.checks.push(ok_check(
+                    "beta.groups.sync.intent",
+                    format!("dry_run = {dry_run}"),
+                ));
+                print_report(report, json)
+            }
+        },
+        BetaCommand::Testers { command } => match command {
+            BetaTestersCommand::Import {
+                provider,
+                group,
+                track,
+                csv,
+                project_dir,
+                dry_run,
+                json,
+            } => {
+                let mut report =
+                    provider_backend_report("beta.testers.import", &project_dir, provider);
+                report.checks.push(path_check(
+                    "beta.testers.csv_exists",
+                    csv,
+                    "tester CSV exists",
+                ));
+                report.checks.push(ok_check(
+                    "beta.testers.import.intent",
+                    format!("group = {group:?}, track = {track:?}, dry_run = {dry_run}"),
+                ));
+                print_report(report, json)
+            }
+            BetaTestersCommand::Export {
+                provider,
+                group,
+                track,
+                output,
+                project_dir,
+                json,
+            } => {
+                let mut report =
+                    provider_backend_report("beta.testers.export", &project_dir, provider);
+                report.checks.push(ok_check(
+                    "beta.testers.export.intent",
+                    format!(
+                        "group = {group:?}, track = {track:?}, output = {}",
+                        output.display()
+                    ),
+                ));
+                print_report(report, json)
+            }
+        },
+        BetaCommand::Distribute {
+            provider,
+            artifact,
+            group,
+            track,
+            project_dir,
+            dry_run,
+            json,
+        } => {
+            let mut report = provider_backend_report("beta.distribute", &project_dir, provider);
+            report.checks.push(path_check(
+                "beta.distribute.artifact_exists",
+                artifact,
+                "artifact manifest exists",
+            ));
+            report.checks.push(ok_check(
+                "beta.distribute.intent",
+                format!("group = {group:?}, track = {track:?}, dry_run = {dry_run}"),
+            ));
+            print_report(report, json)
+        }
+    }
+}
+
+pub(crate) fn signing(command: SigningCommand) -> Result<()> {
+    match command {
+        SigningCommand::Status {
+            target,
+            project_dir,
+            json,
+        } => print_report(signing_report("signing.status", &project_dir, target), json),
+        SigningCommand::Sync {
+            target,
+            readonly,
+            project_dir,
+            json,
+        } => {
+            let mut report = signing_report("signing.sync", &project_dir, target);
+            report.checks.push(ok_check(
+                "signing.sync.mode",
+                format!("readonly = {readonly}"),
+            ));
+            print_report(report, json)
+        }
+        SigningCommand::Import {
+            target,
+            keystore,
+            alias,
+            project_dir,
+            json,
+        } => {
+            let mut report = signing_report("signing.import", &project_dir, target);
+            if let Some(path) = keystore {
+                report.checks.push(path_check(
+                    "signing.import.keystore_exists",
+                    path,
+                    "keystore file exists",
+                ));
+            }
+            report.checks.push(ok_check(
+                "signing.import.alias",
+                format!("alias = {alias:?}"),
+            ));
+            print_report(report, json)
+        }
+    }
+}
+
+pub(crate) fn reviews(command: ReviewsCommand) -> Result<()> {
+    match command {
+        ReviewsCommand::List {
+            provider,
+            since,
+            project_dir,
+            json,
+        } => {
+            let mut report = provider_backend_report("reviews.list", &project_dir, provider);
+            report.checks.push(ok_check(
+                "reviews.list.window",
+                since.unwrap_or_else(|| "all".to_string()),
+            ));
+            print_report(report, json)
+        }
+        ReviewsCommand::Reply {
+            provider,
+            review,
+            message_file,
+            project_dir,
+            dry_run,
+            json,
+        } => {
+            let mut report = provider_backend_report("reviews.reply", &project_dir, provider);
+            report.checks.push(path_check(
+                "reviews.reply.message_exists",
+                message_file,
+                "reply message file exists",
+            ));
+            report.checks.push(ok_check(
+                "reviews.reply.intent",
+                format!("review = {review}, dry_run = {dry_run}"),
+            ));
+            print_report(report, json)
+        }
+    }
+}
+
+pub(crate) fn auth(command: AuthCommand) -> Result<()> {
+    match command {
+        AuthCommand::Status { provider, json } => {
+            print_report(auth_report("auth.status", provider), json)
+        }
+        AuthCommand::Audit { json } => print_report(auth_report("auth.audit", None), json),
+        AuthCommand::Login { provider } => {
+            println!("{} authentication requires provider OAuth/API-key flow wiring; use `fission auth import {}` for CI tokens once the secure vault backend is configured.", provider.as_str(), provider.as_str());
+            Ok(())
+        }
+        AuthCommand::Logout { provider, yes } => {
+            if !yes {
+                bail!(
+                    "refusing to delete {} credentials without --yes",
+                    provider.as_str()
+                );
+            }
+            println!("{} credential deletion requires the secure vault backend; no plaintext credentials were removed.", provider.as_str());
+            Ok(())
+        }
+        AuthCommand::Import {
+            provider,
+            from,
+            yes,
+        } => {
+            if !yes {
+                bail!(
+                    "refusing to import {} credentials without --yes",
+                    provider.as_str()
+                );
+            }
+            if let Some(path) = from.strip_prefix("file:") {
+                fs::metadata(path)
+                    .with_context(|| format!("credential file {path} does not exist"))?;
+            }
+            println!("{} credential import source accepted, but secure vault persistence is not enabled in this CLI build.", provider.as_str());
+            Ok(())
+        }
+        AuthCommand::Rotate { provider } => {
+            println!(
+                "{} credential rotation requires provider-specific API support.",
+                provider.as_str()
+            );
+            Ok(())
+        }
+    }
+}
+
+fn edit_release_config(project_dir: &Path, tui: bool) -> Result<()> {
+    let path = project_dir.join("fission.toml");
+    fs::metadata(&path).with_context(|| format!("{} does not exist", path.display()))?;
+    if tui {
+        bail!("release-config TUI editing is part of the CLI lifecycle surface, but the editor screen is not wired yet; use `fission release-config edit` to open fission.toml in $EDITOR");
+    }
+    let editor = env::var("VISUAL")
+        .or_else(|_| env::var("EDITOR"))
+        .unwrap_or_else(|_| "vi".to_string());
+    let status = Command::new(editor)
+        .arg(&path)
+        .status()
+        .context("failed to launch editor")?;
+    if !status.success() {
+        bail!("editor exited with {status}");
+    }
+    Ok(())
+}
+
+fn set_release_field(project_dir: &Path, field: &str, value: &str, yes: bool) -> Result<()> {
+    if !yes {
+        bail!("set rewrites fission.toml; pass --yes after reviewing the field path");
+    }
+    let path = project_dir.join("fission.toml");
+    let data =
+        fs::read_to_string(&path).with_context(|| format!("failed to read {}", path.display()))?;
+    let mut doc: toml::Value =
+        toml::from_str(&data).with_context(|| format!("failed to parse {}", path.display()))?;
+    set_toml_path(&mut doc, field, toml::Value::String(value.to_string()))?;
+    fs::write(&path, toml::to_string_pretty(&doc)? + "\n")
+        .with_context(|| format!("failed to write {}", path.display()))?;
+    Ok(())
+}
+
+fn add_release(
+    project_dir: &Path,
+    version: &str,
+    build: u64,
+    from: Option<&str>,
+    yes: bool,
+) -> Result<()> {
+    if !yes {
+        bail!("add-release appends to fission.toml; pass --yes after reviewing the release id");
+    }
+    let path = project_dir.join("fission.toml");
+    let mut text =
+        fs::read_to_string(&path).with_context(|| format!("failed to read {}", path.display()))?;
+    let id = format!("{version}+{build}");
+    text.push_str(&format!(
+        "\n[[releases]]\nid = \"{id}\"\nversion = \"{version}\"\nbuild = {build}\nstatus = \"candidate\"\nmetadata = \"release-content/metadata/{id}/release.toml\"\nrelease_notes = \"release-content/metadata/{id}/notes\"\nreview = \"release-content/metadata/{id}/review.toml\"\nprivacy = \"release-content/metadata/{id}/privacy.toml\"\n"
+    ));
+    if let Some(source) = from {
+        text.push_str(&format!("# copied_from = \"{source}\"\n"));
+    }
+    fs::write(&path, text).with_context(|| format!("failed to write {}", path.display()))?;
+    Ok(())
+}
+
+fn edit_release_file(
+    project_dir: &Path,
+    release: &str,
+    kind: &str,
+    locale: Option<&str>,
+) -> Result<()> {
+    let relative = match (kind, locale) {
+        ("notes", Some(locale)) => format!("release-content/metadata/{release}/notes/{locale}.md"),
+        ("notes", None) => format!("release-content/metadata/{release}/notes/en-US.md"),
+        ("review", _) => format!("release-content/metadata/{release}/review.toml"),
+        ("privacy", _) => format!("release-content/metadata/{release}/privacy.toml"),
+        ("metadata", _) | ("release", _) => {
+            format!("release-content/metadata/{release}/release.toml")
+        }
+        other => bail!("unsupported release file kind `{}`", other.0),
+    };
+    let path = project_dir.join(relative);
+    if let Some(parent) = path.parent() {
+        fs::create_dir_all(parent)?;
+    }
+    if !path.exists() {
+        fs::write(&path, "")?;
+    }
+    let editor = env::var("VISUAL")
+        .or_else(|_| env::var("EDITOR"))
+        .unwrap_or_else(|_| "vi".to_string());
+    let status = Command::new(editor).arg(&path).status()?;
+    if !status.success() {
+        bail!("editor exited with {status}");
+    }
+    Ok(())
+}
+
+fn provider_operation_report(
+    area: &str,
+    project_dir: &Path,
+    provider: publish::DistributionProvider,
+    locales: Option<String>,
+    yes: bool,
+    json: bool,
+) -> Result<()> {
+    let mut report = provider_backend_report(area, project_dir, provider);
+    report.checks.push(ok_check(
+        "release_config.locales",
+        locales.unwrap_or_else(|| "<provider default>".to_string()),
+    ));
+    report
+        .checks
+        .push(ok_check("release_config.confirmed", yes.to_string()));
+    print_report(report, json)
+}
+
+fn validate_release_config(
+    project_dir: &Path,
+    provider: Option<publish::DistributionProvider>,
+) -> Result<LifecycleReport> {
+    let mut report = base_report("release-config.validate", provider, None);
+    let path = project_dir.join("fission.toml");
+    report.checks.push(path_check(
+        "release_config.fission_toml_exists",
+        path.clone(),
+        "fission.toml exists",
+    ));
+    if path.exists() {
+        let data = fs::read_to_string(&path)?;
+        match toml::from_str::<toml::Value>(&data) {
+            Ok(value) => {
+                report.checks.push(ok_check(
+                    "release_config.toml_parses",
+                    "fission.toml parses",
+                ));
+                report.checks.push(value_path_check(
+                    &value,
+                    "app",
+                    "release_config.app_table",
+                    "[app] table exists",
+                ));
+                report.checks.push(value_path_check(
+                    &value,
+                    "releases",
+                    "release_config.releases",
+                    "[[releases]] entries exist or are ready to be added",
+                ));
+            }
+            Err(error) => report.checks.push(failed_check(
+                "release_config.toml_parses",
+                error.to_string(),
+            )),
+        }
+    }
+    finalize_status(&mut report);
+    Ok(report)
+}
+
+fn validate_release_content(
+    project_dir: &Path,
+    provider: Option<publish::DistributionProvider>,
+) -> LifecycleReport {
+    let mut report = base_report("release-content.validate", provider, None);
+    report.checks.push(path_check(
+        "release_content.root_exists",
+        project_dir.join("release-content"),
+        "release-content directory exists",
+    ));
+    report.checks.push(path_check(
+        "release_content.metadata_root_exists",
+        project_dir.join("release-content/metadata"),
+        "release metadata sidecar directory exists",
+    ));
+    finalize_status(&mut report);
+    report
+}
+
+fn provider_backend_report(
+    area: &str,
+    project_dir: &Path,
+    provider: publish::DistributionProvider,
+) -> LifecycleReport {
+    let mut report = base_report(area, Some(provider), None);
+    report.checks.push(path_check(
+        "release.project_config_exists",
+        project_dir.join("fission.toml"),
+        "fission.toml exists",
+    ));
+    report.checks.push(warning_check(
+        "release.provider_backend",
+        format!(
+            "{} API backend requires provider-specific wiring before mutating remote state",
+            provider.as_str()
+        ),
+    ));
+    finalize_status(&mut report);
+    report
+}
+
+fn signing_report(area: &str, project_dir: &Path, target: Target) -> LifecycleReport {
+    let mut report = base_report(area, None, Some(target));
+    report.checks.push(path_check(
+        "signing.project_config_exists",
+        project_dir.join("fission.toml"),
+        "fission.toml exists",
+    ));
+    match target {
+        Target::Android => report
+            .checks
+            .push(env_check("signing.android.keystore", "ANDROID_KEYSTORE")),
+        Target::Ios | Target::Macos => report.checks.push(env_check(
+            "signing.apple.identity",
+            "APPLE_SIGNING_IDENTITY",
+        )),
+        Target::Windows => report.checks.push(env_check(
+            "signing.windows.certificate",
+            "WINDOWS_SIGNING_CERTIFICATE",
+        )),
+        _ => report.checks.push(warning_check(
+            "signing.target",
+            "target does not require signing by default".to_string(),
+        )),
+    }
+    finalize_status(&mut report);
+    report
+}
+
+fn auth_report(area: &str, provider: Option<publish::DistributionProvider>) -> LifecycleReport {
+    let mut report = base_report(area, provider, None);
+    let providers = provider.map(|provider| vec![provider]).unwrap_or_else(|| {
+        vec![
+            publish::DistributionProvider::GithubPages,
+            publish::DistributionProvider::CloudflarePages,
+            publish::DistributionProvider::Netlify,
+            publish::DistributionProvider::S3,
+            publish::DistributionProvider::GoogleDrive,
+            publish::DistributionProvider::OneDrive,
+            publish::DistributionProvider::Dropbox,
+            publish::DistributionProvider::PlayStore,
+            publish::DistributionProvider::AppStore,
+            publish::DistributionProvider::MicrosoftStore,
+        ]
+    });
+    for provider in providers {
+        report.checks.push(provider_env_check(provider));
+    }
+    finalize_status(&mut report);
+    report
+}
+
+fn provider_env_check(provider: publish::DistributionProvider) -> LifecycleCheck {
+    let vars: &[&str] = match provider {
+        publish::DistributionProvider::GithubPages => &["GH_TOKEN", "GITHUB_TOKEN"],
+        publish::DistributionProvider::CloudflarePages => &["CLOUDFLARE_API_TOKEN"],
+        publish::DistributionProvider::Netlify => &["NETLIFY_AUTH_TOKEN"],
+        publish::DistributionProvider::S3 => &["AWS_PROFILE", "AWS_ACCESS_KEY_ID"],
+        publish::DistributionProvider::GoogleDrive => &["GOOGLE_DRIVE_ACCESS_TOKEN"],
+        publish::DistributionProvider::OneDrive => &["ONEDRIVE_ACCESS_TOKEN"],
+        publish::DistributionProvider::Dropbox => &["DROPBOX_ACCESS_TOKEN"],
+        publish::DistributionProvider::PlayStore => &["PLAY_STORE_SERVICE_ACCOUNT_JSON"],
+        publish::DistributionProvider::AppStore => &["APP_STORE_CONNECT_API_KEY"],
+        publish::DistributionProvider::MicrosoftStore => &["MICROSOFT_STORE_TOKEN"],
+    };
+    let found = vars.iter().find(|name| env::var_os(name).is_some());
+    LifecycleCheck {
+        id: format!("auth.{}.credentials", provider.as_str().replace('-', "_")),
+        status: if found.is_some() { "passed" } else { "missing" }.to_string(),
+        summary: format!("{} credentials are available", provider.as_str()),
+        details: found.map(|name| format!("using {name}")),
+        remediation: vec![format!(
+            "Set one of {} or use fission auth import once the secure vault backend is enabled.",
+            vars.join(", ")
+        )],
+    }
+}
+
+fn set_toml_path(root: &mut toml::Value, path: &str, value: toml::Value) -> Result<()> {
+    let mut current = root;
+    let parts = path.split('.').collect::<Vec<_>>();
+    if parts.is_empty() || parts.iter().any(|part| part.trim().is_empty()) {
+        bail!("field path must be dot-separated and non-empty");
+    }
+    for part in &parts[..parts.len() - 1] {
+        let table = current
+            .as_table_mut()
+            .context("field path traversed through a non-table value")?;
+        current = table
+            .entry((*part).to_string())
+            .or_insert_with(|| toml::Value::Table(Default::default()));
+    }
+    let table = current
+        .as_table_mut()
+        .context("field path parent is not a table")?;
+    table.insert(parts[parts.len() - 1].to_string(), value);
+    Ok(())
+}
+
+fn base_report(
+    area: &str,
+    provider: Option<publish::DistributionProvider>,
+    target: Option<Target>,
+) -> LifecycleReport {
+    LifecycleReport {
+        area: area.to_string(),
+        status: "ready".to_string(),
+        provider: provider.map(|provider| provider.as_str().to_string()),
+        target: target.map(|target| target.as_str().to_string()),
+        checks: Vec::new(),
+    }
+}
+
+fn path_check(id: &str, path: PathBuf, summary: &str) -> LifecycleCheck {
+    LifecycleCheck {
+        id: id.to_string(),
+        status: if path.exists() { "passed" } else { "missing" }.to_string(),
+        summary: summary.to_string(),
+        details: Some(path.display().to_string()),
+        remediation: vec![
+            "Create the file/directory or update fission.toml to point at the correct path."
+                .to_string(),
+        ],
+    }
+}
+
+fn value_path_check(value: &toml::Value, path: &str, id: &str, summary: &str) -> LifecycleCheck {
+    let exists = path
+        .split('.')
+        .try_fold(value, |current, segment| current.get(segment))
+        .is_some();
+    LifecycleCheck {
+        id: id.to_string(),
+        status: if exists { "passed" } else { "missing" }.to_string(),
+        summary: summary.to_string(),
+        details: Some(path.to_string()),
+        remediation: vec![
+            "Add the missing release configuration or use fission release-config add-release/set."
+                .to_string(),
+        ],
+    }
+}
+
+fn env_check(id: &str, name: &str) -> LifecycleCheck {
+    LifecycleCheck {
+        id: id.to_string(),
+        status: if env::var_os(name).is_some() {
+            "passed"
+        } else {
+            "missing"
+        }
+        .to_string(),
+        summary: format!("{name} is set"),
+        details: None,
+        remediation: vec![format!(
+            "Set {name} or import signing credentials through the release credential flow."
+        )],
+    }
+}
+
+fn ok_check(id: &str, details: impl Into<String>) -> LifecycleCheck {
+    LifecycleCheck {
+        id: id.to_string(),
+        status: "passed".to_string(),
+        summary: id.replace('_', " "),
+        details: Some(details.into()),
+        remediation: Vec::new(),
+    }
+}
+
+fn warning_check(id: &str, details: String) -> LifecycleCheck {
+    LifecycleCheck {
+        id: id.to_string(),
+        status: "warning".to_string(),
+        summary: id.replace('_', " "),
+        details: Some(details),
+        remediation: vec![
+            "Wire the provider backend before using this command to mutate remote state."
+                .to_string(),
+        ],
+    }
+}
+
+fn failed_check(id: &str, details: String) -> LifecycleCheck {
+    LifecycleCheck {
+        id: id.to_string(),
+        status: "failed".to_string(),
+        summary: id.replace('_', " "),
+        details: Some(details),
+        remediation: vec!["Fix the reported error and rerun the command.".to_string()],
+    }
+}
+
+fn finalize_status(report: &mut LifecycleReport) {
+    report.status = if report
+        .checks
+        .iter()
+        .any(|check| check.status == "failed" || check.status == "missing")
+    {
+        "blocked"
+    } else if report.checks.iter().any(|check| check.status == "warning") {
+        "warning"
+    } else {
+        "ready"
+    }
+    .to_string();
+}
+
+fn print_report(mut report: LifecycleReport, json: bool) -> Result<()> {
+    finalize_status(&mut report);
+    if json {
+        println!("{}", serde_json::to_string_pretty(&report)?);
+    } else {
+        println!("{}: {}", report.area, report.status);
+        for check in &report.checks {
+            println!("[{}] {} - {}", check.status, check.id, check.summary);
+            if let Some(details) = &check.details {
+                println!("  {details}");
+            }
+            for remediation in &check.remediation {
+                println!("  fix: {remediation}");
+            }
+        }
+    }
+    if report.status == "blocked" {
+        bail!("{} is blocked", report.area);
+    }
+    Ok(())
+}

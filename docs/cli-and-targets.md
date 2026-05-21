@@ -66,16 +66,35 @@ cargo fission test --project-dir my-app --target ios --headless
 cargo fission test --project-dir my-app --target android --headless
 ```
 
-Package and publish a static site:
+Package, check, and publish release artifacts:
 
 ```sh
 cargo fission package --project-dir my-app --target site --format static --release
+cargo fission package --project-dir my-app --target linux --format run --release
+cargo fission package --project-dir my-app --target macos --format app --release
+cargo fission package --project-dir my-app --target android --format apk --release
+cargo fission readiness release --project-dir my-app --target site --format static --provider github-pages --site production
 cargo fission readiness distribute --project-dir my-app --provider github-pages --site production --artifact my-app/target/fission/release/site/static/artifact-manifest.json
 cargo fission distribute setup --project-dir my-app --provider github-pages --site production
 cargo fission distribute --project-dir my-app --provider github-pages --site production --artifact my-app/target/fission/release/site/static/artifact-manifest.json
+cargo fission distribute --project-dir my-app --provider play-store --track internal --artifact my-app/target/fission/release/android/aab/artifact-manifest.json
 ```
 
-The static package command builds the site, stages the deployable output under `target/fission/<profile>/site/static`, and writes `artifact-manifest.json` with file hashes and MIME types. The first publishing providers are GitHub Pages, Cloudflare Pages, and Netlify. GitHub Pages supports Actions workflow setup and branch-source publishing. Cloudflare Pages and Netlify initially use their provider CLIs with token-based authentication while the Fission CLI owns config parsing, readiness checks, artifact manifests, and receipts.
+Every package command stages output under `target/fission/<profile>/<target>/<format>` and writes `artifact-manifest.json` with file hashes and MIME types. Static site/web publishing supports GitHub Pages, Cloudflare Pages, Netlify, and S3-compatible storage readiness. Store and file-storage providers are represented in the lifecycle command surface so release metadata, beta groups, signing checks, review operations, and authentication can be validated from the same project root before provider-specific upload backends mutate remote state.
+
+Release lifecycle commands are intentionally separate from packaging:
+
+```sh
+cargo fission release-config validate --project-dir my-app --provider play-store
+cargo fission release-config add-release --project-dir my-app --version 1.2.3 --build 42 --yes
+cargo fission release-content validate --project-dir my-app --provider app-store
+cargo fission beta groups list --project-dir my-app --provider app-store
+cargo fission signing status --project-dir my-app --target ios
+cargo fission reviews list --project-dir my-app --provider play-store --since 30d
+cargo fission auth status --json
+```
+
+The CLI currently keeps provider credentials out of `fission.toml`; readiness and auth commands inspect environment-provided credentials and report the missing vault/provider backend explicitly instead of writing plaintext secrets.
 
 The generated project contains:
 

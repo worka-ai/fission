@@ -31,7 +31,7 @@ pub(crate) enum PackageFormat {
 }
 
 impl PackageFormat {
-    fn as_str(self) -> &'static str {
+    pub(crate) fn as_str(self) -> &'static str {
         match self {
             Self::Aab => "aab",
             Self::Apk => "apk",
@@ -49,19 +49,38 @@ impl PackageFormat {
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq, ValueEnum)]
 pub(crate) enum DistributionProvider {
+    #[value(name = "app-store")]
+    AppStore,
     #[value(name = "github-pages")]
     GithubPages,
     #[value(name = "cloudflare-pages")]
     CloudflarePages,
+    Dropbox,
+    #[value(name = "google-drive")]
+    GoogleDrive,
+    #[value(name = "microsoft-store")]
+    MicrosoftStore,
     Netlify,
+    #[value(name = "onedrive")]
+    OneDrive,
+    #[value(name = "play-store")]
+    PlayStore,
+    S3,
 }
 
 impl DistributionProvider {
-    fn as_str(self) -> &'static str {
+    pub(crate) fn as_str(self) -> &'static str {
         match self {
+            Self::AppStore => "app-store",
             Self::GithubPages => "github-pages",
             Self::CloudflarePages => "cloudflare-pages",
+            Self::Dropbox => "dropbox",
+            Self::GoogleDrive => "google-drive",
+            Self::MicrosoftStore => "microsoft-store",
             Self::Netlify => "netlify",
+            Self::OneDrive => "onedrive",
+            Self::PlayStore => "play-store",
+            Self::S3 => "s3",
         }
     }
 }
@@ -79,6 +98,7 @@ pub(crate) enum DistributeAction {
 pub(crate) enum ReadinessKind {
     Package,
     Distribute,
+    Release,
 }
 
 #[derive(Clone, Debug)]
@@ -98,6 +118,7 @@ pub(crate) struct DistributeOptions {
     pub(crate) artifact: Option<PathBuf>,
     pub(crate) site: String,
     pub(crate) deploy: Option<String>,
+    pub(crate) track: Option<String>,
     pub(crate) dry_run: bool,
     pub(crate) yes: bool,
     pub(crate) json: bool,
@@ -223,11 +244,25 @@ struct SiteManifest {
 #[derive(Debug, Deserialize, Default)]
 struct DistributionManifest {
     #[serde(default)]
+    s3: BTreeMap<String, S3Config>,
+    #[serde(default)]
     github_pages: BTreeMap<String, GithubPagesConfig>,
     #[serde(default)]
     cloudflare_pages: BTreeMap<String, CloudflarePagesConfig>,
     #[serde(default)]
     netlify: BTreeMap<String, NetlifyConfig>,
+}
+
+#[derive(Clone, Debug, Deserialize, Default)]
+struct S3Config {
+    endpoint: Option<String>,
+    region: Option<String>,
+    bucket: Option<String>,
+    prefix: Option<String>,
+    profile: Option<String>,
+    path_style: Option<bool>,
+    visibility: Option<String>,
+    presign_ttl_seconds: Option<u64>,
 }
 
 #[derive(Clone, Debug, Deserialize, Default)]
@@ -302,6 +337,22 @@ pub(crate) fn readiness(options: ReadinessOptions) -> Result<()> {
         ReadinessKind::Package => {
             readiness_package(&options.project_dir, options.target, options.format)
         }
+        ReadinessKind::Release => {
+            let config = load_publish_manifest(&options.project_dir)?;
+            let mut checks =
+                readiness_package(&options.project_dir, options.target, options.format)?;
+            let provider = options
+                .provider
+                .context("readiness release requires --provider")?;
+            checks.extend(readiness_distribute(
+                &options.project_dir,
+                provider,
+                &options.site,
+                options.artifact.as_deref(),
+                &config,
+            )?);
+            Ok(checks)
+        }
         ReadinessKind::Distribute => {
             let config = load_publish_manifest(&options.project_dir)?;
             let provider = options
@@ -324,7 +375,11 @@ pub(crate) fn readiness(options: ReadinessOptions) -> Result<()> {
         provider: options
             .provider
             .map(|provider| provider.as_str().to_string()),
-        site: (options.kind == ReadinessKind::Distribute).then(|| options.site.clone()),
+        site: matches!(
+            options.kind,
+            ReadinessKind::Distribute | ReadinessKind::Release
+        )
+        .then(|| options.site.clone()),
         status: report_status(&checks).to_string(),
         checks,
     };
@@ -367,6 +422,13 @@ fn setup_provider(options: &DistributeOptions, config: &PublishManifest) -> Resu
             println!("Run `fission readiness distribute --provider netlify --site {} --project-dir {}` before publishing.", options.site, options.project_dir.display());
             Ok(())
         }
+        DistributionProvider::S3
+        | DistributionProvider::GoogleDrive
+        | DistributionProvider::OneDrive
+        | DistributionProvider::Dropbox
+        | DistributionProvider::PlayStore
+        | DistributionProvider::AppStore
+        | DistributionProvider::MicrosoftStore => setup_non_static_provider(options, config),
     }
 }
 
@@ -407,6 +469,15 @@ fn publish_artifact(options: &DistributeOptions, config: &PublishManifest) -> Re
         DistributionProvider::Netlify => {
             publish_netlify(options, config, &artifact_path, &manifest)?
         }
+        DistributionProvider::S3 => publish_s3(options, config, &artifact_path, &manifest)?,
+        DistributionProvider::GoogleDrive
+        | DistributionProvider::OneDrive
+        | DistributionProvider::Dropbox
+        | DistributionProvider::PlayStore
+        | DistributionProvider::AppStore
+        | DistributionProvider::MicrosoftStore => {
+            publish_manual_provider(options, &artifact_path, &manifest)?
+        }
     };
     write_receipt(&options.project_dir, &receipt)?;
     if options.json {
@@ -438,6 +509,13 @@ fn provider_status(options: &DistributeOptions, config: &PublishManifest) -> Res
             "netlify",
             netlify_status_args(config, &options.site)?,
         )?,
+        DistributionProvider::S3
+        | DistributionProvider::GoogleDrive
+        | DistributionProvider::OneDrive
+        | DistributionProvider::Dropbox
+        | DistributionProvider::PlayStore
+        | DistributionProvider::AppStore
+        | DistributionProvider::MicrosoftStore => generic_status_receipt(options),
     };
     if options.json {
         println!("{}", serde_json::to_string_pretty(&receipt)?);
@@ -460,6 +538,36 @@ fn provider_lifecycle(options: &DistributeOptions, _config: &PublishManifest) ->
             _ => "this operation",
         }
     )
+}
+
+fn setup_non_static_provider(options: &DistributeOptions, config: &PublishManifest) -> Result<()> {
+    let checks = readiness_distribute(
+        &options.project_dir,
+        options.provider,
+        &options.site,
+        options.artifact.as_deref(),
+        config,
+    )?;
+    if options.json {
+        let report = ReadinessReport {
+            project_dir: options.project_dir.display().to_string(),
+            target: None,
+            format: None,
+            provider: Some(options.provider.as_str().to_string()),
+            site: Some(options.site.clone()),
+            status: report_status(&checks).to_string(),
+            checks,
+        };
+        println!("{}", serde_json::to_string_pretty(&report)?);
+    } else {
+        println!(
+            "{} setup checks for `{}`",
+            options.provider.as_str(),
+            options.site
+        );
+        print_checks(&checks);
+    }
+    Ok(())
 }
 
 fn setup_github_pages(options: &DistributeOptions, config: &PublishManifest) -> Result<()> {
@@ -735,6 +843,128 @@ fn publish_netlify(
     })
 }
 
+fn publish_s3(
+    options: &DistributeOptions,
+    config: &PublishManifest,
+    artifact_path: &Path,
+    manifest: &ArtifactManifest,
+) -> Result<DistributionReceipt> {
+    let cfg = s3_config(config, &options.site)?;
+    let bucket = cfg
+        .bucket
+        .as_deref()
+        .context("distribution.s3.<site>.bucket is required")?;
+    let prefix = cfg
+        .prefix
+        .as_deref()
+        .unwrap_or("")
+        .trim_start_matches('/')
+        .trim_end_matches('/');
+    let destination = if prefix.is_empty() {
+        format!("s3://{bucket}/")
+    } else {
+        format!("s3://{bucket}/{prefix}/")
+    };
+    let mut args = vec![
+        "s3".to_string(),
+        "sync".to_string(),
+        manifest.root_dir.clone(),
+        destination.clone(),
+        "--delete".to_string(),
+    ];
+    if let Some(endpoint) = cfg
+        .endpoint
+        .as_deref()
+        .filter(|value| !value.trim().is_empty())
+    {
+        args.push("--endpoint-url".to_string());
+        args.push(endpoint.to_string());
+    }
+    if let Some(region) = cfg
+        .region
+        .as_deref()
+        .filter(|value| !value.trim().is_empty())
+    {
+        args.push("--region".to_string());
+        args.push(region.to_string());
+    }
+    if let Some(profile) = cfg
+        .profile
+        .as_deref()
+        .filter(|value| !value.trim().is_empty())
+    {
+        args.push("--profile".to_string());
+        args.push(profile.to_string());
+    }
+    if cfg.visibility.as_deref() == Some("public") {
+        args.push("--acl".to_string());
+        args.push("public-read".to_string());
+    }
+    run_publish_command(options, "s3", "aws", args, artifact_path, || {
+        cfg.endpoint
+            .as_ref()
+            .filter(|value| value.starts_with("http"))
+            .map(|endpoint| {
+                let prefix = if prefix.is_empty() {
+                    String::new()
+                } else {
+                    format!("{prefix}/")
+                };
+                format!("{}/{}/{}", endpoint.trim_end_matches('/'), bucket, prefix)
+            })
+    })
+}
+
+fn publish_manual_provider(
+    options: &DistributeOptions,
+    artifact_path: &Path,
+    manifest: &ArtifactManifest,
+) -> Result<DistributionReceipt> {
+    let provider = options.provider.as_str();
+    Ok(DistributionReceipt {
+        schema_version: 1,
+        created_at_unix_seconds: now_unix_seconds(),
+        provider: provider.to_string(),
+        site: options.site.clone(),
+        action: "publish".to_string(),
+        artifact_manifest: Some(artifact_path.display().to_string()),
+        deployment_id: options.deploy.clone(),
+        canonical_url: None,
+        preview_url: None,
+        custom_domain: None,
+        status: "manual-provider-required".to_string(),
+        stdout: None,
+        stderr: None,
+        manual_follow_up: vec![format!(
+            "{provider} provider upload is represented in the lifecycle model, but direct upload automation is not wired in this CLI build. Track: {}. Artifact root: {}",
+            options.track.as_deref().unwrap_or("<provider default>"),
+            manifest.root_dir
+        )],
+    })
+}
+
+fn generic_status_receipt(options: &DistributeOptions) -> DistributionReceipt {
+    DistributionReceipt {
+        schema_version: 1,
+        created_at_unix_seconds: now_unix_seconds(),
+        provider: options.provider.as_str().to_string(),
+        site: options.site.clone(),
+        action: "status".to_string(),
+        artifact_manifest: None,
+        deployment_id: options.deploy.clone(),
+        canonical_url: None,
+        preview_url: None,
+        custom_domain: None,
+        status: "not-connected".to_string(),
+        stdout: None,
+        stderr: None,
+        manual_follow_up: vec![format!(
+            "{} status requires provider API integration or provider credentials.",
+            options.provider.as_str()
+        )],
+    }
+}
+
 fn run_publish_command<F>(
     options: &DistributeOptions,
     provider: &str,
@@ -888,17 +1118,22 @@ fn readiness_package(
     let target = target.unwrap_or(Target::Site);
     let format = format.unwrap_or(PackageFormat::Static);
     let mut checks = Vec::new();
+    let format_supported = package_format_supported(target, format);
     checks.push(check(
         "release.package.format_supported",
         CheckSeverity::Error,
-        if format == PackageFormat::Static {
+        if format_supported {
             CheckStatus::Passed
         } else {
             CheckStatus::Failed
         },
-        "static package format is supported for site/web targets",
-        None,
-        vec!["Use `--format static`."],
+        "package format is supported for the selected target",
+        Some(format!(
+            "--target {} --format {}",
+            target.as_str(),
+            format.as_str()
+        )),
+        vec!["Use a valid target/format pair, such as site/static, linux/run, macos/app, macos/pkg, windows/exe, windows/msi, windows/msix, android/apk, android/aab, or ios/ipa."],
     ));
     checks.push(check_path(
         "release.package.fission_toml_exists",
@@ -906,6 +1141,20 @@ fn readiness_package(
         "fission.toml exists",
         "Run `fission init .` or point --project-dir at a Fission project.",
     ));
+    if let Ok(project) = crate::read_project_config(project_dir) {
+        checks.push(check(
+            "release.package.target_configured",
+            CheckSeverity::Error,
+            if project.targets.contains(&target) {
+                CheckStatus::Passed
+            } else {
+                CheckStatus::Missing
+            },
+            "target is configured in fission.toml",
+            Some(format!("target = {}", target.as_str())),
+            vec!["Run `fission add-target <target> --project-dir .` before packaging."],
+        ));
+    }
     if matches!(target, Target::Site) {
         let has_content = project_dir.join("content").exists();
         let has_entry = load_publish_manifest(project_dir)
@@ -929,7 +1178,108 @@ fn readiness_package(
             vec!["Add content/ or configure [site].entry for a custom static site."],
         ));
     }
+    readiness_package_tools(project_dir, target, format, &mut checks);
     Ok(checks)
+}
+
+fn package_format_supported(target: Target, format: PackageFormat) -> bool {
+    matches!(
+        (target, format),
+        (Target::Site, PackageFormat::Static)
+            | (Target::Web, PackageFormat::Static)
+            | (Target::Linux, PackageFormat::Run)
+            | (Target::Macos, PackageFormat::App)
+            | (Target::Macos, PackageFormat::Pkg)
+            | (Target::Windows, PackageFormat::Exe)
+            | (Target::Windows, PackageFormat::Msi)
+            | (Target::Windows, PackageFormat::Msix)
+            | (Target::Android, PackageFormat::Apk)
+            | (Target::Android, PackageFormat::Aab)
+            | (Target::Ios, PackageFormat::Ipa)
+    )
+}
+
+fn readiness_package_tools(
+    project_dir: &Path,
+    target: Target,
+    format: PackageFormat,
+    checks: &mut Vec<ReadinessCheck>,
+) {
+    match (target, format) {
+        (Target::Site, PackageFormat::Static) | (Target::Web, PackageFormat::Static) => {
+            checks.push(check_tool(
+                "release.package.cargo_available",
+                "cargo",
+                "Install Rust from https://rustup.rs/ and ensure cargo is on PATH.",
+            ));
+        }
+        (Target::Linux, PackageFormat::Run) => {
+            checks.push(host_os_check("release.package.host_is_linux", "linux"));
+            checks.push(check_tool(
+                "release.package.cargo_available",
+                "cargo",
+                "Install Rust from https://rustup.rs/ and ensure cargo is on PATH.",
+            ));
+        }
+        (Target::Macos, PackageFormat::App) => {
+            checks.push(host_os_check("release.package.host_is_macos", "macos"));
+            checks.push(check_tool(
+                "release.package.cargo_available",
+                "cargo",
+                "Install Rust from https://rustup.rs/ and ensure cargo is on PATH.",
+            ));
+        }
+        (Target::Macos, PackageFormat::Pkg) => {
+            checks.push(host_os_check("release.package.host_is_macos", "macos"));
+            checks.push(check_tool(
+                "release.package.pkgbuild_available",
+                "pkgbuild",
+                "Install Xcode command line tools.",
+            ));
+        }
+        (Target::Windows, PackageFormat::Exe) => {
+            checks.push(host_os_check("release.package.host_is_windows", "windows"));
+            checks.push(check_tool(
+                "release.package.cargo_available",
+                "cargo",
+                "Install Rust from https://rustup.rs/ and ensure cargo is on PATH.",
+            ));
+        }
+        (Target::Windows, PackageFormat::Msi) => checks.push(check_path(
+            "release.package.windows_msi_script_exists",
+            project_dir.join("platforms/windows/package-msi.ps1"),
+            "Windows MSI packaging script exists",
+            "Configure platforms/windows/package-msi.ps1 or install the Windows packaging target template.",
+        )),
+        (Target::Windows, PackageFormat::Msix) => checks.push(check_path(
+            "release.package.windows_msix_script_exists",
+            project_dir.join("platforms/windows/package-msix.ps1"),
+            "Windows MSIX packaging script exists",
+            "Configure platforms/windows/package-msix.ps1 or install the Windows packaging target template.",
+        )),
+        (Target::Android, PackageFormat::Apk) => checks.push(check_path(
+            "release.package.android_apk_script_exists",
+            project_dir.join("platforms/android/package-apk.sh"),
+            "Android APK packaging script exists",
+            "Run `fission add-target android --project-dir .` or restore platforms/android/package-apk.sh.",
+        )),
+        (Target::Android, PackageFormat::Aab) => checks.push(check_path(
+            "release.package.android_aab_script_exists",
+            project_dir.join("platforms/android/package-aab.sh"),
+            "Android AAB packaging script exists",
+            "Add platforms/android/package-aab.sh once release AAB packaging is configured.",
+        )),
+        (Target::Ios, PackageFormat::Ipa) => {
+            checks.push(host_os_check("release.package.host_is_macos", "macos"));
+            checks.push(check_path(
+                "release.package.ios_ipa_script_exists",
+                project_dir.join("platforms/ios/package-ipa.sh"),
+                "iOS IPA packaging script exists",
+                "Add platforms/ios/package-ipa.sh once release IPA export is configured.",
+            ));
+        }
+        _ => {}
+    }
 }
 
 fn readiness_distribute(
@@ -972,6 +1322,49 @@ fn readiness_distribute(
             readiness_cloudflare_pages(site, config, &mut checks)?
         }
         DistributionProvider::Netlify => readiness_netlify(site, config, &mut checks)?,
+        DistributionProvider::S3 => readiness_s3(site, config, &mut checks)?,
+        DistributionProvider::GoogleDrive => readiness_oauth_file_provider(
+            "google_drive",
+            "GOOGLE_DRIVE_ACCESS_TOKEN",
+            "Google Drive OAuth token is available",
+            "Authorize Google Drive with `fission auth login google-drive` or set GOOGLE_DRIVE_ACCESS_TOKEN in CI.",
+            &mut checks,
+        ),
+        DistributionProvider::OneDrive => readiness_oauth_file_provider(
+            "onedrive",
+            "ONEDRIVE_ACCESS_TOKEN",
+            "OneDrive OAuth token is available",
+            "Authorize OneDrive with `fission auth login onedrive` or set ONEDRIVE_ACCESS_TOKEN in CI.",
+            &mut checks,
+        ),
+        DistributionProvider::Dropbox => readiness_oauth_file_provider(
+            "dropbox",
+            "DROPBOX_ACCESS_TOKEN",
+            "Dropbox OAuth token is available",
+            "Authorize Dropbox with `fission auth login dropbox` or set DROPBOX_ACCESS_TOKEN in CI.",
+            &mut checks,
+        ),
+        DistributionProvider::PlayStore => readiness_store_provider(
+            "play_store",
+            "PLAY_STORE_SERVICE_ACCOUNT_JSON",
+            "Google Play service account credentials are available",
+            "Set PLAY_STORE_SERVICE_ACCOUNT_JSON or configure `fission auth import play-store`.",
+            &mut checks,
+        ),
+        DistributionProvider::AppStore => readiness_store_provider(
+            "app_store",
+            "APP_STORE_CONNECT_API_KEY",
+            "App Store Connect API credentials are available",
+            "Set APP_STORE_CONNECT_API_KEY or configure `fission auth import app-store`.",
+            &mut checks,
+        ),
+        DistributionProvider::MicrosoftStore => readiness_store_provider(
+            "microsoft_store",
+            "MICROSOFT_STORE_TOKEN",
+            "Microsoft Store credentials are available",
+            "Set MICROSOFT_STORE_TOKEN or configure `fission auth import microsoft-store`.",
+            &mut checks,
+        ),
     }
     Ok(checks)
 }
@@ -1128,6 +1521,93 @@ fn readiness_netlify(
         cfg.base_path.as_deref(),
     ));
     Ok(())
+}
+
+fn readiness_s3(
+    site: &str,
+    config: &PublishManifest,
+    checks: &mut Vec<ReadinessCheck>,
+) -> Result<()> {
+    let cfg = s3_config(config, site)?;
+    checks.push(required_value(
+        "release.s3.bucket_configured",
+        cfg.bucket.as_deref(),
+        "S3 bucket is configured",
+        "Set distribution.s3.<site>.bucket.",
+    ));
+    checks.push(check(
+        "release.s3.credentials_available",
+        CheckSeverity::Error,
+        if env::var_os("AWS_ACCESS_KEY_ID").is_some()
+            || env::var_os("AWS_PROFILE").is_some()
+            || cfg.profile.as_deref().is_some_and(|value| !value.trim().is_empty())
+        {
+            CheckStatus::Passed
+        } else {
+            CheckStatus::Missing
+        },
+        "AWS/S3 credentials are available",
+        Some(format!(
+            "profile = {}, endpoint = {}, path_style = {}, presign_ttl_seconds = {}",
+            cfg.profile.as_deref().unwrap_or("<env/default>"),
+            cfg.endpoint.as_deref().unwrap_or("<provider default>"),
+            cfg.path_style.unwrap_or(false),
+            cfg.presign_ttl_seconds
+                .map(|value| value.to_string())
+                .unwrap_or_else(|| "<none>".to_string())
+        )),
+        vec!["Set AWS_PROFILE, AWS_ACCESS_KEY_ID/AWS_SECRET_ACCESS_KEY, or configure fission auth for S3-compatible storage."],
+    ));
+    checks.push(check_tool(
+        "release.s3.aws_cli_available",
+        "aws",
+        "Install AWS CLI while the direct Rust S3 upload backend is being wired.",
+    ));
+    Ok(())
+}
+
+fn readiness_oauth_file_provider(
+    provider_id: &str,
+    token_env: &str,
+    summary: &str,
+    remediation: &str,
+    checks: &mut Vec<ReadinessCheck>,
+) {
+    checks.push(required_env(
+        &format!("release.{provider_id}.token_available"),
+        token_env,
+        remediation,
+    ));
+    checks.push(check(
+        format!("release.{provider_id}.direct_upload_backend"),
+        CheckSeverity::Warning,
+        CheckStatus::Warning,
+        summary,
+        Some("provider API upload is exposed in the lifecycle model; the direct Rust upload backend still needs provider-specific wiring".to_string()),
+        vec!["Use readiness output to finish credentials and provider IDs before enabling upload automation."],
+    ));
+}
+
+fn readiness_store_provider(
+    provider_id: &str,
+    credential_env: &str,
+    summary: &str,
+    remediation: &str,
+    checks: &mut Vec<ReadinessCheck>,
+) {
+    checks.push(required_env(
+        &format!("release.{provider_id}.credentials_available"),
+        credential_env,
+        remediation,
+    ));
+    checks.push(check(
+        format!("release.{provider_id}.metadata_backend"),
+        CheckSeverity::Warning,
+        CheckStatus::Warning,
+        summary,
+        Some("store package, signing, beta, metadata, and review operations are represented in the CLI surface; provider API submission still needs the concrete backend for this provider".to_string()),
+        vec!["Run package readiness first, then wire provider credentials and release metadata before store submission."],
+    ));
 }
 
 fn build_artifact_manifest(
@@ -1323,6 +1803,15 @@ fn github_config(config: &PublishManifest, site: &str) -> Result<GithubPagesConf
         .and_then(|distribution| distribution.github_pages.get(site))
         .cloned()
         .unwrap_or_default())
+}
+
+fn s3_config(config: &PublishManifest, site: &str) -> Result<S3Config> {
+    config
+        .distribution
+        .as_ref()
+        .and_then(|distribution| distribution.s3.get(site))
+        .cloned()
+        .with_context(|| format!("missing [distribution.s3.{site}] in fission.toml"))
 }
 
 fn cloudflare_config(config: &PublishManifest, site: &str) -> Result<CloudflarePagesConfig> {
@@ -1567,6 +2056,22 @@ fn base_path_check(id: &str, base_path: Option<&str>) -> ReadinessCheck {
         "static hosting provider base path is root",
         Some(format!("base_path = {value}")),
         vec!["Dedicated static hosting providers usually serve production sites from `/`; use a non-root base path only when deliberately hosting below a subpath."],
+    )
+}
+
+fn host_os_check(id: &str, expected: &str) -> ReadinessCheck {
+    let current = env::consts::OS;
+    check(
+        id,
+        CheckSeverity::Error,
+        if current == expected {
+            CheckStatus::Passed
+        } else {
+            CheckStatus::Failed
+        },
+        format!("host operating system is {expected}"),
+        Some(format!("current host: {current}")),
+        vec!["Run this package format on the platform that owns the native packaging/signing toolchain."],
     )
 }
 
@@ -1852,6 +2357,7 @@ base_path = "/site-demo/"
                 artifact: None,
                 site: "production".to_string(),
                 deploy: None,
+                track: None,
                 dry_run: false,
                 yes: true,
                 json: false,

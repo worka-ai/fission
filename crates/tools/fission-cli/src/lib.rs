@@ -6,6 +6,7 @@ mod cli;
 mod doctor;
 mod project;
 mod publish;
+mod release;
 mod ui;
 mod workflow;
 
@@ -125,6 +126,7 @@ where
             artifact,
             site,
             deploy,
+            track,
             dry_run,
             yes,
             project_dir,
@@ -136,6 +138,7 @@ where
             artifact,
             site,
             deploy,
+            track,
             dry_run,
             yes,
             json,
@@ -159,6 +162,12 @@ where
             site,
             json,
         }),
+        Command::ReleaseConfig { command } => release::release_config(command),
+        Command::ReleaseContent { command } => release::release_content(command),
+        Command::Beta { command } => release::beta(command),
+        Command::Signing { command } => release::signing(command),
+        Command::Reviews { command } => release::reviews(command),
+        Command::Auth { command } => release::auth(command),
         Command::Logs {
             target,
             device,

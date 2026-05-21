@@ -1,4 +1,4 @@
-use crate::{publish, Target};
+use crate::{publish, release, Target};
 use clap::{Parser, Subcommand};
 use std::path::PathBuf;
 
@@ -152,6 +152,9 @@ pub(crate) enum Command {
         /// Deployment id used by promote/rollback/status operations.
         #[arg(long)]
         deploy: Option<String>,
+        /// Provider track/channel/group, such as internal, testflight, or production.
+        #[arg(long)]
+        track: Option<String>,
         /// Show what would happen without mutating provider state.
         #[arg(long)]
         dry_run: bool,
@@ -191,6 +194,36 @@ pub(crate) enum Command {
         /// Emit machine-readable JSON.
         #[arg(long)]
         json: bool,
+    },
+    /// Edit, validate, import, diff, or push release metadata.
+    ReleaseConfig {
+        #[command(subcommand)]
+        command: release::ReleaseConfigCommand,
+    },
+    /// Capture, render, or validate release screenshots and store assets.
+    ReleaseContent {
+        #[command(subcommand)]
+        command: release::ReleaseContentCommand,
+    },
+    /// Manage beta groups, testers, and beta distribution.
+    Beta {
+        #[command(subcommand)]
+        command: release::BetaCommand,
+    },
+    /// Inspect or import signing assets for release builds.
+    Signing {
+        #[command(subcommand)]
+        command: release::SigningCommand,
+    },
+    /// List and reply to provider store reviews.
+    Reviews {
+        #[command(subcommand)]
+        command: release::ReviewsCommand,
+    },
+    /// Manage release provider authentication.
+    Auth {
+        #[command(subcommand)]
+        command: release::AuthCommand,
     },
     /// Attach to logs for an already-running Fission app.
     Logs {
