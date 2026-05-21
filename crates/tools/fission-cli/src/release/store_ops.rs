@@ -13,6 +13,7 @@ use std::time::Duration;
 const PLAY_API: &str = "https://androidpublisher.googleapis.com";
 const GOOGLE_PLAY_SCOPE: &str = "https://www.googleapis.com/auth/androidpublisher";
 const GOOGLE_TOKEN_URI: &str = "https://oauth2.googleapis.com/token";
+const APP_STORE_API: &str = "https://api.appstoreconnect.apple.com";
 
 #[derive(Debug, Deserialize, Default)]
 struct ReleaseProviderToml {
@@ -26,6 +27,7 @@ struct ReleaseProviderToml {
 #[derive(Debug, Deserialize, Default)]
 struct DistributionToml {
     play_store: Option<PlayStoreConfig>,
+    app_store: Option<AppStoreConfig>,
 }
 
 #[derive(Debug, Deserialize, Default)]
@@ -101,6 +103,15 @@ struct PlayStoreConfig {
     service_account: Option<String>,
 }
 
+#[derive(Clone, Debug, Deserialize, Default)]
+struct AppStoreConfig {
+    app_id: Option<String>,
+    bundle_id: Option<String>,
+    issuer_id: Option<String>,
+    key_id: Option<String>,
+    api_key_path: Option<String>,
+}
+
 #[derive(Debug, Deserialize)]
 struct GoogleServiceAccount {
     client_email: String,
@@ -113,6 +124,14 @@ struct GoogleServiceAccount {
 struct GoogleJwtClaims<'a> {
     iss: &'a str,
     scope: &'a str,
+    aud: &'a str,
+    iat: u64,
+    exp: u64,
+}
+
+#[derive(Debug, Serialize)]
+struct AppStoreJwtClaims<'a> {
+    iss: &'a str,
     aud: &'a str,
     iat: u64,
     exp: u64,
@@ -133,6 +152,9 @@ pub(super) fn reviews_list(
         publish::DistributionProvider::PlayStore => {
             play_reviews_list(project_dir, since, json_output)
         }
+        publish::DistributionProvider::AppStore => {
+            app_store_reviews_list(project_dir, since, json_output)
+        }
         _ => unsupported_reviews(provider, "list"),
     }
 }
@@ -148,6 +170,9 @@ pub(super) fn reviews_reply(
     match provider {
         publish::DistributionProvider::PlayStore => {
             play_reviews_reply(project_dir, review, message_file, dry_run, json_output)
+        }
+        publish::DistributionProvider::AppStore => {
+            app_store_reviews_reply(project_dir, review, message_file, dry_run, json_output)
         }
         _ => unsupported_reviews(provider, "reply"),
     }
@@ -425,6 +450,118 @@ fn play_release_config_push(
         );
     }
     Ok(())
+}
+
+fn app_store_reviews_list(
+    project_dir: &Path,
+    since: Option<String>,
+    json_output: bool,
+) -> Result<()> {
+    let cfg = app_store_config(project_dir)?;
+    let client = http_client()?;
+    let token = app_store_access_token(&cfg)?;
+    let app_id = app_store_app_id(&cfg, &client, &token)?;
+    let url = format!(
+        "{APP_STORE_API}/v1/apps/{app_id}/customerReviews?limit=200&sort=-createdDate&fields[customerReviews]=rating,title,body,reviewerNickname,createdDate,territory,response"
+    );
+    let response = client
+        .get(url)
+        .bearer_auth(token)
+        .send()
+        .context("failed to list App Store customer reviews")?;
+    let value = json_response(response, "App Store customer reviews list")?;
+    if json_output {
+        println!("{}", serde_json::to_string_pretty(&value)?);
+        return Ok(());
+    }
+    println!("App Store reviews for app {app_id}");
+    if let Some(since) = since {
+        println!("Requested window: {since} (App Store Connect returned newest-first; filter locally if needed)");
+    }
+    for review in value
+        .get("data")
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+    {
+        let id = review.get("id").and_then(Value::as_str).unwrap_or("<id>");
+        let attrs = review.get("attributes").unwrap_or(&Value::Null);
+        let rating = attrs
+            .get("rating")
+            .and_then(Value::as_i64)
+            .map(|rating| rating.to_string())
+            .unwrap_or_else(|| "?".to_string());
+        let title = attrs.get("title").and_then(Value::as_str).unwrap_or("");
+        let body = attrs
+            .get("body")
+            .and_then(Value::as_str)
+            .unwrap_or("")
+            .replace('\n', " ");
+        println!("{id} [{rating}/5] {title}: {body}");
+    }
+    Ok(())
+}
+
+fn app_store_reviews_reply(
+    project_dir: &Path,
+    review: &str,
+    message_file: &Path,
+    dry_run: bool,
+    json_output: bool,
+) -> Result<()> {
+    let reply = fs::read_to_string(message_file)
+        .with_context(|| format!("failed to read {}", message_file.display()))?;
+    let payload = app_store_review_response_payload(review, reply.trim());
+    if dry_run {
+        let value = json!({
+            "provider": "app-store",
+            "review": review,
+            "reply_text_bytes": reply.len(),
+            "payload": payload,
+            "status": "dry-run"
+        });
+        if json_output {
+            println!("{}", serde_json::to_string_pretty(&value)?);
+        } else {
+            println!("Would reply to App Store review {review}");
+        }
+        return Ok(());
+    }
+    let cfg = app_store_config(project_dir)?;
+    let client = http_client()?;
+    let token = app_store_access_token(&cfg)?;
+    let response = client
+        .post(format!("{APP_STORE_API}/v1/customerReviewResponses"))
+        .bearer_auth(token)
+        .json(&payload)
+        .send()
+        .context("failed to reply to App Store review")?;
+    let value = json_response(response, "App Store review reply")?;
+    if json_output {
+        println!("{}", serde_json::to_string_pretty(&value)?);
+    } else {
+        println!("Replied to App Store review {review}");
+    }
+    Ok(())
+}
+
+fn app_store_review_response_payload(review: &str, response_body: &str) -> Value {
+    json!({
+        "data": {
+            "type": "customerReviewResponses",
+            "attributes": {
+                "responseBody": response_body,
+            },
+            "relationships": {
+                "review": {
+                    "data": {
+                        "type": "customerReviews",
+                        "id": review,
+                    }
+                }
+            }
+        }
+    })
 }
 
 fn play_reviews_list(project_dir: &Path, since: Option<String>, json_output: bool) -> Result<()> {
@@ -1118,7 +1255,7 @@ fn unsupported_release_config(provider: publish::DistributionProvider, action: &
 
 fn unsupported_reviews(provider: publish::DistributionProvider, action: &str) -> Result<()> {
     bail!(
-        "{} review {} is not exposed by the current provider API backend; Google Play review list/reply is implemented",
+        "{} review {} is not exposed by the current provider API backend; Google Play and App Store review list/reply are implemented",
         provider.as_str(),
         action
     )
@@ -1211,6 +1348,87 @@ fn latest_user_comment(review: &Value) -> Option<&Value> {
                 .iter()
                 .rev()
                 .find_map(|comment| comment.get("userComment"))
+        })
+}
+
+fn app_store_config(project_dir: &Path) -> Result<AppStoreConfig> {
+    Ok(read_release_provider_toml(project_dir)?
+        .distribution
+        .and_then(|distribution| distribution.app_store)
+        .unwrap_or_default())
+}
+
+fn app_store_access_token(cfg: &AppStoreConfig) -> Result<String> {
+    if let Some(token) = env_value("APP_STORE_CONNECT_ACCESS_TOKEN") {
+        return Ok(token);
+    }
+    let issuer_id = env_value("APP_STORE_CONNECT_ISSUER_ID")
+        .or(cfg.issuer_id.clone())
+        .context("distribution.app_store.issuer_id or APP_STORE_CONNECT_ISSUER_ID is required")?;
+    let key_id = env_value("APP_STORE_CONNECT_KEY_ID")
+        .or(cfg.key_id.clone())
+        .context("distribution.app_store.key_id or APP_STORE_CONNECT_KEY_ID is required")?;
+    let key_source = env_value("APP_STORE_CONNECT_API_KEY")
+        .or_else(|| env_value("APP_STORE_CONNECT_API_KEY_PATH"))
+        .or(cfg.api_key_path.clone())
+        .or_else(|| provider_secret(publish::DistributionProvider::AppStore, &[]).ok().flatten())
+        .context("APP_STORE_CONNECT_API_KEY, APP_STORE_CONNECT_API_KEY_PATH, distribution.app_store.api_key_path, or vault credentials are required")?;
+    if looks_like_bearer_token(&key_source) {
+        return Ok(key_source);
+    }
+    let key_text = if key_source.contains("-----BEGIN PRIVATE KEY-----") {
+        key_source
+    } else {
+        fs::read_to_string(&key_source).with_context(|| {
+            format!("failed to read App Store Connect API key from {key_source}")
+        })?
+    };
+    let now = now_unix_seconds();
+    let claims = AppStoreJwtClaims {
+        iss: &issuer_id,
+        aud: "appstoreconnect-v1",
+        iat: now,
+        exp: now + 20 * 60,
+    };
+    let mut header = Header::new(Algorithm::ES256);
+    header.kid = Some(key_id);
+    encode(
+        &header,
+        &claims,
+        &EncodingKey::from_ec_pem(key_text.as_bytes())
+            .context("failed to parse App Store Connect .p8 key as EC private key")?,
+    )
+    .context("failed to sign App Store Connect JWT")
+}
+
+fn app_store_app_id(cfg: &AppStoreConfig, client: &Client, token: &str) -> Result<String> {
+    if let Some(app_id) = cfg
+        .app_id
+        .as_deref()
+        .filter(|value| !value.trim().is_empty())
+    {
+        return Ok(app_id.to_string());
+    }
+    let bundle_id = cfg
+        .bundle_id
+        .as_deref()
+        .context("distribution.app_store.app_id or bundle_id is required for App Store Connect review operations")?;
+    let url = format!("{APP_STORE_API}/v1/apps?filter[bundleId]={bundle_id}&limit=1");
+    let response = client
+        .get(url)
+        .bearer_auth(token)
+        .send()
+        .context("failed to resolve App Store Connect app id from bundle id")?;
+    let value = json_response(response, "App Store app lookup")?;
+    value
+        .get("data")
+        .and_then(Value::as_array)
+        .and_then(|items| items.first())
+        .and_then(|item| item.get("id"))
+        .and_then(Value::as_str)
+        .map(str::to_string)
+        .with_context(|| {
+            format!("App Store Connect did not return an app for bundle id {bundle_id}")
         })
 }
 
@@ -1399,5 +1617,26 @@ groups = ["qa@example.com"]
         let closed = tracks.get("closed").unwrap();
         assert_eq!(closed.group.as_deref(), Some("closed@example.com"));
         assert_eq!(closed.groups, vec!["qa@example.com".to_string()]);
+    }
+
+    #[test]
+    fn app_store_review_response_payload_targets_review() {
+        let payload = app_store_review_response_payload("review-123", "Thanks for the report.");
+        assert_eq!(
+            payload.pointer("/data/type").and_then(Value::as_str),
+            Some("customerReviewResponses")
+        );
+        assert_eq!(
+            payload
+                .pointer("/data/attributes/responseBody")
+                .and_then(Value::as_str),
+            Some("Thanks for the report.")
+        );
+        assert_eq!(
+            payload
+                .pointer("/data/relationships/review/data/id")
+                .and_then(Value::as_str),
+            Some("review-123")
+        );
     }
 }
