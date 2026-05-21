@@ -463,10 +463,7 @@ pub(crate) fn beta(command: BetaCommand) -> Result<()> {
                 provider,
                 project_dir,
                 json,
-            } => print_report(
-                provider_backend_report("beta.groups.list", &project_dir, provider),
-                json,
-            ),
+            } => store_ops::beta_groups_list(provider, &project_dir, json),
             BetaGroupsCommand::Sync {
                 provider,
                 from,
@@ -491,45 +488,34 @@ pub(crate) fn beta(command: BetaCommand) -> Result<()> {
         BetaCommand::Testers { command } => match command {
             BetaTestersCommand::Import {
                 provider,
-                group,
+                group: _,
                 track,
                 csv,
                 project_dir,
                 dry_run,
                 json,
-            } => {
-                let mut report =
-                    provider_backend_report("beta.testers.import", &project_dir, provider);
-                report.checks.push(path_check(
-                    "beta.testers.csv_exists",
-                    csv,
-                    "tester CSV exists",
-                ));
-                report.checks.push(ok_check(
-                    "beta.testers.import.intent",
-                    format!("group = {group:?}, track = {track:?}, dry_run = {dry_run}"),
-                ));
-                print_report(report, json)
-            }
+            } => store_ops::beta_testers_import(
+                provider,
+                track.as_deref(),
+                &csv,
+                &project_dir,
+                dry_run,
+                json,
+            ),
             BetaTestersCommand::Export {
                 provider,
-                group,
+                group: _,
                 track,
                 output,
                 project_dir,
                 json,
-            } => {
-                let mut report =
-                    provider_backend_report("beta.testers.export", &project_dir, provider);
-                report.checks.push(ok_check(
-                    "beta.testers.export.intent",
-                    format!(
-                        "group = {group:?}, track = {track:?}, output = {}",
-                        output.display()
-                    ),
-                ));
-                print_report(report, json)
-            }
+            } => store_ops::beta_testers_export(
+                provider,
+                track.as_deref(),
+                &output,
+                &project_dir,
+                json,
+            ),
         },
         BetaCommand::Distribute {
             provider,

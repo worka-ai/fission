@@ -81,6 +81,48 @@ pub(super) fn reviews_reply(
     }
 }
 
+pub(super) fn beta_groups_list(
+    provider: publish::DistributionProvider,
+    project_dir: &Path,
+    json_output: bool,
+) -> Result<()> {
+    match provider {
+        publish::DistributionProvider::PlayStore => play_beta_groups_list(project_dir, json_output),
+        _ => unsupported_beta(provider, "groups list"),
+    }
+}
+
+pub(super) fn beta_testers_import(
+    provider: publish::DistributionProvider,
+    track: Option<&str>,
+    csv: &Path,
+    project_dir: &Path,
+    dry_run: bool,
+    json_output: bool,
+) -> Result<()> {
+    match provider {
+        publish::DistributionProvider::PlayStore => {
+            play_beta_testers_import(project_dir, track, csv, dry_run, json_output)
+        }
+        _ => unsupported_beta(provider, "testers import"),
+    }
+}
+
+pub(super) fn beta_testers_export(
+    provider: publish::DistributionProvider,
+    track: Option<&str>,
+    output: &Path,
+    project_dir: &Path,
+    json_output: bool,
+) -> Result<()> {
+    match provider {
+        publish::DistributionProvider::PlayStore => {
+            play_beta_testers_export(project_dir, track, output, json_output)
+        }
+        _ => unsupported_beta(provider, "testers export"),
+    }
+}
+
 fn play_reviews_list(project_dir: &Path, since: Option<String>, json_output: bool) -> Result<()> {
     let cfg = play_config(project_dir)?;
     let package_name = cfg
@@ -184,12 +226,262 @@ fn play_reviews_reply(
     Ok(())
 }
 
+fn play_beta_groups_list(project_dir: &Path, json_output: bool) -> Result<()> {
+    let cfg = play_config(project_dir)?;
+    let package_name = cfg
+        .package_name
+        .as_deref()
+        .context("distribution.play_store.package_name is required for Play beta groups")?;
+    let client = http_client()?;
+    let token = google_play_access_token(&cfg, &client)?;
+    let edit_id = create_play_edit(&client, &token, package_name)?;
+    let mut tracks = Vec::new();
+    for track in ["internal", "closed", "open"] {
+        let url = format!(
+            "{PLAY_API}/androidpublisher/v3/applications/{package_name}/edits/{edit_id}/testers/{track}"
+        );
+        let response = client
+            .get(url)
+            .bearer_auth(&token)
+            .send()
+            .with_context(|| format!("failed to get Google Play testers for {track}"))?;
+        let value = json_response(response, "Google Play testers get")?;
+        tracks.push(json!({
+            "track": track,
+            "googleGroups": value.get("googleGroups").cloned().unwrap_or_else(|| json!([]))
+        }));
+    }
+    let value = json!({ "package_name": package_name, "tracks": tracks });
+    if json_output {
+        println!("{}", serde_json::to_string_pretty(&value)?);
+    } else {
+        println!("Google Play tester groups for {package_name}");
+        for track in value
+            .get("tracks")
+            .and_then(Value::as_array)
+            .into_iter()
+            .flatten()
+        {
+            let name = track
+                .get("track")
+                .and_then(Value::as_str)
+                .unwrap_or("<track>");
+            let groups = track
+                .get("googleGroups")
+                .and_then(Value::as_array)
+                .map(|groups| {
+                    groups
+                        .iter()
+                        .filter_map(Value::as_str)
+                        .collect::<Vec<_>>()
+                        .join(", ")
+                })
+                .unwrap_or_default();
+            println!("{name}: {groups}");
+        }
+    }
+    Ok(())
+}
+
+fn play_beta_testers_import(
+    project_dir: &Path,
+    track: Option<&str>,
+    csv: &Path,
+    dry_run: bool,
+    json_output: bool,
+) -> Result<()> {
+    let track = track.context("Google Play tester import requires --track internal|closed|open")?;
+    let groups = read_google_group_csv(csv)?;
+    let cfg = play_config(project_dir)?;
+    let package_name = cfg
+        .package_name
+        .as_deref()
+        .context("distribution.play_store.package_name is required for Play beta testers")?;
+    if dry_run {
+        let value = json!({
+            "provider": "play-store",
+            "package_name": package_name,
+            "track": track,
+            "googleGroups": groups,
+            "status": "dry-run"
+        });
+        if json_output {
+            println!("{}", serde_json::to_string_pretty(&value)?);
+        } else {
+            println!(
+                "Would set {} Google Groups on Play track {track}",
+                value
+                    .get("googleGroups")
+                    .and_then(Value::as_array)
+                    .map(Vec::len)
+                    .unwrap_or(0)
+            );
+        }
+        return Ok(());
+    }
+    let client = http_client()?;
+    let token = google_play_access_token(&cfg, &client)?;
+    let edit_id = create_play_edit(&client, &token, package_name)?;
+    let url = format!(
+        "{PLAY_API}/androidpublisher/v3/applications/{package_name}/edits/{edit_id}/testers/{track}"
+    );
+    let response = client
+        .put(url)
+        .bearer_auth(&token)
+        .json(&json!({ "googleGroups": groups }))
+        .send()
+        .context("failed to update Google Play testers")?;
+    let value = json_response(response, "Google Play testers update")?;
+    validate_play_edit(&client, &token, package_name, &edit_id)?;
+    commit_play_edit(&client, &token, package_name, &edit_id)?;
+    if json_output {
+        println!("{}", serde_json::to_string_pretty(&value)?);
+    } else {
+        println!("Updated Google Play tester groups for {package_name} track {track}");
+    }
+    Ok(())
+}
+
+fn play_beta_testers_export(
+    project_dir: &Path,
+    track: Option<&str>,
+    output: &Path,
+    json_output: bool,
+) -> Result<()> {
+    let track = track.context("Google Play tester export requires --track internal|closed|open")?;
+    let cfg = play_config(project_dir)?;
+    let package_name = cfg
+        .package_name
+        .as_deref()
+        .context("distribution.play_store.package_name is required for Play beta testers")?;
+    let client = http_client()?;
+    let token = google_play_access_token(&cfg, &client)?;
+    let edit_id = create_play_edit(&client, &token, package_name)?;
+    let url = format!(
+        "{PLAY_API}/androidpublisher/v3/applications/{package_name}/edits/{edit_id}/testers/{track}"
+    );
+    let response = client
+        .get(url)
+        .bearer_auth(&token)
+        .send()
+        .context("failed to get Google Play testers")?;
+    let value = json_response(response, "Google Play testers get")?;
+    let groups = value
+        .get("googleGroups")
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+        .filter_map(Value::as_str)
+        .collect::<Vec<_>>();
+    if let Some(parent) = output.parent() {
+        fs::create_dir_all(parent)?;
+    }
+    fs::write(output, groups.join("\n") + "\n")?;
+    if json_output {
+        println!(
+            "{}",
+            serde_json::to_string_pretty(&json!({
+                "provider": "play-store",
+                "package_name": package_name,
+                "track": track,
+                "output": output,
+                "googleGroups": groups
+            }))?
+        );
+    } else {
+        println!(
+            "Exported {} Google Groups to {}",
+            groups.len(),
+            output.display()
+        );
+    }
+    Ok(())
+}
+
 fn unsupported_reviews(provider: publish::DistributionProvider, action: &str) -> Result<()> {
     bail!(
         "{} review {} is not exposed by the current provider API backend; Google Play review list/reply is implemented",
         provider.as_str(),
         action
     )
+}
+
+fn unsupported_beta(provider: publish::DistributionProvider, action: &str) -> Result<()> {
+    bail!(
+        "{} beta {} is not exposed by the current provider API backend; Google Play Google Group tester management is implemented",
+        provider.as_str(),
+        action
+    )
+}
+
+fn create_play_edit(client: &Client, token: &str, package_name: &str) -> Result<String> {
+    let url = format!("{PLAY_API}/androidpublisher/v3/applications/{package_name}/edits");
+    let response = client
+        .post(url)
+        .bearer_auth(token)
+        .json(&json!({}))
+        .send()
+        .context("failed to create Google Play edit")?;
+    let value = json_response(response, "Google Play edit insert")?;
+    value
+        .get("id")
+        .and_then(Value::as_str)
+        .map(str::to_string)
+        .context("Google Play edit insert response did not contain id")
+}
+
+fn validate_play_edit(
+    client: &Client,
+    token: &str,
+    package_name: &str,
+    edit_id: &str,
+) -> Result<()> {
+    let url = format!(
+        "{PLAY_API}/androidpublisher/v3/applications/{package_name}/edits/{edit_id}:validate"
+    );
+    let response = client
+        .post(url)
+        .bearer_auth(token)
+        .send()
+        .context("failed to validate Google Play edit")?;
+    json_response(response, "Google Play edit validate")?;
+    Ok(())
+}
+
+fn commit_play_edit(client: &Client, token: &str, package_name: &str, edit_id: &str) -> Result<()> {
+    let url = format!(
+        "{PLAY_API}/androidpublisher/v3/applications/{package_name}/edits/{edit_id}:commit"
+    );
+    let response = client
+        .post(url)
+        .bearer_auth(token)
+        .send()
+        .context("failed to commit Google Play edit")?;
+    json_response(response, "Google Play edit commit")?;
+    Ok(())
+}
+
+fn read_google_group_csv(path: &Path) -> Result<Vec<String>> {
+    let text =
+        fs::read_to_string(path).with_context(|| format!("failed to read {}", path.display()))?;
+    let mut groups = Vec::new();
+    for line in text.lines() {
+        for cell in line.split(',') {
+            let value = cell.trim().trim_matches('"');
+            if value.contains('@') && !value.eq_ignore_ascii_case("email") && !value.is_empty() {
+                groups.push(value.to_string());
+            }
+        }
+    }
+    groups.sort();
+    groups.dedup();
+    if groups.is_empty() {
+        bail!(
+            "{} did not contain any Google Group email addresses; Play API tester updates do not support individual email lists",
+            path.display()
+        );
+    }
+    Ok(groups)
 }
 
 fn latest_user_comment(review: &Value) -> Option<&Value> {
@@ -320,5 +612,24 @@ mod tests {
         });
         let comment = latest_user_comment(&value).unwrap();
         assert_eq!(comment.get("text").and_then(Value::as_str), Some("new"));
+    }
+
+    #[test]
+    fn google_group_csv_reader_deduplicates_group_emails() {
+        let path =
+            std::env::temp_dir().join(format!("fission-play-groups-{}.csv", std::process::id()));
+        fs::write(
+            &path,
+            "email\nclosed-testers@example.com\nclosed-testers@example.com,other@example.com\n",
+        )
+        .unwrap();
+        let groups = read_google_group_csv(&path).unwrap();
+        assert_eq!(
+            groups,
+            vec![
+                "closed-testers@example.com".to_string(),
+                "other@example.com".to_string()
+            ]
+        );
     }
 }
