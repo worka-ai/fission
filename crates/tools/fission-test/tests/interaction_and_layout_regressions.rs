@@ -70,7 +70,6 @@ fn test_stepper_button_layout() {
 }
 
 #[test]
-#[ignore] // FIXME: SplitView layout stretch issue
 fn test_email_list_width() {
     struct InboxLayout;
     impl Widget<State> for InboxLayout {
@@ -91,7 +90,7 @@ fn test_email_list_width() {
                         second: Box::new(
                             Container::new(Text::new("Detail").into_node()).into_node(),
                         ),
-                        split_ratio: 0.3,
+                        split_ratio: 0.4,
                         on_resize: None,
                     }
                     .build(_ctx, _view),

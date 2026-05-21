@@ -992,7 +992,7 @@ pub trait TextMeasurer: Send + Sync {
     ) -> usize {
         // Default: concatenate text and use plain hit_test
         let text: String = runs.iter().map(|r| r.text.as_str()).collect();
-        let font_size = runs.first().map(|r| r.style.font_size).unwrap_or(13.0);
+        let font_size = runs.first().map(|r| r.style.font_size).unwrap_or(0.0);
         self.hit_test(&text, font_size, None, x, y)
     }
 
@@ -1595,9 +1595,9 @@ impl LayoutEngine {
                     let mut target_h = *height;
 
                     if target_w.is_some() && target_h.is_none() {
-                        target_h = Some(target_w.unwrap() / ratio);
+                        target_h = target_w.map(|w| w / ratio);
                     } else if target_h.is_some() && target_w.is_none() {
-                        target_w = Some(target_h.unwrap() * ratio);
+                        target_w = target_h.map(|h| h * ratio);
                     } else if target_w.is_none() && target_h.is_none() {
                         if local.is_width_bounded() || local.is_height_bounded() {
                             let (mut w, mut h) = if local.is_width_bounded() {
@@ -1655,20 +1655,24 @@ impl LayoutEngine {
                             })
                             .unwrap_or((None, None, None, None));
                         let mut child_constraints = base_child_constraints;
-                        let stretch_width = child_constraints.min_w == child_constraints.max_w
-                            && child_width.is_none()
-                            && child_max_width.is_none();
+                        let tight_width = child_constraints.min_w == child_constraints.max_w;
+                        let stretch_width =
+                            tight_width && child_width.is_none() && child_max_width.is_none();
                         if stretch_width {
                             child_constraints.min_w = child_constraints.max_w;
-                        } else {
+                        } else if tight_width
+                            && (child_width.is_some() || child_max_width.is_some())
+                        {
                             child_constraints.min_w = 0.0;
                         }
-                        let stretch_height = child_constraints.min_h == child_constraints.max_h
-                            && child_height.is_none()
-                            && child_max_height.is_none();
+                        let tight_height = child_constraints.min_h == child_constraints.max_h;
+                        let stretch_height =
+                            tight_height && child_height.is_none() && child_max_height.is_none();
                         if stretch_height {
                             child_constraints.min_h = child_constraints.max_h;
-                        } else {
+                        } else if tight_height
+                            && (child_height.is_some() || child_max_height.is_some())
+                        {
                             child_constraints.min_h = 0.0;
                         }
                         let child_size = self.layout_node_constraints(
@@ -2183,7 +2187,9 @@ impl LayoutEngine {
                         // SHRINK logic
                         let mut total_shrink_scaled = 0.0f32;
                         for entry in &measured {
-                            let child = self.graph_state.node(entry.id).unwrap();
+                            let Some(child) = self.graph_state.node(entry.id) else {
+                                continue;
+                            };
                             let main_size = if is_row {
                                 entry.size.width
                             } else {
@@ -2195,7 +2201,9 @@ impl LayoutEngine {
                         if total_shrink_scaled > 0.0 {
                             let overflow = (final_children_main + gap_total) - max_main;
                             for entry in &mut measured {
-                                let child = self.graph_state.node(entry.id).unwrap();
+                                let Some(child) = self.graph_state.node(entry.id) else {
+                                    continue;
+                                };
                                 let main_size = if is_row {
                                     entry.size.width
                                 } else {
@@ -2513,7 +2521,9 @@ impl LayoutEngine {
                 let mut auto_col = 0;
 
                 for child_id in &flow_children {
-                    let child = self.graph_state.node(*child_id).unwrap();
+                    let Some(child) = self.graph_state.node(*child_id) else {
+                        continue;
+                    };
                     let (row, col) = if let LayoutOp::GridItem {
                         row_start,
                         col_start,

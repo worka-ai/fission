@@ -42,7 +42,7 @@ impl TextMeasurer for MockTextMeasurer {
                 // Avoid division by zero
                 let safe_w = w.max(char_width);
                 let lines = (full_width / safe_w).ceil();
-                return (w, lines * line_height);
+                return (safe_w, lines * line_height);
             }
         }
         (full_width, line_height)
@@ -70,7 +70,7 @@ impl TextMeasurer for MockTextMeasurer {
             if full_w > w {
                 let safe_w = w.max(char_width);
                 let lines = (full_w / safe_w).ceil();
-                return (w, lines * line_height);
+                return (safe_w, lines * line_height);
             }
         }
         (full_w.max(10.0), line_height)
