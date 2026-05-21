@@ -1,4 +1,4 @@
-use crate::{read_project_config, workflow, FissionProject, Target};
+use crate::{FissionProject, Target};
 use anyhow::{bail, Context, Result};
 use clap::ValueEnum;
 use serde::{Deserialize, Serialize};
@@ -12,16 +12,36 @@ use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::time::{SystemTime, UNIX_EPOCH};
 
+mod package;
+
 const ARTIFACT_MANIFEST: &str = "artifact-manifest.json";
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq, ValueEnum)]
 pub(crate) enum PackageFormat {
+    Aab,
+    Apk,
+    App,
+    Exe,
+    Ipa,
+    Msi,
+    Msix,
+    Pkg,
+    Run,
     Static,
 }
 
 impl PackageFormat {
     fn as_str(self) -> &'static str {
         match self {
+            Self::Aab => "aab",
+            Self::Apk => "apk",
+            Self::App => "app",
+            Self::Exe => "exe",
+            Self::Ipa => "ipa",
+            Self::Msi => "msi",
+            Self::Msix => "msix",
+            Self::Pkg => "pkg",
+            Self::Run => "run",
             Self::Static => "static",
         }
     }
@@ -246,7 +266,7 @@ struct NetlifyConfig {
 }
 
 pub(crate) fn package(options: PackageOptions) -> Result<()> {
-    let manifest = package_static(&options)?;
+    let manifest = package::package_artifact(&options)?;
     if options.json {
         println!("{}", serde_json::to_string_pretty(&manifest)?);
     } else {
@@ -317,72 +337,6 @@ pub(crate) fn readiness(options: ReadinessOptions) -> Result<()> {
         }
     }
     Ok(())
-}
-
-fn package_static(options: &PackageOptions) -> Result<ArtifactManifest> {
-    if options.format != PackageFormat::Static {
-        bail!("only --format static is currently supported");
-    }
-    let project = read_project_config(&options.project_dir)?;
-    if !project.targets.contains(&options.target) {
-        bail!(
-            "target `{}` is not configured for this app; run `cargo fission add-target {} --project-dir {}`",
-            options.target.as_str(),
-            options.target.as_str(),
-            options.project_dir.display()
-        );
-    }
-
-    let source_dir = match options.target {
-        Target::Site => {
-            workflow::site_build(&options.project_dir, options.release)?;
-            site_output_dir(&options.project_dir)?
-        }
-        Target::Web => {
-            workflow::build_app(workflow::BuildOptions {
-                project_dir: options.project_dir.clone(),
-                target: Some(Target::Web),
-                release: options.release,
-            })?;
-            options.project_dir.join("platforms/web")
-        }
-        other => bail!(
-            "static packaging currently supports site and web targets, not `{}`",
-            other.as_str()
-        ),
-    };
-
-    if !source_dir.join("index.html").exists() {
-        bail!(
-            "static package source {} does not contain index.html",
-            source_dir.display()
-        );
-    }
-
-    let profile = if options.release { "release" } else { "debug" };
-    let staging_dir = options
-        .project_dir
-        .join("target/fission")
-        .join(profile)
-        .join(options.target.as_str())
-        .join(options.format.as_str());
-    if staging_dir.exists() {
-        fs::remove_dir_all(&staging_dir)
-            .with_context(|| format!("failed to clean {}", staging_dir.display()))?;
-    }
-    fs::create_dir_all(&staging_dir)
-        .with_context(|| format!("failed to create {}", staging_dir.display()))?;
-    copy_dir_contents(&source_dir, &staging_dir)?;
-
-    let manifest = build_artifact_manifest(&project, options, &staging_dir, profile)?;
-    let manifest_path = staging_dir.join(ARTIFACT_MANIFEST);
-    fs::write(&manifest_path, serde_json::to_vec_pretty(&manifest)?).with_context(|| {
-        format!(
-            "failed to write artifact manifest {}",
-            manifest_path.display()
-        )
-    })?;
-    Ok(manifest)
 }
 
 fn setup_provider(options: &DistributeOptions, config: &PublishManifest) -> Result<()> {
@@ -1867,7 +1821,7 @@ base_path = "/site-demo/"
     fn static_package_builds_artifact_manifest() {
         let dir = unique_dir("package");
         write_minimal_site(&dir);
-        let manifest = package_static(&PackageOptions {
+        let manifest = package::package_static(&PackageOptions {
             project_dir: dir.clone(),
             target: Target::Site,
             format: PackageFormat::Static,
