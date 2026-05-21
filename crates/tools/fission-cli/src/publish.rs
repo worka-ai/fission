@@ -1,0 +1,1928 @@
+use crate::{read_project_config, workflow, FissionProject, Target};
+use anyhow::{bail, Context, Result};
+use clap::ValueEnum;
+use serde::{Deserialize, Serialize};
+use sha2::{Digest, Sha256};
+use std::collections::BTreeMap;
+use std::env;
+use std::ffi::OsStr;
+use std::fs;
+use std::io::{self, Read, Write};
+use std::path::{Path, PathBuf};
+use std::process::{Command, Stdio};
+use std::time::{SystemTime, UNIX_EPOCH};
+
+const ARTIFACT_MANIFEST: &str = "artifact-manifest.json";
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq, ValueEnum)]
+pub(crate) enum PackageFormat {
+    Static,
+}
+
+impl PackageFormat {
+    fn as_str(self) -> &'static str {
+        match self {
+            Self::Static => "static",
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq, ValueEnum)]
+pub(crate) enum DistributionProvider {
+    #[value(name = "github-pages")]
+    GithubPages,
+    #[value(name = "cloudflare-pages")]
+    CloudflarePages,
+    Netlify,
+}
+
+impl DistributionProvider {
+    fn as_str(self) -> &'static str {
+        match self {
+            Self::GithubPages => "github-pages",
+            Self::CloudflarePages => "cloudflare-pages",
+            Self::Netlify => "netlify",
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq, ValueEnum)]
+pub(crate) enum DistributeAction {
+    Setup,
+    Publish,
+    Status,
+    Promote,
+    Rollback,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq, ValueEnum)]
+pub(crate) enum ReadinessKind {
+    Package,
+    Distribute,
+}
+
+#[derive(Clone, Debug)]
+pub(crate) struct PackageOptions {
+    pub(crate) project_dir: PathBuf,
+    pub(crate) target: Target,
+    pub(crate) format: PackageFormat,
+    pub(crate) release: bool,
+    pub(crate) json: bool,
+}
+
+#[derive(Clone, Debug)]
+pub(crate) struct DistributeOptions {
+    pub(crate) project_dir: PathBuf,
+    pub(crate) provider: DistributionProvider,
+    pub(crate) action: DistributeAction,
+    pub(crate) artifact: Option<PathBuf>,
+    pub(crate) site: String,
+    pub(crate) deploy: Option<String>,
+    pub(crate) dry_run: bool,
+    pub(crate) yes: bool,
+    pub(crate) json: bool,
+}
+
+#[derive(Clone, Debug)]
+pub(crate) struct ReadinessOptions {
+    pub(crate) project_dir: PathBuf,
+    pub(crate) kind: ReadinessKind,
+    pub(crate) target: Option<Target>,
+    pub(crate) format: Option<PackageFormat>,
+    pub(crate) provider: Option<DistributionProvider>,
+    pub(crate) artifact: Option<PathBuf>,
+    pub(crate) site: String,
+    pub(crate) json: bool,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+struct ArtifactManifest {
+    schema_version: u32,
+    created_at_unix_seconds: u64,
+    project: ArtifactProject,
+    target: String,
+    format: String,
+    profile: String,
+    root_dir: String,
+    artifacts: Vec<ArtifactFile>,
+    validation: ArtifactValidation,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+struct ArtifactProject {
+    app_id: String,
+    name: String,
+    version: Option<String>,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+struct ArtifactFile {
+    kind: String,
+    path: String,
+    relative_path: String,
+    sha256: String,
+    size_bytes: u64,
+    mime_type: String,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+struct ArtifactValidation {
+    state: String,
+    checks: Vec<ReadinessCheck>,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+struct ReadinessCheck {
+    id: String,
+    severity: CheckSeverity,
+    status: CheckStatus,
+    summary: String,
+    details: Option<String>,
+    remediation: Vec<String>,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+enum CheckSeverity {
+    Error,
+    Warning,
+    Info,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+enum CheckStatus {
+    Passed,
+    Missing,
+    Failed,
+    Warning,
+    Skipped,
+}
+
+#[derive(Debug, Serialize)]
+struct ReadinessReport {
+    project_dir: String,
+    target: Option<String>,
+    format: Option<String>,
+    provider: Option<String>,
+    site: Option<String>,
+    status: String,
+    checks: Vec<ReadinessCheck>,
+}
+
+#[derive(Debug, Serialize)]
+struct DistributionReceipt {
+    schema_version: u32,
+    created_at_unix_seconds: u64,
+    provider: String,
+    site: String,
+    action: String,
+    artifact_manifest: Option<String>,
+    deployment_id: Option<String>,
+    canonical_url: Option<String>,
+    preview_url: Option<String>,
+    custom_domain: Option<String>,
+    status: String,
+    stdout: Option<String>,
+    stderr: Option<String>,
+    manual_follow_up: Vec<String>,
+}
+
+#[derive(Debug, Deserialize, Default)]
+struct PublishManifest {
+    site: Option<SiteManifest>,
+    distribution: Option<DistributionManifest>,
+}
+
+#[derive(Debug, Deserialize, Default)]
+struct SiteManifest {
+    entry: Option<String>,
+    out_dir: Option<String>,
+}
+
+#[derive(Debug, Deserialize, Default)]
+struct DistributionManifest {
+    #[serde(default)]
+    github_pages: BTreeMap<String, GithubPagesConfig>,
+    #[serde(default)]
+    cloudflare_pages: BTreeMap<String, CloudflarePagesConfig>,
+    #[serde(default)]
+    netlify: BTreeMap<String, NetlifyConfig>,
+}
+
+#[derive(Clone, Debug, Deserialize, Default)]
+struct GithubPagesConfig {
+    owner: Option<String>,
+    repo: Option<String>,
+    mode: Option<String>,
+    source: Option<String>,
+    source_branch: Option<String>,
+    source_path: Option<String>,
+    site_kind: Option<String>,
+    base_path: Option<String>,
+    custom_domain: Option<String>,
+    enforce_https: Option<bool>,
+    remote: Option<String>,
+    production_branch: Option<String>,
+    workflow: Option<String>,
+}
+
+#[derive(Clone, Debug, Deserialize, Default)]
+struct CloudflarePagesConfig {
+    account_id: Option<String>,
+    project_name: Option<String>,
+    environment: Option<String>,
+    custom_domain: Option<String>,
+    base_path: Option<String>,
+}
+
+#[derive(Clone, Debug, Deserialize, Default)]
+struct NetlifyConfig {
+    site_id: Option<String>,
+    team_slug: Option<String>,
+    production: Option<bool>,
+    custom_domain: Option<String>,
+    base_path: Option<String>,
+}
+
+pub(crate) fn package(options: PackageOptions) -> Result<()> {
+    let manifest = package_static(&options)?;
+    if options.json {
+        println!("{}", serde_json::to_string_pretty(&manifest)?);
+    } else {
+        println!(
+            "Packaged {} {} artifact into {}",
+            manifest.target, manifest.format, manifest.root_dir
+        );
+        println!("{} files", manifest.artifacts.len());
+        println!(
+            "{}",
+            Path::new(&manifest.root_dir)
+                .join(ARTIFACT_MANIFEST)
+                .display()
+        );
+    }
+    Ok(())
+}
+
+pub(crate) fn distribute(options: DistributeOptions) -> Result<()> {
+    let config = load_publish_manifest(&options.project_dir)?;
+    match options.action {
+        DistributeAction::Setup => setup_provider(&options, &config),
+        DistributeAction::Status => provider_status(&options, &config),
+        DistributeAction::Promote | DistributeAction::Rollback => {
+            provider_lifecycle(&options, &config)
+        }
+        DistributeAction::Publish => publish_artifact(&options, &config),
+    }
+}
+
+pub(crate) fn readiness(options: ReadinessOptions) -> Result<()> {
+    let checks = match options.kind {
+        ReadinessKind::Package => {
+            readiness_package(&options.project_dir, options.target, options.format)
+        }
+        ReadinessKind::Distribute => {
+            let config = load_publish_manifest(&options.project_dir)?;
+            let provider = options
+                .provider
+                .context("readiness distribute requires --provider")?;
+            let artifact = options.artifact.as_deref();
+            readiness_distribute(
+                &options.project_dir,
+                provider,
+                &options.site,
+                artifact,
+                &config,
+            )
+        }
+    }?;
+    let report = ReadinessReport {
+        project_dir: options.project_dir.display().to_string(),
+        target: options.target.map(|target| target.as_str().to_string()),
+        format: options.format.map(|format| format.as_str().to_string()),
+        provider: options
+            .provider
+            .map(|provider| provider.as_str().to_string()),
+        site: (options.kind == ReadinessKind::Distribute).then(|| options.site.clone()),
+        status: report_status(&checks).to_string(),
+        checks,
+    };
+    if options.json {
+        println!("{}", serde_json::to_string_pretty(&report)?);
+    } else {
+        print_readiness_report(&report);
+        if report.status == "blocked" {
+            bail!("readiness checks failed");
+        }
+    }
+    Ok(())
+}
+
+fn package_static(options: &PackageOptions) -> Result<ArtifactManifest> {
+    if options.format != PackageFormat::Static {
+        bail!("only --format static is currently supported");
+    }
+    let project = read_project_config(&options.project_dir)?;
+    if !project.targets.contains(&options.target) {
+        bail!(
+            "target `{}` is not configured for this app; run `cargo fission add-target {} --project-dir {}`",
+            options.target.as_str(),
+            options.target.as_str(),
+            options.project_dir.display()
+        );
+    }
+
+    let source_dir = match options.target {
+        Target::Site => {
+            workflow::site_build(&options.project_dir, options.release)?;
+            site_output_dir(&options.project_dir)?
+        }
+        Target::Web => {
+            workflow::build_app(workflow::BuildOptions {
+                project_dir: options.project_dir.clone(),
+                target: Some(Target::Web),
+                release: options.release,
+            })?;
+            options.project_dir.join("platforms/web")
+        }
+        other => bail!(
+            "static packaging currently supports site and web targets, not `{}`",
+            other.as_str()
+        ),
+    };
+
+    if !source_dir.join("index.html").exists() {
+        bail!(
+            "static package source {} does not contain index.html",
+            source_dir.display()
+        );
+    }
+
+    let profile = if options.release { "release" } else { "debug" };
+    let staging_dir = options
+        .project_dir
+        .join("target/fission")
+        .join(profile)
+        .join(options.target.as_str())
+        .join(options.format.as_str());
+    if staging_dir.exists() {
+        fs::remove_dir_all(&staging_dir)
+            .with_context(|| format!("failed to clean {}", staging_dir.display()))?;
+    }
+    fs::create_dir_all(&staging_dir)
+        .with_context(|| format!("failed to create {}", staging_dir.display()))?;
+    copy_dir_contents(&source_dir, &staging_dir)?;
+
+    let manifest = build_artifact_manifest(&project, options, &staging_dir, profile)?;
+    let manifest_path = staging_dir.join(ARTIFACT_MANIFEST);
+    fs::write(&manifest_path, serde_json::to_vec_pretty(&manifest)?).with_context(|| {
+        format!(
+            "failed to write artifact manifest {}",
+            manifest_path.display()
+        )
+    })?;
+    Ok(manifest)
+}
+
+fn setup_provider(options: &DistributeOptions, config: &PublishManifest) -> Result<()> {
+    match options.provider {
+        DistributionProvider::GithubPages => setup_github_pages(options, config),
+        DistributionProvider::CloudflarePages => {
+            let cfg = cloudflare_config(config, &options.site)?;
+            println!("Cloudflare Pages setup checks for `{}`", options.site);
+            println!(
+                "account_id: {}",
+                cfg.account_id.as_deref().unwrap_or("<missing>")
+            );
+            println!(
+                "project_name: {}",
+                cfg.project_name.as_deref().unwrap_or("<missing>")
+            );
+            println!("Run `fission readiness distribute --provider cloudflare-pages --site {} --project-dir {}` before publishing.", options.site, options.project_dir.display());
+            Ok(())
+        }
+        DistributionProvider::Netlify => {
+            let cfg = netlify_config(config, &options.site)?;
+            println!("Netlify setup checks for `{}`", options.site);
+            println!("site_id: {}", cfg.site_id.as_deref().unwrap_or("<missing>"));
+            println!(
+                "team_slug: {}",
+                cfg.team_slug.as_deref().unwrap_or("<missing>")
+            );
+            println!("Run `fission readiness distribute --provider netlify --site {} --project-dir {}` before publishing.", options.site, options.project_dir.display());
+            Ok(())
+        }
+    }
+}
+
+fn publish_artifact(options: &DistributeOptions, config: &PublishManifest) -> Result<()> {
+    let artifact_path = options
+        .artifact
+        .as_deref()
+        .map(PathBuf::from)
+        .unwrap_or_else(|| {
+            default_artifact_manifest_path(&options.project_dir, Target::Site, true)
+        });
+    let manifest = read_artifact_manifest(&artifact_path)?;
+    let checks = readiness_distribute(
+        &options.project_dir,
+        options.provider,
+        &options.site,
+        Some(&artifact_path),
+        config,
+    )?;
+    let errors = checks
+        .iter()
+        .filter(|check| {
+            check.severity == CheckSeverity::Error && check.status != CheckStatus::Passed
+        })
+        .collect::<Vec<_>>();
+    if !errors.is_empty() {
+        print_checks(&checks);
+        bail!("distribution readiness failed");
+    }
+
+    let receipt = match options.provider {
+        DistributionProvider::GithubPages => {
+            publish_github_pages(options, config, &artifact_path, &manifest)?
+        }
+        DistributionProvider::CloudflarePages => {
+            publish_cloudflare_pages(options, config, &artifact_path, &manifest)?
+        }
+        DistributionProvider::Netlify => {
+            publish_netlify(options, config, &artifact_path, &manifest)?
+        }
+    };
+    write_receipt(&options.project_dir, &receipt)?;
+    if options.json {
+        println!("{}", serde_json::to_string_pretty(&receipt)?);
+    } else {
+        println!("{} publish status: {}", receipt.provider, receipt.status);
+        if let Some(url) = &receipt.canonical_url {
+            println!("URL: {url}");
+        }
+        for item in &receipt.manual_follow_up {
+            println!("Follow-up: {item}");
+        }
+    }
+    Ok(())
+}
+
+fn provider_status(options: &DistributeOptions, config: &PublishManifest) -> Result<()> {
+    let receipt = match options.provider {
+        DistributionProvider::GithubPages => github_pages_status(options, config)?,
+        DistributionProvider::CloudflarePages => command_status_receipt(
+            options,
+            "cloudflare-pages",
+            "wrangler",
+            cloudflare_status_args(config, &options.site)?,
+        )?,
+        DistributionProvider::Netlify => command_status_receipt(
+            options,
+            "netlify",
+            "netlify",
+            netlify_status_args(config, &options.site)?,
+        )?,
+    };
+    if options.json {
+        println!("{}", serde_json::to_string_pretty(&receipt)?);
+    } else {
+        println!("{} status: {}", receipt.provider, receipt.status);
+        if let Some(stdout) = &receipt.stdout {
+            print!("{stdout}");
+        }
+    }
+    Ok(())
+}
+
+fn provider_lifecycle(options: &DistributeOptions, _config: &PublishManifest) -> Result<()> {
+    bail!(
+        "{} currently supports setup, publish, and status; {} requires provider-specific deployment APIs that are not wired yet",
+        options.provider.as_str(),
+        match options.action {
+            DistributeAction::Promote => "promote",
+            DistributeAction::Rollback => "rollback",
+            _ => "this operation",
+        }
+    )
+}
+
+fn setup_github_pages(options: &DistributeOptions, config: &PublishManifest) -> Result<()> {
+    let cfg = github_config(config, &options.site)?;
+    let workflow = cfg
+        .workflow
+        .clone()
+        .unwrap_or_else(|| "fission-pages.yml".to_string());
+    let workflow_path = github_workflow_path(&options.project_dir, &cfg, &workflow);
+    let content = render_github_pages_workflow(&options.project_dir, &cfg);
+    if options.dry_run {
+        println!("Would write {}:\n{}", workflow_path.display(), content);
+        return Ok(());
+    }
+    if workflow_path.exists() && !options.yes {
+        bail!(
+            "{} already exists; pass --yes to overwrite or edit it manually",
+            workflow_path.display()
+        );
+    }
+    if let Some(parent) = workflow_path.parent() {
+        fs::create_dir_all(parent)?;
+    }
+    fs::write(&workflow_path, content)
+        .with_context(|| format!("failed to write {}", workflow_path.display()))?;
+    println!("Wrote {}", workflow_path.display());
+    if cfg
+        .custom_domain
+        .as_deref()
+        .filter(|s| !s.is_empty())
+        .is_some()
+    {
+        println!("Custom domains for GitHub Actions Pages must be configured in repository Pages settings or via the GitHub Pages API.");
+    }
+    Ok(())
+}
+
+fn publish_github_pages(
+    options: &DistributeOptions,
+    config: &PublishManifest,
+    artifact_path: &Path,
+    manifest: &ArtifactManifest,
+) -> Result<DistributionReceipt> {
+    let cfg = github_config(config, &options.site)?;
+    let mode = cfg.mode.as_deref().unwrap_or("actions");
+    match mode {
+        "branch" => publish_github_pages_branch(options, &cfg, artifact_path, manifest),
+        "actions" => {
+            let owner = cfg
+                .owner
+                .clone()
+                .or_else(|| infer_github_owner(&options.project_dir));
+            let repo = cfg
+                .repo
+                .clone()
+                .or_else(|| infer_github_repo(&options.project_dir));
+            let workflow = cfg
+                .workflow
+                .clone()
+                .unwrap_or_else(|| "fission-pages.yml".to_string());
+            let mut follow_up = vec![format!(
+                "Commit the generated workflow and push the configured production branch so GitHub Actions deploys the exact static site build."
+            )];
+            if let (Some(owner), Some(repo)) = (&owner, &repo) {
+                follow_up.push(format!(
+                    "Repository Pages URL should be https://{owner}.github.io/{repo}/ unless a custom domain is configured."
+                ));
+            }
+            let workflow_path = github_workflow_path(&options.project_dir, &cfg, &workflow);
+            if !workflow_path.exists() {
+                follow_up.push(format!(
+                    "Run `fission distribute setup --provider github-pages --site {} --project-dir {}` to generate {}.",
+                    options.site,
+                    options.project_dir.display(),
+                    workflow_path.display()
+                ));
+            }
+            Ok(DistributionReceipt {
+                schema_version: 1,
+                created_at_unix_seconds: now_unix_seconds(),
+                provider: "github-pages".to_string(),
+                site: options.site.clone(),
+                action: "publish".to_string(),
+                artifact_manifest: Some(artifact_path.display().to_string()),
+                deployment_id: None,
+                canonical_url: github_pages_url(&cfg, owner.as_deref(), repo.as_deref()),
+                preview_url: None,
+                custom_domain: non_empty(cfg.custom_domain.clone()),
+                status: "workflow-required".to_string(),
+                stdout: None,
+                stderr: None,
+                manual_follow_up: follow_up,
+            })
+        }
+        other => bail!("unsupported github-pages mode `{other}`; expected actions or branch"),
+    }
+}
+
+fn publish_github_pages_branch(
+    options: &DistributeOptions,
+    cfg: &GithubPagesConfig,
+    artifact_path: &Path,
+    manifest: &ArtifactManifest,
+) -> Result<DistributionReceipt> {
+    let remote = cfg.remote.as_deref().unwrap_or("origin");
+    let branch = cfg.source_branch.as_deref().unwrap_or("gh-pages");
+    let source_path = cfg.source_path.as_deref().unwrap_or("/");
+    let repo_root = git_output(&options.project_dir, ["rev-parse", "--show-toplevel"])?;
+    let repo_root = PathBuf::from(repo_root.trim());
+    let remote_url = git_output(&repo_root, ["remote", "get-url", remote])?;
+    let worktree = options
+        .project_dir
+        .join("target/fission/publish/github-pages")
+        .join(&options.site);
+    if options.dry_run {
+        println!(
+            "Would publish {} to {remote}:{branch} at {}",
+            manifest.root_dir, source_path
+        );
+        return Ok(DistributionReceipt {
+            schema_version: 1,
+            created_at_unix_seconds: now_unix_seconds(),
+            provider: "github-pages".to_string(),
+            site: options.site.clone(),
+            action: "publish".to_string(),
+            artifact_manifest: Some(artifact_path.display().to_string()),
+            deployment_id: Some(format!("{remote}:{branch}")),
+            canonical_url: github_pages_url(cfg, cfg.owner.as_deref(), cfg.repo.as_deref()),
+            preview_url: None,
+            custom_domain: non_empty(cfg.custom_domain.clone()),
+            status: "dry-run".to_string(),
+            stdout: None,
+            stderr: None,
+            manual_follow_up: Vec::new(),
+        });
+    }
+    if worktree.exists() {
+        fs::remove_dir_all(&worktree)
+            .with_context(|| format!("failed to clean {}", worktree.display()))?;
+    }
+    if let Some(parent) = worktree.parent() {
+        fs::create_dir_all(parent)?;
+    }
+
+    let clone_status = Command::new("git")
+        .args([
+            "clone",
+            "--depth",
+            "1",
+            "--branch",
+            branch,
+            remote_url.trim(),
+        ])
+        .arg(&worktree)
+        .status()
+        .context("failed to run git clone for GitHub Pages branch")?;
+    if !clone_status.success() {
+        let status = Command::new("git")
+            .args(["clone", "--depth", "1", remote_url.trim()])
+            .arg(&worktree)
+            .status()
+            .context("failed to run git clone for GitHub Pages repository")?;
+        if !status.success() {
+            bail!("failed to clone {remote} for GitHub Pages publishing");
+        }
+        run_git(&worktree, ["checkout", "--orphan", branch])?;
+    }
+
+    let publish_root = if source_path == "/" || source_path == "." {
+        worktree.clone()
+    } else {
+        worktree.join(source_path.trim_start_matches('/'))
+    };
+    clean_publish_root(&publish_root)?;
+    copy_dir_contents(Path::new(&manifest.root_dir), &publish_root)?;
+    fs::write(publish_root.join(".nojekyll"), "")?;
+    if let Some(domain) = non_empty(cfg.custom_domain.clone()) {
+        fs::write(publish_root.join("CNAME"), format!("{}\n", domain.trim()))?;
+    }
+
+    run_git(&worktree, ["add", "--all"])?;
+    let commit = Command::new("git")
+        .args(["commit", "-m", "Publish Fission static site"])
+        .current_dir(&worktree)
+        .output()
+        .context("failed to run git commit for GitHub Pages")?;
+    if !commit.status.success() {
+        let stderr = String::from_utf8_lossy(&commit.stderr);
+        if !stderr.contains("nothing to commit") && !stderr.contains("no changes added") {
+            io::stderr().write_all(&commit.stderr).ok();
+            bail!("git commit failed for GitHub Pages publish");
+        }
+    }
+    run_git(&worktree, ["push", remote, branch])?;
+    Ok(DistributionReceipt {
+        schema_version: 1,
+        created_at_unix_seconds: now_unix_seconds(),
+        provider: "github-pages".to_string(),
+        site: options.site.clone(),
+        action: "publish".to_string(),
+        artifact_manifest: Some(artifact_path.display().to_string()),
+        deployment_id: Some(format!("{remote}:{branch}")),
+        canonical_url: github_pages_url(cfg, cfg.owner.as_deref(), cfg.repo.as_deref()),
+        preview_url: None,
+        custom_domain: non_empty(cfg.custom_domain.clone()),
+        status: "published".to_string(),
+        stdout: None,
+        stderr: None,
+        manual_follow_up: github_pages_follow_up(cfg),
+    })
+}
+
+fn publish_cloudflare_pages(
+    options: &DistributeOptions,
+    config: &PublishManifest,
+    artifact_path: &Path,
+    manifest: &ArtifactManifest,
+) -> Result<DistributionReceipt> {
+    let cfg = cloudflare_config(config, &options.site)?;
+    let project_name = cfg
+        .project_name
+        .as_deref()
+        .context("distribution.cloudflare_pages.<site>.project_name is required")?;
+    let mut args = vec![
+        "pages".to_string(),
+        "deploy".to_string(),
+        manifest.root_dir.clone(),
+        "--project-name".to_string(),
+        project_name.to_string(),
+    ];
+    if let Some(environment) = cfg
+        .environment
+        .as_deref()
+        .filter(|value| *value != "production")
+    {
+        args.push("--branch".to_string());
+        args.push(environment.to_string());
+    }
+    run_publish_command(
+        options,
+        "cloudflare-pages",
+        "wrangler",
+        args,
+        artifact_path,
+        || cloudflare_url(&cfg),
+    )
+}
+
+fn publish_netlify(
+    options: &DistributeOptions,
+    config: &PublishManifest,
+    artifact_path: &Path,
+    manifest: &ArtifactManifest,
+) -> Result<DistributionReceipt> {
+    let cfg = netlify_config(config, &options.site)?;
+    let mut args = vec![
+        "deploy".to_string(),
+        "--dir".to_string(),
+        manifest.root_dir.clone(),
+    ];
+    if cfg.production.unwrap_or(true) {
+        args.push("--prod".to_string());
+    }
+    if let Some(site_id) = cfg.site_id.as_deref() {
+        args.push("--site".to_string());
+        args.push(site_id.to_string());
+    }
+    run_publish_command(options, "netlify", "netlify", args, artifact_path, || {
+        cfg.custom_domain
+            .as_ref()
+            .filter(|value| !value.trim().is_empty())
+            .map(|domain| format!("https://{}", domain.trim()))
+    })
+}
+
+fn run_publish_command<F>(
+    options: &DistributeOptions,
+    provider: &str,
+    program: &str,
+    args: Vec<String>,
+    artifact_path: &Path,
+    canonical_url: F,
+) -> Result<DistributionReceipt>
+where
+    F: FnOnce() -> Option<String>,
+{
+    if options.dry_run {
+        println!("Would run: {} {}", program, args.join(" "));
+        return Ok(DistributionReceipt {
+            schema_version: 1,
+            created_at_unix_seconds: now_unix_seconds(),
+            provider: provider.to_string(),
+            site: options.site.clone(),
+            action: "publish".to_string(),
+            artifact_manifest: Some(artifact_path.display().to_string()),
+            deployment_id: None,
+            canonical_url: canonical_url(),
+            preview_url: None,
+            custom_domain: None,
+            status: "dry-run".to_string(),
+            stdout: None,
+            stderr: None,
+            manual_follow_up: Vec::new(),
+        });
+    }
+    let output = Command::new(program)
+        .args(&args)
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .output()
+        .with_context(|| {
+            format!("failed to run {program}; install it or run readiness for remediation")
+        })?;
+    let stdout = String::from_utf8_lossy(&output.stdout).to_string();
+    let stderr = String::from_utf8_lossy(&output.stderr).to_string();
+    if !output.status.success() {
+        eprint!("{stderr}");
+        bail!("{provider} publish failed with {}", output.status);
+    }
+    Ok(DistributionReceipt {
+        schema_version: 1,
+        created_at_unix_seconds: now_unix_seconds(),
+        provider: provider.to_string(),
+        site: options.site.clone(),
+        action: "publish".to_string(),
+        artifact_manifest: Some(artifact_path.display().to_string()),
+        deployment_id: None,
+        canonical_url: canonical_url(),
+        preview_url: first_url(&stdout),
+        custom_domain: None,
+        status: "published".to_string(),
+        stdout: Some(stdout),
+        stderr: (!stderr.trim().is_empty()).then_some(stderr),
+        manual_follow_up: Vec::new(),
+    })
+}
+
+fn github_pages_status(
+    options: &DistributeOptions,
+    config: &PublishManifest,
+) -> Result<DistributionReceipt> {
+    let cfg = github_config(config, &options.site)?;
+    let owner = cfg
+        .owner
+        .clone()
+        .or_else(|| infer_github_owner(&options.project_dir));
+    let repo = cfg
+        .repo
+        .clone()
+        .or_else(|| infer_github_repo(&options.project_dir));
+    let (Some(owner), Some(repo)) = (owner, repo) else {
+        bail!("github-pages status requires owner and repo in fission.toml or a GitHub remote");
+    };
+    command_status_receipt(
+        options,
+        "github-pages",
+        "gh",
+        vec!["api".to_string(), format!("repos/{owner}/{repo}/pages")],
+    )
+}
+
+fn command_status_receipt(
+    options: &DistributeOptions,
+    provider: &str,
+    program: &str,
+    args: Vec<String>,
+) -> Result<DistributionReceipt> {
+    let output = Command::new(program)
+        .args(&args)
+        .output()
+        .with_context(|| format!("failed to run {program}; install it or authenticate first"))?;
+    let stdout = String::from_utf8_lossy(&output.stdout).to_string();
+    let stderr = String::from_utf8_lossy(&output.stderr).to_string();
+    Ok(DistributionReceipt {
+        schema_version: 1,
+        created_at_unix_seconds: now_unix_seconds(),
+        provider: provider.to_string(),
+        site: options.site.clone(),
+        action: "status".to_string(),
+        artifact_manifest: None,
+        deployment_id: options.deploy.clone(),
+        canonical_url: first_url(&stdout),
+        preview_url: None,
+        custom_domain: None,
+        status: if output.status.success() {
+            "ok"
+        } else {
+            "failed"
+        }
+        .to_string(),
+        stdout: Some(stdout),
+        stderr: (!stderr.trim().is_empty()).then_some(stderr),
+        manual_follow_up: Vec::new(),
+    })
+}
+
+fn cloudflare_status_args(config: &PublishManifest, site: &str) -> Result<Vec<String>> {
+    let cfg = cloudflare_config(config, site)?;
+    let project_name = cfg
+        .project_name
+        .context("cloudflare-pages status requires project_name")?;
+    Ok(vec![
+        "pages".to_string(),
+        "deployment".to_string(),
+        "list".to_string(),
+        "--project-name".to_string(),
+        project_name,
+    ])
+}
+
+fn netlify_status_args(config: &PublishManifest, site: &str) -> Result<Vec<String>> {
+    let cfg = netlify_config(config, site)?;
+    let mut args = vec!["status".to_string()];
+    if let Some(site_id) = cfg.site_id {
+        args.push("--site".to_string());
+        args.push(site_id);
+    }
+    Ok(args)
+}
+
+fn readiness_package(
+    project_dir: &Path,
+    target: Option<Target>,
+    format: Option<PackageFormat>,
+) -> Result<Vec<ReadinessCheck>> {
+    let target = target.unwrap_or(Target::Site);
+    let format = format.unwrap_or(PackageFormat::Static);
+    let mut checks = Vec::new();
+    checks.push(check(
+        "release.package.format_supported",
+        CheckSeverity::Error,
+        if format == PackageFormat::Static {
+            CheckStatus::Passed
+        } else {
+            CheckStatus::Failed
+        },
+        "static package format is supported for site/web targets",
+        None,
+        vec!["Use `--format static`."],
+    ));
+    checks.push(check_path(
+        "release.package.fission_toml_exists",
+        project_dir.join("fission.toml"),
+        "fission.toml exists",
+        "Run `fission init .` or point --project-dir at a Fission project.",
+    ));
+    if matches!(target, Target::Site) {
+        let has_content = project_dir.join("content").exists();
+        let has_entry = load_publish_manifest(project_dir)
+            .ok()
+            .and_then(|manifest| manifest.site.and_then(|site| site.entry))
+            .is_some_and(|entry| !entry.trim().is_empty());
+        checks.push(check(
+            "release.package.site_content_or_entry",
+            CheckSeverity::Error,
+            if has_content || has_entry {
+                CheckStatus::Passed
+            } else {
+                CheckStatus::Missing
+            },
+            "default content directory exists or custom site entry handles routing",
+            Some(format!(
+                "content: {}, site.entry: {}",
+                project_dir.join("content").display(),
+                has_entry
+            )),
+            vec!["Add content/ or configure [site].entry for a custom static site."],
+        ));
+    }
+    Ok(checks)
+}
+
+fn readiness_distribute(
+    project_dir: &Path,
+    provider: DistributionProvider,
+    site: &str,
+    artifact: Option<&Path>,
+    config: &PublishManifest,
+) -> Result<Vec<ReadinessCheck>> {
+    let mut checks = Vec::new();
+    if let Some(path) = artifact {
+        checks.push(check_path(
+            "release.distribution.artifact_manifest_exists",
+            path.to_path_buf(),
+            "artifact manifest exists",
+            "Run `fission package --target site --format static --release` first.",
+        ));
+        if path.exists() {
+            let manifest = read_artifact_manifest(path)?;
+            checks.push(check(
+                "release.distribution.static_root_exists",
+                CheckSeverity::Error,
+                if Path::new(&manifest.root_dir).join("index.html").exists() {
+                    CheckStatus::Passed
+                } else {
+                    CheckStatus::Missing
+                },
+                "static artifact root contains index.html",
+                Some(manifest.root_dir),
+                vec!["Rebuild the static package and ensure the output includes index.html."],
+            ));
+        }
+    }
+
+    match provider {
+        DistributionProvider::GithubPages => {
+            readiness_github_pages(project_dir, site, config, &mut checks)?
+        }
+        DistributionProvider::CloudflarePages => {
+            readiness_cloudflare_pages(site, config, &mut checks)?
+        }
+        DistributionProvider::Netlify => readiness_netlify(site, config, &mut checks)?,
+    }
+    Ok(checks)
+}
+
+fn readiness_github_pages(
+    project_dir: &Path,
+    site: &str,
+    config: &PublishManifest,
+    checks: &mut Vec<ReadinessCheck>,
+) -> Result<()> {
+    let cfg = github_config(config, site)?;
+    let owner = cfg
+        .owner
+        .clone()
+        .or_else(|| infer_github_owner(project_dir));
+    let repo = cfg.repo.clone().or_else(|| infer_github_repo(project_dir));
+    checks.push(required_value(
+        "release.github_pages.owner_configured",
+        owner.as_deref(),
+        "GitHub owner is configured or inferable from git remote",
+        "Set distribution.github_pages.<site>.owner or configure an origin GitHub remote.",
+    ));
+    checks.push(required_value(
+        "release.github_pages.repo_configured",
+        repo.as_deref(),
+        "GitHub repository is configured or inferable from git remote",
+        "Set distribution.github_pages.<site>.repo or configure an origin GitHub remote.",
+    ));
+    let mode = cfg.mode.as_deref().unwrap_or("actions");
+    checks.push(check(
+        "release.github_pages.mode_supported",
+        CheckSeverity::Error,
+        if matches!(mode, "actions" | "branch" | "manual") {
+            CheckStatus::Passed
+        } else {
+            CheckStatus::Failed
+        },
+        "GitHub Pages mode is supported",
+        Some(mode.to_string()),
+        vec!["Use mode = \"actions\", \"branch\", or \"manual\"."],
+    ));
+    if mode == "branch" {
+        checks.push(check_tool(
+            "release.github_pages.git_available",
+            "git",
+            "Install Git and authenticate to the repository remote.",
+        ));
+    } else {
+        checks.push(check(
+            "release.github_pages.source_is_actions",
+            CheckSeverity::Warning,
+            if cfg.source.as_deref().unwrap_or("github-actions") == "github-actions" {
+                CheckStatus::Passed
+            } else {
+                CheckStatus::Warning
+            },
+            "GitHub Pages source is configured for Actions publishing",
+            cfg.source.clone(),
+            vec!["Set distribution.github_pages.<site>.source = \"github-actions\" for Actions-based Pages publishing."],
+        ));
+        let workflow = cfg.workflow.as_deref().unwrap_or("fission-pages.yml");
+        checks.push(check_path(
+            "release.github_pages.workflow_exists",
+            github_workflow_path(project_dir, &cfg, workflow),
+            "GitHub Pages workflow exists",
+            "Run `fission distribute setup --provider github-pages --site production` to generate it.",
+        ));
+    }
+    let base = cfg.base_path.as_deref().unwrap_or("/");
+    let expected = expected_github_base_path(&cfg, repo.as_deref());
+    checks.push(check(
+        "release.github_pages.base_path_matches_domain_mode",
+        CheckSeverity::Warning,
+        if base == expected { CheckStatus::Passed } else { CheckStatus::Warning },
+        "GitHub Pages base path matches custom-domain/project-site mode",
+        Some(format!("configured {base}, expected {expected}")),
+        vec!["Set distribution.github_pages.<site>.base_path to the expected value or adjust the site renderer base URL."],
+    ));
+    checks.push(check(
+        "release.github_pages.https_policy_set",
+        CheckSeverity::Info,
+        if cfg.enforce_https.unwrap_or(true) {
+            CheckStatus::Passed
+        } else {
+            CheckStatus::Warning
+        },
+        "GitHub Pages HTTPS policy is explicit",
+        Some(format!("enforce_https = {}", cfg.enforce_https.unwrap_or(true))),
+        vec!["Keep enforce_https = true for public production sites unless there is a provider limitation."],
+    ));
+    Ok(())
+}
+
+fn readiness_cloudflare_pages(
+    site: &str,
+    config: &PublishManifest,
+    checks: &mut Vec<ReadinessCheck>,
+) -> Result<()> {
+    let cfg = cloudflare_config(config, site)?;
+    let env_account_id = env::var("CLOUDFLARE_ACCOUNT_ID").ok();
+    checks.push(required_value(
+        "release.cloudflare_pages.account_id_configured",
+        cfg.account_id.as_deref().or(env_account_id.as_deref()),
+        "Cloudflare account id is configured",
+        "Set distribution.cloudflare_pages.<site>.account_id or CLOUDFLARE_ACCOUNT_ID.",
+    ));
+    checks.push(required_value(
+        "release.cloudflare_pages.project_name_configured",
+        cfg.project_name.as_deref(),
+        "Cloudflare Pages project name is configured",
+        "Set distribution.cloudflare_pages.<site>.project_name.",
+    ));
+    checks.push(required_env(
+        "release.cloudflare_pages.token_available",
+        "CLOUDFLARE_API_TOKEN",
+        "Create a Cloudflare API token with Pages Edit permission and store it in CI secrets or your shell environment.",
+    ));
+    checks.push(check_tool(
+        "release.cloudflare_pages.wrangler_available",
+        "wrangler",
+        "Install Wrangler or wait for the direct Rust upload backend.",
+    ));
+    checks.push(base_path_check(
+        "release.cloudflare_pages.base_path_root",
+        cfg.base_path.as_deref(),
+    ));
+    Ok(())
+}
+
+fn readiness_netlify(
+    site: &str,
+    config: &PublishManifest,
+    checks: &mut Vec<ReadinessCheck>,
+) -> Result<()> {
+    let cfg = netlify_config(config, site)?;
+    checks.push(required_value(
+        "release.netlify.site_configured",
+        cfg.site_id.as_deref(),
+        "Netlify site id is configured",
+        "Set distribution.netlify.<site>.site_id or run provider setup after creating a Netlify site.",
+    ));
+    checks.push(required_env(
+        "release.netlify.token_available",
+        "NETLIFY_AUTH_TOKEN",
+        "Create a Netlify access token and store it in CI secrets or your shell environment.",
+    ));
+    checks.push(check_tool(
+        "release.netlify.cli_available",
+        "netlify",
+        "Install the Netlify CLI or wait for the direct Rust API deploy backend.",
+    ));
+    checks.push(base_path_check(
+        "release.netlify.base_path_root",
+        cfg.base_path.as_deref(),
+    ));
+    Ok(())
+}
+
+fn build_artifact_manifest(
+    project: &FissionProject,
+    options: &PackageOptions,
+    root: &Path,
+    profile: &str,
+) -> Result<ArtifactManifest> {
+    let mut files = Vec::new();
+    collect_artifacts(root, root, &mut files)?;
+    files.sort_by(|a, b| a.relative_path.cmp(&b.relative_path));
+    Ok(ArtifactManifest {
+        schema_version: 1,
+        created_at_unix_seconds: now_unix_seconds(),
+        project: ArtifactProject {
+            app_id: project.app.app_id.clone(),
+            name: project.app.name.clone(),
+            version: cargo_package_version(&options.project_dir),
+        },
+        target: options.target.as_str().to_string(),
+        format: options.format.as_str().to_string(),
+        profile: profile.to_string(),
+        root_dir: root.display().to_string(),
+        artifacts: files,
+        validation: ArtifactValidation {
+            state: "passed".to_string(),
+            checks: Vec::new(),
+        },
+    })
+}
+
+fn collect_artifacts(root: &Path, current: &Path, files: &mut Vec<ArtifactFile>) -> Result<()> {
+    for entry in
+        fs::read_dir(current).with_context(|| format!("failed to read {}", current.display()))?
+    {
+        let entry = entry?;
+        let path = entry.path();
+        let file_type = entry.file_type()?;
+        if file_type.is_dir() {
+            if entry.file_name() == ".git" {
+                continue;
+            }
+            collect_artifacts(root, &path, files)?;
+        } else if file_type.is_file() {
+            if path.file_name().and_then(OsStr::to_str) == Some(ARTIFACT_MANIFEST) {
+                continue;
+            }
+            let relative = path
+                .strip_prefix(root)?
+                .to_string_lossy()
+                .replace('\\', "/");
+            let (sha256, size_bytes) = hash_file(&path)?;
+            files.push(ArtifactFile {
+                kind: if relative == "index.html" {
+                    "entry"
+                } else {
+                    "asset"
+                }
+                .to_string(),
+                path: path.display().to_string(),
+                relative_path: relative,
+                sha256,
+                size_bytes,
+                mime_type: content_type(&path).to_string(),
+            });
+        }
+    }
+    Ok(())
+}
+
+fn hash_file(path: &Path) -> Result<(String, u64)> {
+    let mut file = fs::File::open(path)?;
+    let mut hasher = Sha256::new();
+    let mut size = 0u64;
+    let mut buf = [0u8; 8192];
+    loop {
+        let read = file.read(&mut buf)?;
+        if read == 0 {
+            break;
+        }
+        size += read as u64;
+        hasher.update(&buf[..read]);
+    }
+    Ok((hex_lower(&hasher.finalize()), size))
+}
+
+fn hex_lower(bytes: &[u8]) -> String {
+    const HEX: &[u8; 16] = b"0123456789abcdef";
+    let mut out = String::with_capacity(bytes.len() * 2);
+    for byte in bytes {
+        out.push(HEX[(byte >> 4) as usize] as char);
+        out.push(HEX[(byte & 0xf) as usize] as char);
+    }
+    out
+}
+
+fn content_type(path: &Path) -> &'static str {
+    match path.extension().and_then(OsStr::to_str).unwrap_or("") {
+        "html" => "text/html; charset=utf-8",
+        "css" => "text/css; charset=utf-8",
+        "js" | "mjs" => "text/javascript; charset=utf-8",
+        "wasm" => "application/wasm",
+        "json" | "webmanifest" => "application/json; charset=utf-8",
+        "png" => "image/png",
+        "jpg" | "jpeg" => "image/jpeg",
+        "svg" => "image/svg+xml",
+        "ico" => "image/x-icon",
+        "txt" => "text/plain; charset=utf-8",
+        "xml" => "application/xml; charset=utf-8",
+        _ => "application/octet-stream",
+    }
+}
+
+fn copy_dir_contents(source: &Path, dest: &Path) -> Result<()> {
+    for entry in
+        fs::read_dir(source).with_context(|| format!("failed to read {}", source.display()))?
+    {
+        let entry = entry?;
+        let source_path = entry.path();
+        let dest_path = dest.join(entry.file_name());
+        if entry.file_type()?.is_dir() {
+            fs::create_dir_all(&dest_path)?;
+            copy_dir_contents(&source_path, &dest_path)?;
+        } else {
+            if let Some(parent) = dest_path.parent() {
+                fs::create_dir_all(parent)?;
+            }
+            fs::copy(&source_path, &dest_path).with_context(|| {
+                format!(
+                    "failed to copy {} to {}",
+                    source_path.display(),
+                    dest_path.display()
+                )
+            })?;
+        }
+    }
+    Ok(())
+}
+
+fn clean_publish_root(root: &Path) -> Result<()> {
+    fs::create_dir_all(root)?;
+    for entry in fs::read_dir(root)? {
+        let entry = entry?;
+        if entry.file_name() == ".git" {
+            continue;
+        }
+        let path = entry.path();
+        if entry.file_type()?.is_dir() {
+            fs::remove_dir_all(path)?;
+        } else {
+            fs::remove_file(path)?;
+        }
+    }
+    Ok(())
+}
+
+fn load_publish_manifest(project_dir: &Path) -> Result<PublishManifest> {
+    let path = project_dir.join("fission.toml");
+    let data =
+        fs::read_to_string(&path).with_context(|| format!("failed to read {}", path.display()))?;
+    toml::from_str(&data).with_context(|| format!("failed to parse {}", path.display()))
+}
+
+fn site_output_dir(project_dir: &Path) -> Result<PathBuf> {
+    let manifest = load_publish_manifest(project_dir)?;
+    Ok(manifest
+        .site
+        .and_then(|site| site.out_dir)
+        .map(|path| resolve_project_path(project_dir, path))
+        .unwrap_or_else(|| project_dir.join("target/fission/site")))
+}
+
+fn read_artifact_manifest(path: &Path) -> Result<ArtifactManifest> {
+    let data = fs::read_to_string(path)
+        .with_context(|| format!("failed to read artifact manifest {}", path.display()))?;
+    serde_json::from_str(&data)
+        .with_context(|| format!("failed to parse artifact manifest {}", path.display()))
+}
+
+fn default_artifact_manifest_path(project_dir: &Path, target: Target, release: bool) -> PathBuf {
+    project_dir
+        .join("target/fission")
+        .join(if release { "release" } else { "debug" })
+        .join(target.as_str())
+        .join("static")
+        .join(ARTIFACT_MANIFEST)
+}
+
+fn github_config(config: &PublishManifest, site: &str) -> Result<GithubPagesConfig> {
+    Ok(config
+        .distribution
+        .as_ref()
+        .and_then(|distribution| distribution.github_pages.get(site))
+        .cloned()
+        .unwrap_or_default())
+}
+
+fn cloudflare_config(config: &PublishManifest, site: &str) -> Result<CloudflarePagesConfig> {
+    config
+        .distribution
+        .as_ref()
+        .and_then(|distribution| distribution.cloudflare_pages.get(site))
+        .cloned()
+        .with_context(|| format!("missing [distribution.cloudflare_pages.{site}] in fission.toml"))
+}
+
+fn netlify_config(config: &PublishManifest, site: &str) -> Result<NetlifyConfig> {
+    config
+        .distribution
+        .as_ref()
+        .and_then(|distribution| distribution.netlify.get(site))
+        .cloned()
+        .with_context(|| format!("missing [distribution.netlify.{site}] in fission.toml"))
+}
+
+fn github_workflow_path(project_dir: &Path, _cfg: &GithubPagesConfig, workflow: &str) -> PathBuf {
+    git_repo_root(project_dir)
+        .unwrap_or_else(|| project_dir.to_path_buf())
+        .join(".github/workflows")
+        .join(workflow)
+}
+
+fn project_dir_argument_for_workflow(project_dir: &Path) -> String {
+    let Some(repo_root) = git_repo_root(project_dir) else {
+        return ".".to_string();
+    };
+    let Ok(project_dir) = fs::canonicalize(project_dir) else {
+        return ".".to_string();
+    };
+    let Ok(repo_root) = fs::canonicalize(repo_root) else {
+        return ".".to_string();
+    };
+    if project_dir == repo_root {
+        ".".to_string()
+    } else {
+        project_dir
+            .strip_prefix(&repo_root)
+            .map(|path| path.to_string_lossy().replace('\\', "/"))
+            .unwrap_or_else(|_| ".".to_string())
+    }
+}
+
+fn render_github_pages_workflow(project_dir: &Path, cfg: &GithubPagesConfig) -> String {
+    let branch = cfg.production_branch.as_deref().unwrap_or("main");
+    let package_project_dir = project_dir_argument_for_workflow(project_dir);
+    let artifact_path = if package_project_dir == "." {
+        "target/fission/release/site/static".to_string()
+    } else {
+        format!("{package_project_dir}/target/fission/release/site/static")
+    };
+    format!(
+        r#"name: Publish Fission site
+
+on:
+  push:
+    branches:
+      - {branch}
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: github-pages
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Build Fission static package
+        run: cargo fission package --project-dir {package_project_dir} --target site --format static --release
+
+      - name: Upload GitHub Pages artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: {artifact_path}
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{{{ steps.deployment.outputs.page_url }}}}
+    steps:
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4
+"#,
+        branch = branch,
+        package_project_dir = package_project_dir,
+        artifact_path = artifact_path,
+    )
+}
+
+fn write_receipt(project_dir: &Path, receipt: &DistributionReceipt) -> Result<()> {
+    let dir = project_dir
+        .join("target/fission/distribution")
+        .join(&receipt.provider)
+        .join(&receipt.site);
+    fs::create_dir_all(&dir)?;
+    let path = dir.join(format!(
+        "{}-{}.json",
+        receipt.action, receipt.created_at_unix_seconds
+    ));
+    fs::write(&path, serde_json::to_vec_pretty(receipt)?)
+        .with_context(|| format!("failed to write {}", path.display()))?;
+    Ok(())
+}
+
+fn print_readiness_report(report: &ReadinessReport) {
+    println!("Readiness: {}", report.status);
+    print_checks(&report.checks);
+}
+
+fn print_checks(checks: &[ReadinessCheck]) {
+    for check in checks {
+        println!(
+            "[{:?}/{:?}] {} - {}",
+            check.severity, check.status, check.id, check.summary
+        );
+        if let Some(details) = &check.details {
+            println!("  {details}");
+        }
+        for remediation in &check.remediation {
+            println!("  fix: {remediation}");
+        }
+    }
+}
+
+fn report_status(checks: &[ReadinessCheck]) -> &'static str {
+    if checks
+        .iter()
+        .any(|check| check.severity == CheckSeverity::Error && check.status != CheckStatus::Passed)
+    {
+        "blocked"
+    } else if checks
+        .iter()
+        .any(|check| check.status == CheckStatus::Warning)
+    {
+        "warning"
+    } else {
+        "ready"
+    }
+}
+
+fn check(
+    id: impl Into<String>,
+    severity: CheckSeverity,
+    status: CheckStatus,
+    summary: impl Into<String>,
+    details: Option<String>,
+    remediation: Vec<&str>,
+) -> ReadinessCheck {
+    ReadinessCheck {
+        id: id.into(),
+        severity,
+        status,
+        summary: summary.into(),
+        details,
+        remediation: remediation.into_iter().map(str::to_string).collect(),
+    }
+}
+
+fn check_path(id: &str, path: PathBuf, summary: &str, remediation: &str) -> ReadinessCheck {
+    check(
+        id,
+        CheckSeverity::Error,
+        if path.exists() {
+            CheckStatus::Passed
+        } else {
+            CheckStatus::Missing
+        },
+        summary,
+        Some(path.display().to_string()),
+        vec![remediation],
+    )
+}
+
+fn required_value(
+    id: &str,
+    value: Option<&str>,
+    summary: &str,
+    remediation: &str,
+) -> ReadinessCheck {
+    check(
+        id,
+        CheckSeverity::Error,
+        if value.is_some_and(|value| !value.trim().is_empty()) {
+            CheckStatus::Passed
+        } else {
+            CheckStatus::Missing
+        },
+        summary,
+        value.map(str::to_string),
+        vec![remediation],
+    )
+}
+
+fn required_env(id: &str, name: &str, remediation: &str) -> ReadinessCheck {
+    check(
+        id,
+        CheckSeverity::Error,
+        if env::var_os(name).is_some() {
+            CheckStatus::Passed
+        } else {
+            CheckStatus::Missing
+        },
+        format!("environment variable {name} is available"),
+        None,
+        vec![remediation],
+    )
+}
+
+fn base_path_check(id: &str, base_path: Option<&str>) -> ReadinessCheck {
+    let value = base_path.unwrap_or("/");
+    check(
+        id,
+        CheckSeverity::Warning,
+        if value == "/" {
+            CheckStatus::Passed
+        } else {
+            CheckStatus::Warning
+        },
+        "static hosting provider base path is root",
+        Some(format!("base_path = {value}")),
+        vec!["Dedicated static hosting providers usually serve production sites from `/`; use a non-root base path only when deliberately hosting below a subpath."],
+    )
+}
+
+fn check_tool(id: &str, tool: &str, remediation: &str) -> ReadinessCheck {
+    check(
+        id,
+        CheckSeverity::Error,
+        if find_in_path(tool).is_some() {
+            CheckStatus::Passed
+        } else {
+            CheckStatus::Missing
+        },
+        format!("{tool} is available on PATH"),
+        find_in_path(tool).map(|path| path.display().to_string()),
+        vec![remediation],
+    )
+}
+
+fn find_in_path(name: &str) -> Option<PathBuf> {
+    let path = env::var_os("PATH")?;
+    for dir in env::split_paths(&path) {
+        let candidate = dir.join(name);
+        if candidate.exists() {
+            return Some(candidate);
+        }
+        if cfg!(windows) {
+            let candidate = dir.join(format!("{name}.exe"));
+            if candidate.exists() {
+                return Some(candidate);
+            }
+        }
+    }
+    None
+}
+
+fn now_unix_seconds() -> u64 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_secs()
+}
+
+fn cargo_package_version(project_dir: &Path) -> Option<String> {
+    let data = fs::read_to_string(project_dir.join("Cargo.toml")).ok()?;
+    let value: toml::Value = toml::from_str(&data).ok()?;
+    value
+        .get("package")
+        .and_then(|package| package.get("version"))
+        .and_then(|version| version.as_str())
+        .map(str::to_string)
+}
+
+fn resolve_project_path(project_dir: &Path, path: String) -> PathBuf {
+    let path = PathBuf::from(path);
+    if path.is_absolute() {
+        path
+    } else {
+        project_dir.join(path)
+    }
+}
+
+fn non_empty(value: Option<String>) -> Option<String> {
+    value.and_then(|value| {
+        let trimmed = value.trim();
+        (!trimmed.is_empty()).then(|| trimmed.to_string())
+    })
+}
+
+fn expected_github_base_path(cfg: &GithubPagesConfig, repo: Option<&str>) -> String {
+    if cfg
+        .custom_domain
+        .as_deref()
+        .is_some_and(|value| !value.trim().is_empty())
+    {
+        "/".to_string()
+    } else if cfg.site_kind.as_deref() == Some("user")
+        || cfg.site_kind.as_deref() == Some("organization")
+    {
+        "/".to_string()
+    } else {
+        repo.map(|repo| format!("/{repo}/"))
+            .unwrap_or_else(|| "/".to_string())
+    }
+}
+
+fn github_pages_url(
+    cfg: &GithubPagesConfig,
+    owner: Option<&str>,
+    repo: Option<&str>,
+) -> Option<String> {
+    if let Some(domain) = cfg
+        .custom_domain
+        .as_ref()
+        .filter(|value| !value.trim().is_empty())
+    {
+        return Some(format!("https://{}", domain.trim()));
+    }
+    let owner = owner?;
+    if cfg.site_kind.as_deref() == Some("user") || cfg.site_kind.as_deref() == Some("organization")
+    {
+        Some(format!("https://{owner}.github.io/"))
+    } else {
+        repo.map(|repo| format!("https://{owner}.github.io/{repo}/"))
+    }
+}
+
+fn cloudflare_url(cfg: &CloudflarePagesConfig) -> Option<String> {
+    if let Some(domain) = cfg
+        .custom_domain
+        .as_ref()
+        .filter(|value| !value.trim().is_empty())
+    {
+        Some(format!("https://{}", domain.trim()))
+    } else {
+        cfg.project_name
+            .as_ref()
+            .map(|name| format!("https://{name}.pages.dev"))
+    }
+}
+
+fn github_pages_follow_up(cfg: &GithubPagesConfig) -> Vec<String> {
+    let mut follow_up = Vec::new();
+    if cfg
+        .custom_domain
+        .as_deref()
+        .filter(|value| !value.is_empty())
+        .is_some()
+    {
+        follow_up.push(
+            "Verify the GitHub Pages custom domain and HTTPS state in repository settings."
+                .to_string(),
+        );
+    }
+    follow_up
+}
+
+fn infer_github_owner(project_dir: &Path) -> Option<String> {
+    parse_github_remote(project_dir).map(|(owner, _)| owner)
+}
+
+fn infer_github_repo(project_dir: &Path) -> Option<String> {
+    parse_github_remote(project_dir).map(|(_, repo)| repo)
+}
+
+fn parse_github_remote(project_dir: &Path) -> Option<(String, String)> {
+    let remote = git_output(project_dir, ["remote", "get-url", "origin"]).ok()?;
+    let remote = remote.trim().trim_end_matches(".git");
+    if let Some(rest) = remote.strip_prefix("git@github.com:") {
+        let (owner, repo) = rest.split_once('/')?;
+        return Some((owner.to_string(), repo.to_string()));
+    }
+    if let Some(rest) = remote.strip_prefix("https://github.com/") {
+        let (owner, repo) = rest.split_once('/')?;
+        return Some((owner.to_string(), repo.to_string()));
+    }
+    None
+}
+
+fn git_repo_root(project_dir: &Path) -> Option<PathBuf> {
+    git_output(project_dir, ["rev-parse", "--show-toplevel"])
+        .ok()
+        .map(|value| PathBuf::from(value.trim()))
+}
+
+fn git_output<'a, I>(dir: &Path, args: I) -> Result<String>
+where
+    I: IntoIterator<Item = &'a str>,
+{
+    let output = Command::new("git")
+        .args(args)
+        .current_dir(dir)
+        .output()
+        .context("failed to run git")?;
+    if !output.status.success() {
+        bail!(
+            "git command failed: {}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+    }
+    Ok(String::from_utf8_lossy(&output.stdout).to_string())
+}
+
+fn run_git<'a, I>(dir: &Path, args: I) -> Result<()>
+where
+    I: IntoIterator<Item = &'a str>,
+{
+    let status = Command::new("git")
+        .args(args)
+        .current_dir(dir)
+        .status()
+        .context("failed to run git")?;
+    if !status.success() {
+        bail!("git command failed with {status}");
+    }
+    Ok(())
+}
+
+fn first_url(text: &str) -> Option<String> {
+    text.split_whitespace()
+        .find(|part| part.starts_with("https://") || part.starts_with("http://"))
+        .map(|value| {
+            value
+                .trim_matches(|c| c == ',' || c == ')' || c == '(')
+                .to_string()
+        })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn unique_dir(name: &str) -> PathBuf {
+        let dir =
+            std::env::temp_dir().join(format!("fission-publish-{}-{}", name, std::process::id()));
+        let _ = fs::remove_dir_all(&dir);
+        dir
+    }
+
+    fn write_minimal_site(dir: &Path) {
+        fs::create_dir_all(dir.join("content")).unwrap();
+        fs::write(
+            dir.join("fission.toml"),
+            r#"targets = ["site"]
+
+[app]
+name = "site-demo"
+app_id = "com.example.site_demo"
+
+[site]
+title = "Site Demo"
+out_dir = "dist/site"
+generate_sitemap = false
+generate_robots = false
+
+[distribution.github_pages.production]
+owner = "example"
+repo = "site-demo"
+mode = "actions"
+site_kind = "project"
+base_path = "/site-demo/"
+"#,
+        )
+        .unwrap();
+        fs::write(
+            dir.join("content/index.md"),
+            "---\ntitle: Home\n---\n# Home\n",
+        )
+        .unwrap();
+    }
+
+    #[test]
+    fn static_package_builds_artifact_manifest() {
+        let dir = unique_dir("package");
+        write_minimal_site(&dir);
+        let manifest = package_static(&PackageOptions {
+            project_dir: dir.clone(),
+            target: Target::Site,
+            format: PackageFormat::Static,
+            release: true,
+            json: false,
+        })
+        .unwrap();
+        assert_eq!(manifest.target, "site");
+        assert!(dir
+            .join("target/fission/release/site/static/artifact-manifest.json")
+            .exists());
+        assert!(manifest
+            .artifacts
+            .iter()
+            .any(|file| file.relative_path == "index.html"));
+    }
+
+    #[test]
+    fn github_pages_setup_writes_workflow() {
+        let dir = unique_dir("github-setup");
+        write_minimal_site(&dir);
+        let config = load_publish_manifest(&dir).unwrap();
+        setup_github_pages(
+            &DistributeOptions {
+                project_dir: dir.clone(),
+                provider: DistributionProvider::GithubPages,
+                action: DistributeAction::Setup,
+                artifact: None,
+                site: "production".to_string(),
+                deploy: None,
+                dry_run: false,
+                yes: true,
+                json: false,
+            },
+            &config,
+        )
+        .unwrap();
+        let workflow = fs::read_to_string(dir.join(".github/workflows/fission-pages.yml")).unwrap();
+        assert!(workflow.contains("actions/upload-pages-artifact"));
+        assert!(workflow.contains("actions/deploy-pages"));
+        assert!(workflow.contains("cargo fission package"));
+    }
+
+    #[test]
+    fn github_base_path_accounts_for_custom_domain() {
+        let cfg = GithubPagesConfig {
+            custom_domain: Some("docs.example.com".to_string()),
+            repo: Some("repo".to_string()),
+            ..Default::default()
+        };
+        assert_eq!(expected_github_base_path(&cfg, Some("repo")), "/");
+        let cfg = GithubPagesConfig {
+            repo: Some("repo".to_string()),
+            ..Default::default()
+        };
+        assert_eq!(expected_github_base_path(&cfg, Some("repo")), "/repo/");
+    }
+}

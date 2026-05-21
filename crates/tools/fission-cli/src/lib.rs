@@ -6,6 +6,7 @@ use std::fs;
 use std::path::{Path, PathBuf};
 
 mod doctor;
+mod publish;
 mod ui;
 mod workflow;
 
@@ -126,6 +127,81 @@ enum Command {
     Site {
         #[command(subcommand)]
         command: SiteCommand,
+    },
+    /// Package a build output into a distributable artifact.
+    Package {
+        /// Target to package.
+        #[arg(long, value_enum)]
+        target: Target,
+        /// Package format.
+        #[arg(long, value_enum)]
+        format: publish::PackageFormat,
+        /// Project directory; defaults to the current working directory.
+        #[arg(long, default_value = ".")]
+        project_dir: PathBuf,
+        /// Build/package in release mode.
+        #[arg(long)]
+        release: bool,
+        /// Emit machine-readable JSON.
+        #[arg(long)]
+        json: bool,
+    },
+    /// Publish a packaged artifact to a configured distribution provider.
+    Distribute {
+        /// Lifecycle action; defaults to publish.
+        #[arg(value_enum)]
+        action: Option<publish::DistributeAction>,
+        /// Distribution provider.
+        #[arg(long, value_enum)]
+        provider: publish::DistributionProvider,
+        /// Artifact manifest emitted by `fission package`.
+        #[arg(long)]
+        artifact: Option<PathBuf>,
+        /// Named distribution site/profile from fission.toml.
+        #[arg(long, default_value = "production")]
+        site: String,
+        /// Deployment id used by promote/rollback/status operations.
+        #[arg(long)]
+        deploy: Option<String>,
+        /// Show what would happen without mutating provider state.
+        #[arg(long)]
+        dry_run: bool,
+        /// Confirm overwrites or provider-side setup changes.
+        #[arg(long)]
+        yes: bool,
+        /// Project directory; defaults to the current working directory.
+        #[arg(long, default_value = ".")]
+        project_dir: PathBuf,
+        /// Emit machine-readable JSON.
+        #[arg(long)]
+        json: bool,
+    },
+    /// Run package or distribution readiness checks.
+    Readiness {
+        /// Readiness area to check.
+        #[arg(value_enum)]
+        kind: publish::ReadinessKind,
+        /// Target to package/check.
+        #[arg(long, value_enum)]
+        target: Option<Target>,
+        /// Package format.
+        #[arg(long, value_enum)]
+        format: Option<publish::PackageFormat>,
+        /// Distribution provider.
+        #[arg(long, value_enum)]
+        provider: Option<publish::DistributionProvider>,
+        /// Artifact manifest emitted by `fission package`.
+        #[arg(long)]
+        artifact: Option<PathBuf>,
+        /// Named distribution site/profile from fission.toml.
+        #[arg(long, default_value = "production")]
+        site: String,
+        /// Project directory; defaults to the current working directory.
+        #[arg(long, default_value = ".")]
+        project_dir: PathBuf,
+        /// Emit machine-readable JSON.
+        #[arg(long)]
+        json: bool,
     },
     /// Attach to logs for an already-running Fission app.
     Logs {
@@ -377,6 +453,59 @@ where
             } => workflow::site_serve(&project_dir, release, host, port, !no_open),
             SiteCommand::Routes { project_dir } => workflow::site_routes(&project_dir),
         },
+        Command::Package {
+            target,
+            format,
+            project_dir,
+            release,
+            json,
+        } => publish::package(publish::PackageOptions {
+            project_dir,
+            target,
+            format,
+            release,
+            json,
+        }),
+        Command::Distribute {
+            action,
+            provider,
+            artifact,
+            site,
+            deploy,
+            dry_run,
+            yes,
+            project_dir,
+            json,
+        } => publish::distribute(publish::DistributeOptions {
+            project_dir,
+            provider,
+            action: action.unwrap_or(publish::DistributeAction::Publish),
+            artifact,
+            site,
+            deploy,
+            dry_run,
+            yes,
+            json,
+        }),
+        Command::Readiness {
+            kind,
+            target,
+            format,
+            provider,
+            artifact,
+            site,
+            project_dir,
+            json,
+        } => publish::readiness(publish::ReadinessOptions {
+            project_dir,
+            kind,
+            target,
+            format,
+            provider,
+            artifact,
+            site,
+            json,
+        }),
         Command::Logs {
             target,
             device,
