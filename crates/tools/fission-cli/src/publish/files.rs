@@ -566,13 +566,17 @@ fn upload_google_drive_item(
     let id = value.get("id").and_then(Value::as_str).map(str::to_string);
     if cfg.share.unwrap_or(false) {
         if let Some(id) = id.as_deref() {
-            let _ = client
+            let response = client
                 .post(format!(
                     "https://www.googleapis.com/drive/v3/files/{id}/permissions"
                 ))
                 .bearer_auth(token.trim())
                 .json(&json!({ "type": "anyone", "role": "reader" }))
-                .send();
+                .send()
+                .context("failed to create Google Drive sharing permission")?;
+            let status = response.status();
+            let text = response.text()?;
+            ensure_success(status, text, "Google Drive sharing permission")?;
         }
     }
     Ok(UploadedFile {
