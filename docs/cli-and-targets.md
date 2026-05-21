@@ -80,7 +80,7 @@ cargo fission distribute --project-dir my-app --provider github-pages --site pro
 cargo fission distribute --project-dir my-app --provider play-store --track internal --artifact my-app/target/fission/release/android/aab/artifact-manifest.json
 ```
 
-Every package command stages output under `target/fission/<profile>/<target>/<format>` and writes `artifact-manifest.json` with file hashes and MIME types. Static site/web publishing supports GitHub Pages, Cloudflare Pages, Netlify, and S3-compatible storage readiness. Store and file-storage providers are represented in the lifecycle command surface so release metadata, beta groups, signing checks, review operations, and authentication can be validated from the same project root before provider-specific upload backends mutate remote state.
+Every package command stages output under `target/fission/<profile>/<target>/<format>` and writes `artifact-manifest.json` with file hashes and MIME types. Static site/web publishing supports GitHub Pages, Cloudflare Pages, Netlify, direct S3-compatible object storage uploads through the Rust AWS SDK, and direct OAuth-backed uploads to Google Drive, OneDrive, and Dropbox. Store providers are represented in the lifecycle command surface so release metadata, beta groups, signing checks, review operations, and authentication can be validated from the same project root before provider-specific store APIs mutate remote state.
 
 Release lifecycle commands are intentionally separate from packaging:
 

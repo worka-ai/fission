@@ -702,6 +702,25 @@ pub(crate) fn auth(command: AuthCommand) -> Result<()> {
     }
 }
 
+pub(crate) fn provider_secret(
+    provider: publish::DistributionProvider,
+    env_names: &[&str],
+) -> Result<Option<String>> {
+    if let Some(name) = env_names.iter().find(|name| env::var_os(name).is_some()) {
+        return env::var(name)
+            .map(Some)
+            .with_context(|| format!("environment variable {name} is not valid UTF-8"));
+    }
+    let path = vault_record_path(provider)?;
+    if !path.exists() {
+        return Ok(None);
+    }
+    let bytes = load_provider_secret(provider)?;
+    String::from_utf8(bytes)
+        .map(Some)
+        .context("stored provider credential is not valid UTF-8")
+}
+
 fn edit_release_config(project_dir: &Path, tui: bool) -> Result<()> {
     let path = project_dir.join("fission.toml");
     fs::metadata(&path).with_context(|| format!("{} does not exist", path.display()))?;

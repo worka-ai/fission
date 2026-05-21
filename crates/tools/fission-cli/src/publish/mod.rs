@@ -12,6 +12,7 @@ use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::time::{SystemTime, UNIX_EPOCH};
 
+mod files;
 mod package;
 
 const ARTIFACT_MANIFEST: &str = "artifact-manifest.json";
@@ -246,6 +247,12 @@ struct DistributionManifest {
     #[serde(default)]
     s3: BTreeMap<String, S3Config>,
     #[serde(default)]
+    google_drive: BTreeMap<String, GoogleDriveConfig>,
+    #[serde(default)]
+    onedrive: BTreeMap<String, OneDriveConfig>,
+    #[serde(default)]
+    dropbox: BTreeMap<String, DropboxConfig>,
+    #[serde(default)]
     github_pages: BTreeMap<String, GithubPagesConfig>,
     #[serde(default)]
     cloudflare_pages: BTreeMap<String, CloudflarePagesConfig>,
@@ -263,6 +270,27 @@ struct S3Config {
     path_style: Option<bool>,
     visibility: Option<String>,
     presign_ttl_seconds: Option<u64>,
+}
+
+#[derive(Clone, Debug, Deserialize, Default)]
+struct GoogleDriveConfig {
+    folder_id: Option<String>,
+    name_prefix: Option<String>,
+    share: Option<bool>,
+}
+
+#[derive(Clone, Debug, Deserialize, Default)]
+struct OneDriveConfig {
+    root: Option<String>,
+    path_prefix: Option<String>,
+    conflict_behavior: Option<String>,
+}
+
+#[derive(Clone, Debug, Deserialize, Default)]
+struct DropboxConfig {
+    path_prefix: Option<String>,
+    mode: Option<String>,
+    autorename: Option<bool>,
 }
 
 #[derive(Clone, Debug, Deserialize, Default)]
@@ -469,11 +497,17 @@ fn publish_artifact(options: &DistributeOptions, config: &PublishManifest) -> Re
         DistributionProvider::Netlify => {
             publish_netlify(options, config, &artifact_path, &manifest)?
         }
-        DistributionProvider::S3 => publish_s3(options, config, &artifact_path, &manifest)?,
-        DistributionProvider::GoogleDrive
-        | DistributionProvider::OneDrive
-        | DistributionProvider::Dropbox
-        | DistributionProvider::PlayStore
+        DistributionProvider::S3 => files::publish_s3(options, config, &artifact_path, &manifest)?,
+        DistributionProvider::GoogleDrive => {
+            files::publish_google_drive(options, config, &artifact_path, &manifest)?
+        }
+        DistributionProvider::OneDrive => {
+            files::publish_onedrive(options, config, &artifact_path, &manifest)?
+        }
+        DistributionProvider::Dropbox => {
+            files::publish_dropbox(options, config, &artifact_path, &manifest)?
+        }
+        DistributionProvider::PlayStore
         | DistributionProvider::AppStore
         | DistributionProvider::MicrosoftStore => {
             publish_manual_provider(options, &artifact_path, &manifest)?
@@ -840,78 +874,6 @@ fn publish_netlify(
             .as_ref()
             .filter(|value| !value.trim().is_empty())
             .map(|domain| format!("https://{}", domain.trim()))
-    })
-}
-
-fn publish_s3(
-    options: &DistributeOptions,
-    config: &PublishManifest,
-    artifact_path: &Path,
-    manifest: &ArtifactManifest,
-) -> Result<DistributionReceipt> {
-    let cfg = s3_config(config, &options.site)?;
-    let bucket = cfg
-        .bucket
-        .as_deref()
-        .context("distribution.s3.<site>.bucket is required")?;
-    let prefix = cfg
-        .prefix
-        .as_deref()
-        .unwrap_or("")
-        .trim_start_matches('/')
-        .trim_end_matches('/');
-    let destination = if prefix.is_empty() {
-        format!("s3://{bucket}/")
-    } else {
-        format!("s3://{bucket}/{prefix}/")
-    };
-    let mut args = vec![
-        "s3".to_string(),
-        "sync".to_string(),
-        manifest.root_dir.clone(),
-        destination.clone(),
-        "--delete".to_string(),
-    ];
-    if let Some(endpoint) = cfg
-        .endpoint
-        .as_deref()
-        .filter(|value| !value.trim().is_empty())
-    {
-        args.push("--endpoint-url".to_string());
-        args.push(endpoint.to_string());
-    }
-    if let Some(region) = cfg
-        .region
-        .as_deref()
-        .filter(|value| !value.trim().is_empty())
-    {
-        args.push("--region".to_string());
-        args.push(region.to_string());
-    }
-    if let Some(profile) = cfg
-        .profile
-        .as_deref()
-        .filter(|value| !value.trim().is_empty())
-    {
-        args.push("--profile".to_string());
-        args.push(profile.to_string());
-    }
-    if cfg.visibility.as_deref() == Some("public") {
-        args.push("--acl".to_string());
-        args.push("public-read".to_string());
-    }
-    run_publish_command(options, "s3", "aws", args, artifact_path, || {
-        cfg.endpoint
-            .as_ref()
-            .filter(|value| value.starts_with("http"))
-            .map(|endpoint| {
-                let prefix = if prefix.is_empty() {
-                    String::new()
-                } else {
-                    format!("{prefix}/")
-                };
-                format!("{}/{}/{}", endpoint.trim_end_matches('/'), bucket, prefix)
-            })
     })
 }
 
@@ -1322,28 +1284,12 @@ fn readiness_distribute(
             readiness_cloudflare_pages(site, config, &mut checks)?
         }
         DistributionProvider::Netlify => readiness_netlify(site, config, &mut checks)?,
-        DistributionProvider::S3 => readiness_s3(site, config, &mut checks)?,
-        DistributionProvider::GoogleDrive => readiness_oauth_file_provider(
-            "google_drive",
-            "GOOGLE_DRIVE_ACCESS_TOKEN",
-            "Google Drive OAuth token is available",
-            "Authorize Google Drive with `fission auth login google-drive` or set GOOGLE_DRIVE_ACCESS_TOKEN in CI.",
-            &mut checks,
-        ),
-        DistributionProvider::OneDrive => readiness_oauth_file_provider(
-            "onedrive",
-            "ONEDRIVE_ACCESS_TOKEN",
-            "OneDrive OAuth token is available",
-            "Authorize OneDrive with `fission auth login onedrive` or set ONEDRIVE_ACCESS_TOKEN in CI.",
-            &mut checks,
-        ),
-        DistributionProvider::Dropbox => readiness_oauth_file_provider(
-            "dropbox",
-            "DROPBOX_ACCESS_TOKEN",
-            "Dropbox OAuth token is available",
-            "Authorize Dropbox with `fission auth login dropbox` or set DROPBOX_ACCESS_TOKEN in CI.",
-            &mut checks,
-        ),
+        DistributionProvider::S3 => files::readiness_s3(site, config, &mut checks)?,
+        DistributionProvider::GoogleDrive => {
+            files::readiness_google_drive(site, config, &mut checks)?
+        }
+        DistributionProvider::OneDrive => files::readiness_onedrive(site, config, &mut checks)?,
+        DistributionProvider::Dropbox => files::readiness_dropbox(site, config, &mut checks)?,
         DistributionProvider::PlayStore => readiness_store_provider(
             "play_store",
             "PLAY_STORE_SERVICE_ACCOUNT_JSON",
@@ -1521,71 +1467,6 @@ fn readiness_netlify(
         cfg.base_path.as_deref(),
     ));
     Ok(())
-}
-
-fn readiness_s3(
-    site: &str,
-    config: &PublishManifest,
-    checks: &mut Vec<ReadinessCheck>,
-) -> Result<()> {
-    let cfg = s3_config(config, site)?;
-    checks.push(required_value(
-        "release.s3.bucket_configured",
-        cfg.bucket.as_deref(),
-        "S3 bucket is configured",
-        "Set distribution.s3.<site>.bucket.",
-    ));
-    checks.push(check(
-        "release.s3.credentials_available",
-        CheckSeverity::Error,
-        if env::var_os("AWS_ACCESS_KEY_ID").is_some()
-            || env::var_os("AWS_PROFILE").is_some()
-            || cfg.profile.as_deref().is_some_and(|value| !value.trim().is_empty())
-        {
-            CheckStatus::Passed
-        } else {
-            CheckStatus::Missing
-        },
-        "AWS/S3 credentials are available",
-        Some(format!(
-            "profile = {}, endpoint = {}, path_style = {}, presign_ttl_seconds = {}",
-            cfg.profile.as_deref().unwrap_or("<env/default>"),
-            cfg.endpoint.as_deref().unwrap_or("<provider default>"),
-            cfg.path_style.unwrap_or(false),
-            cfg.presign_ttl_seconds
-                .map(|value| value.to_string())
-                .unwrap_or_else(|| "<none>".to_string())
-        )),
-        vec!["Set AWS_PROFILE, AWS_ACCESS_KEY_ID/AWS_SECRET_ACCESS_KEY, or configure fission auth for S3-compatible storage."],
-    ));
-    checks.push(check_tool(
-        "release.s3.aws_cli_available",
-        "aws",
-        "Install AWS CLI while the direct Rust S3 upload backend is being wired.",
-    ));
-    Ok(())
-}
-
-fn readiness_oauth_file_provider(
-    provider_id: &str,
-    token_env: &str,
-    summary: &str,
-    remediation: &str,
-    checks: &mut Vec<ReadinessCheck>,
-) {
-    checks.push(required_env(
-        &format!("release.{provider_id}.token_available"),
-        token_env,
-        remediation,
-    ));
-    checks.push(check(
-        format!("release.{provider_id}.direct_upload_backend"),
-        CheckSeverity::Warning,
-        CheckStatus::Warning,
-        summary,
-        Some("provider API upload is exposed in the lifecycle model; the direct Rust upload backend still needs provider-specific wiring".to_string()),
-        vec!["Use readiness output to finish credentials and provider IDs before enabling upload automation."],
-    ));
 }
 
 fn readiness_store_provider(
@@ -1812,6 +1693,33 @@ fn s3_config(config: &PublishManifest, site: &str) -> Result<S3Config> {
         .and_then(|distribution| distribution.s3.get(site))
         .cloned()
         .with_context(|| format!("missing [distribution.s3.{site}] in fission.toml"))
+}
+
+fn google_drive_config(config: &PublishManifest, site: &str) -> Result<GoogleDriveConfig> {
+    Ok(config
+        .distribution
+        .as_ref()
+        .and_then(|distribution| distribution.google_drive.get(site))
+        .cloned()
+        .unwrap_or_default())
+}
+
+fn onedrive_config(config: &PublishManifest, site: &str) -> Result<OneDriveConfig> {
+    Ok(config
+        .distribution
+        .as_ref()
+        .and_then(|distribution| distribution.onedrive.get(site))
+        .cloned()
+        .unwrap_or_default())
+}
+
+fn dropbox_config(config: &PublishManifest, site: &str) -> Result<DropboxConfig> {
+    Ok(config
+        .distribution
+        .as_ref()
+        .and_then(|distribution| distribution.dropbox.get(site))
+        .cloned()
+        .unwrap_or_default())
 }
 
 fn cloudflare_config(config: &PublishManifest, site: &str) -> Result<CloudflarePagesConfig> {
