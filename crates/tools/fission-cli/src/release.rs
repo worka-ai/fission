@@ -15,6 +15,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 mod content;
 mod model;
+mod signing_ops;
 mod store_ops;
 
 #[derive(Subcommand, Debug)]
@@ -547,41 +548,20 @@ pub(crate) fn signing(command: SigningCommand) -> Result<()> {
             target,
             project_dir,
             json,
-        } => print_report(signing_report("signing.status", &project_dir, target), json),
+        } => signing_ops::status(&project_dir, target, json),
         SigningCommand::Sync {
             target,
             readonly,
             project_dir,
             json,
-        } => {
-            let mut report = signing_report("signing.sync", &project_dir, target);
-            report.checks.push(ok_check(
-                "signing.sync.mode",
-                format!("readonly = {readonly}"),
-            ));
-            print_report(report, json)
-        }
+        } => signing_ops::sync(&project_dir, target, readonly, json),
         SigningCommand::Import {
             target,
             keystore,
             alias,
             project_dir,
             json,
-        } => {
-            let mut report = signing_report("signing.import", &project_dir, target);
-            if let Some(path) = keystore {
-                report.checks.push(path_check(
-                    "signing.import.keystore_exists",
-                    path,
-                    "keystore file exists",
-                ));
-            }
-            report.checks.push(ok_check(
-                "signing.import.alias",
-                format!("alias = {alias:?}"),
-            ));
-            print_report(report, json)
-        }
+        } => signing_ops::import(&project_dir, target, keystore, alias, json),
     }
 }
 
@@ -823,34 +803,6 @@ fn provider_backend_report(
     report
 }
 
-fn signing_report(area: &str, project_dir: &Path, target: Target) -> LifecycleReport {
-    let mut report = base_report(area, None, Some(target));
-    report.checks.push(path_check(
-        "signing.project_config_exists",
-        project_dir.join("fission.toml"),
-        "fission.toml exists",
-    ));
-    match target {
-        Target::Android => report
-            .checks
-            .push(env_check("signing.android.keystore", "ANDROID_KEYSTORE")),
-        Target::Ios | Target::Macos => report.checks.push(env_check(
-            "signing.apple.identity",
-            "APPLE_SIGNING_IDENTITY",
-        )),
-        Target::Windows => report.checks.push(env_check(
-            "signing.windows.certificate",
-            "WINDOWS_SIGNING_CERTIFICATE",
-        )),
-        _ => report.checks.push(warning_check(
-            "signing.target",
-            "target does not require signing by default".to_string(),
-        )),
-    }
-    finalize_status(&mut report);
-    report
-}
-
 fn auth_report(area: &str, provider: Option<publish::DistributionProvider>) -> LifecycleReport {
     let mut report = base_report(area, provider, None);
     let providers = provider.map(|provider| vec![provider]).unwrap_or_else(|| {
@@ -1080,23 +1032,6 @@ fn value_path_check(value: &toml::Value, path: &str, id: &str, summary: &str) ->
             "Add the missing release configuration or use fission release-config add-release/set."
                 .to_string(),
         ],
-    }
-}
-
-fn env_check(id: &str, name: &str) -> LifecycleCheck {
-    LifecycleCheck {
-        id: id.to_string(),
-        status: if env::var_os(name).is_some() {
-            "passed"
-        } else {
-            "missing"
-        }
-        .to_string(),
-        summary: format!("{name} is set"),
-        details: None,
-        remediation: vec![format!(
-            "Set {name} or import signing credentials through the release credential flow."
-        )],
     }
 }
 
