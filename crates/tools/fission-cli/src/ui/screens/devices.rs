@@ -1,5 +1,5 @@
 use super::title_block;
-use crate::ui::actions::{execute_command, ExecuteCommand};
+use crate::ui::actions::{request_command, RequestCommand};
 use crate::ui::commands::UiCommand;
 use crate::ui::components::{ActionButton, ButtonTone, DeviceTable, KeyValueRow};
 use crate::ui::state::UiState;
@@ -12,7 +12,7 @@ pub(crate) struct DevicesScreen;
 impl Widget<UiState> for DevicesScreen {
     fn build(&self, ctx: &mut BuildCtx<UiState>, view: &View<UiState>) -> Node {
         let palette = UiPalette::for_mode(view.state.theme_mode);
-        let refresh = with_reducer!(ctx, ExecuteCommand(UiCommand::Refresh), execute_command);
+        let refresh = with_reducer!(ctx, RequestCommand(UiCommand::Refresh), request_command);
         Column {
             gap: Some(1.0),
             children: vec![

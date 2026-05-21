@@ -2,16 +2,16 @@ use super::state::UiState;
 use crate::Target;
 use serde::{Deserialize, Serialize};
 use std::collections::VecDeque;
-use std::fs::{self, OpenOptions};
 use std::io::{BufRead, BufReader};
 use std::path::PathBuf;
 use std::process::{Command, ExitStatus, Stdio};
 use std::sync::{Arc, Mutex};
 use std::thread;
-use std::time::{Duration, SystemTime, UNIX_EPOCH};
+use std::time::Duration;
 
 pub(crate) const DEFAULT_SCROLLBACK_LINES: usize = 100_000;
 const MAX_SCROLLBACK_LINE_CHARS: usize = 4096;
+pub(crate) type CommandSessionId = u64;
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 pub(crate) enum UiCommand {
@@ -31,6 +31,57 @@ pub(crate) enum UiCommand {
     LogsFollow,
 }
 
+impl UiCommand {
+    pub(crate) fn label(&self) -> String {
+        match self {
+            Self::InitProject => "initialise this project".to_string(),
+            Self::AddTarget(target) => format!("add the {} target", target.as_str()),
+            Self::DoctorAll => "run doctor checks".to_string(),
+            Self::DoctorTarget(target) => format!("run {} doctor checks", target.as_str()),
+            Self::Refresh => "refresh project state".to_string(),
+            Self::RunSelected => "run the selected target".to_string(),
+            Self::BuildSelected => "build the selected target".to_string(),
+            Self::TestSelected => "test the selected target".to_string(),
+            Self::SiteBuild => "build the static site".to_string(),
+            Self::SiteCheck => "check the static site".to_string(),
+            Self::SiteRoutes => "list static site routes".to_string(),
+            Self::SiteServe => "serve the static site".to_string(),
+            Self::LogsSnapshot => "read logs".to_string(),
+            Self::LogsFollow => "follow logs".to_string(),
+        }
+    }
+
+    pub(crate) fn confirmation_message(&self) -> String {
+        match self {
+            Self::InitProject => {
+                "This writes missing Fission project files only when they are absent.".to_string()
+            }
+            Self::AddTarget(target) => format!(
+                "This scaffolds or updates the {} platform files for this project.",
+                target.as_str()
+            ),
+            Self::RunSelected => {
+                "This builds, launches, and attaches output for the selected target unless detach is enabled.".to_string()
+            }
+            Self::BuildSelected => "This starts a build and streams compiler output.".to_string(),
+            Self::TestSelected => "This runs the generated target smoke test.".to_string(),
+            Self::SiteServe => {
+                "This starts a local site server and keeps its output in a command tab.".to_string()
+            }
+            Self::LogsFollow => {
+                "This starts a log follower and keeps streaming output into a command tab.".to_string()
+            }
+            Self::Refresh => "This refreshes project, target, and device state.".to_string(),
+            Self::DoctorAll | Self::DoctorTarget(_) => {
+                "This checks local tooling and reports missing setup.".to_string()
+            }
+            Self::SiteBuild | Self::SiteCheck | Self::SiteRoutes | Self::LogsSnapshot => {
+                "This runs the selected workflow and stores the result in a command tab.".to_string()
+            }
+        }
+    }
+}
+
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub(crate) struct CommandRecord {
     pub(crate) title: String,
@@ -45,7 +96,6 @@ pub(crate) enum CommandStatus {
     Running,
     Ok,
     Failed,
-    Started,
 }
 
 #[derive(Clone, Debug)]
@@ -160,17 +210,22 @@ impl CommandStatus {
             Self::Running => "Running",
             Self::Ok => "OK",
             Self::Failed => "Failed",
-            Self::Started => "Started",
         }
     }
 }
 
 #[derive(Clone, Debug, PartialEq)]
 pub(crate) struct CommandSnapshot {
-    pub(crate) generation: u64,
+    pub(crate) id: CommandSessionId,
     pub(crate) revision: u64,
     pub(crate) record: CommandRecord,
     pub(crate) finished: bool,
+}
+
+#[derive(Clone, Debug, Default, PartialEq)]
+pub(crate) struct CommandRuntimeSnapshot {
+    pub(crate) active_session_id: Option<CommandSessionId>,
+    pub(crate) sessions: Vec<CommandSnapshot>,
 }
 
 #[derive(Clone, Default)]
@@ -192,48 +247,78 @@ impl PartialEq for CommandRuntime {
 
 #[derive(Default)]
 struct CommandRuntimeState {
-    next_generation: u64,
-    snapshot: Option<CommandSnapshot>,
+    next_session_id: CommandSessionId,
+    active_session_id: Option<CommandSessionId>,
+    sessions: Vec<CommandSnapshot>,
 }
 
 impl CommandRuntime {
-    fn begin(&self, mut record: CommandRecord, limit: usize) -> u64 {
+    fn begin(&self, mut record: CommandRecord, limit: usize) -> CommandSessionId {
         let mut state = self.inner.lock().expect("command runtime lock poisoned");
-        state.next_generation = state.next_generation.saturating_add(1);
-        let generation = state.next_generation;
+        state.next_session_id = state.next_session_id.saturating_add(1);
+        let session_id = state.next_session_id;
         record.output.set_limit(limit);
-        state.snapshot = Some(CommandSnapshot {
-            generation,
+        state.active_session_id = Some(session_id);
+        state.sessions.push(CommandSnapshot {
+            id: session_id,
             revision: 0,
             record,
             finished: false,
         });
-        generation
+        session_id
     }
 
-    fn update(&self, generation: u64, update: impl FnOnce(&mut CommandRecord, &mut bool)) {
+    fn update(
+        &self,
+        session_id: CommandSessionId,
+        update: impl FnOnce(&mut CommandRecord, &mut bool),
+    ) {
         let mut state = self.inner.lock().expect("command runtime lock poisoned");
-        let Some(snapshot) = state.snapshot.as_mut() else {
+        let Some(snapshot) = state.sessions.iter_mut().find(|item| item.id == session_id) else {
             return;
         };
-        if snapshot.generation != generation {
-            return;
-        }
         update(&mut snapshot.record, &mut snapshot.finished);
         snapshot.revision = snapshot.revision.saturating_add(1);
     }
 
-    pub(crate) fn snapshot(&self) -> Option<CommandSnapshot> {
-        self.inner
-            .lock()
-            .expect("command runtime lock poisoned")
-            .snapshot
-            .clone()
+    pub(crate) fn snapshot(&self) -> CommandRuntimeSnapshot {
+        let state = self.inner.lock().expect("command runtime lock poisoned");
+        CommandRuntimeSnapshot {
+            active_session_id: state.active_session_id,
+            sessions: state.sessions.clone(),
+        }
+    }
+
+    pub(crate) fn set_active(&self, session_id: CommandSessionId) {
+        let mut state = self.inner.lock().expect("command runtime lock poisoned");
+        if state.sessions.iter().any(|item| item.id == session_id) {
+            state.active_session_id = Some(session_id);
+        }
+    }
+
+    pub(crate) fn record_completed(
+        &self,
+        mut record: CommandRecord,
+        limit: usize,
+        finished: bool,
+    ) -> CommandSessionId {
+        let mut state = self.inner.lock().expect("command runtime lock poisoned");
+        state.next_session_id = state.next_session_id.saturating_add(1);
+        let session_id = state.next_session_id;
+        record.output.set_limit(limit);
+        state.active_session_id = Some(session_id);
+        state.sessions.push(CommandSnapshot {
+            id: session_id,
+            revision: 0,
+            record,
+            finished,
+        });
+        session_id
     }
 
     pub(crate) fn set_limit(&self, limit: usize) {
         let mut state = self.inner.lock().expect("command runtime lock poisoned");
-        if let Some(snapshot) = state.snapshot.as_mut() {
+        for snapshot in &mut state.sessions {
             snapshot.record.output.set_limit(limit);
             snapshot.revision = snapshot.revision.saturating_add(1);
         }
@@ -249,7 +334,6 @@ struct CommandPlan {
 #[derive(Clone, Copy)]
 enum CommandMode {
     Capture,
-    Spawn { log_name: &'static str },
 }
 
 pub(crate) fn execute_ui_command(state: &mut UiState, command: UiCommand) {
@@ -263,8 +347,10 @@ pub(crate) fn execute_ui_command(state: &mut UiState, command: UiCommand) {
                 "Project, target, and device state refreshed.",
             ),
         };
-        state.last_log_line_count = record.output.display_line_count();
-        state.last_command = Some(record);
+        state
+            .command_runtime
+            .record_completed(record, state.scrollback_limit, true);
+        state.sync_command_sessions();
         return;
     }
 
@@ -277,17 +363,22 @@ pub(crate) fn execute_ui_command(state: &mut UiState, command: UiCommand) {
                 "Select a target or device before running this action.",
             ),
         };
-        state.last_log_line_count = record.output.display_line_count();
-        state.last_command = Some(record);
+        state
+            .command_runtime
+            .record_completed(record, state.scrollback_limit, true);
+        state.sync_command_sessions();
         return;
     };
 
     let record = match plan.mode {
         CommandMode::Capture => start_capture_command(state, plan),
-        CommandMode::Spawn { log_name } => spawn_command(state, &plan, log_name),
     };
-    state.last_log_line_count = record.output.display_line_count();
-    state.last_command = Some(record);
+    if matches!(record.status, CommandStatus::Failed) {
+        state
+            .command_runtime
+            .record_completed(record, state.scrollback_limit, true);
+    }
+    state.sync_command_sessions();
 }
 
 fn command_plan(state: &UiState, command: UiCommand) -> Option<CommandPlan> {
@@ -459,9 +550,7 @@ fn command_plan(state: &UiState, command: UiCommand) -> Option<CommandPlan> {
             Some(CommandPlan {
                 title: "Serve static site".to_string(),
                 args,
-                mode: CommandMode::Spawn {
-                    log_name: "site-serve",
-                },
+                mode: CommandMode::Capture,
             })
         }
         UiCommand::LogsSnapshot => {
@@ -498,9 +587,7 @@ fn command_plan(state: &UiState, command: UiCommand) -> Option<CommandPlan> {
             Some(CommandPlan {
                 title: format!("Follow {} logs", target.as_str()),
                 args,
-                mode: CommandMode::Spawn {
-                    log_name: "logs-follow",
-                },
+                mode: CommandMode::Capture,
             })
         }
         UiCommand::Refresh => None,
@@ -670,65 +757,6 @@ fn finish_capture_command(runtime: &CommandRuntime, generation: u64, status: Exi
     });
 }
 
-fn spawn_command(state: &UiState, plan: &CommandPlan, log_name: &str) -> CommandRecord {
-    let log_path = ui_log_path(state, log_name);
-    let log = OpenOptions::new()
-        .create(true)
-        .truncate(true)
-        .write(true)
-        .open(&log_path);
-    let Ok(log) = log else {
-        return CommandRecord {
-            title: plan.title.clone(),
-            status: CommandStatus::Failed,
-            output: ScrollbackBuffer::from_text(
-                state.scrollback_limit,
-                format!("Failed to create log file {}", log_path.display()),
-            ),
-        };
-    };
-    let err = match log.try_clone() {
-        Ok(err) => err,
-        Err(error) => {
-            return CommandRecord {
-                title: plan.title.clone(),
-                status: CommandStatus::Failed,
-                output: ScrollbackBuffer::from_text(
-                    state.scrollback_limit,
-                    format!("Failed to prepare log file: {error}"),
-                ),
-            };
-        }
-    };
-    match command_base(state)
-        .args(&plan.args)
-        .stdout(Stdio::from(log))
-        .stderr(Stdio::from(err))
-        .spawn()
-    {
-        Ok(child) => CommandRecord {
-            title: plan.title.clone(),
-            status: CommandStatus::Started,
-            output: ScrollbackBuffer::from_text(
-                state.scrollback_limit,
-                format!(
-                    "Started process {}. Output is being written to {}.",
-                    child.id(),
-                    log_path.display()
-                ),
-            ),
-        },
-        Err(error) => CommandRecord {
-            title: plan.title.clone(),
-            status: CommandStatus::Failed,
-            output: ScrollbackBuffer::from_text(
-                state.scrollback_limit,
-                format!("Failed to start command: {error}"),
-            ),
-        },
-    }
-}
-
 fn command_base(state: &UiState) -> Command {
     let exe = std::env::current_exe().unwrap_or_else(|_| PathBuf::from("fission"));
     let mut command = Command::new(exe);
@@ -738,16 +766,6 @@ fn command_base(state: &UiState) -> Command {
         command.current_dir(parent);
     }
     command
-}
-
-fn ui_log_path(state: &UiState, name: &str) -> PathBuf {
-    let stamp = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map(|value| value.as_secs())
-        .unwrap_or(0);
-    let dir = state.project_dir.join(".fission/ui");
-    let _ = fs::create_dir_all(&dir);
-    dir.join(format!("{name}-{stamp}.log"))
 }
 
 fn format_command_line(args: &[String]) -> String {
@@ -826,6 +844,43 @@ mod tests {
                 "three".to_string(),
                 "four".to_string()
             ]
+        );
+    }
+
+    #[test]
+    fn command_runtime_keeps_independent_sessions() {
+        let runtime = CommandRuntime::default();
+        let first = runtime.record_completed(
+            CommandRecord {
+                title: "Doctor".to_string(),
+                status: CommandStatus::Ok,
+                output: ScrollbackBuffer::from_text(10, "doctor output"),
+            },
+            10,
+            true,
+        );
+        let second = runtime.record_completed(
+            CommandRecord {
+                title: "Serve".to_string(),
+                status: CommandStatus::Running,
+                output: ScrollbackBuffer::from_text(10, "serve output"),
+            },
+            10,
+            false,
+        );
+
+        let snapshot = runtime.snapshot();
+        assert_eq!(snapshot.active_session_id, Some(second));
+        assert_eq!(snapshot.sessions.len(), 2);
+        assert_eq!(snapshot.sessions[0].id, first);
+        assert_eq!(snapshot.sessions[1].id, second);
+        assert_eq!(
+            snapshot.sessions[0].record.output.visible_lines(0, 1),
+            vec!["doctor output".to_string()]
+        );
+        assert_eq!(
+            snapshot.sessions[1].record.output.visible_lines(0, 1),
+            vec!["serve output".to_string()]
         );
     }
 }

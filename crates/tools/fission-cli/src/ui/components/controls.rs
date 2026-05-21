@@ -50,6 +50,13 @@ impl Widget<UiState> for ActionButton {
             ButtonTone::Success => (palette.success, palette.accent_text),
             ButtonTone::Warning => (palette.warning, palette.accent_text),
         };
+        let marker = match self.tone {
+            ButtonTone::Primary => ">",
+            ButtonTone::Neutral => "-",
+            ButtonTone::Success => "+",
+            ButtonTone::Warning => "!",
+        };
+        let label = format!("[{marker} {}]", self.label);
         let density = UiDensity::new(view.state.compact_mode);
         Button {
             on_press: Some(self.action.clone()),
@@ -58,9 +65,7 @@ impl Widget<UiState> for ActionButton {
             padding: Some(density.control_padding()),
             background_fill: Some(Fill::Solid(background)),
             text_color: Some(text),
-            child: Some(Box::new(
-                Text::new(self.label.clone()).color(text).into_node(),
-            )),
+            child: Some(Box::new(Text::new(label).color(text).into_node())),
             ..Default::default()
         }
         .into_node()

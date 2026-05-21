@@ -1,7 +1,7 @@
 use super::title_block;
 use crate::ui::actions::{
-    execute_command, set_host, set_port, toggle_detach, toggle_headless, toggle_no_open,
-    toggle_release, ExecuteCommand, SetHost, SetPort, ToggleDetach, ToggleHeadless, ToggleNoOpen,
+    request_command, set_host, set_port, toggle_detach, toggle_headless, toggle_no_open,
+    toggle_release, RequestCommand, SetHost, SetPort, ToggleDetach, ToggleHeadless, ToggleNoOpen,
     ToggleRelease,
 };
 use crate::ui::commands::UiCommand;
@@ -88,7 +88,7 @@ struct ExecutionScreen {
 impl Widget<UiState> for ExecutionScreen {
     fn build(&self, ctx: &mut BuildCtx<UiState>, view: &View<UiState>) -> Node {
         let palette = UiPalette::for_mode(view.state.theme_mode);
-        let action = with_reducer!(ctx, ExecuteCommand(self.command.clone()), execute_command);
+        let action = with_reducer!(ctx, RequestCommand(self.command.clone()), request_command);
         let mut sections = vec![
             title_block(self.title, self.description, palette.accent, palette.muted),
             Row {

@@ -1,6 +1,6 @@
 use super::commands::{execute_ui_command, UiCommand};
 use super::routes::UiRoute;
-use super::state::UiState;
+use super::state::{UiDialog, UiState};
 use crate::Target;
 use fission::prelude::*;
 
@@ -32,6 +32,11 @@ pub(crate) fn select_target(state: &mut UiState, target: Target) {
 #[fission_reducer(SelectDevice)]
 pub(crate) fn select_device(state: &mut UiState, id: String) {
     state.selected_device = Some(id);
+}
+
+#[fission_reducer(SelectCommandSession)]
+pub(crate) fn select_command_session(state: &mut UiState, id: u64) {
+    state.select_command_session(id);
 }
 
 #[fission_reducer(SetInitName)]
@@ -100,6 +105,29 @@ pub(crate) fn toggle_headless(state: &mut UiState) {
 #[fission_reducer(ExecuteCommand)]
 pub(crate) fn execute_command(state: &mut UiState, command: UiCommand) {
     execute_ui_command(state, command);
+}
+
+#[fission_reducer(RequestCommand)]
+pub(crate) fn request_command(state: &mut UiState, command: UiCommand) {
+    state.request_command_confirmation(command);
+}
+
+#[fission_reducer(ConfirmDialog)]
+pub(crate) fn confirm_dialog(state: &mut UiState) {
+    let Some(dialog) = state.pending_dialog.take() else {
+        return;
+    };
+    match dialog {
+        UiDialog::Command { command, .. } => execute_ui_command(state, command),
+        UiDialog::Exit { .. } => {
+            state.exit_confirmed = true;
+        }
+    }
+}
+
+#[fission_reducer(CancelDialog)]
+pub(crate) fn cancel_dialog(state: &mut UiState) {
+    state.pending_dialog = None;
 }
 
 fn parse_scrollback_limit(value: &str) -> Option<usize> {

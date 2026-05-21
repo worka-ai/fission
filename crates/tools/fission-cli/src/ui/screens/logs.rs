@@ -1,5 +1,5 @@
 use super::title_block;
-use crate::ui::actions::{execute_command, ExecuteCommand};
+use crate::ui::actions::{request_command, RequestCommand};
 use crate::ui::commands::UiCommand;
 use crate::ui::components::{ActionButton, ButtonTone, DeviceTable, KeyValueRow, TargetPicker};
 use crate::ui::state::{UiDevice, UiState};
@@ -14,10 +14,10 @@ impl Widget<UiState> for LogsScreen {
         let palette = UiPalette::for_mode(view.state.theme_mode);
         let snapshot = with_reducer!(
             ctx,
-            ExecuteCommand(UiCommand::LogsSnapshot),
-            execute_command
+            RequestCommand(UiCommand::LogsSnapshot),
+            request_command
         );
-        let follow = with_reducer!(ctx, ExecuteCommand(UiCommand::LogsFollow), execute_command);
+        let follow = with_reducer!(ctx, RequestCommand(UiCommand::LogsFollow), request_command);
         Column {
             gap: Some(1.0),
             children: vec![

@@ -1,6 +1,6 @@
 use super::title_block;
 use crate::ui::actions::{
-    execute_command, set_host, set_port, toggle_no_open, toggle_release, ExecuteCommand, SetHost,
+    request_command, set_host, set_port, toggle_no_open, toggle_release, RequestCommand, SetHost,
     SetPort, ToggleNoOpen, ToggleRelease,
 };
 use crate::ui::commands::UiCommand;
@@ -15,10 +15,10 @@ pub(crate) struct SiteScreen;
 impl Widget<UiState> for SiteScreen {
     fn build(&self, ctx: &mut BuildCtx<UiState>, view: &View<UiState>) -> Node {
         let palette = UiPalette::for_mode(view.state.theme_mode);
-        let build = with_reducer!(ctx, ExecuteCommand(UiCommand::SiteBuild), execute_command);
-        let check = with_reducer!(ctx, ExecuteCommand(UiCommand::SiteCheck), execute_command);
-        let routes = with_reducer!(ctx, ExecuteCommand(UiCommand::SiteRoutes), execute_command);
-        let serve = with_reducer!(ctx, ExecuteCommand(UiCommand::SiteServe), execute_command);
+        let build = with_reducer!(ctx, RequestCommand(UiCommand::SiteBuild), request_command);
+        let check = with_reducer!(ctx, RequestCommand(UiCommand::SiteCheck), request_command);
+        let routes = with_reducer!(ctx, RequestCommand(UiCommand::SiteRoutes), request_command);
+        let serve = with_reducer!(ctx, RequestCommand(UiCommand::SiteServe), request_command);
         let release = with_reducer!(ctx, ToggleRelease, toggle_release);
         let no_open = with_reducer!(ctx, ToggleNoOpen, toggle_no_open);
         let host = with_reducer!(ctx, SetHost(String::new()), set_host);

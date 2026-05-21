@@ -1,8 +1,8 @@
 use super::title_block;
-use crate::ui::actions::{execute_command, toggle_strict, ExecuteCommand, ToggleStrict};
+use crate::ui::actions::{request_command, toggle_strict, RequestCommand, ToggleStrict};
 use crate::ui::commands::UiCommand;
-use crate::ui::components::{ActionButton, ButtonTone, KeyValueRow, TogglePill};
-use crate::ui::state::{all_targets, target_label, UiState};
+use crate::ui::components::{ActionButton, ButtonTone, KeyValueRow, TargetPicker, TogglePill};
+use crate::ui::state::{target_label, UiState};
 use crate::ui::theme::UiPalette;
 use fission::prelude::*;
 
@@ -12,27 +12,20 @@ pub(crate) struct DoctorScreen;
 impl Widget<UiState> for DoctorScreen {
     fn build(&self, ctx: &mut BuildCtx<UiState>, view: &View<UiState>) -> Node {
         let palette = UiPalette::for_mode(view.state.theme_mode);
-        let doctor_all = with_reducer!(ctx, ExecuteCommand(UiCommand::DoctorAll), execute_command);
+        let doctor_all = with_reducer!(ctx, RequestCommand(UiCommand::DoctorAll), request_command);
         let strict = with_reducer!(ctx, ToggleStrict, toggle_strict);
-        let mut target_checks = Vec::new();
-        for target in all_targets() {
-            let configured = view.state.targets.contains(&target);
+        let selected_target = view.state.selected_target;
+        let selected_check = selected_target.map(|target| {
             let action = with_reducer!(
                 ctx,
-                ExecuteCommand(UiCommand::DoctorTarget(target)),
-                execute_command
+                RequestCommand(UiCommand::DoctorTarget(target)),
+                request_command
             );
-            target_checks.push(
-                ActionButton::new(format!("Check {}", target_label(target)), action)
-                    .tone(if configured {
-                        ButtonTone::Primary
-                    } else {
-                        ButtonTone::Neutral
-                    })
-                    .width(22.0)
-                    .build(ctx, view),
-            );
-        }
+            ActionButton::new(format!("Check {}", target_label(target)), action)
+                .tone(ButtonTone::Primary)
+                .width(24.0)
+                .build(ctx, view)
+        });
 
         Column {
             gap: Some(1.0),
@@ -50,13 +43,14 @@ impl Widget<UiState> for DoctorScreen {
                     .tone(ButtonTone::Primary)
                     .width(32.0)
                     .build(ctx, view),
-                Text::new("Platform checks").color(palette.accent).into_node(),
-                Column {
-                    gap: Some(1.0),
-                    children: target_checks,
-                    ..Default::default()
+                Text::new("Select one platform when you want a narrower check.")
+                    .color(palette.muted)
+                    .into_node(),
+                TargetPicker {
+                    configured_only: false,
                 }
-                .into_node(),
+                .build(ctx, view),
+                selected_check.unwrap_or_else(|| Text::new("Select a target first.").into_node()),
             ],
             ..Default::default()
         }

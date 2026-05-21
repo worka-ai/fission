@@ -1,4 +1,6 @@
-use super::commands::{CommandRecord, CommandRuntime, DEFAULT_SCROLLBACK_LINES};
+use super::commands::{
+    CommandRuntime, CommandSessionId, CommandSnapshot, UiCommand, DEFAULT_SCROLLBACK_LINES,
+};
 use super::density::UiDensity;
 use super::routes::UiRoute;
 use super::theme::UiThemeMode;
@@ -8,7 +10,7 @@ use fission::ir::NodeId;
 use fission::prelude::AppState;
 use std::path::PathBuf;
 
-pub(crate) const LOG_SCROLL_NODE_ID: &str = "cli_ui_log_scrollback";
+const LOG_SCROLL_NODE_ID_PREFIX: &str = "cli_ui_log_scrollback";
 
 #[derive(Clone, Debug, PartialEq)]
 pub(crate) struct UiState {
@@ -33,14 +35,15 @@ pub(crate) struct UiState {
     pub(crate) detach: bool,
     pub(crate) no_open: bool,
     pub(crate) headless: bool,
-    pub(crate) last_command: Option<CommandRecord>,
     pub(crate) command_runtime: CommandRuntime,
-    pub(crate) last_command_generation: u64,
-    pub(crate) last_command_revision: u64,
-    pub(crate) last_log_line_count: usize,
-    pub(crate) last_refreshed_command_generation: u64,
+    pub(crate) command_sessions: Vec<CommandSnapshot>,
+    pub(crate) active_command_session_id: Option<CommandSessionId>,
+    pub(crate) last_active_log_line_count: usize,
+    pub(crate) refreshed_finished_sessions: Vec<CommandSessionId>,
     pub(crate) scrollback_limit: usize,
     pub(crate) scrollback_limit_input: String,
+    pub(crate) pending_dialog: Option<UiDialog>,
+    pub(crate) exit_confirmed: bool,
 }
 
 impl AppState for UiState {}
@@ -69,14 +72,15 @@ impl Default for UiState {
             detach: false,
             no_open: false,
             headless: false,
-            last_command: None,
             command_runtime: CommandRuntime::default(),
-            last_command_generation: 0,
-            last_command_revision: 0,
-            last_log_line_count: 0,
-            last_refreshed_command_generation: 0,
+            command_sessions: Vec::new(),
+            active_command_session_id: None,
+            last_active_log_line_count: 0,
+            refreshed_finished_sessions: Vec::new(),
             scrollback_limit: DEFAULT_SCROLLBACK_LINES,
             scrollback_limit_input: DEFAULT_SCROLLBACK_LINES.to_string(),
+            pending_dialog: None,
+            exit_confirmed: false,
         }
     }
 }
@@ -176,30 +180,90 @@ impl UiState {
     }
 
     pub(crate) fn poll_command_status(&mut self, runtime: &mut RuntimeState, env: &Env) -> bool {
-        let Some(snapshot) = self.command_runtime.snapshot() else {
-            return false;
-        };
+        let snapshot = self.command_runtime.snapshot();
         let mut changed = false;
-        if self.last_command_generation != snapshot.generation
-            || self.last_command_revision != snapshot.revision
+
+        let active_session = snapshot
+            .active_session_id
+            .and_then(|id| snapshot.sessions.iter().find(|item| item.id == id));
+        let active_line_count = active_session
+            .map(|item| item.record.output.display_line_count())
+            .unwrap_or(0);
+        if self.active_command_session_id != snapshot.active_session_id
+            || self.command_sessions != snapshot.sessions
         {
-            let should_follow = should_follow_log_output(self, runtime, env, snapshot.generation);
-            let line_count = snapshot.record.output.display_line_count();
-            self.last_command = Some(snapshot.record);
-            self.last_command_generation = snapshot.generation;
-            self.last_command_revision = snapshot.revision;
-            self.last_log_line_count = line_count;
+            let should_follow = should_follow_log_output(
+                self,
+                runtime,
+                env,
+                snapshot.active_session_id,
+                active_line_count,
+            );
+            self.command_sessions = snapshot.sessions.clone();
+            self.active_command_session_id = snapshot.active_session_id;
+            self.last_active_log_line_count = active_line_count;
             if should_follow {
-                stick_log_scroll_to_bottom(runtime, env, line_count, self.compact_mode);
+                stick_log_scroll_to_bottom(
+                    runtime,
+                    env,
+                    snapshot.active_session_id,
+                    active_line_count,
+                    self.compact_mode,
+                );
             }
             changed = true;
         }
-        if snapshot.finished && self.last_refreshed_command_generation != snapshot.generation {
-            self.last_refreshed_command_generation = snapshot.generation;
-            self.refresh();
-            changed = true;
+
+        for session in snapshot.sessions.iter().filter(|session| session.finished) {
+            if !self.refreshed_finished_sessions.contains(&session.id) {
+                self.refreshed_finished_sessions.push(session.id);
+                self.refresh();
+                changed = true;
+            }
         }
         changed
+    }
+
+    pub(crate) fn sync_command_sessions(&mut self) {
+        let snapshot = self.command_runtime.snapshot();
+        self.active_command_session_id = snapshot.active_session_id;
+        self.last_active_log_line_count = snapshot
+            .active_session_id
+            .and_then(|id| snapshot.sessions.iter().find(|item| item.id == id))
+            .map(|item| item.record.output.display_line_count())
+            .unwrap_or(0);
+        self.command_sessions = snapshot.sessions;
+    }
+
+    pub(crate) fn active_command_session(&self) -> Option<&CommandSnapshot> {
+        self.active_command_session_id
+            .and_then(|id| self.command_sessions.iter().find(|item| item.id == id))
+            .or_else(|| self.command_sessions.last())
+    }
+
+    pub(crate) fn select_command_session(&mut self, session_id: CommandSessionId) {
+        self.command_runtime.set_active(session_id);
+        self.sync_command_sessions();
+    }
+
+    pub(crate) fn request_command_confirmation(&mut self, command: UiCommand) {
+        let label = command.label();
+        let message = command.confirmation_message();
+        self.pending_dialog = Some(UiDialog::Command {
+            command,
+            title: format!("Confirm: {label}"),
+            message,
+        });
+    }
+
+    pub(crate) fn request_exit_confirmation(&mut self) {
+        if self.exit_confirmed {
+            return;
+        }
+        self.pending_dialog = Some(UiDialog::Exit {
+            title: "Exit Fission CLI?".to_string(),
+            message: "Running commands are not stopped automatically. You can cancel and inspect their output before leaving.".to_string(),
+        });
     }
 
     pub(crate) fn set_scrollback_limit(&mut self, limit: usize) {
@@ -207,15 +271,25 @@ impl UiState {
         self.scrollback_limit = limit;
         self.scrollback_limit_input = limit.to_string();
         self.command_runtime.set_limit(limit);
-        if let Some(record) = self.last_command.as_mut() {
-            record.output.set_limit(limit);
-            self.last_log_line_count = record.output.display_line_count();
-        }
+        self.sync_command_sessions();
     }
 }
 
-pub(crate) fn log_scroll_node_id() -> NodeId {
-    NodeId::explicit(LOG_SCROLL_NODE_ID)
+#[derive(Clone, Debug, PartialEq)]
+pub(crate) enum UiDialog {
+    Command {
+        command: UiCommand,
+        title: String,
+        message: String,
+    },
+    Exit {
+        title: String,
+        message: String,
+    },
+}
+
+pub(crate) fn log_scroll_node_id(session_id: CommandSessionId) -> NodeId {
+    NodeId::explicit(&format!("{LOG_SCROLL_NODE_ID_PREFIX}_{session_id}"))
 }
 
 pub(crate) fn log_visible_rows_for_height(height: f32, compact: bool) -> usize {
@@ -227,27 +301,42 @@ pub(crate) fn log_visible_rows_for_height(height: f32, compact: bool) -> usize {
 fn stick_log_scroll_to_bottom(
     runtime: &mut RuntimeState,
     env: &Env,
+    session_id: Option<CommandSessionId>,
     line_count: usize,
     compact: bool,
 ) {
+    let Some(session_id) = session_id else {
+        return;
+    };
     let visible_rows = log_visible_rows_for_height(env.viewport_size.height, compact);
     let max_offset = line_count.saturating_sub(visible_rows).max(0) as f32;
-    runtime.scroll.set_offset(log_scroll_node_id(), max_offset);
+    runtime
+        .scroll
+        .set_offset(log_scroll_node_id(session_id), max_offset);
 }
 
 fn should_follow_log_output(
     state: &UiState,
     runtime: &RuntimeState,
     env: &Env,
-    next_generation: u64,
+    next_session_id: Option<CommandSessionId>,
+    next_line_count: usize,
 ) -> bool {
-    if state.last_command_generation != next_generation {
+    let Some(next_session_id) = next_session_id else {
+        return false;
+    };
+    if state.active_command_session_id != Some(next_session_id) {
         return true;
     }
     let visible_rows = log_visible_rows_for_height(env.viewport_size.height, state.compact_mode);
-    let old_max = state.last_log_line_count.saturating_sub(visible_rows) as f32;
-    let current = runtime.scroll.get_offset(log_scroll_node_id());
-    current + 2.0 >= old_max
+    let old_max = state
+        .last_active_log_line_count
+        .saturating_sub(visible_rows) as f32;
+    let new_max = next_line_count.saturating_sub(visible_rows) as f32;
+    let current = runtime
+        .scroll
+        .get_offset(log_scroll_node_id(next_session_id));
+    current + 2.0 >= old_max || current + 2.0 >= new_max
 }
 
 #[derive(Clone, Debug, PartialEq)]

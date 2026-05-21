@@ -1,5 +1,5 @@
 use super::title_block;
-use crate::ui::actions::{execute_command, navigate, ExecuteCommand, Navigate};
+use crate::ui::actions::{navigate, request_command, Navigate, RequestCommand};
 use crate::ui::commands::UiCommand;
 use crate::ui::components::{ActionButton, ButtonTone, DeviceTable, KeyValueRow};
 use crate::ui::routes::UiRoute;
@@ -13,7 +13,7 @@ pub(crate) struct DashboardScreen;
 impl Widget<UiState> for DashboardScreen {
     fn build(&self, ctx: &mut BuildCtx<UiState>, view: &View<UiState>) -> Node {
         let palette = UiPalette::for_mode(view.state.theme_mode);
-        let refresh = with_reducer!(ctx, ExecuteCommand(UiCommand::Refresh), execute_command);
+        let refresh = with_reducer!(ctx, RequestCommand(UiCommand::Refresh), request_command);
         let doctor = with_reducer!(ctx, Navigate(UiRoute::Doctor), navigate);
         let run = with_reducer!(ctx, Navigate(UiRoute::Run), navigate);
         let build = with_reducer!(ctx, Navigate(UiRoute::Build), navigate);

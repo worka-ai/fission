@@ -46,6 +46,11 @@ pub(crate) fn run_ui(options: UiOptions) -> Result<()> {
             };
         })
         .with_state_update(|state, runtime, env| state.poll_command_status(runtime, env))
+        .with_exit_request(|state, _runtime, _env| {
+            state.request_exit_confirmation();
+            false
+        })
+        .with_should_exit(|state, _runtime, _env| state.exit_confirmed)
         .run_with_options(run_options)
 }
 
@@ -92,5 +97,36 @@ mod tests {
                 });
             app.render_frame(120, 40).expect("route should render");
         }
+    }
+
+    #[test]
+    fn cli_ui_renders_confirmation_dialog() {
+        let mut state = UiState {
+            project_dir: PathBuf::from("."),
+            project_name: "test-app".to_string(),
+            app_id: "com.example.test".to_string(),
+            project_status: "Project loaded".to_string(),
+            targets: all_targets().to_vec(),
+            selected_target: Some(Target::Web),
+            host: "127.0.0.1".to_string(),
+            port: "8123".to_string(),
+            theme_mode: UiThemeMode::Dark,
+            ..Default::default()
+        };
+        state.request_command_confirmation(crate::ui::commands::UiCommand::RunSelected);
+
+        let mut app = fission::terminal::TerminalApp::with_state(CliUiApp, state).with_sync_env(
+            |state, env| {
+                env.theme = match state.theme_mode {
+                    UiThemeMode::Dark => fission::theme::Theme::dark(),
+                    UiThemeMode::Light => fission::theme::Theme::default(),
+                };
+            },
+        );
+        let frame = app.render_frame(120, 40).expect("dialog should render");
+        assert!(frame
+            .as_plain_text()
+            .contains("Confirm: run the selected target"));
+        assert!(frame.as_plain_text().contains("Cancel"));
     }
 }

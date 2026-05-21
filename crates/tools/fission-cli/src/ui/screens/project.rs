@@ -1,6 +1,6 @@
 use super::title_block;
 use crate::ui::actions::{
-    execute_command, set_init_app_id, set_init_local_path, set_init_name, ExecuteCommand,
+    request_command, set_init_app_id, set_init_local_path, set_init_name, RequestCommand,
     SetInitAppId, SetInitLocalPath, SetInitName,
 };
 use crate::ui::commands::UiCommand;
@@ -15,8 +15,8 @@ pub(crate) struct ProjectScreen;
 impl Widget<UiState> for ProjectScreen {
     fn build(&self, ctx: &mut BuildCtx<UiState>, view: &View<UiState>) -> Node {
         let palette = UiPalette::for_mode(view.state.theme_mode);
-        let init = with_reducer!(ctx, ExecuteCommand(UiCommand::InitProject), execute_command);
-        let refresh = with_reducer!(ctx, ExecuteCommand(UiCommand::Refresh), execute_command);
+        let init = with_reducer!(ctx, RequestCommand(UiCommand::InitProject), request_command);
+        let refresh = with_reducer!(ctx, RequestCommand(UiCommand::Refresh), request_command);
         let set_name = with_reducer!(ctx, SetInitName(String::new()), set_init_name);
         let set_app_id = with_reducer!(ctx, SetInitAppId(String::new()), set_init_app_id);
         let set_local_path =
@@ -24,29 +24,33 @@ impl Widget<UiState> for ProjectScreen {
         let mut target_buttons = Vec::new();
         for target in all_targets() {
             let configured = view.state.targets.contains(&target);
+            if configured {
+                continue;
+            }
             let action = with_reducer!(
                 ctx,
-                ExecuteCommand(UiCommand::AddTarget(target)),
-                execute_command
+                RequestCommand(UiCommand::AddTarget(target)),
+                request_command
             );
             target_buttons.push(
-                ActionButton::new(
-                    if configured {
-                        format!("{} added", target_label(target))
-                    } else {
-                        format!("Add {}", target_label(target))
-                    },
-                    action,
-                )
-                .tone(if configured {
-                    ButtonTone::Success
-                } else {
-                    ButtonTone::Neutral
-                })
-                .width(20.0)
-                .build(ctx, view),
+                ActionButton::new(format!("Add {}", target_label(target)), action)
+                    .tone(ButtonTone::Neutral)
+                    .width(20.0)
+                    .build(ctx, view),
             );
         }
+        let target_section = if target_buttons.is_empty() {
+            Text::new("All known targets are already configured.")
+                .color(palette.muted)
+                .into_node()
+        } else {
+            Column {
+                gap: Some(1.0),
+                children: target_buttons,
+                ..Default::default()
+            }
+            .into_node()
+        };
         Column {
             gap: Some(1.0),
             children: vec![
@@ -107,13 +111,10 @@ impl Widget<UiState> for ProjectScreen {
                     ..Default::default()
                 }
                 .into_node(),
-                Text::new("Targets").color(palette.accent).into_node(),
-                Column {
-                    gap: Some(1.0),
-                    children: target_buttons,
-                    ..Default::default()
-                }
-                .into_node(),
+                Text::new("Add a missing target")
+                    .color(palette.accent)
+                    .into_node(),
+                target_section,
             ],
             ..Default::default()
         }

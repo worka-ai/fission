@@ -111,7 +111,7 @@ impl Widget<UiState> for AppHeader {
                                 .tone(ButtonTone::Neutral)
                                 .width(16.0)
                                 .build(ctx, view),
-                            Text::new("q / Esc exits")
+                            Text::new("q / Esc / Ctrl-C asks to exit")
                                 .color(palette.accent_text)
                                 .into_node(),
                         ],
@@ -146,18 +146,18 @@ impl Widget<UiState> for Sidebar {
         let scroll_height = (self.height - padding[2] - padding[3]).max(1.0);
         let route_height = density.nav_route_height();
         let offset = view.runtime.scroll.get_offset(scroll_id).max(0.0);
-        let start_route =
-            ((offset / route_height).floor() as usize).min(UiRoute::ALL.len().saturating_sub(1));
+        let start_route = ((offset / route_height).floor() as usize)
+            .min(UiRoute::SIDEBAR.len().saturating_sub(1));
         let visible_routes = ((scroll_height - 1.0) / route_height).floor().max(1.0) as usize;
         let mut children = vec![
-            Text::new("Navigation").color(palette.accent).into_node(),
+            Text::new("Workflows").color(palette.accent).into_node(),
             Spacer {
                 height: Some(start_route as f32 * route_height),
                 ..Default::default()
             }
             .into_node(),
         ];
-        for route in UiRoute::ALL
+        for route in UiRoute::SIDEBAR
             .iter()
             .copied()
             .skip(start_route)
@@ -165,7 +165,7 @@ impl Widget<UiState> for Sidebar {
         {
             children.push(route_button(route, ctx, view, self.width - 4.0));
         }
-        let bottom_routes = UiRoute::ALL
+        let bottom_routes = UiRoute::SIDEBAR
             .len()
             .saturating_sub(start_route.saturating_add(visible_routes));
         children.push(

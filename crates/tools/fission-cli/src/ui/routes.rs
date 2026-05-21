@@ -17,6 +17,7 @@ pub(crate) enum UiRoute {
 }
 
 impl UiRoute {
+    #[cfg(test)]
     pub(crate) const ALL: [Self; 11] = [
         Self::Dashboard,
         Self::Project,
@@ -25,6 +26,16 @@ impl UiRoute {
         Self::Run,
         Self::Build,
         Self::Test,
+        Self::Site,
+        Self::Logs,
+        Self::Settings,
+        Self::Help,
+    ];
+
+    pub(crate) const SIDEBAR: [Self; 7] = [
+        Self::Dashboard,
+        Self::Project,
+        Self::Run,
         Self::Site,
         Self::Logs,
         Self::Settings,
