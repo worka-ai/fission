@@ -705,6 +705,9 @@ fn print_login_instructions(provider: publish::DistributionProvider) {
         publish::DistributionProvider::GithubPages => println!(
             "GitHub Pages uses a GitHub token with repository Pages/workflow permissions when direct API access is needed."
         ),
+        publish::DistributionProvider::GithubReleases => println!(
+            "GitHub Releases uses a GitHub token with repository Contents write permission for creating releases and uploading release assets."
+        ),
         publish::DistributionProvider::CloudflarePages => println!(
             "Cloudflare Pages uses an API token with Pages project edit/deploy permissions."
         ),
@@ -900,6 +903,7 @@ fn auth_setup_report(provider: Option<publish::DistributionProvider>) -> Lifecyc
 fn auth_providers() -> Vec<publish::DistributionProvider> {
     vec![
         publish::DistributionProvider::GithubPages,
+        publish::DistributionProvider::GithubReleases,
         publish::DistributionProvider::CloudflarePages,
         publish::DistributionProvider::Netlify,
         publish::DistributionProvider::S3,
@@ -926,6 +930,12 @@ fn provider_auth_spec(provider: publish::DistributionProvider) -> ProviderAuthSp
             env: &["GH_TOKEN", "GITHUB_TOKEN"],
             command: "fission auth import github-pages --from env:GH_TOKEN --yes",
             permissions: "repository contents/workflows/pages permissions for local API operations; Actions deployment uses repository workflow permissions",
+        },
+        publish::DistributionProvider::GithubReleases => ProviderAuthSpec {
+            kind: "GitHub token or GitHub App installation token",
+            env: &["GH_TOKEN", "GITHUB_TOKEN"],
+            command: "fission auth import github-releases --from env:GH_TOKEN --yes",
+            permissions: "repository Contents write permission to create/update releases and upload/delete release assets",
         },
         publish::DistributionProvider::CloudflarePages => ProviderAuthSpec {
             kind: "Cloudflare API token plus Wrangler login/config for uploads",
@@ -992,6 +1002,7 @@ fn provider_auth_spec(provider: publish::DistributionProvider) -> ProviderAuthSp
 fn provider_env_check(provider: publish::DistributionProvider) -> LifecycleCheck {
     let vars: &[&str] = match provider {
         publish::DistributionProvider::GithubPages => &["GH_TOKEN", "GITHUB_TOKEN"],
+        publish::DistributionProvider::GithubReleases => &["GH_TOKEN", "GITHUB_TOKEN"],
         publish::DistributionProvider::CloudflarePages => &["CLOUDFLARE_API_TOKEN"],
         publish::DistributionProvider::Netlify => &["NETLIFY_AUTH_TOKEN"],
         publish::DistributionProvider::S3 => &["AWS_PROFILE", "AWS_ACCESS_KEY_ID"],

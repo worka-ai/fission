@@ -13,6 +13,7 @@ use std::process::{Command, Stdio};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 mod files;
+mod github_releases;
 mod package;
 mod static_hosts;
 mod stores;
@@ -56,6 +57,8 @@ pub(crate) enum DistributionProvider {
     AppStore,
     #[value(name = "github-pages")]
     GithubPages,
+    #[value(name = "github-releases")]
+    GithubReleases,
     #[value(name = "cloudflare-pages")]
     CloudflarePages,
     Dropbox,
@@ -76,6 +79,7 @@ impl DistributionProvider {
         match self {
             Self::AppStore => "app-store",
             Self::GithubPages => "github-pages",
+            Self::GithubReleases => "github-releases",
             Self::CloudflarePages => "cloudflare-pages",
             Self::Dropbox => "dropbox",
             Self::GoogleDrive => "google-drive",
@@ -264,6 +268,8 @@ struct DistributionManifest {
     #[serde(default)]
     github_pages: BTreeMap<String, GithubPagesConfig>,
     #[serde(default)]
+    github_releases: BTreeMap<String, GithubReleasesConfig>,
+    #[serde(default)]
     cloudflare_pages: BTreeMap<String, CloudflarePagesConfig>,
     #[serde(default)]
     netlify: BTreeMap<String, NetlifyConfig>,
@@ -352,6 +358,22 @@ struct GithubPagesConfig {
     remote: Option<String>,
     production_branch: Option<String>,
     workflow: Option<String>,
+}
+
+#[derive(Clone, Debug, Deserialize, Default)]
+struct GithubReleasesConfig {
+    owner: Option<String>,
+    repo: Option<String>,
+    tag: Option<String>,
+    name: Option<String>,
+    target_commitish: Option<String>,
+    notes: Option<String>,
+    notes_file: Option<String>,
+    draft: Option<bool>,
+    prerelease: Option<bool>,
+    make_latest: Option<String>,
+    replace_assets: Option<bool>,
+    upload_artifact_manifest: Option<bool>,
 }
 
 #[derive(Clone, Debug, Deserialize, Default)]
@@ -471,6 +493,7 @@ pub(crate) fn readiness(options: ReadinessOptions) -> Result<()> {
 fn setup_provider(options: &DistributeOptions, config: &PublishManifest) -> Result<()> {
     match options.provider {
         DistributionProvider::GithubPages => setup_github_pages(options, config),
+        DistributionProvider::GithubReleases => github_releases::setup(options, config),
         DistributionProvider::CloudflarePages => {
             let cfg = cloudflare_config(config, &options.site)?;
             println!("Cloudflare Pages setup checks for `{}`", options.site);
@@ -538,6 +561,9 @@ fn publish_artifact(options: &DistributeOptions, config: &PublishManifest) -> Re
         DistributionProvider::GithubPages => {
             publish_github_pages(options, config, &artifact_path, &manifest)?
         }
+        DistributionProvider::GithubReleases => {
+            github_releases::publish(options, config, &artifact_path, &manifest)?
+        }
         DistributionProvider::CloudflarePages => {
             publish_cloudflare_pages(options, config, &artifact_path, &manifest)?
         }
@@ -592,6 +618,7 @@ fn print_distribution_receipt(
 fn provider_status(options: &DistributeOptions, config: &PublishManifest) -> Result<()> {
     let receipt = match options.provider {
         DistributionProvider::GithubPages => github_pages_status(options, config)?,
+        DistributionProvider::GithubReleases => github_releases::status(options, config)?,
         DistributionProvider::CloudflarePages => cloudflare_pages_status(options, config)?,
         DistributionProvider::Netlify => static_hosts::netlify_status(options, config)?,
         DistributionProvider::PlayStore => stores::play_store_status(options, config)?,
@@ -1525,6 +1552,9 @@ fn readiness_distribute(
         DistributionProvider::GithubPages => {
             readiness_github_pages(project_dir, site, config, &mut checks)?
         }
+        DistributionProvider::GithubReleases => {
+            github_releases::readiness(project_dir, site, artifact, config, &mut checks)?
+        }
         DistributionProvider::CloudflarePages => {
             readiness_cloudflare_pages(site, config, &mut checks)?
         }
@@ -1922,6 +1952,15 @@ fn github_config(config: &PublishManifest, site: &str) -> Result<GithubPagesConf
         .and_then(|distribution| distribution.github_pages.get(site))
         .cloned()
         .unwrap_or_default())
+}
+
+fn github_releases_config(config: &PublishManifest, site: &str) -> Result<GithubReleasesConfig> {
+    config
+        .distribution
+        .as_ref()
+        .and_then(|distribution| distribution.github_releases.get(site))
+        .cloned()
+        .with_context(|| format!("missing [distribution.github_releases.{site}] in fission.toml"))
 }
 
 fn s3_config(config: &PublishManifest, site: &str) -> Result<S3Config> {
@@ -2535,6 +2574,16 @@ repo = "site-demo"
 mode = "actions"
 site_kind = "project"
 base_path = "/site-demo/"
+
+[distribution.github_releases.production]
+owner = "example"
+repo = "site-demo"
+tag = "v1.2.3"
+name = "Site Demo 1.2.3"
+draft = true
+prerelease = false
+replace_assets = true
+upload_artifact_manifest = true
 "#,
         )
         .unwrap();
@@ -2700,5 +2749,66 @@ project_name = "site-demo"
         assert!(checks
             .iter()
             .any(|check| check.id == "release.cloudflare_pages.wrangler_available"));
+    }
+
+    #[test]
+    fn github_releases_readiness_is_not_static_site_specific() {
+        let dir = unique_dir("github-releases-readiness");
+        write_minimal_site(&dir);
+        let artifact_root = dir.join("target/fission/release/linux/run");
+        fs::create_dir_all(&artifact_root).unwrap();
+        let binary = artifact_root.join("site-demo.run");
+        fs::write(&binary, b"run").unwrap();
+        let manifest_path = artifact_root.join(ARTIFACT_MANIFEST);
+        fs::write(
+            &manifest_path,
+            serde_json::to_vec_pretty(&ArtifactManifest {
+                schema_version: 1,
+                created_at_unix_seconds: 0,
+                project: ArtifactProject {
+                    app_id: "com.example.site_demo".to_string(),
+                    name: "site-demo".to_string(),
+                    version: Some("1.2.3".to_string()),
+                },
+                target: "linux".to_string(),
+                format: "run".to_string(),
+                profile: "release".to_string(),
+                root_dir: artifact_root.display().to_string(),
+                artifacts: vec![ArtifactFile {
+                    kind: "asset".to_string(),
+                    purpose: None,
+                    platform: None,
+                    upload_provider: None,
+                    path: binary.display().to_string(),
+                    relative_path: "site-demo.run".to_string(),
+                    sha256: "abc".to_string(),
+                    size_bytes: 3,
+                    mime_type: "application/octet-stream".to_string(),
+                }],
+                validation: ArtifactValidation {
+                    state: "passed".to_string(),
+                    checks: Vec::new(),
+                },
+            })
+            .unwrap(),
+        )
+        .unwrap();
+        let config = load_publish_manifest(&dir).unwrap();
+        let checks = readiness_distribute(
+            &dir,
+            DistributionProvider::GithubReleases,
+            "production",
+            None,
+            Some(&manifest_path),
+            &config,
+        )
+        .unwrap();
+        assert!(checks.iter().any(|check| {
+            check.id == "release.github_releases.assets_available"
+                && check.status == CheckStatus::Passed
+        }));
+        assert!(!checks
+            .iter()
+            .any(|check| check.id == "release.distribution.static_root_exists"));
     }
 }
