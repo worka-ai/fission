@@ -19,6 +19,7 @@ const APP_STORE_API_PRIVATE_KEYS_DIR: &str = "API_PRIVATE_KEYS_DIR";
 const MICROSOFT_STORE_API: &str = "https://api.store.microsoft.com";
 const APP_STORE_API: &str = "https://api.appstoreconnect.apple.com";
 const MICROSOFT_STORE_SCOPE: &str = "https://api.store.microsoft.com/.default";
+const MICROSOFT_STORE_MSIX_TYPES: &[&str] = &["msix", "msixupload"];
 
 #[derive(Debug, Deserialize)]
 struct GoogleServiceAccount {
@@ -273,11 +274,14 @@ pub(super) fn publish_microsoft_store(
         .product_id
         .as_deref()
         .context("distribution.microsoft_store.product_id is required")?;
-    let seller_id = env_value("MICROSOFT_STORE_SELLER_ID")
-        .or(cfg.seller_id.clone())
-        .context(
-            "distribution.microsoft_store.seller_id or MICROSOFT_STORE_SELLER_ID is required",
-        )?;
+    let package_type = microsoft_store_package_type(&cfg, manifest);
+    if is_microsoft_store_msix_type(&package_type) {
+        return publish_microsoft_store_msix(options, &cfg, product_id, artifact_path, manifest);
+    }
+
+    let seller_id = microsoft_store_seller_id(&cfg).context(
+        "distribution.microsoft_store.seller_id, MICROSOFT_STORE_SELLER_ID, or PARTNER_CENTER_SELLER_ID is required",
+    )?;
     let package_url = options
         .deploy
         .as_deref()
@@ -285,14 +289,9 @@ pub(super) fn publish_microsoft_store(
         .map(str::to_string)
         .or(cfg.package_url.clone())
         .context("Microsoft Store MSI/EXE submission requires a package_url in fission.toml or --deploy <https-url>; publish the artifact to S3/static hosting first")?;
-    let package_type = cfg.package_type.clone().unwrap_or_else(|| {
-        primary_artifact_extension(manifest)
-            .unwrap_or("exe")
-            .to_ascii_lowercase()
-    });
     if !matches!(package_type.as_str(), "exe" | "msi") {
         bail!(
-            "Microsoft Store direct package automation currently supports the Store MSI/EXE submission API; package_type `{package_type}` requires the MSIX Partner Center path"
+            "Microsoft Store direct package automation supports exe/msi through the Store submission API and msix/msixupload through msstore; package_type `{package_type}` is unsupported"
         );
     }
     if options.dry_run {
@@ -387,6 +386,95 @@ pub(super) fn publish_microsoft_store(
     ))
 }
 
+fn publish_microsoft_store_msix(
+    options: &DistributeOptions,
+    cfg: &MicrosoftStoreConfig,
+    product_id: &str,
+    artifact_path: &Path,
+    manifest: &ArtifactManifest,
+) -> Result<DistributionReceipt> {
+    let artifact = primary_artifact_with_extensions(manifest, MICROSOFT_STORE_MSIX_TYPES)?;
+    let flight_id = microsoft_store_flight_id(options.track.as_deref(), cfg)?;
+    let rollout = microsoft_store_rollout_percentage(cfg)?;
+    let should_submit = microsoft_store_should_submit(options, cfg);
+    let project_path = microsoft_store_msstore_project(options, cfg);
+    let publish_args = msstore_publish_args(
+        &project_path,
+        &artifact,
+        product_id,
+        flight_id.as_deref(),
+        rollout,
+        should_submit,
+    );
+
+    if options.dry_run {
+        return Ok(store_receipt(
+            options,
+            "microsoft-store",
+            artifact_path,
+            "dry-run",
+            None,
+            Some(format!(
+                "https://partner.microsoft.com/dashboard/products/{product_id}"
+            )),
+            vec![format!(
+                "Would run `{}` to publish {} through Microsoft Store Developer CLI.",
+                command_line("msstore", &publish_args),
+                artifact.display()
+            )],
+        ));
+    }
+
+    let mut stdout_parts = Vec::new();
+    let mut stderr_parts = Vec::new();
+    if cfg.msstore_reconfigure.unwrap_or(false) {
+        let (stdout, stderr) = run_msstore_reconfigure(cfg)?;
+        if !stdout.trim().is_empty() {
+            stdout_parts.push(stdout);
+        }
+        if !stderr.trim().is_empty() {
+            stderr_parts.push(stderr);
+        }
+    }
+
+    let (stdout, stderr) = run_msstore(&publish_args, "Microsoft Store MSIX publish")?;
+    if !stdout.trim().is_empty() {
+        stdout_parts.push(stdout);
+    }
+    if !stderr.trim().is_empty() {
+        stderr_parts.push(stderr);
+    }
+
+    Ok(DistributionReceipt {
+        schema_version: 1,
+        created_at_unix_seconds: now_unix_seconds(),
+        provider: "microsoft-store".to_string(),
+        site: options.site.clone(),
+        action: "publish".to_string(),
+        artifact_manifest: Some(artifact_path.display().to_string()),
+        deployment_id: flight_id
+            .map(|flight| format!("product:{product_id}/flight:{flight}"))
+            .or_else(|| Some(format!("product:{product_id}"))),
+        canonical_url: Some(format!(
+            "https://partner.microsoft.com/dashboard/products/{product_id}"
+        )),
+        preview_url: None,
+        custom_domain: None,
+        status: if should_submit {
+            "submitted".to_string()
+        } else {
+            "draft-updated".to_string()
+        },
+        stdout: (!stdout_parts.is_empty()).then(|| stdout_parts.join("\n")),
+        stderr: (!stderr_parts.is_empty()).then(|| stderr_parts.join("\n")),
+        manual_follow_up: if should_submit {
+            vec!["Microsoft Store Developer CLI committed the submission; certification/review continues in Partner Center.".to_string()]
+        } else {
+            vec!["The MSIX submission remains a Partner Center draft because --noCommit was used. Set distribution.microsoft_store.submit = true or pass --track public --yes when you are ready to commit it.".to_string()]
+        },
+    })
+}
+
 pub(super) fn play_store_status(
     options: &DistributeOptions,
     config: &PublishManifest,
@@ -442,11 +530,18 @@ pub(super) fn microsoft_store_status(
         .product_id
         .as_deref()
         .context("distribution.microsoft_store.product_id is required")?;
-    let seller_id = env_value("MICROSOFT_STORE_SELLER_ID")
-        .or(cfg.seller_id.clone())
-        .context(
-            "distribution.microsoft_store.seller_id or MICROSOFT_STORE_SELLER_ID is required",
-        )?;
+    if cfg
+        .package_type
+        .as_deref()
+        .map(|value| is_microsoft_store_msix_type(&value.to_ascii_lowercase()))
+        .unwrap_or(false)
+    {
+        return microsoft_store_msix_status(options, &cfg, product_id);
+    }
+
+    let seller_id = microsoft_store_seller_id(&cfg).context(
+        "distribution.microsoft_store.seller_id, MICROSOFT_STORE_SELLER_ID, or PARTNER_CENTER_SELLER_ID is required",
+    )?;
     let client = http_client()?;
     let token = microsoft_store_access_token(&cfg, &client)?;
     let url = options
@@ -493,6 +588,50 @@ pub(super) fn microsoft_store_status(
         status,
         stdout: Some(serde_json::to_string_pretty(&value)?),
         stderr: None,
+        manual_follow_up: Vec::new(),
+    })
+}
+
+fn microsoft_store_msix_status(
+    options: &DistributeOptions,
+    cfg: &MicrosoftStoreConfig,
+    product_id: &str,
+) -> Result<DistributionReceipt> {
+    let flight_id = microsoft_store_flight_id(options.track.as_deref(), cfg)?;
+    let args = if let Some(flight_id) = flight_id.as_deref() {
+        vec![
+            "flights".to_string(),
+            "submission".to_string(),
+            "status".to_string(),
+            product_id.to_string(),
+            flight_id.to_string(),
+        ]
+    } else {
+        vec![
+            "submission".to_string(),
+            "status".to_string(),
+            product_id.to_string(),
+        ]
+    };
+    let (stdout, stderr) = run_msstore(&args, "Microsoft Store MSIX submission status")?;
+    Ok(DistributionReceipt {
+        schema_version: 1,
+        created_at_unix_seconds: now_unix_seconds(),
+        provider: "microsoft-store".to_string(),
+        site: options.site.clone(),
+        action: "status".to_string(),
+        artifact_manifest: None,
+        deployment_id: flight_id
+            .map(|flight| format!("product:{product_id}/flight:{flight}"))
+            .or_else(|| Some(format!("product:{product_id}"))),
+        canonical_url: Some(format!(
+            "https://partner.microsoft.com/dashboard/products/{product_id}"
+        )),
+        preview_url: None,
+        custom_domain: None,
+        status: "ok".to_string(),
+        stdout: (!stdout.trim().is_empty()).then_some(stdout),
+        stderr: (!stderr.trim().is_empty()).then_some(stderr),
         manual_follow_up: Vec::new(),
     })
 }
@@ -634,6 +773,21 @@ pub(super) fn readiness_microsoft_store(
     checks: &mut Vec<ReadinessCheck>,
 ) -> Result<()> {
     let cfg = microsoft_store_config(config);
+    let artifact_manifest = artifact
+        .filter(|path| path.exists())
+        .map(read_artifact_manifest)
+        .transpose()?;
+    let package_type = artifact_manifest
+        .as_ref()
+        .map(|manifest| microsoft_store_package_type(&cfg, manifest))
+        .or_else(|| {
+            cfg.package_type
+                .clone()
+                .map(|value| value.to_ascii_lowercase())
+        })
+        .unwrap_or_else(|| "exe".to_string());
+    let uses_msix = is_microsoft_store_msix_type(&package_type);
+
     checks.push(required_value(
         "release.microsoft_store.product_id_configured",
         cfg.product_id.as_deref(),
@@ -646,63 +800,149 @@ pub(super) fn readiness_microsoft_store(
         "Microsoft Store package identity name is configured",
         "Set distribution.microsoft_store.package_identity_name to the Partner Center package identity.",
     ));
-    checks.push(required_value(
-        "release.microsoft_store.seller_id_configured",
-        cfg.seller_id
-            .as_deref()
-            .or_else(|| env_value_ref("MICROSOFT_STORE_SELLER_ID")),
-        "Microsoft Store seller id is configured",
-        "Set distribution.microsoft_store.seller_id or MICROSOFT_STORE_SELLER_ID.",
-    ));
-    checks.push(required_value(
-        "release.microsoft_store.tenant_id_configured",
-        cfg.tenant_id
-            .as_deref()
-            .or_else(|| env_value_ref("AZURE_TENANT_ID")),
-        "Microsoft Entra tenant id is configured",
-        "Set distribution.microsoft_store.tenant_id or AZURE_TENANT_ID.",
-    ));
-    checks.push(required_value(
-        "release.microsoft_store.client_id_configured",
-        cfg.client_id
-            .as_deref()
-            .or_else(|| env_value_ref("AZURE_CLIENT_ID")),
-        "Microsoft Entra client id is configured",
-        "Set distribution.microsoft_store.client_id or AZURE_CLIENT_ID.",
-    ));
-    checks.push(secret_check(
-        "release.microsoft_store.credentials_available",
-        &["MICROSOFT_STORE_CLIENT_SECRET"],
-        DistributionProvider::MicrosoftStore,
-        "Set MICROSOFT_STORE_CLIENT_SECRET or import the Partner Center client secret with `fission auth import microsoft-store --from env:MICROSOFT_STORE_CLIENT_SECRET --yes`.",
-    ));
-    checks.push(required_value(
-        "release.microsoft_store.package_url_configured",
-        cfg.package_url.as_deref(),
-        "Microsoft Store package URL is configured for MSI/EXE submissions",
-        "Upload the package to a durable HTTPS URL first, then set distribution.microsoft_store.package_url or pass --deploy <https-url>.",
-    ));
+
+    if uses_msix {
+        checks.push(check_tool(
+            "release.microsoft_store.msstore_available",
+            "msstore",
+            "Install Microsoft Store Developer CLI, run `msstore` once to configure it, or set distribution.microsoft_store.msstore_reconfigure = true with Partner Center credentials.",
+        ));
+        checks.push(check(
+            "release.microsoft_store.msix_uses_msstore",
+            CheckSeverity::Info,
+            CheckStatus::Passed,
+            "MSIX submission uses Microsoft Store Developer CLI",
+            Some(package_type.clone()),
+            vec!["Fission calls `msstore publish --inputFile ... --appId ...`; no durable package_url is required for MSIX/MSIXUPLOAD submissions."],
+        ));
+        if cfg.msstore_reconfigure.unwrap_or(false) {
+            checks.push(required_value(
+                "release.microsoft_store.seller_id_configured",
+                microsoft_store_seller_id(&cfg).as_deref(),
+                "Microsoft Store seller id is configured for msstore reconfigure",
+                "Set distribution.microsoft_store.seller_id, MICROSOFT_STORE_SELLER_ID, or PARTNER_CENTER_SELLER_ID.",
+            ));
+            checks.push(required_value(
+                "release.microsoft_store.tenant_id_configured",
+                microsoft_store_tenant_id(&cfg).as_deref(),
+                "Microsoft Entra tenant id is configured for msstore reconfigure",
+                "Set distribution.microsoft_store.tenant_id, AZURE_TENANT_ID, or PARTNER_CENTER_TENANT_ID.",
+            ));
+            checks.push(required_value(
+                "release.microsoft_store.client_id_configured",
+                microsoft_store_client_id(&cfg).as_deref(),
+                "Microsoft Entra client id is configured for msstore reconfigure",
+                "Set distribution.microsoft_store.client_id, AZURE_CLIENT_ID, or PARTNER_CENTER_CLIENT_ID.",
+            ));
+            checks.push(secret_check(
+                "release.microsoft_store.credentials_available",
+                &[
+                    "MICROSOFT_STORE_CLIENT_SECRET",
+                    "PARTNER_CENTER_CLIENT_SECRET",
+                ],
+                DistributionProvider::MicrosoftStore,
+                "Set MICROSOFT_STORE_CLIENT_SECRET, PARTNER_CENTER_CLIENT_SECRET, or import the Partner Center client secret with `fission auth import microsoft-store --from env:MICROSOFT_STORE_CLIENT_SECRET --yes`.",
+            ));
+        } else {
+            checks.push(check(
+                "release.microsoft_store.msstore_config_external",
+                CheckSeverity::Warning,
+                CheckStatus::Warning,
+                "Microsoft Store Developer CLI credentials are managed by msstore",
+                None,
+                vec!["Run `msstore` interactively once, run `msstore reconfigure ...` in CI, or set distribution.microsoft_store.msstore_reconfigure = true so Fission configures msstore before publishing."],
+            ));
+        }
+    } else {
+        checks.push(required_value(
+            "release.microsoft_store.seller_id_configured",
+            microsoft_store_seller_id(&cfg).as_deref(),
+            "Microsoft Store seller id is configured",
+            "Set distribution.microsoft_store.seller_id, MICROSOFT_STORE_SELLER_ID, or PARTNER_CENTER_SELLER_ID.",
+        ));
+        checks.push(required_value(
+            "release.microsoft_store.tenant_id_configured",
+            microsoft_store_tenant_id(&cfg).as_deref(),
+            "Microsoft Entra tenant id is configured",
+            "Set distribution.microsoft_store.tenant_id, AZURE_TENANT_ID, or PARTNER_CENTER_TENANT_ID.",
+        ));
+        checks.push(required_value(
+            "release.microsoft_store.client_id_configured",
+            microsoft_store_client_id(&cfg).as_deref(),
+            "Microsoft Entra client id is configured",
+            "Set distribution.microsoft_store.client_id, AZURE_CLIENT_ID, or PARTNER_CENTER_CLIENT_ID.",
+        ));
+        checks.push(secret_check(
+            "release.microsoft_store.credentials_available",
+            &[
+                "MICROSOFT_STORE_CLIENT_SECRET",
+                "PARTNER_CENTER_CLIENT_SECRET",
+            ],
+            DistributionProvider::MicrosoftStore,
+            "Set MICROSOFT_STORE_CLIENT_SECRET, PARTNER_CENTER_CLIENT_SECRET, or import the Partner Center client secret with `fission auth import microsoft-store --from env:MICROSOFT_STORE_CLIENT_SECRET --yes`.",
+        ));
+        checks.push(required_value(
+            "release.microsoft_store.package_url_configured",
+            cfg.package_url.as_deref(),
+            "Microsoft Store package URL is configured for MSI/EXE submissions",
+            "Upload the package to a durable HTTPS URL first, then set distribution.microsoft_store.package_url or pass --deploy <https-url>.",
+        ));
+    }
+
     let selected_track = track.unwrap_or("public");
+    if uses_msix && selected_track == "private" {
+        checks.push(required_value(
+            "release.microsoft_store.flight_id_configured",
+            cfg.flight_id.as_deref(),
+            "Microsoft Store package flight id is configured",
+            "Set distribution.microsoft_store.flight_id or pass the Partner Center package-flight id directly with --track <flight-id>.",
+        ));
+    }
     checks.push(check(
         "release.microsoft_store.track_supported",
         CheckSeverity::Warning,
-        if matches!(selected_track, "public" | "private") {
+        if selected_track == "public"
+            || selected_track == "private"
+            || uses_msix && !selected_track.trim().is_empty()
+        {
             CheckStatus::Passed
         } else {
             CheckStatus::Warning
         },
         "Microsoft Store destination is understood",
         Some(selected_track.to_string()),
-        vec!["Use public, private, or a Partner Center flight once flight support is configured."],
+        vec!["Use public, private, or an MSIX package-flight id when publishing through Microsoft Store Developer CLI."],
     ));
-    if let Some(path) = artifact.filter(|path| path.exists()) {
-        let manifest = read_artifact_manifest(path)?;
+
+    if let Some(manifest) = artifact_manifest.as_ref() {
         checks.push(artifact_format_check(
             "release.microsoft_store.artifact_format",
-            &manifest,
-            &["exe", "msi", "msix"],
-            "Microsoft Store accepts configured installer/package formats; MSI/EXE automation requires package_url.",
+            manifest,
+            if uses_msix {
+                &["msix", "msixupload"]
+            } else {
+                &["exe", "msi"]
+            },
+            if uses_msix {
+                "Build a Windows MSIX artifact before publishing to the Microsoft Store MSIX path."
+            } else {
+                "Build a Windows MSI or EXE artifact before using the Store MSI/EXE submission API."
+            },
         ));
+        if uses_msix {
+            checks.push(check(
+                "release.microsoft_store.msix_upload_artifact_present",
+                CheckSeverity::Error,
+                if has_artifact_with_extension(manifest, MICROSOFT_STORE_MSIX_TYPES) {
+                    CheckStatus::Passed
+                } else {
+                    CheckStatus::Missing
+                },
+                "artifact manifest contains an MSIX/MSIXUPLOAD file",
+                Some(format!("checked: {}", MICROSOFT_STORE_MSIX_TYPES.join(", "))),
+                vec!["Rebuild the Windows MSIX package and ensure the artifact manifest includes the .msix or .msixupload file."],
+            ));
+        }
     }
     checks.push(check(
         "release.microsoft_store.first_setup_manual_steps",
@@ -957,19 +1197,15 @@ fn microsoft_store_access_token(cfg: &MicrosoftStoreConfig, client: &Client) -> 
     if let Some(token) = env_value("MICROSOFT_STORE_TOKEN") {
         return Ok(token);
     }
-    let tenant_id = env_value("AZURE_TENANT_ID")
-        .or(cfg.tenant_id.clone())
-        .context("distribution.microsoft_store.tenant_id or AZURE_TENANT_ID is required")?;
-    let client_id = env_value("AZURE_CLIENT_ID")
-        .or(cfg.client_id.clone())
-        .context("distribution.microsoft_store.client_id or AZURE_CLIENT_ID is required")?;
-    let client_secret = env_value("MICROSOFT_STORE_CLIENT_SECRET")
-        .or_else(|| {
-            release::provider_secret(DistributionProvider::MicrosoftStore, &[])
-                .ok()
-                .flatten()
-        })
-        .context("MICROSOFT_STORE_CLIENT_SECRET or vault credentials are required")?;
+    let tenant_id = microsoft_store_tenant_id(cfg).context(
+        "distribution.microsoft_store.tenant_id, AZURE_TENANT_ID, or PARTNER_CENTER_TENANT_ID is required",
+    )?;
+    let client_id = microsoft_store_client_id(cfg).context(
+        "distribution.microsoft_store.client_id, AZURE_CLIENT_ID, or PARTNER_CENTER_CLIENT_ID is required",
+    )?;
+    let client_secret = microsoft_store_client_secret().context(
+        "MICROSOFT_STORE_CLIENT_SECRET, PARTNER_CENTER_CLIENT_SECRET, or vault credentials are required",
+    )?;
     let url = format!("https://login.microsoftonline.com/{tenant_id}/oauth2/v2.0/token");
     let response = client
         .post(url)
@@ -987,6 +1223,57 @@ fn microsoft_store_access_token(cfg: &MicrosoftStoreConfig, client: &Client) -> 
         .json()
         .context("failed to parse Microsoft Store access token response")?;
     Ok(token.access_token)
+}
+
+fn run_msstore_reconfigure(cfg: &MicrosoftStoreConfig) -> Result<(String, String)> {
+    let tenant_id = microsoft_store_tenant_id(cfg).context(
+        "distribution.microsoft_store.tenant_id, AZURE_TENANT_ID, or PARTNER_CENTER_TENANT_ID is required for msstore reconfigure",
+    )?;
+    let seller_id = microsoft_store_seller_id(cfg).context(
+        "distribution.microsoft_store.seller_id, MICROSOFT_STORE_SELLER_ID, or PARTNER_CENTER_SELLER_ID is required for msstore reconfigure",
+    )?;
+    let client_id = microsoft_store_client_id(cfg).context(
+        "distribution.microsoft_store.client_id, AZURE_CLIENT_ID, or PARTNER_CENTER_CLIENT_ID is required for msstore reconfigure",
+    )?;
+    let client_secret = microsoft_store_client_secret().context(
+        "MICROSOFT_STORE_CLIENT_SECRET, PARTNER_CENTER_CLIENT_SECRET, or vault credentials are required for msstore reconfigure",
+    )?;
+    let args = vec![
+        "reconfigure".to_string(),
+        "--tenantId".to_string(),
+        tenant_id,
+        "--sellerId".to_string(),
+        seller_id,
+        "--clientId".to_string(),
+        client_id,
+        "--clientSecret".to_string(),
+        client_secret,
+    ];
+    run_msstore(&args, "Microsoft Store Developer CLI reconfigure")
+}
+
+fn run_msstore(args: &[String], operation: &str) -> Result<(String, String)> {
+    let output = Command::new("msstore")
+        .args(args)
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .output()
+        .with_context(|| {
+            format!(
+                "failed to run msstore; install Microsoft Store Developer CLI before {operation}"
+            )
+        })?;
+    let stdout = String::from_utf8_lossy(&output.stdout).to_string();
+    let stderr = String::from_utf8_lossy(&output.stderr).to_string();
+    if !output.status.success() {
+        let detail = if stderr.trim().is_empty() {
+            stdout.trim()
+        } else {
+            stderr.trim()
+        };
+        bail!("{operation} failed with {}: {}", output.status, detail);
+    }
+    Ok((stdout, stderr))
 }
 
 fn load_google_service_account(source: &str) -> Result<GoogleServiceAccount> {
@@ -1088,6 +1375,153 @@ fn primary_artifact_extension(manifest: &ArtifactManifest) -> Option<&str> {
         .find_map(|path| path.extension().and_then(|value| value.to_str()))
 }
 
+fn has_artifact_with_extension(manifest: &ArtifactManifest, exts: &[&str]) -> bool {
+    manifest.artifacts.iter().any(|file| {
+        Path::new(&file.path)
+            .extension()
+            .and_then(|value| value.to_str())
+            .is_some_and(|ext| {
+                exts.iter()
+                    .any(|candidate| ext.eq_ignore_ascii_case(candidate))
+            })
+    })
+}
+
+fn microsoft_store_package_type(cfg: &MicrosoftStoreConfig, manifest: &ArtifactManifest) -> String {
+    cfg.package_type
+        .as_deref()
+        .or_else(|| primary_artifact_extension(manifest))
+        .unwrap_or("exe")
+        .to_ascii_lowercase()
+}
+
+fn is_microsoft_store_msix_type(package_type: &str) -> bool {
+    MICROSOFT_STORE_MSIX_TYPES
+        .iter()
+        .any(|candidate| package_type.eq_ignore_ascii_case(candidate))
+}
+
+fn microsoft_store_msstore_project(
+    options: &DistributeOptions,
+    cfg: &MicrosoftStoreConfig,
+) -> PathBuf {
+    cfg.msstore_project
+        .as_deref()
+        .map(|path| {
+            let path = PathBuf::from(path);
+            if path.is_absolute() {
+                path
+            } else {
+                options.project_dir.join(path)
+            }
+        })
+        .unwrap_or_else(|| options.project_dir.clone())
+}
+
+fn msstore_publish_args(
+    project_path: &Path,
+    artifact: &Path,
+    product_id: &str,
+    flight_id: Option<&str>,
+    rollout: Option<u8>,
+    should_submit: bool,
+) -> Vec<String> {
+    let mut args = vec![
+        "publish".to_string(),
+        project_path.display().to_string(),
+        "-i".to_string(),
+        artifact.display().to_string(),
+        "-id".to_string(),
+        product_id.to_string(),
+    ];
+    if !should_submit {
+        args.push("-nc".to_string());
+    }
+    if let Some(flight_id) = flight_id.filter(|value| !value.trim().is_empty()) {
+        args.push("-f".to_string());
+        args.push(flight_id.to_string());
+    }
+    if let Some(rollout) = rollout {
+        args.push("-prp".to_string());
+        args.push(rollout.to_string());
+    }
+    args
+}
+
+fn microsoft_store_should_submit(options: &DistributeOptions, cfg: &MicrosoftStoreConfig) -> bool {
+    cfg.submit.unwrap_or(false) || options.track.as_deref() == Some("public") && options.yes
+}
+
+fn microsoft_store_flight_id(
+    track: Option<&str>,
+    cfg: &MicrosoftStoreConfig,
+) -> Result<Option<String>> {
+    match track.map(str::trim).filter(|value| !value.is_empty()) {
+        Some("public") | None => Ok(None),
+        Some("private") => cfg.flight_id.clone().map(Some).context(
+            "distribution.microsoft_store.flight_id is required when --track private is used for MSIX publishing",
+        ),
+        Some(flight_id) => Ok(Some(flight_id.to_string())),
+    }
+}
+
+fn microsoft_store_rollout_percentage(cfg: &MicrosoftStoreConfig) -> Result<Option<u8>> {
+    if let Some(rollout) = cfg.package_rollout_percentage {
+        if rollout > 100 {
+            bail!(
+                "distribution.microsoft_store.package_rollout_percentage must be between 0 and 100"
+            );
+        }
+    }
+    Ok(cfg.package_rollout_percentage)
+}
+
+fn microsoft_store_seller_id(cfg: &MicrosoftStoreConfig) -> Option<String> {
+    env_value("MICROSOFT_STORE_SELLER_ID")
+        .or_else(|| env_value("PARTNER_CENTER_SELLER_ID"))
+        .or_else(|| cfg.seller_id.clone())
+}
+
+fn microsoft_store_tenant_id(cfg: &MicrosoftStoreConfig) -> Option<String> {
+    env_value("AZURE_TENANT_ID")
+        .or_else(|| env_value("PARTNER_CENTER_TENANT_ID"))
+        .or_else(|| cfg.tenant_id.clone())
+}
+
+fn microsoft_store_client_id(cfg: &MicrosoftStoreConfig) -> Option<String> {
+    env_value("AZURE_CLIENT_ID")
+        .or_else(|| env_value("PARTNER_CENTER_CLIENT_ID"))
+        .or_else(|| cfg.client_id.clone())
+}
+
+fn microsoft_store_client_secret() -> Option<String> {
+    env_value("MICROSOFT_STORE_CLIENT_SECRET")
+        .or_else(|| env_value("PARTNER_CENTER_CLIENT_SECRET"))
+        .or_else(|| {
+            release::provider_secret(DistributionProvider::MicrosoftStore, &[])
+                .ok()
+                .flatten()
+        })
+}
+
+fn command_line(program: &str, args: &[String]) -> String {
+    std::iter::once(program.to_string())
+        .chain(args.iter().map(|arg| shell_word(arg)))
+        .collect::<Vec<_>>()
+        .join(" ")
+}
+
+fn shell_word(value: &str) -> String {
+    if value
+        .chars()
+        .all(|ch| ch.is_ascii_alphanumeric() || matches!(ch, '-' | '_' | '.' | '/' | ':' | '\\'))
+    {
+        value.to_string()
+    } else {
+        format!("'{}'", value.replace('\'', "'\\''"))
+    }
+}
+
 fn artifact_format_check(
     id: &str,
     manifest: &ArtifactManifest,
@@ -1180,5 +1614,123 @@ fn env_value_ref(name: &str) -> Option<&'static str> {
         Some("set")
     } else {
         None
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn options(track: Option<&str>, yes: bool) -> DistributeOptions {
+        DistributeOptions {
+            project_dir: PathBuf::from("/project"),
+            provider: DistributionProvider::MicrosoftStore,
+            action: DistributeAction::Publish,
+            artifact: None,
+            site: "production".to_string(),
+            deploy: None,
+            track: track.map(str::to_string),
+            dry_run: false,
+            yes,
+            json: false,
+        }
+    }
+
+    #[test]
+    fn msstore_publish_args_keep_submission_as_draft_by_default() {
+        let args = msstore_publish_args(
+            Path::new("/project"),
+            Path::new("/artifacts/app.msixupload"),
+            "9N123",
+            None,
+            None,
+            false,
+        );
+        assert_eq!(
+            args,
+            vec![
+                "publish",
+                "/project",
+                "-i",
+                "/artifacts/app.msixupload",
+                "-id",
+                "9N123",
+                "-nc"
+            ]
+        );
+    }
+
+    #[test]
+    fn msstore_publish_args_include_flight_and_rollout_when_configured() {
+        let args = msstore_publish_args(
+            Path::new("/project"),
+            Path::new("/artifacts/app.msix"),
+            "9N123",
+            Some("beta"),
+            Some(25),
+            true,
+        );
+        assert_eq!(
+            args,
+            vec![
+                "publish",
+                "/project",
+                "-i",
+                "/artifacts/app.msix",
+                "-id",
+                "9N123",
+                "-f",
+                "beta",
+                "-prp",
+                "25"
+            ]
+        );
+    }
+
+    #[test]
+    fn microsoft_store_private_track_uses_configured_flight_id() {
+        let cfg = MicrosoftStoreConfig {
+            flight_id: Some("insiders".to_string()),
+            ..Default::default()
+        };
+        assert_eq!(
+            microsoft_store_flight_id(Some("private"), &cfg).unwrap(),
+            Some("insiders".to_string())
+        );
+        assert_eq!(
+            microsoft_store_flight_id(Some("preview"), &cfg).unwrap(),
+            Some("preview".to_string())
+        );
+        assert!(microsoft_store_flight_id(Some("public"), &cfg)
+            .unwrap()
+            .is_none());
+    }
+
+    #[test]
+    fn microsoft_store_submit_requires_explicit_commit_intent() {
+        let cfg = MicrosoftStoreConfig::default();
+        assert!(!microsoft_store_should_submit(&options(None, false), &cfg));
+        assert!(!microsoft_store_should_submit(
+            &options(Some("public"), false),
+            &cfg
+        ));
+        assert!(microsoft_store_should_submit(
+            &options(Some("public"), true),
+            &cfg
+        ));
+        let cfg = MicrosoftStoreConfig {
+            submit: Some(true),
+            ..Default::default()
+        };
+        assert!(microsoft_store_should_submit(&options(None, false), &cfg));
+    }
+
+    #[test]
+    fn microsoft_store_rollout_rejects_out_of_range_percentages() {
+        let cfg = MicrosoftStoreConfig {
+            package_rollout_percentage: Some(101),
+            ..Default::default()
+        };
+        assert!(microsoft_store_rollout_percentage(&cfg).is_err());
     }
 }

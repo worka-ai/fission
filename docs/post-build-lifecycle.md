@@ -280,6 +280,14 @@ default_track = "testflight"
 [distribution.microsoft_store]
 product_id = "9N0000000000"
 package_identity_name = "ExampleSoftware.Todo"
+package_type = "msix"
+submit = false
+# Optional private flight used when running `--track private`.
+flight_id = "insiders"
+# Optional staged package rollout percentage for committed submissions.
+package_rollout_percentage = 25
+# Optional CI mode. When false, Fission expects `msstore` to already be configured.
+msstore_reconfigure = false
 
 [release]
 default_locales = ["en-US"]
@@ -890,15 +898,21 @@ Microsoft's MSIX signing documentation states that self-signed certificates are 
 fission distribute --provider microsoft-store --artifact <manifest> --track public
 ```
 
-Fission MUST support Microsoft Store submission automation where Microsoft's APIs allow it. Microsoft documents Store submission APIs for programmatic package submissions and Partner Center workflows [R18][R19]. The CLI MUST also support guided manual first setup because product creation, name reservation, account verification, age rating, pricing, and policy fields may require Partner Center interaction.
+Fission MUST support Microsoft Store submission automation where Microsoft's platform tooling and APIs allow it. Microsoft documents Store submission APIs for programmatic MSI/EXE package submissions and Partner Center workflows [R18][R19]. Microsoft also provides the Microsoft Store Developer CLI for publishing MSIX packages, package flights, and submission status from local and CI environments [R66][R67]. Fission uses those official paths instead of implementing a custom MSIX uploader.
 
 Microsoft Store release automation MUST handle listing metadata from `fission.toml`, screenshots, logos, trailers, and flight configuration. Microsoft documents screenshots, logos, trailers, and other Store listing image assets for MSIX submissions, including required and optional screenshot counts by device family [R50]. Microsoft also documents package flights through the Store submission APIs [R51]. Fission's Microsoft Store provider must therefore support public submissions and private/test flights through the same artifact/content manifest model.
+
+MSI/EXE submissions use the Store submission API and require a durable HTTPS `package_url` because the Store pulls the installer package from that location. MSIX and MSIXUPLOAD submissions use `msstore publish` against the package file recorded in the artifact manifest. For MSIX, `distribution.microsoft_store.package_type = "msix"` selects this path; `--track public` publishes to the public submission, `--track private` uses `distribution.microsoft_store.flight_id`, and any other non-empty `--track <value>` is treated as the Partner Center package-flight id.
+
+By default, Fission keeps MSIX submissions as drafts by passing the no-commit option to the Store developer CLI. A committed submission requires explicit release intent: set `distribution.microsoft_store.submit = true` or run with `--track public --yes`. If `package_rollout_percentage` is present, Fission passes it to the Store developer CLI during MSIX publishing. `msstore_project` can point at the project directory that `msstore publish` should use; if it is omitted, Fission passes the Fission project directory and relies on the explicit `--inputFile` artifact. If `msstore_reconfigure = true`, Fission configures the Store developer CLI from `tenant_id`, `client_id`, `seller_id`, and the Partner Center client secret before publishing; otherwise it assumes the developer or CI runner has already configured the tool.
 
 Readiness MUST check:
 
 - Partner Center authentication;
 - product id or reserved app name;
 - package identity name matches the Store product identity;
+- Microsoft Store Developer CLI availability for MSIX/MSIXUPLOAD artifacts;
+- `package_url` only for MSI/EXE submissions;
 - required visual assets exist;
 - `fission.toml` release root entries and referenced release metadata files exist for each configured language;
 - screenshot/trailer assets match Microsoft Store requirements for the selected app type;
@@ -1945,3 +1959,5 @@ The post-build lifecycle work is accepted when the following are true:
 [R63] Netlify Docs, Manage domains for a site or app: https://docs.netlify.com/domains/manage-domains/manage-domains-for-a-site-app/
 [R64] GitHub CLI manual, `gh release create`: https://cli.github.com/manual/gh_release_create
 [R65] GitHub CLI manual, `gh release upload`: https://cli.github.com/manual/gh_release_upload
+[R66] Microsoft Learn, Microsoft Store Developer CLI overview: https://learn.microsoft.com/en-us/windows/apps/publish/msstore-dev-cli/overview
+[R67] Microsoft Learn, Microsoft Store Developer CLI commands: https://learn.microsoft.com/en-us/windows/apps/publish/msstore-dev-cli/commands

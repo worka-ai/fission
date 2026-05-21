@@ -335,6 +335,10 @@ struct MicrosoftStoreConfig {
     seller_id: Option<String>,
     package_url: Option<String>,
     package_type: Option<String>,
+    flight_id: Option<String>,
+    package_rollout_percentage: Option<u8>,
+    msstore_project: Option<String>,
+    msstore_reconfigure: Option<bool>,
     languages: Option<Vec<String>>,
     architectures: Option<Vec<String>>,
     is_silent_install: Option<bool>,
@@ -2810,5 +2814,82 @@ project_name = "site-demo"
         assert!(!checks
             .iter()
             .any(|check| check.id == "release.distribution.static_root_exists"));
+    }
+
+    #[test]
+    fn microsoft_store_msix_readiness_uses_msstore_not_package_url() {
+        let dir = unique_dir("microsoft-msix-readiness");
+        write_minimal_site(&dir);
+        let mut toml = fs::read_to_string(dir.join("fission.toml")).unwrap();
+        toml.push_str(
+            r#"
+[distribution.microsoft_store]
+product_id = "9N1234567890"
+package_identity_name = "Example.SiteDemo"
+package_type = "msix"
+"#,
+        );
+        fs::write(dir.join("fission.toml"), toml).unwrap();
+
+        let artifact_root = dir.join("target/fission/release/windows/msix");
+        fs::create_dir_all(&artifact_root).unwrap();
+        let package = artifact_root.join("site-demo.msixupload");
+        fs::write(&package, b"msix").unwrap();
+        let manifest_path = artifact_root.join(ARTIFACT_MANIFEST);
+        fs::write(
+            &manifest_path,
+            serde_json::to_vec_pretty(&ArtifactManifest {
+                schema_version: 1,
+                created_at_unix_seconds: 0,
+                project: ArtifactProject {
+                    app_id: "com.example.site_demo".to_string(),
+                    name: "site-demo".to_string(),
+                    version: Some("1.2.3".to_string()),
+                },
+                target: "windows".to_string(),
+                format: "msix".to_string(),
+                profile: "release".to_string(),
+                root_dir: artifact_root.display().to_string(),
+                artifacts: vec![ArtifactFile {
+                    kind: "installer".to_string(),
+                    purpose: Some("store-upload".to_string()),
+                    platform: Some("windows".to_string()),
+                    upload_provider: Some("microsoft-store".to_string()),
+                    path: package.display().to_string(),
+                    relative_path: "site-demo.msixupload".to_string(),
+                    sha256: "abc".to_string(),
+                    size_bytes: 4,
+                    mime_type: "application/vnd.ms-appx".to_string(),
+                }],
+                validation: ArtifactValidation {
+                    state: "passed".to_string(),
+                    checks: Vec::new(),
+                },
+            })
+            .unwrap(),
+        )
+        .unwrap();
+
+        let config = load_publish_manifest(&dir).unwrap();
+        let checks = readiness_distribute(
+            &dir,
+            DistributionProvider::MicrosoftStore,
+            "production",
+            None,
+            Some(&manifest_path),
+            &config,
+        )
+        .unwrap();
+
+        assert!(checks
+            .iter()
+            .any(|check| check.id == "release.microsoft_store.msstore_available"));
+        assert!(checks.iter().any(|check| {
+            check.id == "release.microsoft_store.msix_upload_artifact_present"
+                && check.status == CheckStatus::Passed
+        }));
+        assert!(!checks
+            .iter()
+            .any(|check| check.id == "release.microsoft_store.package_url_configured"));
     }
 }
