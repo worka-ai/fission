@@ -4,6 +4,7 @@ use base64::engine::general_purpose::STANDARD;
 use reqwest::blocking::Client;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
+use sha2::{Digest, Sha256};
 use std::fs;
 use std::net::TcpListener;
 use std::path::Path;
@@ -105,6 +106,7 @@ struct RenderedAsset {
     kind: String,
     source: String,
     output: String,
+    sha256: String,
     size_bytes: u64,
     width: Option<u32>,
     height: Option<u32>,
@@ -415,6 +417,22 @@ fn run_test_control_capture(
     )?;
     let result = run_test_control_steps(raw_dir, set, id, scenario, port, timeout, checks);
     terminate_capture_process(&mut child);
+    if let Err(error) = result {
+        let receipt = write_capture_failure_receipt(
+            raw_dir,
+            target,
+            set,
+            id,
+            scenario,
+            &stdout_path,
+            &stderr_path,
+            &error.to_string(),
+        )?;
+        checks.push(failed_check(
+            &format!("release_content.capture.{id}.test_control_failed"),
+            format!("{}; receipt: {}", error, receipt.display()),
+        ));
+    }
     checks.push(LifecycleCheck {
         id: format!("release_content.capture.{id}.logs"),
         status: "passed".to_string(),
@@ -426,7 +444,7 @@ fn run_test_control_capture(
         )),
         remediation: Vec::new(),
     });
-    result
+    Ok(())
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -668,6 +686,39 @@ fn terminate_capture_process(child: &mut Child) {
     let _ = child.wait();
 }
 
+fn write_capture_failure_receipt(
+    raw_dir: &Path,
+    target: Target,
+    set: &str,
+    id: &str,
+    scenario: &ScreenshotScenario,
+    stdout_path: &Path,
+    stderr_path: &Path,
+    error: &str,
+) -> Result<std::path::PathBuf> {
+    let receipt = raw_dir.join(format!("{set}-{id}-capture-failure.json"));
+    let body = json!({
+        "schema_version": 1,
+        "created_at_unix_seconds": now_unix_seconds(),
+        "target": target.as_str(),
+        "set": set,
+        "scenario": {
+            "id": scenario.id.as_deref(),
+            "name": scenario.name.as_deref(),
+            "wait_for": scenario.wait_for.as_deref(),
+            "command": scenario.command.as_deref(),
+            "test_port": scenario.test_port,
+            "timeout_ms": scenario.timeout_ms,
+            "step_count": scenario.steps.len(),
+        },
+        "stdout": stdout_path.display().to_string(),
+        "stderr": stderr_path.display().to_string(),
+        "error": error,
+    });
+    fs::write(&receipt, serde_json::to_vec_pretty(&body)?)?;
+    Ok(receipt)
+}
+
 fn validate_screenshots(
     project_dir: &Path,
     config: &ContentToml,
@@ -865,17 +916,36 @@ fn collect_render_assets(
         }
         fs::copy(&path, &dest)?;
         let size = fs::metadata(&dest)?.len();
+        let sha256 = sha256_file(&dest)?;
         let dimensions = image_dimensions(&dest).ok().flatten();
         assets.push(RenderedAsset {
             kind: asset_kind(&dest).to_string(),
             source: path.display().to_string(),
             output: dest.display().to_string(),
+            sha256,
             size_bytes: size,
             width: dimensions.map(|(width, _)| width),
             height: dimensions.map(|(_, height)| height),
         });
     }
     Ok(())
+}
+
+fn sha256_file(path: &Path) -> Result<String> {
+    let bytes = fs::read(path)?;
+    let mut hasher = Sha256::new();
+    hasher.update(bytes);
+    Ok(hex_lower(&hasher.finalize()))
+}
+
+fn hex_lower(bytes: &[u8]) -> String {
+    const HEX: &[u8; 16] = b"0123456789abcdef";
+    let mut out = String::with_capacity(bytes.len() * 2);
+    for byte in bytes {
+        out.push(HEX[(byte >> 4) as usize] as char);
+        out.push(HEX[(byte & 0x0f) as usize] as char);
+    }
+    out
 }
 
 fn validate_rendered_asset_rules(
@@ -1355,9 +1425,13 @@ feature_graphic = "release-content/screenshots/raw/en-US/home.png"
         assert!(dir
             .join("release-content/screenshots/rendered/play-store/en-US/home.png")
             .exists());
-        assert!(dir
-            .join("release-content/screenshots/rendered/play-store/release-content-manifest.json")
-            .exists());
+        let manifest = dir
+            .join("release-content/screenshots/rendered/play-store/release-content-manifest.json");
+        assert!(manifest.exists());
+        let manifest: serde_json::Value =
+            serde_json::from_slice(&fs::read(manifest).unwrap()).unwrap();
+        let sha = manifest["assets"][0]["sha256"].as_str().unwrap();
+        assert_eq!(sha.len(), 64);
     }
 
     #[test]

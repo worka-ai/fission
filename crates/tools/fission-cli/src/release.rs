@@ -318,6 +318,12 @@ pub(crate) enum ReleaseWorkflowCommand {
 
 #[derive(Subcommand, Debug)]
 pub(crate) enum AuthCommand {
+    Setup {
+        #[arg(value_enum)]
+        provider: Option<publish::DistributionProvider>,
+        #[arg(long)]
+        json: bool,
+    },
     Login {
         #[arg(value_enum)]
         provider: publish::DistributionProvider,
@@ -603,6 +609,7 @@ pub(crate) fn auth(command: AuthCommand) -> Result<()> {
         AuthCommand::Status { provider, json } => {
             print_report(auth_report("auth.status", provider), json)
         }
+        AuthCommand::Setup { provider, json } => print_report(auth_setup_report(provider), json),
         AuthCommand::Audit { json } => print_report(auth_report("auth.audit", None), json),
         AuthCommand::Login { provider } => login_provider(provider),
         AuthCommand::Logout { provider, yes } => {
@@ -837,25 +844,149 @@ fn edit_release_file(
 
 fn auth_report(area: &str, provider: Option<publish::DistributionProvider>) -> LifecycleReport {
     let mut report = base_report(area, provider, None);
-    let providers = provider.map(|provider| vec![provider]).unwrap_or_else(|| {
-        vec![
-            publish::DistributionProvider::GithubPages,
-            publish::DistributionProvider::CloudflarePages,
-            publish::DistributionProvider::Netlify,
-            publish::DistributionProvider::S3,
-            publish::DistributionProvider::GoogleDrive,
-            publish::DistributionProvider::OneDrive,
-            publish::DistributionProvider::Dropbox,
-            publish::DistributionProvider::PlayStore,
-            publish::DistributionProvider::AppStore,
-            publish::DistributionProvider::MicrosoftStore,
-        ]
-    });
+    let providers = provider
+        .map(|provider| vec![provider])
+        .unwrap_or_else(auth_providers);
     for provider in providers {
         report.checks.push(provider_env_check(provider));
     }
     finalize_status(&mut report);
     report
+}
+
+fn auth_setup_report(provider: Option<publish::DistributionProvider>) -> LifecycleReport {
+    let mut report = base_report("auth.setup", provider, None);
+    let providers = provider
+        .map(|provider| vec![provider])
+        .unwrap_or_else(auth_providers);
+    for provider in providers {
+        let spec = provider_auth_spec(provider);
+        report.checks.push(LifecycleCheck {
+            id: format!(
+                "auth.{}.credential_kind",
+                provider.as_str().replace('-', "_")
+            ),
+            status: "passed".to_string(),
+            summary: format!("{} credential kind is documented", provider.as_str()),
+            details: Some(spec.kind.to_string()),
+            remediation: Vec::new(),
+        });
+        report.checks.push(LifecycleCheck {
+            id: format!("auth.{}.env", provider.as_str().replace('-', "_")),
+            status: "passed".to_string(),
+            summary: format!("{} accepted environment variables", provider.as_str()),
+            details: Some(spec.env.join(", ")),
+            remediation: Vec::new(),
+        });
+        report.checks.push(LifecycleCheck {
+            id: format!("auth.{}.setup", provider.as_str().replace('-', "_")),
+            status: "passed".to_string(),
+            summary: format!("{} setup command", provider.as_str()),
+            details: Some(spec.command.to_string()),
+            remediation: Vec::new(),
+        });
+        report.checks.push(LifecycleCheck {
+            id: format!("auth.{}.scopes", provider.as_str().replace('-', "_")),
+            status: "passed".to_string(),
+            summary: format!("{} required provider permissions", provider.as_str()),
+            details: Some(spec.permissions.to_string()),
+            remediation: Vec::new(),
+        });
+    }
+    finalize_status(&mut report);
+    report
+}
+
+fn auth_providers() -> Vec<publish::DistributionProvider> {
+    vec![
+        publish::DistributionProvider::GithubPages,
+        publish::DistributionProvider::CloudflarePages,
+        publish::DistributionProvider::Netlify,
+        publish::DistributionProvider::S3,
+        publish::DistributionProvider::GoogleDrive,
+        publish::DistributionProvider::OneDrive,
+        publish::DistributionProvider::Dropbox,
+        publish::DistributionProvider::PlayStore,
+        publish::DistributionProvider::AppStore,
+        publish::DistributionProvider::MicrosoftStore,
+    ]
+}
+
+struct ProviderAuthSpec {
+    kind: &'static str,
+    env: &'static [&'static str],
+    command: &'static str,
+    permissions: &'static str,
+}
+
+fn provider_auth_spec(provider: publish::DistributionProvider) -> ProviderAuthSpec {
+    match provider {
+        publish::DistributionProvider::GithubPages => ProviderAuthSpec {
+            kind: "GitHub token or GitHub App installation token",
+            env: &["GH_TOKEN", "GITHUB_TOKEN"],
+            command: "fission auth import github-pages --from env:GH_TOKEN --yes",
+            permissions: "repository contents/workflows/pages permissions for local API operations; Actions deployment uses repository workflow permissions",
+        },
+        publish::DistributionProvider::CloudflarePages => ProviderAuthSpec {
+            kind: "Cloudflare API token plus Wrangler login/config for uploads",
+            env: &["CLOUDFLARE_API_TOKEN", "CLOUDFLARE_ACCOUNT_ID"],
+            command: "fission auth import cloudflare-pages --from env:CLOUDFLARE_API_TOKEN --yes",
+            permissions: "Pages edit/deploy permission for the target account/project",
+        },
+        publish::DistributionProvider::Netlify => ProviderAuthSpec {
+            kind: "Netlify personal access token",
+            env: &["NETLIFY_AUTH_TOKEN"],
+            command: "fission auth import netlify --from env:NETLIFY_AUTH_TOKEN --yes",
+            permissions: "site read/deploy permissions for the configured site",
+        },
+        publish::DistributionProvider::S3 => ProviderAuthSpec {
+            kind: "AWS/S3 profile or access key credentials",
+            env: &["AWS_PROFILE", "AWS_ACCESS_KEY_ID", "AWS_SECRET_ACCESS_KEY"],
+            command: "fission auth import s3 --from env:AWS_SECRET_ACCESS_KEY --yes",
+            permissions: "s3:PutObject, s3:ListBucket, and optional s3:PutObjectAcl for public artifacts",
+        },
+        publish::DistributionProvider::GoogleDrive => ProviderAuthSpec {
+            kind: "Google OAuth access token or service-account flow managed outside fission.toml",
+            env: &["GOOGLE_DRIVE_ACCESS_TOKEN"],
+            command: "fission auth import google-drive --from env:GOOGLE_DRIVE_ACCESS_TOKEN --yes",
+            permissions: "Drive file create/update permission for the selected folder",
+        },
+        publish::DistributionProvider::OneDrive => ProviderAuthSpec {
+            kind: "Microsoft Graph OAuth access token",
+            env: &["ONEDRIVE_ACCESS_TOKEN"],
+            command: "fission auth import onedrive --from env:ONEDRIVE_ACCESS_TOKEN --yes",
+            permissions: "Files.ReadWrite or equivalent delegated/application permission for the target drive",
+        },
+        publish::DistributionProvider::Dropbox => ProviderAuthSpec {
+            kind: "Dropbox OAuth access token",
+            env: &["DROPBOX_ACCESS_TOKEN"],
+            command: "fission auth import dropbox --from env:DROPBOX_ACCESS_TOKEN --yes",
+            permissions: "files.content.write and files.metadata.read for the destination path",
+        },
+        publish::DistributionProvider::PlayStore => ProviderAuthSpec {
+            kind: "Google Play Android Publisher service-account JSON or access token",
+            env: &["PLAY_STORE_SERVICE_ACCOUNT_JSON"],
+            command: "fission auth import play-store --from file:play-service-account.json --yes",
+            permissions: "Android Publisher API access to the configured package and release tracks",
+        },
+        publish::DistributionProvider::AppStore => ProviderAuthSpec {
+            kind: "App Store Connect API private key plus issuer/key ids",
+            env: &[
+                "APP_STORE_CONNECT_API_KEY",
+                "APP_STORE_CONNECT_API_KEY_PATH",
+                "APP_STORE_CONNECT_ISSUER_ID",
+                "APP_STORE_CONNECT_KEY_ID",
+            ],
+            command: "fission auth import app-store --from file:AuthKey.p8 --yes",
+            permissions: "App Manager or equivalent App Store Connect API role for metadata, uploads, TestFlight, and submissions",
+        },
+        publish::DistributionProvider::MicrosoftStore => ProviderAuthSpec {
+            kind: "Partner Center/Entra application secret or access token",
+            env: &["MICROSOFT_STORE_TOKEN", "MICROSOFT_STORE_CLIENT_SECRET"],
+            command: "fission auth import microsoft-store --from env:MICROSOFT_STORE_CLIENT_SECRET --yes",
+            permissions: "Partner Center app submission permissions for the configured product",
+        },
+    }
 }
 
 fn provider_env_check(provider: publish::DistributionProvider) -> LifecycleCheck {
@@ -1135,4 +1266,29 @@ fn print_report(mut report: LifecycleReport, json: bool) -> Result<()> {
         bail!("{} is blocked", report.area);
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn auth_setup_documents_provider_credentials_without_secrets() {
+        let report = auth_setup_report(Some(publish::DistributionProvider::CloudflarePages));
+        assert_eq!(report.status, "ready");
+        assert!(report.checks.iter().any(|check| {
+            check.id == "auth.cloudflare_pages.env"
+                && check
+                    .details
+                    .as_deref()
+                    .is_some_and(|details| details.contains("CLOUDFLARE_API_TOKEN"))
+        }));
+        assert!(report.checks.iter().any(|check| {
+            check.id == "auth.cloudflare_pages.scopes"
+                && check
+                    .details
+                    .as_deref()
+                    .is_some_and(|details| details.contains("Pages"))
+        }));
+    }
 }
