@@ -37,6 +37,10 @@ where
             targets,
             project_dir,
         } => fission_command_core::add_targets(&project_dir, &targets),
+        Command::AddCapability {
+            capabilities,
+            project_dir,
+        } => fission_command_core::add_capabilities(&project_dir, &capabilities),
         Command::Doctor {
             targets,
             project_dir,
@@ -357,6 +361,45 @@ mod tests {
         assert!(std::fs::read_to_string(dir.join("platforms/web/README.md"))
             .unwrap()
             .contains("fission run --target web"));
+    }
+
+    #[test]
+    fn add_capability_updates_project_and_platform_config() {
+        let dir = unique_dir("capability");
+        run(["fission", "init", dir.to_str().unwrap()]).unwrap();
+        run([
+            "fission",
+            "add-target",
+            "ios",
+            "android",
+            "--project-dir",
+            dir.to_str().unwrap(),
+        ])
+        .unwrap();
+        run([
+            "fission",
+            "add-capability",
+            "nfc",
+            "--project-dir",
+            dir.to_str().unwrap(),
+        ])
+        .unwrap();
+
+        let project = read_project_config(&dir).unwrap();
+        assert!(project
+            .capabilities
+            .contains(&fission_command_core::PlatformCapability::Nfc));
+
+        let android_manifest =
+            std::fs::read_to_string(dir.join("platforms/android/AndroidManifest.xml")).unwrap();
+        assert!(android_manifest.contains("android.permission.NFC"));
+        assert!(android_manifest.contains("android.hardware.nfc"));
+
+        let ios_info = std::fs::read_to_string(dir.join("platforms/ios/Info.plist")).unwrap();
+        assert!(ios_info.contains("NFCReaderUsageDescription"));
+        let ios_entitlements =
+            std::fs::read_to_string(dir.join("platforms/ios/Entitlements.plist")).unwrap();
+        assert!(ios_entitlements.contains("com.apple.developer.nfc.readersession.formats"));
     }
 
     #[test]

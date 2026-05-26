@@ -20,6 +20,20 @@ pub enum Target {
     Windows,
 }
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Ord, PartialOrd, ValueEnum, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum PlatformCapability {
+    Nfc,
+}
+
+impl PlatformCapability {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Nfc => "nfc",
+        }
+    }
+}
+
 impl Target {
     pub fn as_str(self) -> &'static str {
         match self {
@@ -91,6 +105,8 @@ impl DistributionProvider {
 pub struct FissionProject {
     pub app: AppConfig,
     pub targets: BTreeSet<Target>,
+    #[serde(default, skip_serializing_if = "BTreeSet::is_empty")]
+    pub capabilities: BTreeSet<PlatformCapability>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -164,6 +180,7 @@ pub fn init_project(
     for target in targets {
         scaffold_target_with_policy(root, &project, target, write_policy)?;
     }
+    apply_platform_capability_config(root, &project)?;
 
     Ok(())
 }
@@ -212,10 +229,14 @@ fn initial_project_config(
         app: AppConfig {
             name: normalized_name.clone(),
             app_id: app_id
-                .or_else(|| existing.map(|project| project.app.app_id))
+                .or_else(|| existing.as_ref().map(|project| project.app.app_id.clone()))
                 .unwrap_or_else(|| format!("com.example.{}", normalized_name.replace('-', "_"))),
         },
         targets,
+        capabilities: existing
+            .as_ref()
+            .map(|project| project.capabilities.clone())
+            .unwrap_or_default(),
     })
 }
 
@@ -262,6 +283,7 @@ pub fn add_targets(project_dir: &Path, targets: &[Target]) -> Result<()> {
         };
         scaffold_target_with_policy(project_dir, &project, *target, write_policy)?;
     }
+    apply_platform_capability_config(project_dir, &project)?;
     write_project_config(project_dir, &project)?;
     update_cargo_fission_features(project_dir, &project)?;
     write_file_with_policy(
@@ -269,6 +291,89 @@ pub fn add_targets(project_dir: &Path, targets: &[Target]) -> Result<()> {
         &render_project_readme(&project),
         WritePolicy::PreserveExisting,
     )?;
+    Ok(())
+}
+
+pub fn add_capabilities(project_dir: &Path, capabilities: &[PlatformCapability]) -> Result<()> {
+    if capabilities.is_empty() {
+        bail!("no capabilities provided");
+    }
+    let mut project = read_project_config(project_dir)?;
+    for capability in capabilities {
+        project.capabilities.insert(*capability);
+    }
+    write_project_config(project_dir, &project)?;
+    apply_platform_capability_config(project_dir, &project)?;
+    Ok(())
+}
+
+fn apply_platform_capability_config(root: &Path, project: &FissionProject) -> Result<()> {
+    if project.capabilities.is_empty() {
+        return Ok(());
+    }
+    if project.targets.contains(&Target::Android) {
+        apply_android_capability_config(root, project)?;
+    }
+    if project.targets.contains(&Target::Ios) {
+        apply_ios_capability_config(root, project)?;
+    }
+    Ok(())
+}
+
+fn apply_android_capability_config(root: &Path, project: &FissionProject) -> Result<()> {
+    let path = root.join("platforms/android/AndroidManifest.xml");
+    if !path.exists() {
+        return Ok(());
+    }
+    let existing =
+        fs::read_to_string(&path).with_context(|| format!("failed to read {}", path.display()))?;
+    let capabilities = render_android_capability_manifest_entries(project);
+    if capabilities.is_empty() || existing.contains("android.permission.NFC") {
+        return Ok(());
+    }
+    let marker = r#"    <uses-permission android:name="android.permission.INTERNET" />"#;
+    let updated = if existing.contains(marker) {
+        existing.replacen(marker, &format!("{marker}\n{capabilities}"), 1)
+    } else {
+        existing.replacen("<uses-sdk", &format!("{capabilities}\n    <uses-sdk"), 1)
+    };
+    fs::write(&path, updated).with_context(|| format!("failed to write {}", path.display()))
+}
+
+fn apply_ios_capability_config(root: &Path, project: &FissionProject) -> Result<()> {
+    let info_path = root.join("platforms/ios/Info.plist");
+    if info_path.exists() {
+        let existing = fs::read_to_string(&info_path)
+            .with_context(|| format!("failed to read {}", info_path.display()))?;
+        if project.capabilities.contains(&PlatformCapability::Nfc)
+            && !existing.contains("NFCReaderUsageDescription")
+        {
+            let entry = "  <key>NFCReaderUsageDescription</key>\n  <string>This app uses NFC to scan nearby tags when you request it.</string>\n";
+            let updated = existing.replacen("</dict>", &format!("{entry}</dict>"), 1);
+            fs::write(&info_path, updated)
+                .with_context(|| format!("failed to write {}", info_path.display()))?;
+        }
+    }
+
+    if project.capabilities.contains(&PlatformCapability::Nfc) {
+        let entitlements_path = root.join("platforms/ios/Entitlements.plist");
+        if entitlements_path.exists() {
+            let existing = fs::read_to_string(&entitlements_path)
+                .with_context(|| format!("failed to read {}", entitlements_path.display()))?;
+            if !existing.contains("com.apple.developer.nfc.readersession.formats") {
+                let entry = "  <key>com.apple.developer.nfc.readersession.formats</key>\n  <array>\n    <string>NDEF</string>\n  </array>\n";
+                let updated = existing.replacen("</dict>", &format!("{entry}</dict>"), 1);
+                fs::write(&entitlements_path, updated)
+                    .with_context(|| format!("failed to write {}", entitlements_path.display()))?;
+            }
+        } else {
+            write_file_with_policy(
+                &entitlements_path,
+                IOS_NFC_ENTITLEMENTS_PLIST,
+                WritePolicy::PreserveExisting,
+            )?;
+        }
+    }
     Ok(())
 }
 
@@ -414,6 +519,7 @@ fn scaffold_target_with_policy(
                     "Override `ANDROID_HOME`, `ANDROID_NDK`, `ANDROID_MIN_API_LEVEL`, `ANDROID_TARGET_API_LEVEL`, `ANDROID_AVD_NAME`, or `ANDROID_SYSTEM_IMAGE` if your local SDK setup differs.",
                     "Set `ANDROID_EMULATOR_HEADLESS=1` for background/CI runs, or `ANDROID_EMULATOR_RESTART=1` to relaunch a hidden emulator visibly.",
                     "The generated package uses `assets/app-icon.png` as its default launcher icon.",
+                    "Run `fission add-capability nfc --project-dir .` to add NFC manifest permission and feature declarations.",
                     "Set `FISSION_TEST_CONTROL_PORT=<host-port>` before `run-emulator.sh`; the script forwards it to the fixed in-app device port.",
                 ],
             )
@@ -433,6 +539,7 @@ fn scaffold_target_with_policy(
                     "Run `fission test --target ios --project-dir .` for a simulator launch plus test-control health check.",
                     "Run `./platforms/ios/run-sim.sh` from the project root to build, install, and launch the app on the first available iPhone simulator.",
                     "The generated bundle uses `assets/app-icon.png` as its default app icon.",
+                    "Run `fission add-capability nfc --project-dir .` to add the NFC usage description and entitlements file.",
                     "Set `FISSION_TEST_CONTROL_PORT=<port>` before `run-sim.sh` to expose the in-app test control server on the host.",
                     "Set `IOS_SIM_DEVICE_ID=<udid>` if you want a specific simulator device.",
                     "Set `IOS_SIM_HEADLESS=1` for CI or background-only simulator runs; otherwise the script opens Simulator visibly.",
@@ -510,6 +617,13 @@ fn scaffold_ios_bundle(
     let test_script = render_ios_test_script();
 
     write_file_with_policy(&root.join("platforms/ios/Info.plist"), &plist, write_policy)?;
+    if project.capabilities.contains(&PlatformCapability::Nfc) {
+        write_file_with_policy(
+            &root.join("platforms/ios/Entitlements.plist"),
+            IOS_NFC_ENTITLEMENTS_PLIST,
+            write_policy,
+        )?;
+    }
     write_file_with_policy(
         &root.join("platforms/ios/package-sim.sh"),
         &package_script,
@@ -734,7 +848,7 @@ fn render_project_readme(project: &FissionProject) -> String {
         targets.push_str(&format!("- `{}`\n", target.as_str()));
     }
     format!(
-        "# {}\n\nGenerated by `fission init`.\n\n## Targets\n\n{}\n## Commands\n\n- `fission doctor --project-dir .` -- check local SDKs, browsers, emulators, and Rust targets\n- `fission devices --project-dir .` -- list runnable desktop, browser, simulator, emulator, and device targets\n- `fission run --project-dir .` -- launch the desktop app and attach to output\n- `fission run --target web --project-dir .` -- launch the web app and attach to the local server\n- `fission run --target ios --project-dir .` -- build, install, launch, and attach to simulator logs\n- `fission run --target android --project-dir .` -- build, install, launch, and attach to Android logs\n- `fission run --target <target> --device <id> --detach --project-dir .` -- launch without attaching\n- `fission logs --target <target> --device <id> --project-dir . --follow` -- attach later where supported\n- `fission build --target <target> --project-dir . --release` -- build a target without launching it\n- `fission test --target <target> --project-dir .` -- run the generated platform smoke test\n- `fission add-target web ios android --project-dir .` -- scaffold more targets\n- `cat platforms/<target>/README.md` -- inspect target-specific prerequisites and environment variables\n\n## Assets\n\n- `assets/app-icon.png` is the default app icon seed copied from Fission's `docs/fission_logo.png`\n\n## Status\n\nDesktop, web, iOS simulator, and Android emulator workflows are runnable through `fission run`. The platform scripts remain checked in so CI and advanced users can call the lower-level build, run, and smoke-test steps directly when needed.\n",
+        "# {}\n\nGenerated by `fission init`.\n\n## Targets\n\n{}\n## Commands\n\n- `fission doctor --project-dir .` -- check local SDKs, browsers, emulators, and Rust targets\n- `fission devices --project-dir .` -- list runnable desktop, browser, simulator, emulator, and device targets\n- `fission run --project-dir .` -- launch the desktop app and attach to output\n- `fission run --target web --project-dir .` -- launch the web app and attach to the local server\n- `fission run --target ios --project-dir .` -- build, install, launch, and attach to simulator logs\n- `fission run --target android --project-dir .` -- build, install, launch, and attach to Android logs\n- `fission run --target <target> --device <id> --detach --project-dir .` -- launch without attaching\n- `fission logs --target <target> --device <id> --project-dir . --follow` -- attach later where supported\n- `fission build --target <target> --project-dir . --release` -- build a target without launching it\n- `fission test --target <target> --project-dir .` -- run the generated platform smoke test\n- `fission add-target web ios android --project-dir .` -- scaffold more targets\n- `fission add-capability nfc --project-dir .` -- declare host capabilities and update platform config where possible\n- `cat platforms/<target>/README.md` -- inspect target-specific prerequisites and environment variables\n\n## Assets\n\n- `assets/app-icon.png` is the default app icon seed copied from Fission's `docs/fission_logo.png`\n\n## Status\n\nDesktop, web, iOS simulator, and Android emulator workflows are runnable through `fission run`. The platform scripts remain checked in so CI and advanced users can call the lower-level build, run, and smoke-test steps directly when needed.\n",
         project.app.name, targets
     )
 }
@@ -789,6 +903,7 @@ fn android_library_name(project: &FissionProject) -> String {
 }
 
 fn render_ios_plist(project: &FissionProject, executable: &str) -> String {
+    let capability_entries = render_ios_info_plist_capability_entries(project);
     format!(
         r#"<?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
@@ -818,6 +933,7 @@ fn render_ios_plist(project: &FissionProject, executable: &str) -> String {
   <true/>
   <key>MinimumOSVersion</key>
   <string>18.0</string>
+{capability_entries}
   <key>UIDeviceFamily</key>
   <array>
     <integer>1</integer>
@@ -829,7 +945,16 @@ fn render_ios_plist(project: &FissionProject, executable: &str) -> String {
         display_name = ios_bundle_name(project),
         executable = executable,
         bundle_id = project.app.app_id,
+        capability_entries = capability_entries,
     )
+}
+
+fn render_ios_info_plist_capability_entries(project: &FissionProject) -> String {
+    if project.capabilities.contains(&PlatformCapability::Nfc) {
+        "  <key>NFCReaderUsageDescription</key>\n  <string>This app uses NFC to scan nearby tags when you request it.</string>\n".to_string()
+    } else {
+        String::new()
+    }
 }
 
 fn render_ios_package_script(
@@ -988,12 +1113,14 @@ PY
 }
 
 fn render_android_manifest(project: &FissionProject) -> String {
+    let capability_entries = render_android_capability_manifest_entries(project);
     format!(
         r#"<?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
     package="{app_id}">
 
     <uses-permission android:name="android.permission.INTERNET" />
+{capability_entries}
 
     <uses-sdk
         android:minSdkVersion="24"
@@ -1025,8 +1152,32 @@ fn render_android_manifest(project: &FissionProject) -> String {
         app_id = project.app.app_id,
         label = ios_bundle_name(project),
         lib_name = android_library_name(project),
+        capability_entries = capability_entries,
     )
 }
+
+fn render_android_capability_manifest_entries(project: &FissionProject) -> String {
+    let mut out = String::new();
+    if project.capabilities.contains(&PlatformCapability::Nfc) {
+        out.push_str("    <uses-permission android:name=\"android.permission.NFC\" />\n");
+        out.push_str(
+            "    <uses-feature android:name=\"android.hardware.nfc\" android:required=\"false\" />\n",
+        );
+    }
+    out
+}
+
+const IOS_NFC_ENTITLEMENTS_PLIST: &str = r#"<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>com.apple.developer.nfc.readersession.formats</key>
+  <array>
+    <string>NDEF</string>
+  </array>
+</dict>
+</plist>
+"#;
 
 fn render_android_package_script(project: &FissionProject) -> String {
     let lib_name = android_library_name(project);

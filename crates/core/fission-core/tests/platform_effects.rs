@@ -3,6 +3,7 @@ use fission_core::{
     DeepLinkReceived, Effect, Effects, NotificationId, NotificationRequest, NotificationResponse,
     NotificationResponseReceived, SHOW_NOTIFICATION,
 };
+use fission_core::{NfcRecord, NfcScanRequest, NfcTechnology, SCAN_NFC_TAG};
 
 #[derive(Debug, Default)]
 struct TestState;
@@ -53,4 +54,33 @@ fn deep_link_config_and_inbound_actions_are_public_api() {
         },
     };
     let _: fission_core::ActionEnvelope = response_action.into();
+}
+
+#[test]
+fn nfc_convenience_builder_emits_capability_effect() {
+    let mut registry = ActionRegistry::<TestState>::new();
+    let mut effects = Effects::new(7, &mut registry);
+
+    effects.nfc().scan_tag(NfcScanRequest {
+        technologies: vec![NfcTechnology::Ndef],
+        message: Some("Tap a tag".into()),
+        timeout_ms: Some(5_000),
+        read_multiple_records: true,
+    });
+
+    assert_eq!(effects.out.len(), 1);
+    assert_eq!(effects.out[0].req_id, 7);
+    let Effect::Capability(CapabilityInvocationPayload::Operation(op)) = &effects.out[0].effect
+    else {
+        panic!("expected NFC capability effect");
+    };
+    assert_eq!(op.capability_name, SCAN_NFC_TAG.name);
+    let decoded: NfcScanRequest = serde_json::from_slice(&op.request).unwrap();
+    assert_eq!(decoded.technologies, vec![NfcTechnology::Ndef]);
+}
+
+#[test]
+fn nfc_records_are_public_api() {
+    let record = NfcRecord::uri("fission://open/1");
+    assert_eq!(record.type_name, b"U".to_vec());
 }

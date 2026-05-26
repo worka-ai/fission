@@ -20,6 +20,10 @@ use crate::platform::{
     GET_NOTIFICATION_SETTINGS, REGISTER_PUSH_NOTIFICATIONS, REQUEST_NOTIFICATION_PERMISSION,
     SCHEDULE_NOTIFICATION, SET_BADGE_COUNT, SHOW_NOTIFICATION, UNREGISTER_PUSH_NOTIFICATIONS,
 };
+use crate::platform_nfc::{
+    NfcEmulationRequest, NfcScanRequest, NfcWriteRequest, CANCEL_NFC_SESSION, EMULATE_NFC_TAG,
+    GET_NFC_AVAILABILITY, SCAN_NFC_TAG, WRITE_NFC_TAG,
+};
 use crate::registry::{ActionRegistry, IntoHandler};
 use std::marker::PhantomData;
 
@@ -159,6 +163,10 @@ impl<'a, S: AppState> Effects<'a, S> {
 
     pub fn notifications(&mut self) -> NotificationEffects<'_, 'a, S> {
         NotificationEffects { effects: self }
+    }
+
+    pub fn nfc(&mut self) -> NfcEffects<'_, 'a, S> {
+        NfcEffects { effects: self }
     }
 
     pub fn app<J: JobSpec>(
@@ -323,6 +331,33 @@ impl<'a, 'b, S: AppState> NotificationEffects<'a, 'b, S> {
 
     pub fn unregister_push(self) -> EffectBuilder<'a, 'b, S> {
         self.effects.capability(UNREGISTER_PUSH_NOTIFICATIONS, ())
+    }
+}
+
+/// Convenience builder for standard NFC host capabilities.
+pub struct NfcEffects<'a, 'b, S: AppState> {
+    effects: &'a mut Effects<'b, S>,
+}
+
+impl<'a, 'b, S: AppState> NfcEffects<'a, 'b, S> {
+    pub fn availability(self) -> EffectBuilder<'a, 'b, S> {
+        self.effects.capability(GET_NFC_AVAILABILITY, ())
+    }
+
+    pub fn scan_tag(self, request: NfcScanRequest) -> EffectBuilder<'a, 'b, S> {
+        self.effects.capability(SCAN_NFC_TAG, request)
+    }
+
+    pub fn write_tag(self, request: NfcWriteRequest) -> EffectBuilder<'a, 'b, S> {
+        self.effects.capability(WRITE_NFC_TAG, request)
+    }
+
+    pub fn emulate_tag(self, request: NfcEmulationRequest) -> EffectBuilder<'a, 'b, S> {
+        self.effects.capability(EMULATE_NFC_TAG, request)
+    }
+
+    pub fn cancel_session(self) -> EffectBuilder<'a, 'b, S> {
+        self.effects.capability(CANCEL_NFC_SESSION, ())
     }
 }
 

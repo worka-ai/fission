@@ -52,6 +52,7 @@ pub mod input;
 pub mod lowering;
 pub mod media;
 pub mod platform;
+pub mod platform_nfc;
 pub mod registry;
 pub mod runtime;
 pub mod scrollbar;
@@ -73,7 +74,7 @@ pub use capability::{
     OperationCapability, PickOpenFilesCapability, PickOpenFilesError, PickOpenFilesRequest,
     PickOpenFilesResult, PickedFile, OPEN_URL, PICK_OPEN_FILES,
 };
-pub use context::{Effects, NotificationEffects, ReducerContext}; // New
+pub use context::{Effects, NfcEffects, NotificationEffects, ReducerContext}; // New
 pub use effect::{ActionInput, Effect, EffectEnvelope, RuntimeEffect};
 pub use env::{
     Clipboard, Env, ImeHandler, InteractionStateMap, RuntimeState, ScrollStateMap, WindowEnv,
@@ -101,6 +102,13 @@ pub use platform::{
     UnregisterPushNotificationsCapability, CANCEL_ALL_NOTIFICATIONS, CANCEL_NOTIFICATION,
     GET_NOTIFICATION_SETTINGS, REGISTER_PUSH_NOTIFICATIONS, REQUEST_NOTIFICATION_PERMISSION,
     SCHEDULE_NOTIFICATION, SET_BADGE_COUNT, SHOW_NOTIFICATION, UNREGISTER_PUSH_NOTIFICATIONS,
+};
+pub use platform_nfc::{
+    CancelNfcSessionCapability, EmulateNfcTagCapability, GetNfcAvailabilityCapability,
+    NfcAvailability, NfcEmulationRequest, NfcError, NfcRecord, NfcRecordTypeNameFormat,
+    NfcScanRequest, NfcSessionReceipt, NfcTag, NfcTagDiscovered, NfcTechnology, NfcWriteRequest,
+    ScanNfcTagCapability, WriteNfcTagCapability, CANCEL_NFC_SESSION, EMULATE_NFC_TAG,
+    GET_NFC_AVAILABILITY, SCAN_NFC_TAG, WRITE_NFC_TAG,
 };
 pub use registry::{
     ActionRegistry, AnimationPropertyId, AnimationRequest, AnimationStartValue, BuildCtx,

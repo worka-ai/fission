@@ -153,18 +153,22 @@ pub use fission_core::{
     Action, ActionEnvelope, ActionId, ActionScopeId, AnimationPropertyId, AnimationRequest,
     AnimationStartValue, AppState, BuildCtx, CancelAllNotificationsCapability,
     CancelNotificationCapability, CancelNotificationRequest, DeepLink, DeepLinkConfig,
-    DeepLinkReceived, DeepLinkSource, EasingFunction, FlexDirection,
-    GetNotificationSettingsCapability, Handler, NodeBuilder, NotificationActionButton,
-    NotificationError, NotificationId, NotificationPermission, NotificationPermissionRequest,
-    NotificationReceipt, NotificationRequest, NotificationResponse, NotificationResponseReceived,
-    NotificationSchedule, NotificationSettings, NotificationSound, Op, PortalLayer, PushPlatform,
-    PushRegistration, PushRegistrationRequest, ReducerContext, RegisterPushNotificationsCapability,
-    RequestNotificationPermissionCapability, ScheduleNotificationCapability, Selector,
-    SetBadgeCountCapability, SetBadgeCountRequest, ShowNotificationCapability,
-    UnregisterPushNotificationsCapability, View, Widget, WidgetNodeId, CANCEL_ALL_NOTIFICATIONS,
-    CANCEL_NOTIFICATION, GET_NOTIFICATION_SETTINGS, REGISTER_PUSH_NOTIFICATIONS,
-    REQUEST_NOTIFICATION_PERMISSION, SCHEDULE_NOTIFICATION, SET_BADGE_COUNT, SHOW_NOTIFICATION,
-    UNREGISTER_PUSH_NOTIFICATIONS,
+    DeepLinkReceived, DeepLinkSource, EasingFunction, EmulateNfcTagCapability, FlexDirection,
+    GetNfcAvailabilityCapability, GetNotificationSettingsCapability, Handler, NfcAvailability,
+    NfcEffects, NfcEmulationRequest, NfcError, NfcRecord, NfcRecordTypeNameFormat, NfcScanRequest,
+    NfcSessionReceipt, NfcTag, NfcTagDiscovered, NfcTechnology, NfcWriteRequest, NodeBuilder,
+    NotificationActionButton, NotificationError, NotificationId, NotificationPermission,
+    NotificationPermissionRequest, NotificationReceipt, NotificationRequest, NotificationResponse,
+    NotificationResponseReceived, NotificationSchedule, NotificationSettings, NotificationSound,
+    Op, PortalLayer, PushPlatform, PushRegistration, PushRegistrationRequest, ReducerContext,
+    RegisterPushNotificationsCapability, RequestNotificationPermissionCapability,
+    ScanNfcTagCapability, ScheduleNotificationCapability, Selector, SetBadgeCountCapability,
+    SetBadgeCountRequest, ShowNotificationCapability, UnregisterPushNotificationsCapability, View,
+    Widget, WidgetNodeId, WriteNfcTagCapability, CANCEL_ALL_NOTIFICATIONS, CANCEL_NFC_SESSION,
+    CANCEL_NOTIFICATION, EMULATE_NFC_TAG, GET_NFC_AVAILABILITY, GET_NOTIFICATION_SETTINGS,
+    REGISTER_PUSH_NOTIFICATIONS, REQUEST_NOTIFICATION_PERMISSION, SCAN_NFC_TAG,
+    SCHEDULE_NOTIFICATION, SET_BADGE_COUNT, SHOW_NOTIFICATION, UNREGISTER_PUSH_NOTIFICATIONS,
+    WRITE_NFC_TAG,
 };
 
 // Core event types
@@ -190,7 +194,8 @@ pub use fission_widgets::{HStack, Icon, Spacer, VStack};
     not(any(target_os = "android", target_os = "ios", target_arch = "wasm32"))
 ))]
 pub use fission_shell_desktop::{
-    DesktopApp, MemoryNotificationHost, NotificationHost, UnsupportedNotificationHost,
+    DesktopApp, MemoryNfcHost, MemoryNotificationHost, NfcHost, NotificationHost,
+    UnsupportedNfcHost, UnsupportedNotificationHost,
 };
 #[cfg(all(
     any(
@@ -202,7 +207,8 @@ pub use fission_shell_desktop::{
     any(target_os = "android", target_os = "ios")
 ))]
 pub use fission_shell_mobile::{
-    MemoryNotificationHost, MobileApp, NotificationHost, UnsupportedNotificationHost,
+    MemoryNfcHost, MemoryNotificationHost, MobileApp, NfcHost, NotificationHost,
+    UnsupportedNfcHost, UnsupportedNotificationHost,
 };
 #[cfg(feature = "terminal-shell")]
 pub use fission_shell_terminal::TerminalApp;
@@ -211,7 +217,8 @@ pub use fission_shell_terminal::TerminalApp;
     target_arch = "wasm32"
 ))]
 pub use fission_shell_web::{
-    MemoryNotificationHost, NotificationHost, UnsupportedNotificationHost, WebApp,
+    MemoryNfcHost, MemoryNotificationHost, NfcHost, NotificationHost, UnsupportedNfcHost,
+    UnsupportedNotificationHost, WebApp,
 };
 
 // Macros
@@ -234,19 +241,24 @@ pub mod prelude {
         Action, ActionEnvelope, ActionId, ActionScopeId, AnimationPropertyId, AnimationRequest,
         AnimationStartValue, AppState, BuildCtx, CancelAllNotificationsCapability,
         CancelNotificationCapability, CancelNotificationRequest, DeepLink, DeepLinkConfig,
-        DeepLinkReceived, DeepLinkSource, Effects, FlexDirection,
-        GetNotificationSettingsCapability, Handler, NodeBuilder, NotificationActionButton,
-        NotificationEffects, NotificationError, NotificationId, NotificationPermission,
-        NotificationPermissionRequest, NotificationReceipt, NotificationRequest,
-        NotificationResponse, NotificationResponseReceived, NotificationSchedule,
-        NotificationSettings, NotificationSound, Op, PortalLayer, PushPlatform, PushRegistration,
+        DeepLinkReceived, DeepLinkSource, Effects, EmulateNfcTagCapability, FlexDirection,
+        GetNfcAvailabilityCapability, GetNotificationSettingsCapability, Handler, NfcAvailability,
+        NfcEffects, NfcEmulationRequest, NfcError, NfcRecord, NfcRecordTypeNameFormat,
+        NfcScanRequest, NfcSessionReceipt, NfcTag, NfcTagDiscovered, NfcTechnology,
+        NfcWriteRequest, NodeBuilder, NotificationActionButton, NotificationEffects,
+        NotificationError, NotificationId, NotificationPermission, NotificationPermissionRequest,
+        NotificationReceipt, NotificationRequest, NotificationResponse,
+        NotificationResponseReceived, NotificationSchedule, NotificationSettings,
+        NotificationSound, Op, PortalLayer, PushPlatform, PushRegistration,
         PushRegistrationRequest, ReducerContext, RegisterPushNotificationsCapability,
-        RequestNotificationPermissionCapability, ScheduleNotificationCapability, Selector,
-        SetBadgeCountCapability, SetBadgeCountRequest, ShowNotificationCapability,
-        UnregisterPushNotificationsCapability, View, Widget, WidgetNodeId, WindowEnv, WindowTitle,
-        CANCEL_ALL_NOTIFICATIONS, CANCEL_NOTIFICATION, GET_NOTIFICATION_SETTINGS,
-        REGISTER_PUSH_NOTIFICATIONS, REQUEST_NOTIFICATION_PERMISSION, SCHEDULE_NOTIFICATION,
-        SET_BADGE_COUNT, SHOW_NOTIFICATION, UNREGISTER_PUSH_NOTIFICATIONS,
+        RequestNotificationPermissionCapability, ScanNfcTagCapability,
+        ScheduleNotificationCapability, Selector, SetBadgeCountCapability, SetBadgeCountRequest,
+        ShowNotificationCapability, UnregisterPushNotificationsCapability, View, Widget,
+        WidgetNodeId, WindowEnv, WindowTitle, WriteNfcTagCapability, CANCEL_ALL_NOTIFICATIONS,
+        CANCEL_NFC_SESSION, CANCEL_NOTIFICATION, EMULATE_NFC_TAG, GET_NFC_AVAILABILITY,
+        GET_NOTIFICATION_SETTINGS, REGISTER_PUSH_NOTIFICATIONS, REQUEST_NOTIFICATION_PERMISSION,
+        SCAN_NFC_TAG, SCHEDULE_NOTIFICATION, SET_BADGE_COUNT, SHOW_NOTIFICATION,
+        UNREGISTER_PUSH_NOTIFICATIONS, WRITE_NFC_TAG,
     };
 
     // Layout
@@ -271,7 +283,8 @@ pub mod prelude {
         not(any(target_os = "android", target_os = "ios", target_arch = "wasm32"))
     ))]
     pub use fission_shell_desktop::{
-        DesktopApp, MemoryNotificationHost, NotificationHost, UnsupportedNotificationHost,
+        DesktopApp, MemoryNfcHost, MemoryNotificationHost, NfcHost, NotificationHost,
+        UnsupportedNfcHost, UnsupportedNotificationHost,
     };
     #[cfg(all(
         any(feature = "android", feature = "mobile", feature = "platform-shells"),
@@ -288,7 +301,8 @@ pub mod prelude {
         any(target_os = "android", target_os = "ios")
     ))]
     pub use fission_shell_mobile::{
-        MemoryNotificationHost, MobileApp, NotificationHost, UnsupportedNotificationHost,
+        MemoryNfcHost, MemoryNotificationHost, MobileApp, NfcHost, NotificationHost,
+        UnsupportedNfcHost, UnsupportedNotificationHost,
     };
     #[cfg(feature = "site")]
     pub use fission_shell_site::*;
@@ -299,7 +313,8 @@ pub mod prelude {
         target_arch = "wasm32"
     ))]
     pub use fission_shell_web::{
-        MemoryNotificationHost, NotificationHost, UnsupportedNotificationHost, WebApp,
+        MemoryNfcHost, MemoryNotificationHost, NfcHost, NotificationHost, UnsupportedNfcHost,
+        UnsupportedNotificationHost, WebApp,
     };
 
     // Serde (commonly needed for actions)

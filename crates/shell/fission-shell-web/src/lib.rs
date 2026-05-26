@@ -4,7 +4,8 @@ use fission_shell::async_host::AsyncRegistry;
 use fission_shell_winit::WinitApp;
 
 pub use fission_shell_winit::{
-    MemoryNotificationHost, NotificationHost, UnsupportedNotificationHost,
+    MemoryNfcHost, MemoryNotificationHost, NfcHost, NotificationHost, UnsupportedNfcHost,
+    UnsupportedNotificationHost,
 };
 
 pub struct WebApp<S: AppState, W: Widget<S>> {
@@ -82,6 +83,14 @@ impl<S: AppState + Default, W: Widget<S> + 'static> WebApp<S, W> {
         H: NotificationHost,
     {
         self.inner = self.inner.with_notification_host(host);
+        self
+    }
+
+    pub fn with_nfc_host<H>(mut self, host: H) -> Self
+    where
+        H: NfcHost,
+    {
+        self.inner = self.inner.with_nfc_host(host);
         self
     }
 

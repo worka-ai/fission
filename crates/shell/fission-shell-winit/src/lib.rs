@@ -89,6 +89,8 @@ mod ime;
 use ime::{DesktopImeHandler, TextInputConfig};
 mod notifications;
 pub use notifications::{MemoryNotificationHost, NotificationHost, UnsupportedNotificationHost};
+mod nfc;
+pub use nfc::{MemoryNfcHost, NfcHost, UnsupportedNfcHost};
 pub mod test_control;
 
 use fission_core::action::ActionEnvelope;
@@ -151,6 +153,7 @@ fn register_builtin_operation_capabilities(async_registry: &mut AsyncRegistry) {
         async_registry,
         Arc::new(UnsupportedNotificationHost),
     );
+    nfc::register_nfc_capabilities(async_registry, Arc::new(UnsupportedNfcHost));
 }
 
 fn collect_startup_deep_links(config: &DeepLinkConfig) -> Vec<DeepLink> {
@@ -2402,6 +2405,14 @@ impl<S: AppState + Default, W: Widget<S> + 'static> WinitApp<S, W> {
         H: NotificationHost,
     {
         notifications::register_notification_capabilities(&mut self.async_registry, Arc::new(host));
+        self
+    }
+
+    pub fn with_nfc_host<H>(mut self, host: H) -> Self
+    where
+        H: NfcHost,
+    {
+        nfc::register_nfc_capabilities(&mut self.async_registry, Arc::new(host));
         self
     }
 

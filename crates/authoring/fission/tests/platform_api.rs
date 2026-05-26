@@ -33,6 +33,7 @@ impl Widget<PlatformApiState> for PlatformApiApp {
 fn facade_exports_notifications_and_deep_links() {
     let _app = DesktopApp::new(PlatformApiApp)
         .with_notification_host(MemoryNotificationHost)
+        .with_nfc_host(MemoryNfcHost::default())
         .with_deep_link_config(
             DeepLinkConfig::new()
                 .scheme("fission")
@@ -49,4 +50,9 @@ fn facade_exports_notifications_and_deep_links() {
         .on_notification_response(
             on_notification_response as fn(&mut PlatformApiState, NotificationResponseReceived),
         );
+
+    let _scan = NfcScanRequest {
+        technologies: vec![NfcTechnology::Ndef],
+        ..Default::default()
+    };
 }
