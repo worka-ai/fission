@@ -44,6 +44,10 @@ use crate::platform_haptics::{
     HapticImpactRequest, HapticNotificationRequest, HapticPatternRequest, HAPTIC_IMPACT,
     HAPTIC_NOTIFICATION, HAPTIC_PATTERN, HAPTIC_SELECTION,
 };
+use crate::platform_microphone::{
+    MicrophoneCaptureRequest, MicrophonePermissionRequest, CANCEL_MICROPHONE_CAPTURE,
+    CAPTURE_MICROPHONE_AUDIO, GET_MICROPHONE_AVAILABILITY, REQUEST_MICROPHONE_PERMISSION,
+};
 use crate::platform_nfc::{
     NfcEmulationRequest, NfcScanRequest, NfcWriteRequest, CANCEL_NFC_SESSION, EMULATE_NFC_TAG,
     GET_NFC_AVAILABILITY, SCAN_NFC_TAG, WRITE_NFC_TAG,
@@ -215,6 +219,10 @@ impl<'a, S: AppState> Effects<'a, S> {
 
     pub fn haptics(&mut self) -> HapticEffects<'_, 'a, S> {
         HapticEffects { effects: self }
+    }
+
+    pub fn microphone(&mut self) -> MicrophoneEffects<'_, 'a, S> {
+        MicrophoneEffects { effects: self }
     }
 
     pub fn app<J: JobSpec>(
@@ -544,6 +552,33 @@ impl<'a, 'b, S: AppState> HapticEffects<'a, 'b, S> {
 
     pub fn pattern(self, request: HapticPatternRequest) -> EffectBuilder<'a, 'b, S> {
         self.effects.capability(HAPTIC_PATTERN, request)
+    }
+}
+
+/// Convenience builder for standard microphone host capabilities.
+pub struct MicrophoneEffects<'a, 'b, S: AppState> {
+    effects: &'a mut Effects<'b, S>,
+}
+
+impl<'a, 'b, S: AppState> MicrophoneEffects<'a, 'b, S> {
+    pub fn availability(self) -> EffectBuilder<'a, 'b, S> {
+        self.effects.capability(GET_MICROPHONE_AVAILABILITY, ())
+    }
+
+    pub fn request_permission(
+        self,
+        request: MicrophonePermissionRequest,
+    ) -> EffectBuilder<'a, 'b, S> {
+        self.effects
+            .capability(REQUEST_MICROPHONE_PERMISSION, request)
+    }
+
+    pub fn capture_audio(self, request: MicrophoneCaptureRequest) -> EffectBuilder<'a, 'b, S> {
+        self.effects.capability(CAPTURE_MICROPHONE_AUDIO, request)
+    }
+
+    pub fn cancel_capture(self) -> EffectBuilder<'a, 'b, S> {
+        self.effects.capability(CANCEL_MICROPHONE_CAPTURE, ())
     }
 }
 

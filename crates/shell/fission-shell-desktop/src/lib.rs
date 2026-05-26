@@ -8,10 +8,11 @@ use fission_shell_winit::WinitApp;
 pub use fission_shell_winit::{
     test_control, BarcodeScannerHost, BiometricHost, CameraHost, ClipboardHost, GeolocationHost,
     HapticHost, InvalidationSet, MemoryBarcodeScannerHost, MemoryBiometricHost, MemoryCameraHost,
-    MemoryClipboardHost, MemoryGeolocationHost, MemoryHapticHost, MemoryNfcHost,
-    MemoryNotificationHost, NfcHost, NotificationHost, Pipeline, UnsupportedBarcodeScannerHost,
-    UnsupportedBiometricHost, UnsupportedCameraHost, UnsupportedGeolocationHost,
-    UnsupportedHapticHost, UnsupportedNfcHost, UnsupportedNotificationHost,
+    MemoryClipboardHost, MemoryGeolocationHost, MemoryHapticHost, MemoryMicrophoneHost,
+    MemoryNfcHost, MemoryNotificationHost, MicrophoneHost, NfcHost, NotificationHost, Pipeline,
+    UnsupportedBarcodeScannerHost, UnsupportedBiometricHost, UnsupportedCameraHost,
+    UnsupportedGeolocationHost, UnsupportedHapticHost, UnsupportedMicrophoneHost,
+    UnsupportedNfcHost, UnsupportedNotificationHost,
 };
 
 pub struct DesktopApp<S: AppState, W: Widget<S>> {
@@ -149,6 +150,14 @@ impl<S: AppState + Default, W: Widget<S> + 'static> DesktopApp<S, W> {
         H: HapticHost,
     {
         self.inner = self.inner.with_haptic_host(host);
+        self
+    }
+
+    pub fn with_microphone_host<H>(mut self, host: H) -> Self
+    where
+        H: MicrophoneHost,
+    {
+        self.inner = self.inner.with_microphone_host(host);
         self
     }
 

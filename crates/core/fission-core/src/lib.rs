@@ -58,6 +58,7 @@ pub mod platform_camera;
 pub mod platform_clipboard;
 pub mod platform_geolocation;
 pub mod platform_haptics;
+pub mod platform_microphone;
 pub mod platform_nfc;
 pub mod registry;
 pub mod runtime;
@@ -82,7 +83,8 @@ pub use capability::{
 };
 pub use context::{
     BarcodeScannerEffects, BiometricEffects, CameraEffects, ClipboardEffects, Effects,
-    GeolocationEffects, HapticEffects, NfcEffects, NotificationEffects, ReducerContext,
+    GeolocationEffects, HapticEffects, MicrophoneEffects, NfcEffects, NotificationEffects,
+    ReducerContext,
 }; // New
 pub use effect::{ActionInput, Effect, EffectEnvelope, RuntimeEffect};
 pub use env::{
@@ -149,6 +151,13 @@ pub use platform_haptics::{
     HapticNotificationCapability, HapticNotificationKind, HapticNotificationRequest,
     HapticPatternCapability, HapticPatternRequest, HapticPatternStep, HapticSelectionCapability,
     HAPTIC_IMPACT, HAPTIC_NOTIFICATION, HAPTIC_PATTERN, HAPTIC_SELECTION,
+};
+pub use platform_microphone::{
+    AudioSampleFormat, CancelMicrophoneCaptureCapability, CaptureMicrophoneAudioCapability,
+    GetMicrophoneAvailabilityCapability, MicrophoneAvailability, MicrophoneCapture,
+    MicrophoneCaptureRequest, MicrophoneDevice, MicrophoneError, MicrophonePermission,
+    MicrophonePermissionRequest, RequestMicrophonePermissionCapability, CANCEL_MICROPHONE_CAPTURE,
+    CAPTURE_MICROPHONE_AUDIO, GET_MICROPHONE_AVAILABILITY, REQUEST_MICROPHONE_PERMISSION,
 };
 pub use platform_nfc::{
     CancelNfcSessionCapability, EmulateNfcTagCapability, GetNfcAvailabilityCapability,

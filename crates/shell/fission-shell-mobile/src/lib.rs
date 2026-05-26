@@ -6,10 +6,11 @@ use fission_shell_winit::WinitApp;
 pub use fission_shell_winit::{
     BarcodeScannerHost, BiometricHost, CameraHost, ClipboardHost, GeolocationHost, HapticHost,
     MemoryBarcodeScannerHost, MemoryBiometricHost, MemoryCameraHost, MemoryClipboardHost,
-    MemoryGeolocationHost, MemoryHapticHost, MemoryNfcHost, MemoryNotificationHost, NfcHost,
-    NotificationHost, UnsupportedBarcodeScannerHost, UnsupportedBiometricHost,
-    UnsupportedCameraHost, UnsupportedGeolocationHost, UnsupportedHapticHost, UnsupportedNfcHost,
-    UnsupportedNotificationHost,
+    MemoryGeolocationHost, MemoryHapticHost, MemoryMicrophoneHost, MemoryNfcHost,
+    MemoryNotificationHost, MicrophoneHost, NfcHost, NotificationHost,
+    UnsupportedBarcodeScannerHost, UnsupportedBiometricHost, UnsupportedCameraHost,
+    UnsupportedGeolocationHost, UnsupportedHapticHost, UnsupportedMicrophoneHost,
+    UnsupportedNfcHost, UnsupportedNotificationHost,
 };
 
 #[cfg(target_os = "android")]
@@ -150,6 +151,14 @@ impl<S: AppState + Default, W: Widget<S> + 'static> MobileApp<S, W> {
         H: HapticHost,
     {
         self.inner = self.inner.with_haptic_host(host);
+        self
+    }
+
+    pub fn with_microphone_host<H>(mut self, host: H) -> Self
+    where
+        H: MicrophoneHost,
+    {
+        self.inner = self.inner.with_microphone_host(host);
         self
     }
 

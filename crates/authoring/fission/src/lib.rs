@@ -175,6 +175,14 @@ pub use fission_core::{
     WRITE_NFC_TAG,
 };
 pub use fission_core::{
+    AudioSampleFormat, CancelMicrophoneCaptureCapability, CaptureMicrophoneAudioCapability,
+    GetMicrophoneAvailabilityCapability, MicrophoneAvailability, MicrophoneCapture,
+    MicrophoneCaptureRequest, MicrophoneDevice, MicrophoneEffects, MicrophoneError,
+    MicrophonePermission, MicrophonePermissionRequest, RequestMicrophonePermissionCapability,
+    CANCEL_MICROPHONE_CAPTURE, CAPTURE_MICROPHONE_AUDIO, GET_MICROPHONE_AVAILABILITY,
+    REQUEST_MICROPHONE_PERMISSION,
+};
+pub use fission_core::{
     BarcodeFormat, BarcodeImageDecodeRequest, BarcodePoint, BarcodeScanRequest, BarcodeScanResult,
     BarcodeScanResults, BarcodeScannerEffects, BarcodeScannerError, CancelBarcodeScanCapability,
     DecodeBarcodeImageCapability, ScanBarcodeCapability, CANCEL_BARCODE_SCAN, DECODE_BARCODE_IMAGE,
@@ -233,10 +241,11 @@ pub use fission_widgets::{HStack, Icon, Spacer, VStack};
 pub use fission_shell_desktop::{
     BarcodeScannerHost, BiometricHost, CameraHost, ClipboardHost, DesktopApp, GeolocationHost,
     HapticHost, MemoryBarcodeScannerHost, MemoryBiometricHost, MemoryCameraHost,
-    MemoryClipboardHost, MemoryGeolocationHost, MemoryHapticHost, MemoryNfcHost,
-    MemoryNotificationHost, NfcHost, NotificationHost, UnsupportedBarcodeScannerHost,
-    UnsupportedBiometricHost, UnsupportedCameraHost, UnsupportedGeolocationHost,
-    UnsupportedHapticHost, UnsupportedNfcHost, UnsupportedNotificationHost,
+    MemoryClipboardHost, MemoryGeolocationHost, MemoryHapticHost, MemoryMicrophoneHost,
+    MemoryNfcHost, MemoryNotificationHost, MicrophoneHost, NfcHost, NotificationHost,
+    UnsupportedBarcodeScannerHost, UnsupportedBiometricHost, UnsupportedCameraHost,
+    UnsupportedGeolocationHost, UnsupportedHapticHost, UnsupportedMicrophoneHost,
+    UnsupportedNfcHost, UnsupportedNotificationHost,
 };
 #[cfg(all(
     any(
@@ -250,9 +259,10 @@ pub use fission_shell_desktop::{
 pub use fission_shell_mobile::{
     BarcodeScannerHost, BiometricHost, CameraHost, ClipboardHost, GeolocationHost, HapticHost,
     MemoryBarcodeScannerHost, MemoryBiometricHost, MemoryCameraHost, MemoryClipboardHost,
-    MemoryGeolocationHost, MemoryHapticHost, MemoryNfcHost, MemoryNotificationHost, MobileApp,
-    NfcHost, NotificationHost, UnsupportedBarcodeScannerHost, UnsupportedBiometricHost,
-    UnsupportedCameraHost, UnsupportedGeolocationHost, UnsupportedHapticHost, UnsupportedNfcHost,
+    MemoryGeolocationHost, MemoryHapticHost, MemoryMicrophoneHost, MemoryNfcHost,
+    MemoryNotificationHost, MicrophoneHost, MobileApp, NfcHost, NotificationHost,
+    UnsupportedBarcodeScannerHost, UnsupportedBiometricHost, UnsupportedCameraHost,
+    UnsupportedGeolocationHost, UnsupportedHapticHost, UnsupportedNfcHost,
     UnsupportedNotificationHost,
 };
 #[cfg(feature = "terminal-shell")]
@@ -264,9 +274,10 @@ pub use fission_shell_terminal::TerminalApp;
 pub use fission_shell_web::{
     BarcodeScannerHost, BiometricHost, CameraHost, ClipboardHost, GeolocationHost, HapticHost,
     MemoryBarcodeScannerHost, MemoryBiometricHost, MemoryCameraHost, MemoryClipboardHost,
-    MemoryGeolocationHost, MemoryHapticHost, MemoryNfcHost, MemoryNotificationHost, NfcHost,
-    NotificationHost, UnsupportedBarcodeScannerHost, UnsupportedBiometricHost,
-    UnsupportedCameraHost, UnsupportedGeolocationHost, UnsupportedHapticHost, UnsupportedNfcHost,
+    MemoryGeolocationHost, MemoryHapticHost, MemoryMicrophoneHost, MemoryNfcHost,
+    MemoryNotificationHost, MicrophoneHost, NfcHost, NotificationHost,
+    UnsupportedBarcodeScannerHost, UnsupportedBiometricHost, UnsupportedCameraHost,
+    UnsupportedGeolocationHost, UnsupportedHapticHost, UnsupportedNfcHost,
     UnsupportedNotificationHost, WebApp,
 };
 
@@ -312,6 +323,14 @@ pub mod prelude {
         GET_NFC_AVAILABILITY, GET_NOTIFICATION_SETTINGS, REGISTER_PUSH_NOTIFICATIONS,
         REQUEST_NOTIFICATION_PERMISSION, SCAN_NFC_TAG, SCHEDULE_NOTIFICATION, SET_BADGE_COUNT,
         SHOW_NOTIFICATION, UNREGISTER_PUSH_NOTIFICATIONS, WRITE_NFC_TAG,
+    };
+    pub use fission_core::{
+        AudioSampleFormat, CancelMicrophoneCaptureCapability, CaptureMicrophoneAudioCapability,
+        GetMicrophoneAvailabilityCapability, MicrophoneAvailability, MicrophoneCapture,
+        MicrophoneCaptureRequest, MicrophoneDevice, MicrophoneEffects, MicrophoneError,
+        MicrophonePermission, MicrophonePermissionRequest, RequestMicrophonePermissionCapability,
+        CANCEL_MICROPHONE_CAPTURE, CAPTURE_MICROPHONE_AUDIO, GET_MICROPHONE_AVAILABILITY,
+        REQUEST_MICROPHONE_PERMISSION,
     };
     pub use fission_core::{
         BarcodeFormat, BarcodeImageDecodeRequest, BarcodePoint, BarcodeScanRequest,
@@ -372,10 +391,11 @@ pub mod prelude {
     pub use fission_shell_desktop::{
         BarcodeScannerHost, BiometricHost, CameraHost, ClipboardHost, DesktopApp, GeolocationHost,
         HapticHost, MemoryBarcodeScannerHost, MemoryBiometricHost, MemoryCameraHost,
-        MemoryClipboardHost, MemoryGeolocationHost, MemoryHapticHost, MemoryNfcHost,
-        MemoryNotificationHost, NfcHost, NotificationHost, UnsupportedBarcodeScannerHost,
-        UnsupportedBiometricHost, UnsupportedCameraHost, UnsupportedGeolocationHost,
-        UnsupportedHapticHost, UnsupportedNfcHost, UnsupportedNotificationHost,
+        MemoryClipboardHost, MemoryGeolocationHost, MemoryHapticHost, MemoryMicrophoneHost,
+        MemoryNfcHost, MemoryNotificationHost, MicrophoneHost, NfcHost, NotificationHost,
+        UnsupportedBarcodeScannerHost, UnsupportedBiometricHost, UnsupportedCameraHost,
+        UnsupportedGeolocationHost, UnsupportedHapticHost, UnsupportedMicrophoneHost,
+        UnsupportedNfcHost, UnsupportedNotificationHost,
     };
     #[cfg(all(
         any(feature = "android", feature = "mobile", feature = "platform-shells"),
@@ -394,9 +414,10 @@ pub mod prelude {
     pub use fission_shell_mobile::{
         BarcodeScannerHost, BiometricHost, CameraHost, ClipboardHost, GeolocationHost, HapticHost,
         MemoryBarcodeScannerHost, MemoryBiometricHost, MemoryCameraHost, MemoryClipboardHost,
-        MemoryGeolocationHost, MemoryHapticHost, MemoryNfcHost, MemoryNotificationHost, MobileApp,
-        NfcHost, NotificationHost, UnsupportedBarcodeScannerHost, UnsupportedBiometricHost,
-        UnsupportedCameraHost, UnsupportedGeolocationHost, UnsupportedHapticHost,
+        MemoryGeolocationHost, MemoryHapticHost, MemoryMicrophoneHost, MemoryNfcHost,
+        MemoryNotificationHost, MicrophoneHost, MobileApp, NfcHost, NotificationHost,
+        UnsupportedBarcodeScannerHost, UnsupportedBiometricHost, UnsupportedCameraHost,
+        UnsupportedGeolocationHost, UnsupportedHapticHost, UnsupportedMicrophoneHost,
         UnsupportedNfcHost, UnsupportedNotificationHost,
     };
     #[cfg(feature = "site")]
@@ -410,9 +431,10 @@ pub mod prelude {
     pub use fission_shell_web::{
         BarcodeScannerHost, BiometricHost, CameraHost, ClipboardHost, GeolocationHost, HapticHost,
         MemoryBarcodeScannerHost, MemoryBiometricHost, MemoryCameraHost, MemoryClipboardHost,
-        MemoryGeolocationHost, MemoryHapticHost, MemoryNfcHost, MemoryNotificationHost, NfcHost,
-        NotificationHost, UnsupportedBarcodeScannerHost, UnsupportedBiometricHost,
-        UnsupportedCameraHost, UnsupportedGeolocationHost, UnsupportedHapticHost,
+        MemoryGeolocationHost, MemoryHapticHost, MemoryMicrophoneHost, MemoryNfcHost,
+        MemoryNotificationHost, MicrophoneHost, NfcHost, NotificationHost,
+        UnsupportedBarcodeScannerHost, UnsupportedBiometricHost, UnsupportedCameraHost,
+        UnsupportedGeolocationHost, UnsupportedHapticHost, UnsupportedMicrophoneHost,
         UnsupportedNfcHost, UnsupportedNotificationHost, WebApp,
     };
 

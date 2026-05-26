@@ -40,6 +40,7 @@ fn facade_exports_notifications_and_deep_links() {
         .with_clipboard_host(MemoryClipboardHost::default())
         .with_geolocation_host(MemoryGeolocationHost::default())
         .with_haptic_host(MemoryHapticHost::default())
+        .with_microphone_host(MemoryMicrophoneHost::default())
         .with_deep_link_config(
             DeepLinkConfig::new()
                 .scheme("fission")
@@ -84,5 +85,9 @@ fn facade_exports_notifications_and_deep_links() {
     };
     let _haptic = HapticImpactRequest {
         style: HapticImpactStyle::Rigid,
+    };
+    let _microphone = MicrophoneCaptureRequest {
+        sample_format: AudioSampleFormat::I16,
+        ..Default::default()
     };
 }

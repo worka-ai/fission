@@ -98,6 +98,8 @@ mod camera;
 pub use camera::{CameraHost, MemoryCameraHost, UnsupportedCameraHost};
 mod ime;
 use ime::{DesktopImeHandler, TextInputConfig};
+mod microphone;
+pub use microphone::{MemoryMicrophoneHost, MicrophoneHost, UnsupportedMicrophoneHost};
 mod notifications;
 pub use notifications::{MemoryNotificationHost, NotificationHost, UnsupportedNotificationHost};
 mod nfc;
@@ -177,6 +179,10 @@ fn register_builtin_operation_capabilities(async_registry: &mut AsyncRegistry) {
         Arc::new(UnsupportedGeolocationHost),
     );
     haptics::register_haptic_capabilities(async_registry, Arc::new(UnsupportedHapticHost));
+    microphone::register_microphone_capabilities(
+        async_registry,
+        Arc::new(UnsupportedMicrophoneHost),
+    );
 }
 
 fn collect_startup_deep_links(config: &DeepLinkConfig) -> Vec<DeepLink> {
@@ -2484,6 +2490,14 @@ impl<S: AppState + Default, W: Widget<S> + 'static> WinitApp<S, W> {
         H: HapticHost,
     {
         haptics::register_haptic_capabilities(&mut self.async_registry, Arc::new(host));
+        self
+    }
+
+    pub fn with_microphone_host<H>(mut self, host: H) -> Self
+    where
+        H: MicrophoneHost,
+    {
+        microphone::register_microphone_capabilities(&mut self.async_registry, Arc::new(host));
         self
     }
 

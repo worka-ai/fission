@@ -385,6 +385,7 @@ mod tests {
             "camera",
             "geolocation",
             "haptics",
+            "microphone",
             "--project-dir",
             dir.to_str().unwrap(),
         ])
@@ -409,6 +410,9 @@ mod tests {
         assert!(project
             .capabilities
             .contains(&fission_command_core::PlatformCapability::Haptics));
+        assert!(project
+            .capabilities
+            .contains(&fission_command_core::PlatformCapability::Microphone));
 
         let android_manifest =
             std::fs::read_to_string(dir.join("platforms/android/AndroidManifest.xml")).unwrap();
@@ -419,12 +423,14 @@ mod tests {
         assert!(android_manifest.contains("android.hardware.camera.flash"));
         assert!(android_manifest.contains("android.permission.ACCESS_FINE_LOCATION"));
         assert!(android_manifest.contains("android.permission.VIBRATE"));
+        assert!(android_manifest.contains("android.permission.RECORD_AUDIO"));
 
         let ios_info = std::fs::read_to_string(dir.join("platforms/ios/Info.plist")).unwrap();
         assert!(ios_info.contains("NFCReaderUsageDescription"));
         assert!(ios_info.contains("NSFaceIDUsageDescription"));
         assert!(ios_info.contains("NSCameraUsageDescription"));
         assert!(ios_info.contains("NSLocationWhenInUseUsageDescription"));
+        assert!(ios_info.contains("NSMicrophoneUsageDescription"));
         let ios_entitlements =
             std::fs::read_to_string(dir.join("platforms/ios/Entitlements.plist")).unwrap();
         assert!(ios_entitlements.contains("com.apple.developer.nfc.readersession.formats"));
