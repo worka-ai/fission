@@ -288,6 +288,14 @@ pub use fission_shell_desktop::{
     UnsupportedPasskeyHost, UnsupportedVolumeHost, UnsupportedWifiHost, VolumeHost, WifiHost,
 };
 #[cfg(all(
+    feature = "desktop-tray",
+    not(any(target_os = "android", target_os = "ios", target_arch = "wasm32"))
+))]
+pub use fission_shell_desktop::{
+    TrayActivateBehavior, TrayConfig, TrayHostAction, TrayIconSource, TrayMenu, TrayMenuAction,
+    TrayMenuEntry, TrayMenuItem, TrayMenuWidget, WindowCloseBehavior,
+};
+#[cfg(all(
     any(
         feature = "android",
         feature = "ios",
@@ -448,6 +456,14 @@ pub mod prelude {
         HapticPatternCapability, HapticPatternRequest, HapticPatternStep,
         HapticSelectionCapability, HAPTIC_IMPACT, HAPTIC_NOTIFICATION, HAPTIC_PATTERN,
         HAPTIC_SELECTION,
+    };
+    #[cfg(all(
+        feature = "desktop-tray",
+        not(any(target_os = "android", target_os = "ios", target_arch = "wasm32"))
+    ))]
+    pub use fission_shell_desktop::{
+        TrayActivateBehavior, TrayConfig, TrayHostAction, TrayIconSource, TrayMenu, TrayMenuAction,
+        TrayMenuEntry, TrayMenuItem, TrayMenuWidget, WindowCloseBehavior,
     };
 
     // Layout

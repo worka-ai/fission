@@ -17,6 +17,11 @@ pub use fission_shell_winit::{
     UnsupportedNotificationHost, UnsupportedPasskeyHost, UnsupportedVolumeHost,
     UnsupportedWifiHost, VolumeHost, WifiHost,
 };
+#[cfg(feature = "tray")]
+pub use fission_shell_winit::{
+    TrayActivateBehavior, TrayConfig, TrayHostAction, TrayIconSource, TrayMenu, TrayMenuAction,
+    TrayMenuEntry, TrayMenuItem, TrayMenuWidget, WindowCloseBehavior,
+};
 
 pub struct DesktopApp<S: AppState, W: Widget<S>> {
     inner: WinitApp<S, W>,
@@ -198,6 +203,12 @@ impl<S: AppState + Default, W: Widget<S> + 'static> DesktopApp<S, W> {
 
     pub fn with_startup_action<A: Action>(mut self, action: A) -> Self {
         self.inner = self.inner.with_startup_action(action);
+        self
+    }
+
+    #[cfg(feature = "tray")]
+    pub fn with_tray(mut self, config: TrayConfig<S>) -> Self {
+        self.inner = self.inner.with_tray(config);
         self
     }
 
