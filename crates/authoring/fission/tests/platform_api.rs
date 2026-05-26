@@ -36,6 +36,7 @@ fn facade_exports_notifications_and_deep_links() {
         .with_nfc_host(MemoryNfcHost::default())
         .with_biometric_host(MemoryBiometricHost::default())
         .with_barcode_scanner_host(MemoryBarcodeScannerHost::default())
+        .with_camera_host(MemoryCameraHost::default())
         .with_clipboard_host(MemoryClipboardHost::default())
         .with_geolocation_host(MemoryGeolocationHost::default())
         .with_haptic_host(MemoryHapticHost::default())
@@ -67,6 +68,11 @@ fn facade_exports_notifications_and_deep_links() {
     };
     let _barcode = BarcodeScanRequest {
         formats: vec![BarcodeFormat::QrCode],
+        ..Default::default()
+    };
+    let _camera = CameraCaptureRequest {
+        facing: CameraFacing::Back,
+        flash: CameraFlashMode::Auto,
         ..Default::default()
     };
     let _clipboard = ClipboardWriteTextRequest {

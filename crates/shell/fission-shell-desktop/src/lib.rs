@@ -6,12 +6,12 @@ use fission_shell::async_host::AsyncRegistry;
 use fission_shell_winit::WinitApp;
 
 pub use fission_shell_winit::{
-    test_control, BarcodeScannerHost, BiometricHost, ClipboardHost, GeolocationHost, HapticHost,
-    InvalidationSet, MemoryBarcodeScannerHost, MemoryBiometricHost, MemoryClipboardHost,
-    MemoryGeolocationHost, MemoryHapticHost, MemoryNfcHost, MemoryNotificationHost, NfcHost,
-    NotificationHost, Pipeline, UnsupportedBarcodeScannerHost, UnsupportedBiometricHost,
-    UnsupportedGeolocationHost, UnsupportedHapticHost, UnsupportedNfcHost,
-    UnsupportedNotificationHost,
+    test_control, BarcodeScannerHost, BiometricHost, CameraHost, ClipboardHost, GeolocationHost,
+    HapticHost, InvalidationSet, MemoryBarcodeScannerHost, MemoryBiometricHost, MemoryCameraHost,
+    MemoryClipboardHost, MemoryGeolocationHost, MemoryHapticHost, MemoryNfcHost,
+    MemoryNotificationHost, NfcHost, NotificationHost, Pipeline, UnsupportedBarcodeScannerHost,
+    UnsupportedBiometricHost, UnsupportedCameraHost, UnsupportedGeolocationHost,
+    UnsupportedHapticHost, UnsupportedNfcHost, UnsupportedNotificationHost,
 };
 
 pub struct DesktopApp<S: AppState, W: Widget<S>> {
@@ -117,6 +117,14 @@ impl<S: AppState + Default, W: Widget<S> + 'static> DesktopApp<S, W> {
         H: BarcodeScannerHost,
     {
         self.inner = self.inner.with_barcode_scanner_host(host);
+        self
+    }
+
+    pub fn with_camera_host<H>(mut self, host: H) -> Self
+    where
+        H: CameraHost,
+    {
+        self.inner = self.inner.with_camera_host(host);
         self
     }
 

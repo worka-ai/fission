@@ -181,6 +181,14 @@ pub use fission_core::{
     SCAN_BARCODE,
 };
 pub use fission_core::{
+    CameraAvailability, CameraCapture, CameraCaptureRequest, CameraDevice, CameraEffects,
+    CameraError, CameraFacing, CameraFlashMode, CameraFlashlightRequest, CameraImageFormat,
+    CameraPermission, CameraPermissionRequest, CameraResolution, CancelCameraCaptureCapability,
+    CapturePhotoCapability, GetCameraAvailabilityCapability, RequestCameraPermissionCapability,
+    SetCameraFlashlightCapability, CANCEL_CAMERA_CAPTURE, CAPTURE_PHOTO, GET_CAMERA_AVAILABILITY,
+    REQUEST_CAMERA_PERMISSION, SET_CAMERA_FLASHLIGHT,
+};
+pub use fission_core::{
     ClearClipboardCapability, ClipboardContent, ClipboardEffects, ClipboardError, ClipboardItem,
     ClipboardText, ClipboardWriteTextRequest, ReadClipboardContentCapability,
     ReadClipboardTextCapability, WriteClipboardContentCapability, WriteClipboardTextCapability,
@@ -223,10 +231,11 @@ pub use fission_widgets::{HStack, Icon, Spacer, VStack};
     not(any(target_os = "android", target_os = "ios", target_arch = "wasm32"))
 ))]
 pub use fission_shell_desktop::{
-    BarcodeScannerHost, BiometricHost, ClipboardHost, DesktopApp, GeolocationHost, HapticHost,
-    MemoryBarcodeScannerHost, MemoryBiometricHost, MemoryClipboardHost, MemoryGeolocationHost,
-    MemoryHapticHost, MemoryNfcHost, MemoryNotificationHost, NfcHost, NotificationHost,
-    UnsupportedBarcodeScannerHost, UnsupportedBiometricHost, UnsupportedGeolocationHost,
+    BarcodeScannerHost, BiometricHost, CameraHost, ClipboardHost, DesktopApp, GeolocationHost,
+    HapticHost, MemoryBarcodeScannerHost, MemoryBiometricHost, MemoryCameraHost,
+    MemoryClipboardHost, MemoryGeolocationHost, MemoryHapticHost, MemoryNfcHost,
+    MemoryNotificationHost, NfcHost, NotificationHost, UnsupportedBarcodeScannerHost,
+    UnsupportedBiometricHost, UnsupportedCameraHost, UnsupportedGeolocationHost,
     UnsupportedHapticHost, UnsupportedNfcHost, UnsupportedNotificationHost,
 };
 #[cfg(all(
@@ -239,11 +248,12 @@ pub use fission_shell_desktop::{
     any(target_os = "android", target_os = "ios")
 ))]
 pub use fission_shell_mobile::{
-    BarcodeScannerHost, BiometricHost, ClipboardHost, GeolocationHost, HapticHost,
-    MemoryBarcodeScannerHost, MemoryBiometricHost, MemoryClipboardHost, MemoryGeolocationHost,
-    MemoryHapticHost, MemoryNfcHost, MemoryNotificationHost, MobileApp, NfcHost, NotificationHost,
-    UnsupportedBarcodeScannerHost, UnsupportedBiometricHost, UnsupportedGeolocationHost,
-    UnsupportedHapticHost, UnsupportedNfcHost, UnsupportedNotificationHost,
+    BarcodeScannerHost, BiometricHost, CameraHost, ClipboardHost, GeolocationHost, HapticHost,
+    MemoryBarcodeScannerHost, MemoryBiometricHost, MemoryCameraHost, MemoryClipboardHost,
+    MemoryGeolocationHost, MemoryHapticHost, MemoryNfcHost, MemoryNotificationHost, MobileApp,
+    NfcHost, NotificationHost, UnsupportedBarcodeScannerHost, UnsupportedBiometricHost,
+    UnsupportedCameraHost, UnsupportedGeolocationHost, UnsupportedHapticHost, UnsupportedNfcHost,
+    UnsupportedNotificationHost,
 };
 #[cfg(feature = "terminal-shell")]
 pub use fission_shell_terminal::TerminalApp;
@@ -252,11 +262,12 @@ pub use fission_shell_terminal::TerminalApp;
     target_arch = "wasm32"
 ))]
 pub use fission_shell_web::{
-    BarcodeScannerHost, BiometricHost, ClipboardHost, GeolocationHost, HapticHost,
-    MemoryBarcodeScannerHost, MemoryBiometricHost, MemoryClipboardHost, MemoryGeolocationHost,
-    MemoryHapticHost, MemoryNfcHost, MemoryNotificationHost, NfcHost, NotificationHost,
-    UnsupportedBarcodeScannerHost, UnsupportedBiometricHost, UnsupportedGeolocationHost,
-    UnsupportedHapticHost, UnsupportedNfcHost, UnsupportedNotificationHost, WebApp,
+    BarcodeScannerHost, BiometricHost, CameraHost, ClipboardHost, GeolocationHost, HapticHost,
+    MemoryBarcodeScannerHost, MemoryBiometricHost, MemoryCameraHost, MemoryClipboardHost,
+    MemoryGeolocationHost, MemoryHapticHost, MemoryNfcHost, MemoryNotificationHost, NfcHost,
+    NotificationHost, UnsupportedBarcodeScannerHost, UnsupportedBiometricHost,
+    UnsupportedCameraHost, UnsupportedGeolocationHost, UnsupportedHapticHost, UnsupportedNfcHost,
+    UnsupportedNotificationHost, WebApp,
 };
 
 // Macros
@@ -309,6 +320,14 @@ pub mod prelude {
         CANCEL_BARCODE_SCAN, DECODE_BARCODE_IMAGE, SCAN_BARCODE,
     };
     pub use fission_core::{
+        CameraAvailability, CameraCapture, CameraCaptureRequest, CameraDevice, CameraEffects,
+        CameraError, CameraFacing, CameraFlashMode, CameraFlashlightRequest, CameraImageFormat,
+        CameraPermission, CameraPermissionRequest, CameraResolution, CancelCameraCaptureCapability,
+        CapturePhotoCapability, GetCameraAvailabilityCapability, RequestCameraPermissionCapability,
+        SetCameraFlashlightCapability, CANCEL_CAMERA_CAPTURE, CAPTURE_PHOTO,
+        GET_CAMERA_AVAILABILITY, REQUEST_CAMERA_PERMISSION, SET_CAMERA_FLASHLIGHT,
+    };
+    pub use fission_core::{
         ClearClipboardCapability, ClipboardContent, ClipboardEffects, ClipboardError,
         ClipboardItem, ClipboardText, ClipboardWriteTextRequest, ReadClipboardContentCapability,
         ReadClipboardTextCapability, WriteClipboardContentCapability, WriteClipboardTextCapability,
@@ -351,10 +370,11 @@ pub mod prelude {
         not(any(target_os = "android", target_os = "ios", target_arch = "wasm32"))
     ))]
     pub use fission_shell_desktop::{
-        BarcodeScannerHost, BiometricHost, ClipboardHost, DesktopApp, GeolocationHost, HapticHost,
-        MemoryBarcodeScannerHost, MemoryBiometricHost, MemoryClipboardHost, MemoryGeolocationHost,
-        MemoryHapticHost, MemoryNfcHost, MemoryNotificationHost, NfcHost, NotificationHost,
-        UnsupportedBarcodeScannerHost, UnsupportedBiometricHost, UnsupportedGeolocationHost,
+        BarcodeScannerHost, BiometricHost, CameraHost, ClipboardHost, DesktopApp, GeolocationHost,
+        HapticHost, MemoryBarcodeScannerHost, MemoryBiometricHost, MemoryCameraHost,
+        MemoryClipboardHost, MemoryGeolocationHost, MemoryHapticHost, MemoryNfcHost,
+        MemoryNotificationHost, NfcHost, NotificationHost, UnsupportedBarcodeScannerHost,
+        UnsupportedBiometricHost, UnsupportedCameraHost, UnsupportedGeolocationHost,
         UnsupportedHapticHost, UnsupportedNfcHost, UnsupportedNotificationHost,
     };
     #[cfg(all(
@@ -372,12 +392,12 @@ pub mod prelude {
         any(target_os = "android", target_os = "ios")
     ))]
     pub use fission_shell_mobile::{
-        BarcodeScannerHost, BiometricHost, ClipboardHost, GeolocationHost, HapticHost,
-        MemoryBarcodeScannerHost, MemoryBiometricHost, MemoryClipboardHost, MemoryGeolocationHost,
-        MemoryHapticHost, MemoryNfcHost, MemoryNotificationHost, MobileApp, NfcHost,
-        NotificationHost, UnsupportedBarcodeScannerHost, UnsupportedBiometricHost,
-        UnsupportedGeolocationHost, UnsupportedHapticHost, UnsupportedNfcHost,
-        UnsupportedNotificationHost,
+        BarcodeScannerHost, BiometricHost, CameraHost, ClipboardHost, GeolocationHost, HapticHost,
+        MemoryBarcodeScannerHost, MemoryBiometricHost, MemoryCameraHost, MemoryClipboardHost,
+        MemoryGeolocationHost, MemoryHapticHost, MemoryNfcHost, MemoryNotificationHost, MobileApp,
+        NfcHost, NotificationHost, UnsupportedBarcodeScannerHost, UnsupportedBiometricHost,
+        UnsupportedCameraHost, UnsupportedGeolocationHost, UnsupportedHapticHost,
+        UnsupportedNfcHost, UnsupportedNotificationHost,
     };
     #[cfg(feature = "site")]
     pub use fission_shell_site::*;
@@ -388,11 +408,12 @@ pub mod prelude {
         target_arch = "wasm32"
     ))]
     pub use fission_shell_web::{
-        BarcodeScannerHost, BiometricHost, ClipboardHost, GeolocationHost, HapticHost,
-        MemoryBarcodeScannerHost, MemoryBiometricHost, MemoryClipboardHost, MemoryGeolocationHost,
-        MemoryHapticHost, MemoryNfcHost, MemoryNotificationHost, NfcHost, NotificationHost,
-        UnsupportedBarcodeScannerHost, UnsupportedBiometricHost, UnsupportedGeolocationHost,
-        UnsupportedHapticHost, UnsupportedNfcHost, UnsupportedNotificationHost, WebApp,
+        BarcodeScannerHost, BiometricHost, CameraHost, ClipboardHost, GeolocationHost, HapticHost,
+        MemoryBarcodeScannerHost, MemoryBiometricHost, MemoryCameraHost, MemoryClipboardHost,
+        MemoryGeolocationHost, MemoryHapticHost, MemoryNfcHost, MemoryNotificationHost, NfcHost,
+        NotificationHost, UnsupportedBarcodeScannerHost, UnsupportedBiometricHost,
+        UnsupportedCameraHost, UnsupportedGeolocationHost, UnsupportedHapticHost,
+        UnsupportedNfcHost, UnsupportedNotificationHost, WebApp,
     };
 
     // Serde (commonly needed for actions)

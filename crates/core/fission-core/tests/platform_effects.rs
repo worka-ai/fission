@@ -5,6 +5,7 @@ use fission_core::{
 };
 use fission_core::{BarcodeFormat, BarcodeScanRequest, SCAN_BARCODE};
 use fission_core::{BiometricAuthenticateRequest, AUTHENTICATE_BIOMETRIC};
+use fission_core::{CameraCaptureRequest, CameraFacing, CAPTURE_PHOTO};
 use fission_core::{ClipboardWriteTextRequest, WRITE_CLIPBOARD_TEXT};
 use fission_core::{GeolocationPositionRequest, GET_CURRENT_POSITION};
 use fission_core::{HapticImpactRequest, HapticImpactStyle, HAPTIC_IMPACT};
@@ -133,6 +134,27 @@ fn barcode_convenience_builder_emits_capability_effect() {
     assert_eq!(op.capability_name, SCAN_BARCODE.name);
     let decoded: BarcodeScanRequest = serde_json::from_slice(&op.request).unwrap();
     assert_eq!(decoded.formats, vec![BarcodeFormat::QrCode]);
+}
+
+#[test]
+fn camera_convenience_builder_emits_capability_effect() {
+    let mut registry = ActionRegistry::<TestState>::new();
+    let mut effects = Effects::new(15, &mut registry);
+
+    effects.camera().capture_photo(CameraCaptureRequest {
+        facing: CameraFacing::Back,
+        ..Default::default()
+    });
+
+    assert_eq!(effects.out.len(), 1);
+    assert_eq!(effects.out[0].req_id, 15);
+    let Effect::Capability(CapabilityInvocationPayload::Operation(op)) = &effects.out[0].effect
+    else {
+        panic!("expected camera capability effect");
+    };
+    assert_eq!(op.capability_name, CAPTURE_PHOTO.name);
+    let decoded: CameraCaptureRequest = serde_json::from_slice(&op.request).unwrap();
+    assert_eq!(decoded.facing, CameraFacing::Back);
 }
 
 #[test]

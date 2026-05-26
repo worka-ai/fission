@@ -28,6 +28,10 @@ use crate::platform_biometric::{
     BiometricAuthenticateRequest, AUTHENTICATE_BIOMETRIC, CANCEL_BIOMETRIC_AUTHENTICATION,
     GET_BIOMETRIC_AVAILABILITY,
 };
+use crate::platform_camera::{
+    CameraCaptureRequest, CameraFlashlightRequest, CameraPermissionRequest, CANCEL_CAMERA_CAPTURE,
+    CAPTURE_PHOTO, GET_CAMERA_AVAILABILITY, REQUEST_CAMERA_PERMISSION, SET_CAMERA_FLASHLIGHT,
+};
 use crate::platform_clipboard::{
     ClipboardContent, ClipboardWriteTextRequest, CLEAR_CLIPBOARD, READ_CLIPBOARD_CONTENT,
     READ_CLIPBOARD_TEXT, WRITE_CLIPBOARD_CONTENT, WRITE_CLIPBOARD_TEXT,
@@ -195,6 +199,10 @@ impl<'a, S: AppState> Effects<'a, S> {
 
     pub fn barcode_scanner(&mut self) -> BarcodeScannerEffects<'_, 'a, S> {
         BarcodeScannerEffects { effects: self }
+    }
+
+    pub fn camera(&mut self) -> CameraEffects<'_, 'a, S> {
+        CameraEffects { effects: self }
     }
 
     pub fn clipboard(&mut self) -> ClipboardEffects<'_, 'a, S> {
@@ -436,6 +444,33 @@ impl<'a, 'b, S: AppState> BarcodeScannerEffects<'a, 'b, S> {
 
     pub fn cancel_scan(self) -> EffectBuilder<'a, 'b, S> {
         self.effects.capability(CANCEL_BARCODE_SCAN, ())
+    }
+}
+
+/// Convenience builder for standard camera host capabilities.
+pub struct CameraEffects<'a, 'b, S: AppState> {
+    effects: &'a mut Effects<'b, S>,
+}
+
+impl<'a, 'b, S: AppState> CameraEffects<'a, 'b, S> {
+    pub fn availability(self) -> EffectBuilder<'a, 'b, S> {
+        self.effects.capability(GET_CAMERA_AVAILABILITY, ())
+    }
+
+    pub fn request_permission(self, request: CameraPermissionRequest) -> EffectBuilder<'a, 'b, S> {
+        self.effects.capability(REQUEST_CAMERA_PERMISSION, request)
+    }
+
+    pub fn capture_photo(self, request: CameraCaptureRequest) -> EffectBuilder<'a, 'b, S> {
+        self.effects.capability(CAPTURE_PHOTO, request)
+    }
+
+    pub fn set_flashlight(self, request: CameraFlashlightRequest) -> EffectBuilder<'a, 'b, S> {
+        self.effects.capability(SET_CAMERA_FLASHLIGHT, request)
+    }
+
+    pub fn cancel_capture(self) -> EffectBuilder<'a, 'b, S> {
+        self.effects.capability(CANCEL_CAMERA_CAPTURE, ())
     }
 }
 

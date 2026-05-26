@@ -382,6 +382,7 @@ mod tests {
             "nfc",
             "biometric",
             "barcode-scanner",
+            "camera",
             "geolocation",
             "haptics",
             "--project-dir",
@@ -401,6 +402,9 @@ mod tests {
             .contains(&fission_command_core::PlatformCapability::BarcodeScanner));
         assert!(project
             .capabilities
+            .contains(&fission_command_core::PlatformCapability::Camera));
+        assert!(project
+            .capabilities
             .contains(&fission_command_core::PlatformCapability::Geolocation));
         assert!(project
             .capabilities
@@ -412,6 +416,7 @@ mod tests {
         assert!(android_manifest.contains("android.hardware.nfc"));
         assert!(android_manifest.contains("android.permission.USE_BIOMETRIC"));
         assert!(android_manifest.contains("android.permission.CAMERA"));
+        assert!(android_manifest.contains("android.hardware.camera.flash"));
         assert!(android_manifest.contains("android.permission.ACCESS_FINE_LOCATION"));
         assert!(android_manifest.contains("android.permission.VIBRATE"));
 

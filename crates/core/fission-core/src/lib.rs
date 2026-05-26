@@ -54,6 +54,7 @@ pub mod media;
 pub mod platform;
 pub mod platform_barcode;
 pub mod platform_biometric;
+pub mod platform_camera;
 pub mod platform_clipboard;
 pub mod platform_geolocation;
 pub mod platform_haptics;
@@ -80,8 +81,8 @@ pub use capability::{
     PickOpenFilesResult, PickedFile, OPEN_URL, PICK_OPEN_FILES,
 };
 pub use context::{
-    BarcodeScannerEffects, BiometricEffects, ClipboardEffects, Effects, GeolocationEffects,
-    HapticEffects, NfcEffects, NotificationEffects, ReducerContext,
+    BarcodeScannerEffects, BiometricEffects, CameraEffects, ClipboardEffects, Effects,
+    GeolocationEffects, HapticEffects, NfcEffects, NotificationEffects, ReducerContext,
 }; // New
 pub use effect::{ActionInput, Effect, EffectEnvelope, RuntimeEffect};
 pub use env::{
@@ -122,6 +123,14 @@ pub use platform_biometric::{
     BiometricAvailability, BiometricError, BiometricKind, BiometricStrength,
     CancelBiometricAuthenticationCapability, GetBiometricAvailabilityCapability,
     AUTHENTICATE_BIOMETRIC, CANCEL_BIOMETRIC_AUTHENTICATION, GET_BIOMETRIC_AVAILABILITY,
+};
+pub use platform_camera::{
+    CameraAvailability, CameraCapture, CameraCaptureRequest, CameraDevice, CameraError,
+    CameraFacing, CameraFlashMode, CameraFlashlightRequest, CameraImageFormat, CameraPermission,
+    CameraPermissionRequest, CameraResolution, CancelCameraCaptureCapability,
+    CapturePhotoCapability, GetCameraAvailabilityCapability, RequestCameraPermissionCapability,
+    SetCameraFlashlightCapability, CANCEL_CAMERA_CAPTURE, CAPTURE_PHOTO, GET_CAMERA_AVAILABILITY,
+    REQUEST_CAMERA_PERMISSION, SET_CAMERA_FLASHLIGHT,
 };
 pub use platform_clipboard::{
     ClearClipboardCapability, ClipboardContent, ClipboardError, ClipboardItem, ClipboardText,
