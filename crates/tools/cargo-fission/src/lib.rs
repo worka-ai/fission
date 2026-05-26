@@ -387,6 +387,7 @@ mod tests {
             "geolocation",
             "haptics",
             "microphone",
+            "volume-control",
             "wifi",
             "--project-dir",
             dir.to_str().unwrap(),
@@ -420,6 +421,9 @@ mod tests {
             .contains(&fission_command_core::PlatformCapability::Microphone));
         assert!(project
             .capabilities
+            .contains(&fission_command_core::PlatformCapability::VolumeControl));
+        assert!(project
+            .capabilities
             .contains(&fission_command_core::PlatformCapability::Wifi));
 
         let android_manifest =
@@ -435,6 +439,7 @@ mod tests {
         assert!(android_manifest.contains("android.permission.ACCESS_FINE_LOCATION"));
         assert!(android_manifest.contains("android.permission.VIBRATE"));
         assert!(android_manifest.contains("android.permission.RECORD_AUDIO"));
+        assert!(android_manifest.contains("android.permission.MODIFY_AUDIO_SETTINGS"));
         assert!(android_manifest.contains("android.permission.NEARBY_WIFI_DEVICES"));
         assert!(android_manifest.contains("android.permission.ACCESS_WIFI_STATE"));
 

@@ -109,6 +109,8 @@ pub use nfc::{MemoryNfcHost, NfcHost, UnsupportedNfcHost};
 pub mod test_control;
 mod wifi;
 pub use wifi::{MemoryWifiHost, UnsupportedWifiHost, WifiHost};
+mod volume;
+pub use volume::{MemoryVolumeHost, UnsupportedVolumeHost, VolumeHost};
 
 use fission_core::action::ActionEnvelope;
 
@@ -189,6 +191,7 @@ fn register_builtin_operation_capabilities(async_registry: &mut AsyncRegistry) {
         Arc::new(UnsupportedMicrophoneHost),
     );
     wifi::register_wifi_capabilities(async_registry, Arc::new(UnsupportedWifiHost));
+    volume::register_volume_capabilities(async_registry, Arc::new(UnsupportedVolumeHost));
 }
 
 fn collect_startup_deep_links(config: &DeepLinkConfig) -> Vec<DeepLink> {
@@ -2520,6 +2523,14 @@ impl<S: AppState + Default, W: Widget<S> + 'static> WinitApp<S, W> {
         H: WifiHost,
     {
         wifi::register_wifi_capabilities(&mut self.async_registry, Arc::new(host));
+        self
+    }
+
+    pub fn with_volume_host<H>(mut self, host: H) -> Self
+    where
+        H: VolumeHost,
+    {
+        volume::register_volume_capabilities(&mut self.async_registry, Arc::new(host));
         self
     }
 

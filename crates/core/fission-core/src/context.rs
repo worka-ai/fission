@@ -60,6 +60,10 @@ use crate::platform_nfc::{
     NfcEmulationRequest, NfcScanRequest, NfcWriteRequest, CANCEL_NFC_SESSION, EMULATE_NFC_TAG,
     GET_NFC_AVAILABILITY, SCAN_NFC_TAG, WRITE_NFC_TAG,
 };
+use crate::platform_volume::{
+    VolumeAdjustRequest, VolumeSetRequest, VolumeStream, ADJUST_VOLUME_LEVEL, GET_VOLUME_LEVEL,
+    SET_VOLUME_LEVEL,
+};
 use crate::platform_wifi::{
     WifiConnectRequest, WifiDisconnectRequest, WifiPermissionRequest, WifiScanRequest,
     CONNECT_WIFI_NETWORK, DISCONNECT_WIFI_NETWORK, GET_WIFI_AVAILABILITY, REQUEST_WIFI_PERMISSION,
@@ -244,6 +248,10 @@ impl<'a, S: AppState> Effects<'a, S> {
 
     pub fn wifi(&mut self) -> WifiEffects<'_, 'a, S> {
         WifiEffects { effects: self }
+    }
+
+    pub fn volume(&mut self) -> VolumeEffects<'_, 'a, S> {
+        VolumeEffects { effects: self }
     }
 
     pub fn app<J: JobSpec>(
@@ -684,6 +692,25 @@ impl<'a, 'b, S: AppState> WifiEffects<'a, 'b, S> {
 
     pub fn disconnect_network(self, request: WifiDisconnectRequest) -> EffectBuilder<'a, 'b, S> {
         self.effects.capability(DISCONNECT_WIFI_NETWORK, request)
+    }
+}
+
+/// Convenience builder for standard volume-control host capabilities.
+pub struct VolumeEffects<'a, 'b, S: AppState> {
+    effects: &'a mut Effects<'b, S>,
+}
+
+impl<'a, 'b, S: AppState> VolumeEffects<'a, 'b, S> {
+    pub fn get_level(self, stream: VolumeStream) -> EffectBuilder<'a, 'b, S> {
+        self.effects.capability(GET_VOLUME_LEVEL, stream)
+    }
+
+    pub fn set_level(self, request: VolumeSetRequest) -> EffectBuilder<'a, 'b, S> {
+        self.effects.capability(SET_VOLUME_LEVEL, request)
+    }
+
+    pub fn adjust_level(self, request: VolumeAdjustRequest) -> EffectBuilder<'a, 'b, S> {
+        self.effects.capability(ADJUST_VOLUME_LEVEL, request)
     }
 }
 
