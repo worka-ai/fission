@@ -43,6 +43,7 @@ fn facade_exports_notifications_and_deep_links() {
         .with_haptic_host(MemoryHapticHost::default())
         .with_microphone_host(MemoryMicrophoneHost::default())
         .with_wifi_host(MemoryWifiHost::default())
+        .with_volume_host(MemoryVolumeHost::default())
         .with_deep_link_config(
             DeepLinkConfig::new()
                 .scheme("fission")
@@ -99,5 +100,10 @@ fn facade_exports_notifications_and_deep_links() {
     let _wifi = WifiScanRequest {
         ssid_prefix: Some("Fis".into()),
         ..Default::default()
+    };
+    let _volume = VolumeSetRequest {
+        stream: VolumeStream::Media,
+        level: 50,
+        muted: None,
     };
 }

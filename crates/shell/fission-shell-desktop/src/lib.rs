@@ -9,11 +9,13 @@ pub use fission_shell_winit::{
     test_control, BarcodeScannerHost, BiometricHost, BluetoothHost, CameraHost, ClipboardHost,
     GeolocationHost, HapticHost, InvalidationSet, MemoryBarcodeScannerHost, MemoryBiometricHost,
     MemoryBluetoothHost, MemoryCameraHost, MemoryClipboardHost, MemoryGeolocationHost,
-    MemoryHapticHost, MemoryMicrophoneHost, MemoryNfcHost, MemoryNotificationHost, MemoryWifiHost,
-    MicrophoneHost, NfcHost, NotificationHost, Pipeline, UnsupportedBarcodeScannerHost,
-    UnsupportedBiometricHost, UnsupportedBluetoothHost, UnsupportedCameraHost,
-    UnsupportedGeolocationHost, UnsupportedHapticHost, UnsupportedMicrophoneHost,
-    UnsupportedNfcHost, UnsupportedNotificationHost, UnsupportedWifiHost, WifiHost,
+    MemoryHapticHost, MemoryMicrophoneHost, MemoryNfcHost, MemoryNotificationHost,
+    MemoryPasskeyHost, MemoryVolumeHost, MemoryWifiHost, MicrophoneHost, NfcHost, NotificationHost,
+    PasskeyHost, Pipeline, UnsupportedBarcodeScannerHost, UnsupportedBiometricHost,
+    UnsupportedBluetoothHost, UnsupportedCameraHost, UnsupportedGeolocationHost,
+    UnsupportedHapticHost, UnsupportedMicrophoneHost, UnsupportedNfcHost,
+    UnsupportedNotificationHost, UnsupportedPasskeyHost, UnsupportedVolumeHost,
+    UnsupportedWifiHost, VolumeHost, WifiHost,
 };
 
 pub struct DesktopApp<S: AppState, W: Widget<S>> {
@@ -114,6 +116,14 @@ impl<S: AppState + Default, W: Widget<S> + 'static> DesktopApp<S, W> {
         self
     }
 
+    pub fn with_passkey_host<H>(mut self, host: H) -> Self
+    where
+        H: PasskeyHost,
+    {
+        self.inner = self.inner.with_passkey_host(host);
+        self
+    }
+
     pub fn with_bluetooth_host<H>(mut self, host: H) -> Self
     where
         H: BluetoothHost,
@@ -175,6 +185,14 @@ impl<S: AppState + Default, W: Widget<S> + 'static> DesktopApp<S, W> {
         H: WifiHost,
     {
         self.inner = self.inner.with_wifi_host(host);
+        self
+    }
+
+    pub fn with_volume_host<H>(mut self, host: H) -> Self
+    where
+        H: VolumeHost,
+    {
+        self.inner = self.inner.with_volume_host(host);
         self
     }
 
