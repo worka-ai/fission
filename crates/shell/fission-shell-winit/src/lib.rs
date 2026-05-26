@@ -85,6 +85,8 @@ use web_backend::MockWebBackend;
 
 mod clipboard;
 use clipboard::DesktopClipboard;
+mod biometric;
+pub use biometric::{BiometricHost, MemoryBiometricHost, UnsupportedBiometricHost};
 mod ime;
 use ime::{DesktopImeHandler, TextInputConfig};
 mod notifications;
@@ -154,6 +156,7 @@ fn register_builtin_operation_capabilities(async_registry: &mut AsyncRegistry) {
         Arc::new(UnsupportedNotificationHost),
     );
     nfc::register_nfc_capabilities(async_registry, Arc::new(UnsupportedNfcHost));
+    biometric::register_biometric_capabilities(async_registry, Arc::new(UnsupportedBiometricHost));
 }
 
 fn collect_startup_deep_links(config: &DeepLinkConfig) -> Vec<DeepLink> {
@@ -2413,6 +2416,14 @@ impl<S: AppState + Default, W: Widget<S> + 'static> WinitApp<S, W> {
         H: NfcHost,
     {
         nfc::register_nfc_capabilities(&mut self.async_registry, Arc::new(host));
+        self
+    }
+
+    pub fn with_biometric_host<H>(mut self, host: H) -> Self
+    where
+        H: BiometricHost,
+    {
+        biometric::register_biometric_capabilities(&mut self.async_registry, Arc::new(host));
         self
     }
 

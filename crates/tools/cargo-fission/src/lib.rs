@@ -380,6 +380,7 @@ mod tests {
             "fission",
             "add-capability",
             "nfc",
+            "biometric",
             "--project-dir",
             dir.to_str().unwrap(),
         ])
@@ -389,14 +390,19 @@ mod tests {
         assert!(project
             .capabilities
             .contains(&fission_command_core::PlatformCapability::Nfc));
+        assert!(project
+            .capabilities
+            .contains(&fission_command_core::PlatformCapability::Biometric));
 
         let android_manifest =
             std::fs::read_to_string(dir.join("platforms/android/AndroidManifest.xml")).unwrap();
         assert!(android_manifest.contains("android.permission.NFC"));
         assert!(android_manifest.contains("android.hardware.nfc"));
+        assert!(android_manifest.contains("android.permission.USE_BIOMETRIC"));
 
         let ios_info = std::fs::read_to_string(dir.join("platforms/ios/Info.plist")).unwrap();
         assert!(ios_info.contains("NFCReaderUsageDescription"));
+        assert!(ios_info.contains("NSFaceIDUsageDescription"));
         let ios_entitlements =
             std::fs::read_to_string(dir.join("platforms/ios/Entitlements.plist")).unwrap();
         assert!(ios_entitlements.contains("com.apple.developer.nfc.readersession.formats"));

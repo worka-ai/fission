@@ -52,6 +52,7 @@ pub mod input;
 pub mod lowering;
 pub mod media;
 pub mod platform;
+pub mod platform_biometric;
 pub mod platform_nfc;
 pub mod registry;
 pub mod runtime;
@@ -74,7 +75,7 @@ pub use capability::{
     OperationCapability, PickOpenFilesCapability, PickOpenFilesError, PickOpenFilesRequest,
     PickOpenFilesResult, PickedFile, OPEN_URL, PICK_OPEN_FILES,
 };
-pub use context::{Effects, NfcEffects, NotificationEffects, ReducerContext}; // New
+pub use context::{BiometricEffects, Effects, NfcEffects, NotificationEffects, ReducerContext}; // New
 pub use effect::{ActionInput, Effect, EffectEnvelope, RuntimeEffect};
 pub use env::{
     Clipboard, Env, ImeHandler, InteractionStateMap, RuntimeState, ScrollStateMap, WindowEnv,
@@ -102,6 +103,12 @@ pub use platform::{
     UnregisterPushNotificationsCapability, CANCEL_ALL_NOTIFICATIONS, CANCEL_NOTIFICATION,
     GET_NOTIFICATION_SETTINGS, REGISTER_PUSH_NOTIFICATIONS, REQUEST_NOTIFICATION_PERMISSION,
     SCHEDULE_NOTIFICATION, SET_BADGE_COUNT, SHOW_NOTIFICATION, UNREGISTER_PUSH_NOTIFICATIONS,
+};
+pub use platform_biometric::{
+    AuthenticateBiometricCapability, BiometricAuthenticateRequest, BiometricAuthenticateResult,
+    BiometricAvailability, BiometricError, BiometricKind, BiometricStrength,
+    CancelBiometricAuthenticationCapability, GetBiometricAvailabilityCapability,
+    AUTHENTICATE_BIOMETRIC, CANCEL_BIOMETRIC_AUTHENTICATION, GET_BIOMETRIC_AVAILABILITY,
 };
 pub use platform_nfc::{
     CancelNfcSessionCapability, EmulateNfcTagCapability, GetNfcAvailabilityCapability,

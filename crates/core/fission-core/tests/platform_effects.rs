@@ -3,6 +3,7 @@ use fission_core::{
     DeepLinkReceived, Effect, Effects, NotificationId, NotificationRequest, NotificationResponse,
     NotificationResponseReceived, SHOW_NOTIFICATION,
 };
+use fission_core::{BiometricAuthenticateRequest, AUTHENTICATE_BIOMETRIC};
 use fission_core::{NfcRecord, NfcScanRequest, NfcTechnology, SCAN_NFC_TAG};
 
 #[derive(Debug, Default)]
@@ -83,4 +84,27 @@ fn nfc_convenience_builder_emits_capability_effect() {
 fn nfc_records_are_public_api() {
     let record = NfcRecord::uri("fission://open/1");
     assert_eq!(record.type_name, b"U".to_vec());
+}
+
+#[test]
+fn biometric_convenience_builder_emits_capability_effect() {
+    let mut registry = ActionRegistry::<TestState>::new();
+    let mut effects = Effects::new(11, &mut registry);
+
+    effects
+        .biometrics()
+        .authenticate(BiometricAuthenticateRequest {
+            reason: "Unlock secure data".into(),
+            ..Default::default()
+        });
+
+    assert_eq!(effects.out.len(), 1);
+    assert_eq!(effects.out[0].req_id, 11);
+    let Effect::Capability(CapabilityInvocationPayload::Operation(op)) = &effects.out[0].effect
+    else {
+        panic!("expected biometric capability effect");
+    };
+    assert_eq!(op.capability_name, AUTHENTICATE_BIOMETRIC.name);
+    let decoded: BiometricAuthenticateRequest = serde_json::from_slice(&op.request).unwrap();
+    assert_eq!(decoded.reason, "Unlock secure data");
 }

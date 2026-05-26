@@ -20,6 +20,10 @@ use crate::platform::{
     GET_NOTIFICATION_SETTINGS, REGISTER_PUSH_NOTIFICATIONS, REQUEST_NOTIFICATION_PERMISSION,
     SCHEDULE_NOTIFICATION, SET_BADGE_COUNT, SHOW_NOTIFICATION, UNREGISTER_PUSH_NOTIFICATIONS,
 };
+use crate::platform_biometric::{
+    BiometricAuthenticateRequest, AUTHENTICATE_BIOMETRIC, CANCEL_BIOMETRIC_AUTHENTICATION,
+    GET_BIOMETRIC_AVAILABILITY,
+};
 use crate::platform_nfc::{
     NfcEmulationRequest, NfcScanRequest, NfcWriteRequest, CANCEL_NFC_SESSION, EMULATE_NFC_TAG,
     GET_NFC_AVAILABILITY, SCAN_NFC_TAG, WRITE_NFC_TAG,
@@ -167,6 +171,10 @@ impl<'a, S: AppState> Effects<'a, S> {
 
     pub fn nfc(&mut self) -> NfcEffects<'_, 'a, S> {
         NfcEffects { effects: self }
+    }
+
+    pub fn biometrics(&mut self) -> BiometricEffects<'_, 'a, S> {
+        BiometricEffects { effects: self }
     }
 
     pub fn app<J: JobSpec>(
@@ -358,6 +366,25 @@ impl<'a, 'b, S: AppState> NfcEffects<'a, 'b, S> {
 
     pub fn cancel_session(self) -> EffectBuilder<'a, 'b, S> {
         self.effects.capability(CANCEL_NFC_SESSION, ())
+    }
+}
+
+/// Convenience builder for standard biometric host capabilities.
+pub struct BiometricEffects<'a, 'b, S: AppState> {
+    effects: &'a mut Effects<'b, S>,
+}
+
+impl<'a, 'b, S: AppState> BiometricEffects<'a, 'b, S> {
+    pub fn availability(self) -> EffectBuilder<'a, 'b, S> {
+        self.effects.capability(GET_BIOMETRIC_AVAILABILITY, ())
+    }
+
+    pub fn authenticate(self, request: BiometricAuthenticateRequest) -> EffectBuilder<'a, 'b, S> {
+        self.effects.capability(AUTHENTICATE_BIOMETRIC, request)
+    }
+
+    pub fn cancel_authentication(self) -> EffectBuilder<'a, 'b, S> {
+        self.effects.capability(CANCEL_BIOMETRIC_AUTHENTICATION, ())
     }
 }
 

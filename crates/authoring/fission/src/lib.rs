@@ -151,9 +151,12 @@ pub use fission_core::ui::*;
 // Core action/state types
 pub use fission_core::{
     Action, ActionEnvelope, ActionId, ActionScopeId, AnimationPropertyId, AnimationRequest,
-    AnimationStartValue, AppState, BuildCtx, CancelAllNotificationsCapability,
-    CancelNotificationCapability, CancelNotificationRequest, DeepLink, DeepLinkConfig,
-    DeepLinkReceived, DeepLinkSource, EasingFunction, EmulateNfcTagCapability, FlexDirection,
+    AnimationStartValue, AppState, AuthenticateBiometricCapability, BiometricAuthenticateRequest,
+    BiometricAuthenticateResult, BiometricAvailability, BiometricEffects, BiometricError,
+    BiometricKind, BiometricStrength, BuildCtx, CancelAllNotificationsCapability,
+    CancelBiometricAuthenticationCapability, CancelNotificationCapability,
+    CancelNotificationRequest, DeepLink, DeepLinkConfig, DeepLinkReceived, DeepLinkSource,
+    EasingFunction, EmulateNfcTagCapability, FlexDirection, GetBiometricAvailabilityCapability,
     GetNfcAvailabilityCapability, GetNotificationSettingsCapability, Handler, NfcAvailability,
     NfcEffects, NfcEmulationRequest, NfcError, NfcRecord, NfcRecordTypeNameFormat, NfcScanRequest,
     NfcSessionReceipt, NfcTag, NfcTagDiscovered, NfcTechnology, NfcWriteRequest, NodeBuilder,
@@ -164,8 +167,9 @@ pub use fission_core::{
     RegisterPushNotificationsCapability, RequestNotificationPermissionCapability,
     ScanNfcTagCapability, ScheduleNotificationCapability, Selector, SetBadgeCountCapability,
     SetBadgeCountRequest, ShowNotificationCapability, UnregisterPushNotificationsCapability, View,
-    Widget, WidgetNodeId, WriteNfcTagCapability, CANCEL_ALL_NOTIFICATIONS, CANCEL_NFC_SESSION,
-    CANCEL_NOTIFICATION, EMULATE_NFC_TAG, GET_NFC_AVAILABILITY, GET_NOTIFICATION_SETTINGS,
+    Widget, WidgetNodeId, WriteNfcTagCapability, AUTHENTICATE_BIOMETRIC, CANCEL_ALL_NOTIFICATIONS,
+    CANCEL_BIOMETRIC_AUTHENTICATION, CANCEL_NFC_SESSION, CANCEL_NOTIFICATION, EMULATE_NFC_TAG,
+    GET_BIOMETRIC_AVAILABILITY, GET_NFC_AVAILABILITY, GET_NOTIFICATION_SETTINGS,
     REGISTER_PUSH_NOTIFICATIONS, REQUEST_NOTIFICATION_PERMISSION, SCAN_NFC_TAG,
     SCHEDULE_NOTIFICATION, SET_BADGE_COUNT, SHOW_NOTIFICATION, UNREGISTER_PUSH_NOTIFICATIONS,
     WRITE_NFC_TAG,
@@ -194,8 +198,8 @@ pub use fission_widgets::{HStack, Icon, Spacer, VStack};
     not(any(target_os = "android", target_os = "ios", target_arch = "wasm32"))
 ))]
 pub use fission_shell_desktop::{
-    DesktopApp, MemoryNfcHost, MemoryNotificationHost, NfcHost, NotificationHost,
-    UnsupportedNfcHost, UnsupportedNotificationHost,
+    BiometricHost, DesktopApp, MemoryBiometricHost, MemoryNfcHost, MemoryNotificationHost, NfcHost,
+    NotificationHost, UnsupportedBiometricHost, UnsupportedNfcHost, UnsupportedNotificationHost,
 };
 #[cfg(all(
     any(
@@ -207,8 +211,8 @@ pub use fission_shell_desktop::{
     any(target_os = "android", target_os = "ios")
 ))]
 pub use fission_shell_mobile::{
-    MemoryNfcHost, MemoryNotificationHost, MobileApp, NfcHost, NotificationHost,
-    UnsupportedNfcHost, UnsupportedNotificationHost,
+    BiometricHost, MemoryBiometricHost, MemoryNfcHost, MemoryNotificationHost, MobileApp, NfcHost,
+    NotificationHost, UnsupportedBiometricHost, UnsupportedNfcHost, UnsupportedNotificationHost,
 };
 #[cfg(feature = "terminal-shell")]
 pub use fission_shell_terminal::TerminalApp;
@@ -217,8 +221,9 @@ pub use fission_shell_terminal::TerminalApp;
     target_arch = "wasm32"
 ))]
 pub use fission_shell_web::{
-    MemoryNfcHost, MemoryNotificationHost, NfcHost, NotificationHost, UnsupportedNfcHost,
-    UnsupportedNotificationHost, WebApp,
+    BiometricHost, MemoryBiometricHost, MemoryNfcHost, MemoryNotificationHost, NfcHost,
+    NotificationHost, UnsupportedBiometricHost, UnsupportedNfcHost, UnsupportedNotificationHost,
+    WebApp,
 };
 
 // Macros
@@ -239,26 +244,30 @@ pub mod prelude {
     pub use fission_core::{reduce, reduce_with, with_reducer};
     pub use fission_core::{
         Action, ActionEnvelope, ActionId, ActionScopeId, AnimationPropertyId, AnimationRequest,
-        AnimationStartValue, AppState, BuildCtx, CancelAllNotificationsCapability,
+        AnimationStartValue, AppState, AuthenticateBiometricCapability,
+        BiometricAuthenticateRequest, BiometricAuthenticateResult, BiometricAvailability,
+        BiometricEffects, BiometricError, BiometricKind, BiometricStrength, BuildCtx,
+        CancelAllNotificationsCapability, CancelBiometricAuthenticationCapability,
         CancelNotificationCapability, CancelNotificationRequest, DeepLink, DeepLinkConfig,
         DeepLinkReceived, DeepLinkSource, Effects, EmulateNfcTagCapability, FlexDirection,
-        GetNfcAvailabilityCapability, GetNotificationSettingsCapability, Handler, NfcAvailability,
-        NfcEffects, NfcEmulationRequest, NfcError, NfcRecord, NfcRecordTypeNameFormat,
-        NfcScanRequest, NfcSessionReceipt, NfcTag, NfcTagDiscovered, NfcTechnology,
-        NfcWriteRequest, NodeBuilder, NotificationActionButton, NotificationEffects,
-        NotificationError, NotificationId, NotificationPermission, NotificationPermissionRequest,
-        NotificationReceipt, NotificationRequest, NotificationResponse,
-        NotificationResponseReceived, NotificationSchedule, NotificationSettings,
-        NotificationSound, Op, PortalLayer, PushPlatform, PushRegistration,
-        PushRegistrationRequest, ReducerContext, RegisterPushNotificationsCapability,
-        RequestNotificationPermissionCapability, ScanNfcTagCapability,
-        ScheduleNotificationCapability, Selector, SetBadgeCountCapability, SetBadgeCountRequest,
-        ShowNotificationCapability, UnregisterPushNotificationsCapability, View, Widget,
-        WidgetNodeId, WindowEnv, WindowTitle, WriteNfcTagCapability, CANCEL_ALL_NOTIFICATIONS,
-        CANCEL_NFC_SESSION, CANCEL_NOTIFICATION, EMULATE_NFC_TAG, GET_NFC_AVAILABILITY,
-        GET_NOTIFICATION_SETTINGS, REGISTER_PUSH_NOTIFICATIONS, REQUEST_NOTIFICATION_PERMISSION,
-        SCAN_NFC_TAG, SCHEDULE_NOTIFICATION, SET_BADGE_COUNT, SHOW_NOTIFICATION,
-        UNREGISTER_PUSH_NOTIFICATIONS, WRITE_NFC_TAG,
+        GetBiometricAvailabilityCapability, GetNfcAvailabilityCapability,
+        GetNotificationSettingsCapability, Handler, NfcAvailability, NfcEffects,
+        NfcEmulationRequest, NfcError, NfcRecord, NfcRecordTypeNameFormat, NfcScanRequest,
+        NfcSessionReceipt, NfcTag, NfcTagDiscovered, NfcTechnology, NfcWriteRequest, NodeBuilder,
+        NotificationActionButton, NotificationEffects, NotificationError, NotificationId,
+        NotificationPermission, NotificationPermissionRequest, NotificationReceipt,
+        NotificationRequest, NotificationResponse, NotificationResponseReceived,
+        NotificationSchedule, NotificationSettings, NotificationSound, Op, PortalLayer,
+        PushPlatform, PushRegistration, PushRegistrationRequest, ReducerContext,
+        RegisterPushNotificationsCapability, RequestNotificationPermissionCapability,
+        ScanNfcTagCapability, ScheduleNotificationCapability, Selector, SetBadgeCountCapability,
+        SetBadgeCountRequest, ShowNotificationCapability, UnregisterPushNotificationsCapability,
+        View, Widget, WidgetNodeId, WindowEnv, WindowTitle, WriteNfcTagCapability,
+        AUTHENTICATE_BIOMETRIC, CANCEL_ALL_NOTIFICATIONS, CANCEL_BIOMETRIC_AUTHENTICATION,
+        CANCEL_NFC_SESSION, CANCEL_NOTIFICATION, EMULATE_NFC_TAG, GET_BIOMETRIC_AVAILABILITY,
+        GET_NFC_AVAILABILITY, GET_NOTIFICATION_SETTINGS, REGISTER_PUSH_NOTIFICATIONS,
+        REQUEST_NOTIFICATION_PERMISSION, SCAN_NFC_TAG, SCHEDULE_NOTIFICATION, SET_BADGE_COUNT,
+        SHOW_NOTIFICATION, UNREGISTER_PUSH_NOTIFICATIONS, WRITE_NFC_TAG,
     };
 
     // Layout
@@ -283,8 +292,9 @@ pub mod prelude {
         not(any(target_os = "android", target_os = "ios", target_arch = "wasm32"))
     ))]
     pub use fission_shell_desktop::{
-        DesktopApp, MemoryNfcHost, MemoryNotificationHost, NfcHost, NotificationHost,
-        UnsupportedNfcHost, UnsupportedNotificationHost,
+        BiometricHost, DesktopApp, MemoryBiometricHost, MemoryNfcHost, MemoryNotificationHost,
+        NfcHost, NotificationHost, UnsupportedBiometricHost, UnsupportedNfcHost,
+        UnsupportedNotificationHost,
     };
     #[cfg(all(
         any(feature = "android", feature = "mobile", feature = "platform-shells"),
@@ -301,8 +311,9 @@ pub mod prelude {
         any(target_os = "android", target_os = "ios")
     ))]
     pub use fission_shell_mobile::{
-        MemoryNfcHost, MemoryNotificationHost, MobileApp, NfcHost, NotificationHost,
-        UnsupportedNfcHost, UnsupportedNotificationHost,
+        BiometricHost, MemoryBiometricHost, MemoryNfcHost, MemoryNotificationHost, MobileApp,
+        NfcHost, NotificationHost, UnsupportedBiometricHost, UnsupportedNfcHost,
+        UnsupportedNotificationHost,
     };
     #[cfg(feature = "site")]
     pub use fission_shell_site::*;
@@ -313,7 +324,8 @@ pub mod prelude {
         target_arch = "wasm32"
     ))]
     pub use fission_shell_web::{
-        MemoryNfcHost, MemoryNotificationHost, NfcHost, NotificationHost, UnsupportedNfcHost,
+        BiometricHost, MemoryBiometricHost, MemoryNfcHost, MemoryNotificationHost, NfcHost,
+        NotificationHost, UnsupportedBiometricHost, UnsupportedNfcHost,
         UnsupportedNotificationHost, WebApp,
     };
 
