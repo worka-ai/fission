@@ -71,6 +71,11 @@ href = "/reference/capabilities/biometrics/"
 level = 2
 
 [[items]]
+title = "Passkeys"
+href = "/reference/capabilities/passkeys/"
+level = 2
+
+[[items]]
 title = "Barcode scanner"
 href = "/reference/capabilities/barcode-scanner/"
 level = 2

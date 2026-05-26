@@ -7,12 +7,12 @@ pub use fission_shell_winit::{
     BarcodeScannerHost, BiometricHost, BluetoothHost, CameraHost, ClipboardHost, GeolocationHost,
     HapticHost, MemoryBarcodeScannerHost, MemoryBiometricHost, MemoryBluetoothHost,
     MemoryCameraHost, MemoryClipboardHost, MemoryGeolocationHost, MemoryHapticHost,
-    MemoryMicrophoneHost, MemoryNfcHost, MemoryNotificationHost, MemoryVolumeHost, MemoryWifiHost,
-    MicrophoneHost, NfcHost, NotificationHost, UnsupportedBarcodeScannerHost,
-    UnsupportedBiometricHost, UnsupportedBluetoothHost, UnsupportedCameraHost,
-    UnsupportedGeolocationHost, UnsupportedHapticHost, UnsupportedMicrophoneHost,
-    UnsupportedNfcHost, UnsupportedNotificationHost, UnsupportedVolumeHost, UnsupportedWifiHost,
-    VolumeHost, WifiHost,
+    MemoryMicrophoneHost, MemoryNfcHost, MemoryNotificationHost, MemoryPasskeyHost,
+    MemoryVolumeHost, MemoryWifiHost, MicrophoneHost, NfcHost, NotificationHost, PasskeyHost,
+    UnsupportedBarcodeScannerHost, UnsupportedBiometricHost, UnsupportedBluetoothHost,
+    UnsupportedCameraHost, UnsupportedGeolocationHost, UnsupportedHapticHost,
+    UnsupportedMicrophoneHost, UnsupportedNfcHost, UnsupportedNotificationHost,
+    UnsupportedPasskeyHost, UnsupportedVolumeHost, UnsupportedWifiHost, VolumeHost, WifiHost,
 };
 
 pub struct WebApp<S: AppState, W: Widget<S>> {
@@ -106,6 +106,14 @@ impl<S: AppState + Default, W: Widget<S> + 'static> WebApp<S, W> {
         H: BiometricHost,
     {
         self.inner = self.inner.with_biometric_host(host);
+        self
+    }
+
+    pub fn with_passkey_host<H>(mut self, host: H) -> Self
+    where
+        H: PasskeyHost,
+    {
+        self.inner = self.inner.with_passkey_host(host);
         self
     }
 

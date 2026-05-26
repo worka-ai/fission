@@ -29,7 +29,7 @@ Biometrics ask the host to verify the current user with platform authentication 
 
 ## Platform configuration
 
-Run `fission add-capability biometric --project-dir .`. Android receives biometric permissions. iOS receives the Face ID usage string. macOS and Windows can support local biometric checks through their platform authentication APIs when the desktop host provider is implemented. Web sign-in prompts that use fingerprint are usually passkeys/WebAuthn, which should be modeled as a credential capability rather than raw biometric access.
+Run `fission add-capability biometric --project-dir .`. Android receives biometric permissions. iOS receives the Face ID usage string. macOS and Windows can support local biometric checks through their platform authentication APIs when the desktop host provider is implemented. Web sign-in prompts that use fingerprint are usually passkeys/WebAuthn, which Fission models as the separate passkeys credential capability rather than raw biometric access.
 
 The CLI records the capability in `fission.toml` when the capability has a CLI value. Generated mobile configuration is written to the platform files that the host target already owns: Android uses `platforms/android/AndroidManifest.xml`; iOS uses `platforms/ios/Info.plist` and `platforms/ios/Entitlements.plist` when the feature needs entitlements. Desktop package metadata is target-specific and should be reviewed during packaging because Windows, macOS, and Linux expose different permission and distribution systems.
 

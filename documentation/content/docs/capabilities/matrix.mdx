@@ -15,6 +15,7 @@ The matrix describes Fission's built-in capability contracts and the platform re
 | [Deep links](/docs/capabilities/deep-links/) | [API](/reference/capabilities/deep-links/) | Yes | Provider | Provider | Limited | Yes | Yes | Yes |
 | [NFC](/docs/capabilities/nfc/) | [API](/reference/capabilities/nfc/) | Limited mobile | Hardware provider | Hardware provider | Hardware provider | Yes | Yes | Yes |
 | [Biometrics](/docs/capabilities/biometrics/) | [API](/reference/capabilities/biometrics/) | Use passkeys | Provider | Provider | Limited | Yes | Yes | Yes |
+| [Passkeys](/docs/capabilities/passkeys/) | [API](/reference/capabilities/passkeys/) | Yes | Provider | Provider | Limited | Yes | Yes | Yes |
 | [Barcode scanner](/docs/capabilities/barcode-scanner/) | [API](/reference/capabilities/barcode-scanner/) | Provider | Provider | Provider | Limited | Yes | Yes | Yes |
 | [Camera and flashlight](/docs/capabilities/camera/) | [API](/reference/capabilities/camera/) | Yes | Provider | Provider | Limited | Yes | Yes | Yes |
 | [Clipboard](/docs/capabilities/clipboard/) | [API](/reference/capabilities/clipboard/) | Yes | Yes | Yes | Yes | Yes | Yes | Yes |
@@ -27,6 +28,6 @@ The matrix describes Fission's built-in capability contracts and the platform re
 
 Desktop support deserves a careful reading. Windows and macOS increasingly expose camera, microphone, notifications, Bluetooth, local authentication, clipboard, location, and volume APIs that a Fission host can connect to. Linux often has an equivalent route, but it may depend on portals, desktop services, BlueZ, NetworkManager, PulseAudio or PipeWire, and distribution packaging. For that reason Linux cells are more often marked limited or provider-driven.
 
-Web biometrics deserve a separate note. When a site appears to authenticate with a fingerprint, it is usually using a passkey or WebAuthn credential. The browser or password manager may use fingerprint or face recognition to unlock the credential, but the web app receives a credential assertion rather than direct biometric access. Fission should model that as a credential/passkey capability, not as raw biometric scanning.
+Web biometrics deserve a separate note. When a site appears to authenticate with a fingerprint, it is usually using a passkey or WebAuthn credential. The browser or password manager may use fingerprint or face recognition to unlock the credential, but the web app receives a credential assertion rather than direct biometric access. Fission models that as the separate [Passkeys](/docs/capabilities/passkeys/) credential capability, not as raw biometric scanning.
 
 For conceptual guidance, read [Platform capabilities](/docs/guides/platform-capabilities/). For lower-level request, provider, and configuration details, start with [Platform capabilities reference](/reference/core/platform-capabilities/).

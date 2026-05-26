@@ -11,7 +11,7 @@ Use biometrics to protect an app action that needs a fresh local user check: unl
 
 ## Setup
 
-Start by declaring the capability with `fission add-capability biometric --project-dir .`. Run `fission add-capability biometric --project-dir .`. Android receives biometric permissions. iOS receives the Face ID usage string. macOS and Windows can support local biometric checks through their platform authentication APIs when the desktop host provider is implemented. Web sign-in prompts that use fingerprint are usually passkeys/WebAuthn, which should be modeled as a credential capability rather than raw biometric access.
+Start by declaring the capability with `fission add-capability biometric --project-dir .`. Run `fission add-capability biometric --project-dir .`. Android receives biometric permissions. iOS receives the Face ID usage string. macOS and Windows can support local biometric checks through their platform authentication APIs when the desktop host provider is implemented. Web sign-in prompts that use fingerprint are usually passkeys/WebAuthn, which Fission models as the separate passkeys credential capability rather than raw biometric access.
 
 ## Request it from a reducer
 
@@ -35,7 +35,7 @@ The important rule is that the reducer does not call the operating system direct
 
 ## Platform expectations
 
-Android and iOS have direct biometric authentication flows. Windows and macOS also have mature local authentication systems. Linux support is less consistent and depends on the desktop stack and enrolled authenticators. Web apps should use passkeys/WebAuthn for sign-in; the browser or password manager may use biometrics internally, but the app receives a credential assertion rather than direct fingerprint or face data.
+Android and iOS have direct biometric authentication flows. Windows and macOS also have mature local authentication systems. Linux support is less consistent and depends on the desktop stack and enrolled authenticators. Web apps should use [Passkeys](/docs/capabilities/passkeys/) for sign-in; the browser or password manager may use biometrics internally, but the app receives a credential assertion rather than direct fingerprint or face data.
 
 Read the [capability matrix](/docs/capabilities/matrix/) when you need a quick cross-platform view. The matrix separates platforms with direct support from platforms where a host provider can be implemented but permissions, hardware, or distribution packaging change the behavior.
 

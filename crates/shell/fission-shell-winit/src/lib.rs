@@ -106,6 +106,8 @@ mod notifications;
 pub use notifications::{MemoryNotificationHost, NotificationHost, UnsupportedNotificationHost};
 mod nfc;
 pub use nfc::{MemoryNfcHost, NfcHost, UnsupportedNfcHost};
+mod passkey;
+pub use passkey::{MemoryPasskeyHost, PasskeyHost, UnsupportedPasskeyHost};
 pub mod test_control;
 mod wifi;
 pub use wifi::{MemoryWifiHost, UnsupportedWifiHost, WifiHost};
@@ -174,6 +176,7 @@ fn register_builtin_operation_capabilities(async_registry: &mut AsyncRegistry) {
     );
     nfc::register_nfc_capabilities(async_registry, Arc::new(UnsupportedNfcHost));
     biometric::register_biometric_capabilities(async_registry, Arc::new(UnsupportedBiometricHost));
+    passkey::register_passkey_capabilities(async_registry, Arc::new(UnsupportedPasskeyHost));
     bluetooth::register_bluetooth_capabilities(async_registry, Arc::new(UnsupportedBluetoothHost));
     barcode::register_barcode_scanner_capabilities(
         async_registry,
@@ -2474,6 +2477,20 @@ impl<S: AppState + Default, W: Widget<S> + 'static> WinitApp<S, W> {
         H: BiometricHost,
     {
         biometric::register_biometric_capabilities(&mut self.async_registry, Arc::new(host));
+        self
+    }
+
+    /// Registers the host implementation used for passkey/WebAuthn effects.
+    ///
+    /// `host` should map Fission registration and authentication requests to
+    /// the platform credential APIs and return WebAuthn data for server-side
+    /// verification. It should not treat local biometric unlock as proof of
+    /// identity without server verification.
+    pub fn with_passkey_host<H>(mut self, host: H) -> Self
+    where
+        H: PasskeyHost,
+    {
+        passkey::register_passkey_capabilities(&mut self.async_registry, Arc::new(host));
         self
     }
 

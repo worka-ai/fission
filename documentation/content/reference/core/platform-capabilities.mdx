@@ -25,6 +25,7 @@ Platform capabilities are typed host contracts. Shared app code uses `ctx.effect
 | Deep links | `DeepLinkReceived` | `DeepLinkConfig` | action-envelope tests | [Deep links](/reference/capabilities/deep-links/) |
 | NFC | `effects.nfc()` | `NfcHost` | `MemoryNfcHost` | [NFC](/reference/capabilities/nfc/) |
 | Biometrics | `effects.biometrics()` | `BiometricHost` | `MemoryBiometricHost` | [Biometrics](/reference/capabilities/biometrics/) |
+| Passkeys | `effects.passkeys()` | `PasskeyHost` | `MemoryPasskeyHost` | [Passkeys](/reference/capabilities/passkeys/) |
 | Barcode scanner | `effects.barcode_scanner()` | `BarcodeScannerHost` | `MemoryBarcodeScannerHost` | [Barcode scanner](/reference/capabilities/barcode-scanner/) |
 | Camera and flashlight | `effects.camera()` | `CameraHost` | `MemoryCameraHost` | [Camera and flashlight](/reference/capabilities/camera/) |
 | Clipboard | `effects.clipboard()` | `ClipboardHost` | `MemoryClipboardHost` | [Clipboard](/reference/capabilities/clipboard/) |
@@ -43,6 +44,7 @@ Use the [Capability matrix](/reference/capabilities/matrix/) to compare platform
 | --- | --- | --- |
 | `nfc` | `android.permission.NFC`, optional NFC feature | `NFCReaderUsageDescription`, `com.apple.developer.nfc.readersession.formats` |
 | `biometric` | `USE_BIOMETRIC`, legacy `USE_FINGERPRINT` | `NSFaceIDUsageDescription` |
+| `passkeys` | none generated; Digital Asset Links are product-domain-specific | none generated; associated domains such as `webcredentials:<domain>` are product-domain-specific |
 | `barcode-scanner` | `CAMERA`, optional camera feature | `NSCameraUsageDescription` |
 | `camera` | `CAMERA`, optional camera/front/flash features | `NSCameraUsageDescription` |
 | `geolocation` | `ACCESS_COARSE_LOCATION`, `ACCESS_FINE_LOCATION` | `NSLocationWhenInUseUsageDescription` |
@@ -52,7 +54,7 @@ Use the [Capability matrix](/reference/capabilities/matrix/) to compare platform
 | `wifi` | Wi-Fi/network permissions, `NEARBY_WIFI_DEVICES`, pre-Android 13 `ACCESS_FINE_LOCATION`, optional Wi-Fi features | Wi-Fi info and hotspot entitlements, `NSLocationWhenInUseUsageDescription` where needed |
 | `volume-control` | `MODIFY_AUDIO_SETTINGS` | none |
 
-Clipboard has no generated platform config. Notifications and deep links are built into shell setup but usually need app-specific notification categories, URL schemes, associated domains, or Android intent filters before a production release. Those values are product routes and identifiers, so the CLI should not invent them.
+Clipboard has no generated platform config. Passkeys are recorded in `fission.toml`, but domain association is product-specific, so Fission should not invent Digital Asset Links or associated domains. Notifications and deep links are built into shell setup but usually need app-specific notification categories, URL schemes, associated domains, or Android intent filters before a production release. Those values are product routes and identifiers, so the CLI should not invent them.
 
 ## Generated files
 

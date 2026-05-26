@@ -133,6 +133,11 @@ href = "/docs/capabilities/biometrics/"
 level = 3
 
 [[items]]
+title = "Passkeys"
+href = "/docs/capabilities/passkeys/"
+level = 3
+
+[[items]]
 title = "Barcode scanner"
 href = "/docs/capabilities/barcode-scanner/"
 level = 3

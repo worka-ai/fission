@@ -60,6 +60,10 @@ use crate::platform_nfc::{
     NfcEmulationRequest, NfcScanRequest, NfcWriteRequest, CANCEL_NFC_SESSION, EMULATE_NFC_TAG,
     GET_NFC_AVAILABILITY, SCAN_NFC_TAG, WRITE_NFC_TAG,
 };
+use crate::platform_passkey::{
+    PasskeyAuthenticationRequest, PasskeyRegistrationRequest, AUTHENTICATE_PASSKEY,
+    CANCEL_PASSKEY_OPERATION, GET_PASSKEY_AVAILABILITY, REGISTER_PASSKEY,
+};
 use crate::platform_volume::{
     VolumeAdjustRequest, VolumeSetRequest, VolumeStream, ADJUST_VOLUME_LEVEL, GET_VOLUME_LEVEL,
     SET_VOLUME_LEVEL,
@@ -234,6 +238,17 @@ impl<'a, S: AppState> Effects<'a, S> {
     /// verified the local user; it is not a network identity assertion.
     pub fn biometrics(&mut self) -> BiometricEffects<'_, 'a, S> {
         BiometricEffects { effects: self }
+    }
+
+    /// Starts a typed passkey/WebAuthn credential capability request.
+    ///
+    /// Use this for account sign-in, re-authentication, or credential
+    /// registration flows where the server verifies WebAuthn data. This is
+    /// intentionally separate from `biometrics()`: the host may use biometrics
+    /// to unlock a passkey, but the app receives credential data, not raw face
+    /// or fingerprint state.
+    pub fn passkeys(&mut self) -> PasskeyEffects<'_, 'a, S> {
+        PasskeyEffects { effects: self }
     }
 
     /// Starts a typed Bluetooth capability request.
@@ -614,6 +629,51 @@ impl<'a, 'b, S: AppState> BiometricEffects<'a, 'b, S> {
     /// cancelled programmatically after display.
     pub fn cancel_authentication(self) -> EffectBuilder<'a, 'b, S> {
         self.effects.capability(CANCEL_BIOMETRIC_AUTHENTICATION, ())
+    }
+}
+
+/// Convenience builder for standard passkey/WebAuthn host capabilities.
+pub struct PasskeyEffects<'a, 'b, S: AppState> {
+    effects: &'a mut Effects<'b, S>,
+}
+
+impl<'a, 'b, S: AppState> PasskeyEffects<'a, 'b, S> {
+    /// Queries passkey support for the active host and origin.
+    ///
+    /// Use this before showing passkey-specific registration or sign-in controls.
+    /// The result tells the app whether the host supports passkeys, whether the
+    /// current context is secure enough for credential APIs, and whether platform
+    /// or conditional UI authenticators may be available.
+    pub fn availability(self) -> EffectBuilder<'a, 'b, S> {
+        self.effects.capability(GET_PASSKEY_AVAILABILITY, ())
+    }
+
+    /// Requests creation of a new passkey credential.
+    ///
+    /// `request.challenge` must come from the relying-party server and must be
+    /// verified by that server when the success action receives
+    /// `PasskeyRegistrationResult`. Do not generate production challenges in the
+    /// UI reducer or trust registration data until the backend verifies it.
+    pub fn register(self, request: PasskeyRegistrationRequest) -> EffectBuilder<'a, 'b, S> {
+        self.effects.capability(REGISTER_PASSKEY, request)
+    }
+
+    /// Requests authentication with an existing passkey credential.
+    ///
+    /// `request.challenge` must come from the server, and the returned
+    /// `PasskeyAuthenticationResult` must be verified by the server before the
+    /// app treats the user as signed in. The host only gathers credential data.
+    pub fn authenticate(self, request: PasskeyAuthenticationRequest) -> EffectBuilder<'a, 'b, S> {
+        self.effects.capability(AUTHENTICATE_PASSKEY, request)
+    }
+
+    /// Cancels an active passkey prompt where the host permits cancellation.
+    ///
+    /// Use this when the sign-in or registration screen disappears before the
+    /// host credential picker completes. Some browser or operating-system
+    /// prompts cannot be cancelled once shown.
+    pub fn cancel(self) -> EffectBuilder<'a, 'b, S> {
+        self.effects.capability(CANCEL_PASSKEY_OPERATION, ())
     }
 }
 

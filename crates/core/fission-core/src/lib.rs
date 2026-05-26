@@ -61,6 +61,7 @@ pub mod platform_geolocation;
 pub mod platform_haptics;
 pub mod platform_microphone;
 pub mod platform_nfc;
+pub mod platform_passkey;
 pub mod platform_volume;
 pub mod platform_wifi;
 pub mod registry;
@@ -87,7 +88,7 @@ pub use capability::{
 pub use context::{
     BarcodeScannerEffects, BiometricEffects, BluetoothEffects, CameraEffects, ClipboardEffects,
     Effects, GeolocationEffects, HapticEffects, MicrophoneEffects, NfcEffects, NotificationEffects,
-    ReducerContext, VolumeEffects, WifiEffects,
+    PasskeyEffects, ReducerContext, VolumeEffects, WifiEffects,
 }; // New
 pub use effect::{ActionInput, Effect, EffectEnvelope, RuntimeEffect};
 pub use env::{
@@ -182,6 +183,16 @@ pub use platform_nfc::{
     NfcScanRequest, NfcSessionReceipt, NfcTag, NfcTagDiscovered, NfcTechnology, NfcWriteRequest,
     ScanNfcTagCapability, WriteNfcTagCapability, CANCEL_NFC_SESSION, EMULATE_NFC_TAG,
     GET_NFC_AVAILABILITY, SCAN_NFC_TAG, WRITE_NFC_TAG,
+};
+pub use platform_passkey::{
+    AuthenticatePasskeyCapability, CancelPasskeyOperationCapability,
+    GetPasskeyAvailabilityCapability, PasskeyAlgorithm, PasskeyAttestationConveyance,
+    PasskeyAuthenticationRequest, PasskeyAuthenticationResult, PasskeyAuthenticatorAttachment,
+    PasskeyAuthenticatorSelection, PasskeyAvailability, PasskeyCredentialDescriptor, PasskeyError,
+    PasskeyMediation, PasskeyRegistrationRequest, PasskeyRegistrationResult, PasskeyRelyingParty,
+    PasskeyResidentKeyRequirement, PasskeyTransport, PasskeyUser, PasskeyUserVerification,
+    RegisterPasskeyCapability, AUTHENTICATE_PASSKEY, CANCEL_PASSKEY_OPERATION,
+    GET_PASSKEY_AVAILABILITY, REGISTER_PASSKEY,
 };
 pub use platform_volume::{
     AdjustVolumeLevelCapability, GetVolumeLevelCapability, SetVolumeLevelCapability,

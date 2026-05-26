@@ -1,6 +1,6 @@
 ---
 title: Platform capabilities
-description: Learn how Fission apps request host features such as notifications, links, camera, microphone, NFC, Bluetooth, Wi-Fi, haptics, geolocation, clipboard, barcode scanning, biometrics, and volume control.
+description: Learn how Fission apps request host features such as notifications, links, camera, microphone, NFC, Bluetooth, Wi-Fi, haptics, geolocation, clipboard, barcode scanning, biometrics, passkeys, and volume control.
 ---
 
 # Platform capabilities
@@ -33,6 +33,7 @@ Desktop targets are part of the same model. Windows and macOS expose many of the
 | [Deep links](/docs/capabilities/deep-links/) | Cold-start and runtime link delivery into typed actions | Built into shell setup | Android intent filters, iOS URL schemes, and associated domains are product-route-specific | Windows and macOS can register schemes during packaging, Linux support depends on desktop registration, web/static sites use real generated routes |
 | [NFC](/docs/capabilities/nfc/) | Read/write/emulate NFC tags where the host supports it | `nfc` | Android NFC permission and feature, iOS usage description and NFC entitlement | Desktop support usually requires specific reader hardware or smart-card stacks; web NFC is limited to a small browser/device set |
 | [Biometrics](/docs/capabilities/biometrics/) | Ask the host to authenticate the current local user | `biometric` | Android biometric permissions, iOS Face ID usage description | Windows and macOS support local authentication through host providers; web fingerprint prompts are normally passkeys/WebAuthn, not direct biometric access |
+| [Passkeys](/docs/capabilities/passkeys/) | Register and authenticate WebAuthn credentials | `passkeys` | Domain association is product-specific; no safe generated defaults | Web uses browser credential APIs; Windows, macOS, Android, and iOS have platform credential APIs; Linux is provider/browser dependent |
 | [Barcode scanner](/docs/capabilities/barcode-scanner/) | Scan or decode QR/barcode content | `barcode-scanner` | Camera permission and usage text | Desktop and web can scan through camera providers or decode existing images; Linux camera behavior depends on the media stack |
 | [Camera and flashlight](/docs/capabilities/camera/) | Camera availability, permission, photo capture, torch control | `camera` | Android camera permission/features, iOS camera usage description | Windows, macOS, and web have camera APIs; Linux depends on camera devices, portals, and desktop permissions |
 | [Clipboard](/docs/capabilities/clipboard/) | Read/write text and typed clipboard content | none required | none generated | Broadly supported on desktop and web, but web browsers often require secure origins and user gestures |

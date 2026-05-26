@@ -180,7 +180,7 @@ Use `#[fission_reducer]` for compact local actions, or `#[fission_action]` when 
 
 - A broad widget catalog for layout, text, buttons, forms, navigation, surfaces, overlays, media, and embeds.
 - Fission Charts for dashboards and data-heavy applications.
-- Platform capabilities for notifications, deep links, NFC, biometrics, barcode scanning, camera, clipboard, geolocation, haptics, microphone, Bluetooth, Wi-Fi, and volume control where the host platform supports them.
+- Platform capabilities for notifications, deep links, NFC, biometrics, passkeys, barcode scanning, camera, clipboard, geolocation, haptics, microphone, Bluetooth, Wi-Fi, and volume control where the host platform supports them.
 - Static-site features including sidebars, table-of-contents links, favicons, generated CSS, optional code highlighting, client-side search, sitemap, robots output, JSON-LD, route-filtered page elements, and internal-link validation.
 
 </details>
