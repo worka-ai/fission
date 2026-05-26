@@ -36,6 +36,7 @@ Fission exposes these public command-line interface entry points:
 | --- | --- | --- |
 | `fission init <path>` | Creates a new Fission project scaffold | When you are starting a new app |
 | `fission add-target <targets...>` | Adds generated host folders for more platforms | When your existing app needs another host |
+| `fission add-capability <capabilities...>` | Declares host capabilities and updates generated platform config | Before using device features such as camera, microphone, NFC, Bluetooth, Wi-Fi, or geolocation |
 | `fission doctor [targets...]` | Checks local SDKs, browsers, emulators, and Rust targets | When setting up a machine or diagnosing a broken platform loop |
 | `fission devices` | Lists runnable desktop, browser, simulator, emulator, and device targets | Before choosing where to run the app |
 | `fission run` | Builds and launches the app, attaching output or device logs by default | During normal development |
@@ -242,6 +243,16 @@ fission add-target <targets...> [--project-dir <dir>]
 ```
 
 Adds one or more generated host targets to an existing Fission project.
+
+### `fission add-capability`
+
+```sh
+fission add-capability <capabilities...> [--project-dir <dir>]
+```
+
+Records host capabilities in `fission.toml` and updates generated platform config where Fission can do that safely. Current values include `nfc`, `biometric`, `bluetooth`, `barcode-scanner`, `camera`, `geolocation`, `haptics`, `microphone`, `volume-control`, and `wifi`.
+
+Android changes are written to `platforms/android/AndroidManifest.xml`. iOS usage strings are written to `platforms/ios/Info.plist`, and entitlement-backed features such as NFC and Wi-Fi update `platforms/ios/Entitlements.plist`. See [Platform capabilities](/docs/guides/platform-capabilities/) before shipping because some features still need app-specific routes, usage text, app-store setup, or provider implementation.
 
 ### `fission doctor`
 

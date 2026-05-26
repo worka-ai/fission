@@ -1,0 +1,104 @@
+---
+title: Platform capabilities
+description: Learn how Fission apps request host features such as notifications, links, camera, microphone, NFC, Bluetooth, Wi-Fi, haptics, geolocation, clipboard, barcode scanning, biometrics, and volume control.
+---
+
+# Platform capabilities
+
+A Fission app can run in several hosts, but the shared app code should not directly call Android, iOS, browser, or desktop APIs. Those APIs have different permission systems, different lifecycles, and different failure modes. Fission keeps that boundary explicit with capabilities.
+
+A capability is a typed request from your reducer to the host. The reducer says what the app wants to do. The shell host decides whether the current platform supports that request, performs the platform-specific work, and sends a typed result back into your normal action flow.
+
+That separation is what lets one app say "scan a barcode" or "capture audio" without hard-coding an Android activity, an iOS framework object, or a browser JavaScript API into shared state and reducers.
+
+## Add the platform declaration first
+
+Some capabilities require host configuration before the operating system will allow the app to use them. On Android that usually means entries in `platforms/android/AndroidManifest.xml`. On iOS that usually means usage strings in `platforms/ios/Info.plist`, and sometimes entitlements in `platforms/ios/Entitlements.plist`.
+
+Use the command-line interface so the project manifest and generated host files stay in sync:
+
+```sh
+fission add-capability camera microphone geolocation --project-dir .
+```
+
+The command records the capabilities in `fission.toml` and updates generated platform config where Fission can do that safely. If a platform requires manual setup, app-store configuration, or a paid developer entitlement, the generated README and this guide call that out instead of hiding it.
+
+## Current built-in capabilities
+
+| Capability | Use it for | CLI value | Android config | iOS config |
+| --- | --- | --- | --- | --- |
+| Notifications | Permission checks, local notification display, cancellation, badge updates, push registration hooks | Built into shell setup | App-specific notification setup is host/provider-owned | App-specific notification setup is host/provider-owned |
+| Deep links | Cold-start and runtime link delivery into typed actions | Built into shell setup | Intent filters are app-route-specific and belong in target config | URL schemes and associated domains are app-route-specific and belong in target config |
+| NFC | Read/write/emulate NFC tags where the host supports it | `nfc` | `android.permission.NFC`, optional NFC hardware feature | `NFCReaderUsageDescription`, NFC reader-session entitlement |
+| Biometric auth | Ask the host to authenticate the user with available biometrics | `biometric` | `USE_BIOMETRIC`, legacy `USE_FINGERPRINT` for older Android | `NSFaceIDUsageDescription` |
+| Barcode scanner | Scan or decode QR/barcode content | `barcode-scanner` | `CAMERA`, optional camera feature | `NSCameraUsageDescription` |
+| Camera and flashlight | Camera availability, permission, photo capture, torch control | `camera` | `CAMERA`, optional camera/front/flash features | `NSCameraUsageDescription` |
+| Clipboard | Read/write text and typed clipboard content | none required | none generated | none generated |
+| Geolocation | Permission checks and current-position requests | `geolocation` | `ACCESS_COARSE_LOCATION`, `ACCESS_FINE_LOCATION` | `NSLocationWhenInUseUsageDescription` |
+| Haptics | Impact, notification, selection, and pattern feedback | `haptics` | `VIBRATE` | none generated |
+| Microphone | Permission checks and bounded audio capture | `microphone` | `RECORD_AUDIO` | `NSMicrophoneUsageDescription` |
+| Bluetooth | Scan, connect, read/write characteristics, advertise | `bluetooth` | Android 12+ Bluetooth permissions, legacy Bluetooth permissions, optional Bluetooth features | `NSBluetoothAlwaysUsageDescription` |
+| Wi-Fi | Availability, scan, connect, disconnect | `wifi` | Wi-Fi/network permissions, Android 13+ nearby Wi-Fi, pre-Android 13 fine location, optional Wi-Fi features | Wi-Fi information and hotspot entitlements, location usage description where required |
+| Volume control | Query, set, and adjust host volume streams | `volume-control` | `MODIFY_AUDIO_SETTINGS` | none generated |
+
+## Request work from a reducer
+
+Capabilities are normally emitted from reducers because reducers respond to user intent. A button press might dispatch `TakePhoto`, and that reducer asks the host for a camera capture.
+
+```rust
+use fission::prelude::*;
+
+#[fission_action]
+pub struct TakePhoto;
+
+#[fission_action]
+pub struct PhotoCaptured;
+
+fn on_take_photo(
+    _state: &mut AppState,
+    _action: TakePhoto,
+    ctx: &mut ReducerContext<AppState>,
+) {
+    ctx.effects
+        .camera()
+        .capture_photo(CameraCaptureRequest {
+            facing: CameraFacing::Back,
+            flash: CameraFlashMode::Auto,
+            ..Default::default()
+        })
+        .on_ok(ctx.effects.bind(PhotoCaptured, reduce_with!(on_photo_captured)));
+}
+```
+
+The reducer does not open the camera itself. It records an effect. After the reducer returns, the shell-owned async host performs the request and dispatches the bound result action.
+
+## Register a provider when the default host is not enough
+
+Fission exposes typed provider traits from the shell crates through the `fission` facade. Tests and custom hosts can install memory providers directly:
+
+```rust
+use fission::prelude::*;
+
+let app = DesktopApp::new(MyApp)
+    .with_camera_host(MemoryCameraHost::default())
+    .with_microphone_host(MemoryMicrophoneHost::default())
+    .with_bluetooth_host(MemoryBluetoothHost::default());
+```
+
+Production shells should provide real platform implementations. If a provider is not registered, the default host reports unsupported errors instead of pretending the platform work succeeded.
+
+## Platform config is part of the feature
+
+Do not treat manifest or plist files as incidental. Operating systems use them to decide whether a feature is visible to the app, whether a permission prompt can be shown, and what text the user sees when the prompt appears.
+
+For generated projects, prefer `fission add-capability ...` over hand-editing platform files. Hand edits are still useful for product-specific text, app-specific deep link routes, associated domains, notification categories, store entitlements, or enterprise deployment requirements. The generated entries are a correct starting point, not a substitute for reviewing platform policy before shipping.
+
+## When a capability is not the right tool
+
+Use a capability when the host owns the work. Use a normal job or service when the work is app-owned Rust logic. Use a widget or overlay when the result is normal in-app UI.
+
+For example, an in-app confirmation dialog should be a Fission widget. A native biometric prompt should be a capability. A long-running sync loop should be a service. A one-shot HTTP request owned by your app should usually be a job.
+
+## Where to go next
+
+Use [Resources and async](/docs/guides/resources-and-async/) to understand how reducer effects return results. Use [Platform shells and CLI](/docs/guides/platform-shells-cli-and-testing/) for the host setup workflow. Use [Resources and capabilities](/reference/core/resources-and-capabilities/) for the underlying reference types.

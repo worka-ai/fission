@@ -35,6 +35,11 @@ href = "/reference/core/resources-and-capabilities/"
 level = 1
 
 [[items]]
+title = "Platform capabilities"
+href = "/reference/core/platform-capabilities/"
+level = 1
+
+[[items]]
 title = "Environment, input, and input method editor"
 href = "/reference/core/environment-input-and-ime/"
 level = 1

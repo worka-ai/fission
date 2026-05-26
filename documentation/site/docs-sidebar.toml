@@ -97,6 +97,11 @@ href = "/docs/guides/platform-shells-cli-and-testing/"
 level = 2
 
 [[items]]
+title = "Platform capabilities"
+href = "/docs/guides/platform-capabilities/"
+level = 2
+
+[[items]]
 title = "Examples and targets"
 href = "/docs/learn/examples-and-targets/"
 level = 2
