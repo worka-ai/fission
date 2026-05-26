@@ -86,6 +86,14 @@ impl<S: AppState + Default, W: Widget<S> + 'static> DesktopApp<S, W> {
         self
     }
 
+    pub fn with_route_handler(
+        mut self,
+        handler: fission_core::registry::Handler<S, fission_core::ShellRouteChanged>,
+    ) -> Self {
+        self.inner = self.inner.with_route_handler(handler);
+        self
+    }
+
     pub fn register_reducer(
         &mut self,
         action_id: ActionId,

@@ -11,6 +11,14 @@ pub type ResponseSender = mpsc::Sender<TestResponse>;
 pub type ResponseReceiver = mpsc::Receiver<TestResponse>;
 /// Shared queue used on platforms where winit user events are unreliable.
 pub type PendingEventQueue = Arc<Mutex<VecDeque<TestEvent>>>;
+/// Latest queryable frame snapshot, maintained by the event loop after layout.
+pub type SharedSnapshot = Arc<Mutex<Option<TestSnapshot>>>;
+
+#[derive(Clone)]
+pub struct TestSnapshot {
+    pub text: TestResponse,
+    pub tree: TestResponse,
+}
 
 #[derive(Clone)]
 pub enum EventInjector {
@@ -34,11 +42,16 @@ pub fn create_pending_event_queue() -> PendingEventQueue {
     Arc::new(Mutex::new(VecDeque::new()))
 }
 
+pub fn create_shared_snapshot() -> SharedSnapshot {
+    Arc::new(Mutex::new(None))
+}
+
 /// Spawn the TCP test-control server.
 pub fn spawn_server(
     port: u16,
     injector: EventInjector,
     response_rx: ResponseReceiver,
+    shared_snapshot: SharedSnapshot,
 ) -> std::thread::JoinHandle<()> {
     std::thread::spawn(move || {
         let listener = TcpListener::bind(format!("127.0.0.1:{}", port))
@@ -47,7 +60,7 @@ pub fn spawn_server(
 
         for stream in listener.incoming() {
             match stream {
-                Ok(stream) => handle_connection(stream, &injector, &response_rx),
+                Ok(stream) => handle_connection(stream, &injector, &response_rx, &shared_snapshot),
                 Err(e) => eprintln!("[fission-test-control] accept error: {}", e),
             }
         }
@@ -58,6 +71,7 @@ fn handle_connection(
     mut stream: TcpStream,
     injector: &EventInjector,
     response_rx: &ResponseReceiver,
+    shared_snapshot: &SharedSnapshot,
 ) {
     let mut buf = Vec::new();
     let mut tmp = [0u8; 4096];
@@ -129,7 +143,7 @@ fn handle_connection(
         }
     };
 
-    let response = dispatch_command(cmd, injector, response_rx);
+    let response = dispatch_command(cmd, injector, response_rx, shared_snapshot);
     send_http_response(&mut stream, 200, &serde_json::to_string(&response).unwrap());
 }
 
@@ -137,6 +151,7 @@ fn dispatch_command(
     cmd: TestCommand,
     injector: &EventInjector,
     response_rx: &ResponseReceiver,
+    shared_snapshot: &SharedSnapshot,
 ) -> TestResponse {
     match cmd {
         TestCommand::Tap { x, y } => {
@@ -215,17 +230,27 @@ fn dispatch_command(
         }
         TestCommand::Screenshot { path } => {
             inject_event(injector, TestEvent::Screenshot { path });
-            wait_for_response(response_rx)
+            wait_for_response_timeout(response_rx, std::time::Duration::from_secs(120))
         }
         TestCommand::CaptureScreenshot {} => {
             inject_event(injector, TestEvent::CaptureScreenshot);
-            wait_for_response(response_rx)
+            wait_for_response_timeout(response_rx, std::time::Duration::from_secs(120))
         }
         TestCommand::GetText {} => {
+            if let Some(resp) =
+                latest_snapshot_response(shared_snapshot, SnapshotResponseKind::Text)
+            {
+                return resp;
+            }
             inject_event(injector, TestEvent::GetText);
             wait_for_response(response_rx)
         }
         TestCommand::GetTree {} => {
+            if let Some(resp) =
+                latest_snapshot_response(shared_snapshot, SnapshotResponseKind::Tree)
+            {
+                return resp;
+            }
             inject_event(injector, TestEvent::GetTree);
             wait_for_response(response_rx)
         }
@@ -256,6 +281,23 @@ fn dispatch_command(
             TestResponse::Ok {}
         }
     }
+}
+
+enum SnapshotResponseKind {
+    Text,
+    Tree,
+}
+
+fn latest_snapshot_response(
+    shared_snapshot: &SharedSnapshot,
+    kind: SnapshotResponseKind,
+) -> Option<TestResponse> {
+    let snapshot = shared_snapshot.lock().ok()?;
+    let snapshot = snapshot.as_ref()?;
+    Some(match kind {
+        SnapshotResponseKind::Text => snapshot.text.clone(),
+        SnapshotResponseKind::Tree => snapshot.tree.clone(),
+    })
 }
 
 fn inject_event(injector: &EventInjector, event: TestEvent) {
@@ -290,7 +332,11 @@ fn inject_event(injector: &EventInjector, event: TestEvent) {
 
 /// Block until the main event loop sends a response, with a 30-second timeout.
 fn wait_for_response(rx: &ResponseReceiver) -> TestResponse {
-    match rx.recv_timeout(std::time::Duration::from_secs(30)) {
+    wait_for_response_timeout(rx, std::time::Duration::from_secs(30))
+}
+
+fn wait_for_response_timeout(rx: &ResponseReceiver, timeout: std::time::Duration) -> TestResponse {
+    match rx.recv_timeout(timeout) {
         Ok(resp) => resp,
         Err(_) => TestResponse::Error {
             message: "timeout waiting for response from event loop".into(),

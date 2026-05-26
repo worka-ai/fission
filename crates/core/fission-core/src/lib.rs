@@ -62,7 +62,7 @@ pub mod view;
 #[cfg(test)]
 mod tests;
 
-pub use action::{Action, ActionEnvelope, ActionId, ActionScopeId, AppState};
+pub use action::{Action, ActionEnvelope, ActionId, ActionScopeId, AppState, ShellRouteChanged};
 pub use async_runtime::{
     BoxFuture, JobCtx, JobRef, JobSpec, ResourceExecutionContext, ServiceBindings, ServiceCtx,
     ServiceRunner, ServiceSlot, ServiceSpec, ServiceType,
@@ -75,8 +75,8 @@ pub use capability::{
 pub use context::{Effects, ReducerContext}; // New
 pub use effect::{ActionInput, Effect, EffectEnvelope, RuntimeEffect};
 pub use env::{
-    Clipboard, Env, ImeHandler, InteractionStateMap, RuntimeState, ScrollStateMap, WindowEnv,
-    WindowTitle,
+    Clipboard, Env, ImeHandler, InteractionStateMap, RouteLocation, RuntimeState, ScrollStateMap,
+    WindowEnv, WindowTitle,
 };
 pub use runtime::Runtime;
 

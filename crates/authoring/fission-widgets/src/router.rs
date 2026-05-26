@@ -18,6 +18,50 @@ pub struct Router<S: fission_core::AppState> {
     pub not_found: Option<PageBuilder<S>>,
 }
 
+impl<S: fission_core::AppState> Router<S> {
+    pub fn new() -> Self {
+        Self {
+            current_path: "/".to_string(),
+            routes: Vec::new(),
+            not_found: None,
+        }
+    }
+
+    pub fn with_path(mut self, path: impl Into<String>) -> Self {
+        self.current_path = path.into();
+        self
+    }
+
+    pub fn route<W, F>(mut self, path: impl Into<String>, builder: F) -> Self
+    where
+        W: Widget<S> + 'static,
+        F: Fn() -> W + Send + Sync + 'static,
+    {
+        self.routes.push(Route {
+            path: path.into(),
+            builder: Arc::new(move |ctx, view, _| builder().build(ctx, view)),
+        });
+        self
+    }
+
+    pub fn route_builder(mut self, path: impl Into<String>, builder: PageBuilder<S>) -> Self {
+        self.routes.push(Route {
+            path: path.into(),
+            builder,
+        });
+        self
+    }
+
+    pub fn not_found<W, F>(mut self, builder: F) -> Self
+    where
+        W: Widget<S> + 'static,
+        F: Fn() -> W + Send + Sync + 'static,
+    {
+        self.not_found = Some(Arc::new(move |ctx, view, _| builder().build(ctx, view)));
+        self
+    }
+}
+
 impl<S: fission_core::AppState> Widget<S> for Router<S> {
     fn build(&self, ctx: &mut BuildCtx<S>, view: &View<S>) -> Node {
         for route in &self.routes {

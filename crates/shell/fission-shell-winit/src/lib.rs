@@ -531,6 +531,18 @@ fn resize_is_unsettled(pending_resize: bool, needs_settled_frame: bool, live_res
     pending_resize || needs_settled_frame || live_resize
 }
 
+fn capture_settle_complete(
+    resize_settled: bool,
+    resize_needs_settled_frame: bool,
+    live_resize: bool,
+) -> bool {
+    resize_settled || (!resize_needs_settled_frame && !live_resize)
+}
+
+fn capture_redraw_pending(pending_screenshot: bool, pending_capture_settle: bool) -> bool {
+    pending_screenshot || pending_capture_settle
+}
+
 fn resolve_build_viewport(
     last_built_viewport: Option<LayoutSize>,
     target_viewport: LayoutSize,
@@ -1902,6 +1914,22 @@ fn build_get_tree_response(pipeline: &Pipeline) -> fission_test_driver::TestResp
     TestResponse::Tree { nodes }
 }
 
+fn update_test_snapshot(
+    shared_snapshot: &Option<test_control::SharedSnapshot>,
+    pipeline: &Pipeline,
+) {
+    let Some(shared_snapshot) = shared_snapshot else {
+        return;
+    };
+    let snapshot = test_control::TestSnapshot {
+        text: build_get_text_response(pipeline),
+        tree: build_get_tree_response(pipeline),
+    };
+    if let Ok(mut latest) = shared_snapshot.lock() {
+        *latest = Some(snapshot);
+    }
+}
+
 /// Handle TapText — find text in the IR, tap at its center.
 fn handle_tap_text(
     text: &str,
@@ -2139,6 +2167,22 @@ impl<S: AppState + Default, W: Widget<S> + 'static> WinitApp<S, W> {
         self
     }
 
+    /// Register the reducer that handles host/shell route changes.
+    ///
+    /// Shells dispatch [`fission_core::ShellRouteChanged`] to this persistent
+    /// handler. The router widget remains pure: apps copy the supplied
+    /// `RouteLocation.pathname` into their own state, then `Router` renders from
+    /// that state on the next build.
+    pub fn with_route_handler(
+        mut self,
+        handler: fission_core::registry::Handler<S, fission_core::ShellRouteChanged>,
+    ) -> Self {
+        let mut registry = fission_core::ActionRegistry::<S>::new();
+        registry.register::<fission_core::ShellRouteChanged, _>(handler);
+        self.runtime.absorb_persistent_registry(registry);
+        self
+    }
+
     pub fn register_reducer(
         &mut self,
         action_id: ActionId,
@@ -2311,6 +2355,8 @@ impl<S: AppState + Default, W: Widget<S> + 'static> WinitApp<S, W> {
         });
         #[cfg(target_os = "android")]
         let pending_test_events = test_control::create_pending_event_queue();
+        let test_snapshot: Option<test_control::SharedSnapshot> =
+            test_control_port.map(|_| test_control::create_shared_snapshot());
         let test_response_tx: Option<test_control::ResponseSender> =
             test_control_port.map(|port| {
                 let (resp_tx, resp_rx) = test_control::create_response_channel();
@@ -2321,7 +2367,15 @@ impl<S: AppState + Default, W: Widget<S> + 'static> WinitApp<S, W> {
                 };
                 #[cfg(not(target_os = "android"))]
                 let injector = test_control::EventInjector::Proxy(event_proxy.clone());
-                test_control::spawn_server(port, injector, resp_rx);
+                test_control::spawn_server(
+                    port,
+                    injector,
+                    resp_rx,
+                    test_snapshot
+                        .as_ref()
+                        .expect("test snapshot exists when test control is enabled")
+                        .clone(),
+                );
                 resp_tx
             });
         // Pending screenshot/pump: path + whether it needs a screenshot (vs pump).
@@ -2663,7 +2717,15 @@ impl<S: AppState + Default, W: Widget<S> + 'static> WinitApp<S, W> {
                                 resize_needs_settled_frame,
                                 live_resize.is_live(Instant::now()),
                             );
-                            window.request_redraw();
+                            request_redraw_logged(
+                                window,
+                                elwt,
+                                &mut last_redraw_at,
+                                min_frame,
+                                &mut redraw_pending,
+                                &mut frame_trace,
+                                "test_screenshot",
+                            );
                         }
                         TestEvent::CaptureScreenshot => {
                             let Some(window) = current_window(&window) else {
@@ -2680,7 +2742,15 @@ impl<S: AppState + Default, W: Widget<S> + 'static> WinitApp<S, W> {
                                 resize_needs_settled_frame,
                                 live_resize.is_live(Instant::now()),
                             );
-                            window.request_redraw();
+                            request_redraw_logged(
+                                window,
+                                elwt,
+                                &mut last_redraw_at,
+                                min_frame,
+                                &mut redraw_pending,
+                                &mut frame_trace,
+                                "test_capture_screenshot",
+                            );
                         }
                         TestEvent::GetText => {
                             let resp = build_get_text_response(&pipeline);
@@ -2709,7 +2779,15 @@ impl<S: AppState + Default, W: Widget<S> + 'static> WinitApp<S, W> {
                                 resize_needs_settled_frame,
                                 live_resize.is_live(Instant::now()),
                             );
-                            window.request_redraw();
+                            request_redraw_logged(
+                                window,
+                                elwt,
+                                &mut last_redraw_at,
+                                min_frame,
+                                &mut redraw_pending,
+                                &mut frame_trace,
+                                "test_pump",
+                            );
                         }
                         TestEvent::Wake => {}
                         TestEvent::Wait { ms: _ } => {
@@ -2959,7 +3037,11 @@ impl<S: AppState + Default, W: Widget<S> + 'static> WinitApp<S, W> {
                             resize_needs_settled_frame,
                             live_resize.is_live(now),
                         );
-                        let repeat_animation_interval = if resize_unsettled || pending_capture_settle {
+                        let pending_capture_request = capture_redraw_pending(
+                            pending_screenshot_path.is_some(),
+                            pending_capture_settle,
+                        );
+                        let repeat_animation_interval = if resize_unsettled || pending_capture_request {
                             None
                         } else {
                             repeating_animation_redraw_interval(
@@ -3120,7 +3202,7 @@ impl<S: AppState + Default, W: Widget<S> + 'static> WinitApp<S, W> {
                                 || frame_hook_wants_redraw
                                 || invalidations.any()
                                 || resize_unsettled
-                                || pending_capture_settle;
+                                || pending_capture_request;
                         let active_keys = active_animation_keys(&runtime);
 
                         if has_pending_work {
@@ -3134,6 +3216,8 @@ impl<S: AppState + Default, W: Widget<S> + 'static> WinitApp<S, W> {
                                 "pending_resize"
                             } else if pending_capture_settle {
                                 "pending_capture_settle"
+                            } else if pending_capture_request {
+                                "pending_capture"
                             } else if invalidations.build {
                                 "pending_work:build"
                             } else if invalidations.layout {
@@ -3275,7 +3359,11 @@ impl<S: AppState + Default, W: Widget<S> + 'static> WinitApp<S, W> {
                                 ));
                             }
                             #[cfg(not(target_os = "android"))]
-                            elwt.set_control_flow(ControlFlow::Wait);
+                            if test_response_tx.is_some() {
+                                elwt.set_control_flow(ControlFlow::Poll);
+                            } else {
+                                elwt.set_control_flow(ControlFlow::Wait);
+                            }
                         }
                     }
 
@@ -3656,6 +3744,7 @@ impl<S: AppState + Default, W: Widget<S> + 'static> WinitApp<S, W> {
                                     &runtime.runtime_state.web,
                                 ) {
                                     Ok(_stats) => {
+                                        update_test_snapshot(&test_snapshot, &pipeline);
                                         let surface_texture = render_state
                                             .surface
                                             .surface
@@ -3873,8 +3962,12 @@ impl<S: AppState + Default, W: Widget<S> + 'static> WinitApp<S, W> {
 
                                         device_handle.queue.submit(Some(encoder.finish()));
 
-                                        let capture_ready =
-                                            !pending_capture_settle || resize_settled;
+                                        let capture_ready = !pending_capture_settle
+                                            || capture_settle_complete(
+                                                resize_settled,
+                                                resize_needs_settled_frame,
+                                                live_resize.is_live(now),
+                                            );
                                         if capture_ready {
                                             pending_capture_settle = false;
                                         }
@@ -4348,19 +4441,38 @@ fn gpu_screenshot(
         .map_async(wgpu::MapMode::Read, move |result| {
             let _ = tx.send(result);
         });
-    let _ = device.poll(wgpu::PollType::Wait);
-
-    match rx.recv() {
-        Ok(Ok(())) => {}
-        Ok(Err(e)) => {
-            return fission_test_driver::TestResponse::Error {
-                message: format!("buffer map failed: {:?}", e),
-            };
-        }
-        Err(e) => {
-            return fission_test_driver::TestResponse::Error {
-                message: format!("buffer map channel error: {}", e),
-            };
+    let map_timeout = std::env::var("FISSION_SCREENSHOT_MAP_TIMEOUT_MS")
+        .ok()
+        .and_then(|value| value.trim().parse::<u64>().ok())
+        .filter(|value| *value > 0)
+        .map(Duration::from_millis)
+        .unwrap_or_else(|| Duration::from_secs(5));
+    let map_deadline = Instant::now() + map_timeout;
+    loop {
+        match rx.try_recv() {
+            Ok(Ok(())) => break,
+            Ok(Err(e)) => {
+                return fission_test_driver::TestResponse::Error {
+                    message: format!("buffer map failed: {:?}", e),
+                };
+            }
+            Err(std::sync::mpsc::TryRecvError::Empty) => {
+                if Instant::now() >= map_deadline {
+                    return fission_test_driver::TestResponse::Error {
+                        message: format!(
+                            "buffer map timed out after {}ms",
+                            map_timeout.as_millis()
+                        ),
+                    };
+                }
+                let _ = device.poll(wgpu::PollType::Poll);
+                std::thread::sleep(Duration::from_millis(1));
+            }
+            Err(std::sync::mpsc::TryRecvError::Disconnected) => {
+                return fission_test_driver::TestResponse::Error {
+                    message: "buffer map channel disconnected".into(),
+                };
+            }
         }
     }
 
@@ -4562,8 +4674,9 @@ fn native_window_size_for_logical_viewport(size: LayoutSize) -> LogicalSize<f64>
 #[cfg(test)]
 mod tests {
     use super::{
-        animation_redraw_interval, clamp_copy_extent_to_texture, cursor_icon_for,
-        downscale_rgba_box, layout_size_to_image_dimensions, logical_viewport_to_physical_size,
+        animation_redraw_interval, capture_redraw_pending, capture_settle_complete,
+        clamp_copy_extent_to_texture, cursor_icon_for, downscale_rgba_box,
+        layout_size_to_image_dimensions, logical_viewport_to_physical_size,
         logical_viewport_to_render_target_size, native_window_size_for_logical_viewport,
         normalize_scale_factor, normalize_winit_scroll_delta, physical_size_to_layout_size,
         repeating_animation_redraw_interval, resize_is_unsettled, resolve_build_viewport,
@@ -4740,6 +4853,20 @@ mod tests {
             resize.is_live(now + Duration::from_millis(30))
         ));
         assert!(!resize.is_live(now + Duration::from_millis(95)));
+    }
+
+    #[test]
+    fn capture_settle_completes_after_live_resize_deadline_without_resize_frame() {
+        assert!(!capture_settle_complete(false, false, true));
+        assert!(capture_settle_complete(false, false, false));
+        assert!(capture_settle_complete(true, true, false));
+    }
+
+    #[test]
+    fn pending_screenshot_is_pending_work_even_without_resize_settle() {
+        assert!(capture_redraw_pending(true, false));
+        assert!(capture_redraw_pending(false, true));
+        assert!(!capture_redraw_pending(false, false));
     }
 
     #[test]
