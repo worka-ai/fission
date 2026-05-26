@@ -416,6 +416,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "atomic"
+version = "0.6.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "a89cbf775b137e9b968e67227ef7f775587cde3fd31b0d8599dbd0f598a48340"
+dependencies = [
+ "bytemuck",
+]
+
+[[package]]
 name = "atomic-waker"
 version = "1.1.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -589,7 +598,7 @@ dependencies = [
  "http 0.2.12",
  "http 1.4.0",
  "http-body 1.0.1",
- "lru",
+ "lru 0.16.4",
  "percent-encoding",
  "regex-lite",
  "sha2",
@@ -1881,6 +1890,12 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "92773504d58c093f6de2459af4af33faa518c13451eb8f2b5698ed3d36e7c813"
 
 [[package]]
+name = "dyn-clone"
+version = "1.0.20"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "d0881ea181b1df73ff77ffaaf9c7544ecc11e82fba9b5f27b262a3c73a332555"
+
+[[package]]
 name = "ecdsa"
 version = "0.14.8"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2140,16 +2155,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "filedescriptor"
-version = "0.8.3"
-source = "git+https://github.com/wezterm/wezterm#577474d89ee61aef4a48145cdec82a638d874751"
-dependencies = [
- "libc",
- "thiserror 1.0.69",
- "winapi",
-]
-
-[[package]]
 name = "filetime"
 version = "0.2.29"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2167,8 +2172,9 @@ checksum = "3a3076410a55c90011c298b04d0cfa770b00fa04e1e3c97d3f6c9de105a03844"
 
 [[package]]
 name = "finl_unicode"
-version = "1.3.0"
-source = "git+https://github.com/wez/finl_unicode.git?branch=no_std#a1892f26245529f2ef3877a9ebd610c96cec07a6"
+version = "1.4.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "9844ddc3a6e533d62bba727eb6c28b5d360921d5175e9ff0f1e621a5c590a4d5"
 
 [[package]]
 name = "fission"
@@ -2668,8 +2674,8 @@ dependencies = [
  "rushdown",
  "serde",
  "serde_json",
- "wezterm-surface",
- "wezterm-term",
+ "tattoy-wezterm-surface",
+ "tattoy-wezterm-term",
 ]
 
 [[package]]
@@ -4192,6 +4198,15 @@ dependencies = [
 
 [[package]]
 name = "lru"
+version = "0.12.5"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "234cf4f4a04dc1f57e24b96cc0cd600cf2af460d4161ac5ecdd0af8e1f3b2a38"
+dependencies = [
+ "hashbrown 0.15.5",
+]
+
+[[package]]
+name = "lru"
 version = "0.16.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "7f66e8d5d03f609abc3a39e6f08e4164ebf1447a732906d39eb9b99b7919ef39"
@@ -4204,6 +4219,16 @@ name = "lru-slab"
 version = "0.1.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "112b39cec0b298b6c1999fee3e31427f74f676e4cb9879ed1a121b43661a4154"
+
+[[package]]
+name = "mac_address"
+version = "1.1.8"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "c0aeb26bf5e836cc1c341c8106051b573f1766dfa05aa87f0b98be5e51b02303"
+dependencies = [
+ "nix 0.29.0",
+ "winapi",
+]
 
 [[package]]
 name = "malloc_buf"
@@ -5175,7 +5200,7 @@ dependencies = [
  "anyhow",
  "bitflags 1.3.2",
  "downcast-rs",
- "filedescriptor 0.8.3 (registry+https://github.com/rust-lang/crates.io-index)",
+ "filedescriptor",
  "lazy_static",
  "libc",
  "log",
@@ -5599,6 +5624,26 @@ dependencies = [
 ]
 
 [[package]]
+name = "ref-cast"
+version = "1.0.25"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "f354300ae66f76f1c85c5f84693f0ce81d747e2c3f21a45fef496d89c960bf7d"
+dependencies = [
+ "ref-cast-impl",
+]
+
+[[package]]
+name = "ref-cast-impl"
+version = "1.0.25"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "b7186006dcb21920990093f30e3dea63b7d6e977bf1256be20c3563a5db070da"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn 2.0.111",
+]
+
+[[package]]
 name = "regex"
 version = "1.12.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -5892,6 +5937,31 @@ dependencies = [
 ]
 
 [[package]]
+name = "schemars"
+version = "1.2.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "a2b42f36aa1cd011945615b92222f6bf73c599a102a300334cd7f8dbeec726cc"
+dependencies = [
+ "dyn-clone",
+ "ref-cast",
+ "schemars_derive",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
+name = "schemars_derive"
+version = "1.2.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "7d115b50f4aaeea07e79c1912f645c7513d81715d0420f8bc77a18c6260b307f"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "serde_derive_internals",
+ "syn 2.0.111",
+]
+
+[[package]]
 name = "scoped-tls"
 version = "1.0.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -6025,6 +6095,17 @@ name = "serde_derive"
 version = "1.0.228"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d540f220d3187173da220f885ab66608367b6574e925011a9353e4badda91d79"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn 2.0.111",
+]
+
+[[package]]
+name = "serde_derive_internals"
+version = "0.29.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "18d26a20a969b9e3fdf2fc2d9f21eda6c40e2de84c9408bb5d3b05d499aae711"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -6448,6 +6529,201 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "61c41af27dd6d1e27b1b16b489db798443478cef1f06a660c96db617ba5de3b1"
 
 [[package]]
+name = "tattoy-termwiz"
+version = "0.24.0-fork.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "a4baa577b33d8e5f1fc6efce63ea148f2e668f097294d39140c5de08e18e9c9c"
+dependencies = [
+ "anyhow",
+ "bitflags 2.10.0",
+ "fancy-regex",
+ "filedescriptor",
+ "finl_unicode",
+ "fixedbitset",
+ "image 0.25.9",
+ "libc",
+ "log",
+ "memmem",
+ "nix 0.29.0",
+ "num-derive",
+ "num-traits",
+ "ordered-float 4.6.0",
+ "pest",
+ "pest_derive",
+ "phf 0.11.3",
+ "sha2",
+ "signal-hook",
+ "siphasher",
+ "tattoy-wezterm-cell",
+ "tattoy-wezterm-char-props",
+ "tattoy-wezterm-color-types",
+ "tattoy-wezterm-dynamic",
+ "tattoy-wezterm-escape-parser",
+ "tattoy-wezterm-input-types",
+ "tattoy-wezterm-surface",
+ "terminfo",
+ "termios",
+ "thiserror 1.0.69",
+ "ucd-trie",
+ "unicode-segmentation",
+ "vtparse",
+ "wezterm-bidi",
+ "wezterm-blob-leases",
+ "winapi",
+]
+
+[[package]]
+name = "tattoy-wezterm-cell"
+version = "0.1.0-1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "db5ac261e627d60b003c5ee85f9954b532fc7107f5297576029b85189441e7c4"
+dependencies = [
+ "finl_unicode",
+ "image 0.25.9",
+ "log",
+ "ordered-float 4.6.0",
+ "serde",
+ "sha2",
+ "tattoy-wezterm-char-props",
+ "tattoy-wezterm-color-types",
+ "tattoy-wezterm-dynamic",
+ "tattoy-wezterm-escape-parser",
+ "thiserror 1.0.69",
+ "wezterm-blob-leases",
+]
+
+[[package]]
+name = "tattoy-wezterm-char-props"
+version = "0.1.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "3319a329d4f5aef9a951e336facfcdc3ee5d3f16d8cc45ba407631427ca89d6d"
+dependencies = [
+ "phf 0.11.3",
+ "serde",
+ "ucd-trie",
+]
+
+[[package]]
+name = "tattoy-wezterm-color-types"
+version = "0.3.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "2216e4c01c3d4705136d0c28b4c3eef57d48f5544a9478242bd8d247e1a595da"
+dependencies = [
+ "csscolorparser",
+ "deltae",
+ "num-traits",
+ "serde",
+ "tattoy-wezterm-dynamic",
+]
+
+[[package]]
+name = "tattoy-wezterm-dynamic"
+version = "0.2.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "d5a0d2ef7c9cc9ffe305d36860f910cb0860b55be54bc97f1952f28f5ed3a9bd"
+dependencies = [
+ "log",
+ "ordered-float 4.6.0",
+ "strsim",
+ "thiserror 2.0.17",
+ "wezterm-dynamic-derive",
+]
+
+[[package]]
+name = "tattoy-wezterm-escape-parser"
+version = "0.1.0-1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "7ca89ed38092d6718a03e97b0c1101fcf2203c2e6f2757a91c465f393d11d98b"
+dependencies = [
+ "base64",
+ "bitflags 2.10.0",
+ "hex",
+ "image 0.25.9",
+ "log",
+ "nix 0.29.0",
+ "num-derive",
+ "num-traits",
+ "ordered-float 4.6.0",
+ "pest",
+ "pest_derive",
+ "sha2",
+ "tattoy-wezterm-color-types",
+ "tattoy-wezterm-dynamic",
+ "tattoy-wezterm-input-types",
+ "thiserror 2.0.17",
+ "vtparse",
+ "wezterm-blob-leases",
+ "winapi",
+]
+
+[[package]]
+name = "tattoy-wezterm-input-types"
+version = "0.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "8d579284b14ddcf2d8de405d3cc763fdc47dffae436d80353b184aab4652c0b5"
+dependencies = [
+ "bitflags 1.3.2",
+ "euclid",
+ "serde",
+ "tattoy-wezterm-dynamic",
+]
+
+[[package]]
+name = "tattoy-wezterm-surface"
+version = "0.1.0-fork.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "e37ba079e943bb37ca1ca6e179674113aa29b68341d2421922c02962bac81fdb"
+dependencies = [
+ "bitflags 2.10.0",
+ "fancy-regex",
+ "finl_unicode",
+ "fixedbitset",
+ "ordered-float 4.6.0",
+ "schemars",
+ "siphasher",
+ "tattoy-wezterm-cell",
+ "tattoy-wezterm-char-props",
+ "tattoy-wezterm-color-types",
+ "tattoy-wezterm-dynamic",
+ "tattoy-wezterm-escape-parser",
+ "tattoy-wezterm-input-types",
+ "unicode-segmentation",
+ "wezterm-bidi",
+]
+
+[[package]]
+name = "tattoy-wezterm-term"
+version = "0.1.0-fork.5"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "7f3678674adc87f210ec01e2134e1972d6b0bd194bf82242f7e7beee3ae9dbd8"
+dependencies = [
+ "anyhow",
+ "bitflags 1.3.2",
+ "csscolorparser",
+ "downcast-rs",
+ "finl_unicode",
+ "hex",
+ "humansize",
+ "image 0.25.9",
+ "lazy_static",
+ "log",
+ "lru 0.12.5",
+ "miniz_oxide 0.7.4",
+ "num-traits",
+ "ordered-float 4.6.0",
+ "serde",
+ "tattoy-termwiz",
+ "tattoy-wezterm-cell",
+ "tattoy-wezterm-dynamic",
+ "tattoy-wezterm-escape-parser",
+ "tattoy-wezterm-surface",
+ "terminfo",
+ "unicode-normalization",
+ "url",
+ "wezterm-bidi",
+]
+
+[[package]]
 name = "tempfile"
 version = "3.23.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -6499,49 +6775,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "411c5bf740737c7918b8b1fe232dca4dc9f8e754b8ad5e20966814001ed0ac6b"
 dependencies = [
  "libc",
-]
-
-[[package]]
-name = "termwiz"
-version = "0.24.0"
-source = "git+https://github.com/wezterm/wezterm#577474d89ee61aef4a48145cdec82a638d874751"
-dependencies = [
- "anyhow",
- "bitflags 2.10.0",
- "fancy-regex",
- "filedescriptor 0.8.3 (git+https://github.com/wezterm/wezterm)",
- "finl_unicode",
- "fixedbitset",
- "image 0.25.9",
- "libc",
- "log",
- "memmem",
- "nix 0.29.0",
- "num-derive",
- "num-traits",
- "ordered-float 4.6.0",
- "pest",
- "pest_derive",
- "phf 0.11.3",
- "sha2",
- "signal-hook",
- "siphasher",
- "terminfo",
- "termios",
- "thiserror 1.0.69",
- "ucd-trie",
- "unicode-segmentation",
- "vtparse",
- "wezterm-bidi",
- "wezterm-blob-leases",
- "wezterm-cell",
- "wezterm-char-props",
- "wezterm-color-types",
- "wezterm-dynamic",
- "wezterm-escape-parser",
- "wezterm-input-types",
- "wezterm-surface",
- "winapi",
 ]
 
 [[package]]
@@ -7119,6 +7352,7 @@ version = "1.23.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "ddd74a9687298c6858e9b88ec8935ec45d22e8fd5e6394fa1bd4e99a87789c76"
 dependencies = [
+ "atomic",
  "getrandom 0.4.2",
  "js-sys",
  "wasm-bindgen",
@@ -7201,7 +7435,8 @@ checksum = "5c3082ca00d5a5ef149bb8b555a72ae84c9c59f7250f013ac822ac2e49b19c64"
 [[package]]
 name = "vtparse"
 version = "0.7.0"
-source = "git+https://github.com/wezterm/wezterm#577474d89ee61aef4a48145cdec82a638d874751"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "1726b5dabcf18909219a11c1ae3b85fff931b6e5ccf7321d998fc7665f52661b"
 dependencies = [
  "utf8parse",
 ]
@@ -7517,7 +7752,8 @@ checksum = "a28ac98ddc8b9274cb41bb4d9d4d5c425b6020c50c46f25559911905610b4a88"
 [[package]]
 name = "wezterm-bidi"
 version = "0.2.3"
-source = "git+https://github.com/wezterm/wezterm#577474d89ee61aef4a48145cdec82a638d874751"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "0c0a6e355560527dd2d1cf7890652f4f09bb3433b6aadade4c9b5ed76de5f3ec"
 dependencies = [
  "log",
  "wezterm-dynamic",
@@ -7526,164 +7762,38 @@ dependencies = [
 [[package]]
 name = "wezterm-blob-leases"
 version = "0.1.1"
-source = "git+https://github.com/wezterm/wezterm#577474d89ee61aef4a48145cdec82a638d874751"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "692daff6d93d94e29e4114544ef6d5c942a7ed998b37abdc19b17136ea428eb7"
 dependencies = [
  "getrandom 0.3.4",
+ "mac_address",
  "sha2",
  "thiserror 1.0.69",
  "uuid",
 ]
 
 [[package]]
-name = "wezterm-cell"
-version = "0.1.0"
-source = "git+https://github.com/wezterm/wezterm#577474d89ee61aef4a48145cdec82a638d874751"
-dependencies = [
- "finl_unicode",
- "image 0.25.9",
- "log",
- "ordered-float 4.6.0",
- "serde",
- "sha2",
- "thiserror 1.0.69",
- "wezterm-blob-leases",
- "wezterm-char-props",
- "wezterm-color-types",
- "wezterm-dynamic",
- "wezterm-escape-parser",
-]
-
-[[package]]
-name = "wezterm-char-props"
-version = "0.1.3"
-source = "git+https://github.com/wezterm/wezterm#577474d89ee61aef4a48145cdec82a638d874751"
-dependencies = [
- "phf 0.11.3",
- "serde",
- "ucd-trie",
-]
-
-[[package]]
-name = "wezterm-color-types"
-version = "0.3.0"
-source = "git+https://github.com/wezterm/wezterm#577474d89ee61aef4a48145cdec82a638d874751"
-dependencies = [
- "csscolorparser",
- "deltae",
- "num-traits",
- "serde",
- "wezterm-dynamic",
-]
-
-[[package]]
 name = "wezterm-dynamic"
 version = "0.2.1"
-source = "git+https://github.com/wezterm/wezterm#577474d89ee61aef4a48145cdec82a638d874751"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "5f2ab60e120fd6eaa68d9567f3226e876684639d22a4219b313ff69ec0ccd5ac"
 dependencies = [
  "log",
  "ordered-float 4.6.0",
  "strsim",
- "thiserror 2.0.17",
+ "thiserror 1.0.69",
  "wezterm-dynamic-derive",
 ]
 
 [[package]]
 name = "wezterm-dynamic-derive"
 version = "0.1.1"
-source = "git+https://github.com/wezterm/wezterm#577474d89ee61aef4a48145cdec82a638d874751"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "46c0cf2d539c645b448eaffec9ec494b8b19bd5077d9e58cb1ae7efece8d575b"
 dependencies = [
  "proc-macro2",
  "quote",
  "syn 1.0.109",
-]
-
-[[package]]
-name = "wezterm-escape-parser"
-version = "0.1.0"
-source = "git+https://github.com/wezterm/wezterm#577474d89ee61aef4a48145cdec82a638d874751"
-dependencies = [
- "base64",
- "bitflags 2.10.0",
- "hex",
- "image 0.25.9",
- "log",
- "nix 0.29.0",
- "num-derive",
- "num-traits",
- "ordered-float 4.6.0",
- "pest",
- "pest_derive",
- "sha2",
- "thiserror 2.0.17",
- "vtparse",
- "wezterm-blob-leases",
- "wezterm-color-types",
- "wezterm-dynamic",
- "wezterm-input-types",
- "winapi",
-]
-
-[[package]]
-name = "wezterm-input-types"
-version = "0.1.0"
-source = "git+https://github.com/wezterm/wezterm#577474d89ee61aef4a48145cdec82a638d874751"
-dependencies = [
- "bitflags 1.3.2",
- "euclid",
- "serde",
- "wezterm-dynamic",
-]
-
-[[package]]
-name = "wezterm-surface"
-version = "0.1.0"
-source = "git+https://github.com/wezterm/wezterm#577474d89ee61aef4a48145cdec82a638d874751"
-dependencies = [
- "bitflags 2.10.0",
- "fancy-regex",
- "finl_unicode",
- "fixedbitset",
- "ordered-float 4.6.0",
- "siphasher",
- "unicode-segmentation",
- "wezterm-bidi",
- "wezterm-cell",
- "wezterm-char-props",
- "wezterm-color-types",
- "wezterm-dynamic",
- "wezterm-escape-parser",
- "wezterm-input-types",
-]
-
-[[package]]
-name = "wezterm-term"
-version = "0.1.0"
-source = "git+https://github.com/wezterm/wezterm#577474d89ee61aef4a48145cdec82a638d874751"
-dependencies = [
- "anyhow",
- "bitflags 1.3.2",
- "csscolorparser",
- "downcast-rs",
- "finl_unicode",
- "hex",
- "humansize",
- "image 0.25.9",
- "lazy_static",
- "log",
- "lru",
- "miniz_oxide 0.7.4",
- "num-traits",
- "ordered-float 4.6.0",
- "serde",
- "terminfo",
- "termwiz",
- "unicode-normalization",
- "url",
- "wezterm-bidi",
- "wezterm-cell",
- "wezterm-dynamic",
- "wezterm-escape-parser",
- "wezterm-surface",
 ]
 
 [[package]]

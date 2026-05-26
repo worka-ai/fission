@@ -39,5 +39,5 @@ fission-layout = { path = "../../core/fission-layout", version = "0.2.0" }
 [target.'cfg(not(any(target_os = "ios", target_os = "android", target_arch = "wasm32")))'.dependencies]
 arboard = { version = "3.4", optional = true }
 portable-pty = { version = "0.9", optional = true }
-wezterm-term = { git = "https://github.com/wezterm/wezterm", package = "wezterm-term", optional = true }
-wezterm-surface = { git = "https://github.com/wezterm/wezterm", package = "wezterm-surface", optional = true }
+wezterm-term = { package = "tattoy-wezterm-term", version = "0.1.0-fork.5", optional = true }
+wezterm-surface = { package = "tattoy-wezterm-surface", version = "0.1.0-fork.2", optional = true }
