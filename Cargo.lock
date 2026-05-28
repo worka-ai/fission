@@ -2592,6 +2592,7 @@ dependencies = [
  "bytemuck",
  "cocoa",
  "core-graphics",
+ "dispatch",
  "fission-3d",
  "fission-core",
  "fission-diagnostics",

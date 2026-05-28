@@ -3,6 +3,7 @@ use crate::{
     GeolocationHost, MicrophoneHost,
 };
 use block::ConcreteBlock;
+use dispatch::Queue;
 use fission_core::{
     BarcodeImageDecodeRequest, BarcodeScanRequest, BarcodeScanResults, BarcodeScannerError,
     CameraAvailability, CameraCapture, CameraCaptureRequest, CameraDevice, CameraError,
@@ -32,11 +33,6 @@ extern "C" {}
 
 #[link(name = "UIKit", kind = "framework")]
 extern "C" {}
-
-unsafe extern "C" {
-    fn dispatch_async_f(queue: *mut c_void, context: *mut c_void, work: extern "C" fn(*mut c_void));
-    fn dispatch_get_main_queue() -> *mut c_void;
-}
 
 pub(crate) fn register_ios_operation_capabilities(async_registry: &mut AsyncRegistry) {
     camera::register_camera_capabilities(async_registry, Arc::new(IosCameraHost));
@@ -797,13 +793,7 @@ impl GeolocationHost for IosGeolocationHost {
             state,
             GeolocationPermission::Prompt | GeolocationPermission::Unknown
         ) {
-            unsafe {
-                dispatch_async_f(
-                    dispatch_get_main_queue(),
-                    ptr::null_mut(),
-                    ios_request_location_permission_on_main,
-                );
-            }
+            Queue::main().exec_async(ios_request_location_permission_on_main);
         }
         Ok(state)
     }
@@ -844,7 +834,7 @@ impl GeolocationHost for IosGeolocationHost {
     }
 }
 
-extern "C" fn ios_request_location_permission_on_main(_context: *mut c_void) {
+fn ios_request_location_permission_on_main() {
     unsafe {
         let manager: *mut objc::runtime::Object = msg_send![class!(CLLocationManager), new];
         if !manager.is_null() {
