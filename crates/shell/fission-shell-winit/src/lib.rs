@@ -637,8 +637,26 @@ fn create_native_main_renderer(
         ));
     }
 
-    let cpu_requested = matches!(request, RendererRequest::NativeVelloCpu)
-        || (matches!(request, RendererRequest::Auto) && !supports_indirect_execution);
+    if matches!(request, RendererRequest::Auto)
+        && cfg!(target_os = "ios")
+        && !supports_indirect_execution
+    {
+        return Ok((
+            MainRenderer::Software,
+            RendererReport::new(
+                "native-software-upload",
+                request,
+                backend,
+                adapter,
+                Some("ios_adapter_missing_indirect_execution".to_string()),
+                width,
+                height,
+                scale_factor,
+            ),
+        ));
+    }
+
+    let cpu_requested = matches!(request, RendererRequest::NativeVelloCpu);
     match create_vello_main_renderer(device_handle, cpu_requested) {
         Ok(renderer) => {
             let active = if cpu_requested {
@@ -4504,6 +4522,10 @@ impl<S: AppState + Default, W: Widget<S> + 'static> WinitApp<S, W> {
                             software_image_cache_generation = next_software_image_generation;
                             #[cfg(not(target_arch = "wasm32"))]
                             retained_scene_cache.clear();
+                            #[cfg(target_arch = "wasm32")]
+                            if let Some(WebRenderer::WebGpu(presenter)) = web_renderer.as_mut() {
+                                presenter.retained_scene_cache.clear();
+                            }
                             invalidations.mark_paint();
                             request_redraw_logged(
                                 &window,
