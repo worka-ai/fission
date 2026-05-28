@@ -1,3 +1,5 @@
+#[cfg(target_os = "macos")]
+use block::ConcreteBlock;
 use fission_core::{
     CancelNotificationRequest, NotificationError, NotificationPermission,
     NotificationPermissionRequest, NotificationReceipt, NotificationRequest, NotificationSchedule,
@@ -11,11 +13,15 @@ use fission_shell::async_host::AsyncRegistry;
 use objc::{class, msg_send, sel, sel_impl};
 #[cfg(target_os = "macos")]
 use objc::{class, msg_send, sel, sel_impl};
+#[cfg(target_os = "macos")]
+use std::ffi::CStr;
 #[cfg(any(target_os = "ios", target_os = "macos"))]
 use std::os::raw::c_void;
 #[cfg(not(target_os = "ios"))]
 use std::process::Command;
 use std::sync::Arc;
+#[cfg(target_os = "macos")]
+use std::sync::{Condvar, Mutex};
 
 #[cfg(target_os = "ios")]
 #[link(name = "UIKit", kind = "framework")]
@@ -23,6 +29,14 @@ extern "C" {}
 
 #[cfg(target_os = "macos")]
 #[link(name = "AppKit", kind = "framework")]
+extern "C" {}
+
+#[cfg(target_os = "macos")]
+#[link(name = "Foundation", kind = "framework")]
+extern "C" {}
+
+#[cfg(target_os = "macos")]
+#[link(name = "UserNotifications", kind = "framework")]
 extern "C" {}
 
 /// Host-side notification provider used by the shell capability registry.
@@ -234,12 +248,14 @@ pub(crate) fn native_notification_host() -> impl NotificationHost {
 }
 
 impl NativeNotificationHost {
+    #[cfg(any(test, not(target_os = "macos")))]
     fn supported() -> bool {
         cfg!(target_os = "ios")
             || cfg!(target_os = "macos")
             || (cfg!(target_os = "linux") && command_exists("notify-send"))
     }
 
+    #[cfg(any(test, not(target_os = "macos")))]
     fn native_settings() -> NotificationSettings {
         if Self::supported() {
             NotificationSettings {
@@ -270,23 +286,11 @@ impl NativeNotificationHost {
         #[cfg(not(target_os = "ios"))]
         {
             if cfg!(target_os = "macos") {
-                let mut script = format!(
-                    "display notification {} with title {}",
-                    osascript_string(&request.body),
-                    osascript_string(&request.title)
-                );
-                if let Some(subtitle) = request.subtitle.as_deref() {
-                    script.push_str(" subtitle ");
-                    script.push_str(&osascript_string(subtitle));
+                #[cfg(target_os = "macos")]
+                {
+                    macos_deliver_notification(request, None)?;
+                    return Ok(());
                 }
-                Command::new("osascript")
-                    .arg("-e")
-                    .arg(script)
-                    .spawn()
-                    .map_err(notification_command_error)?
-                    .wait()
-                    .map_err(notification_command_error)?;
-                return Ok(());
             }
 
             if cfg!(target_os = "linux") {
@@ -317,13 +321,27 @@ impl NotificationHost for NativeNotificationHost {
         &self,
         _request: NotificationPermissionRequest,
     ) -> Result<NotificationSettings, NotificationError> {
-        #[cfg(target_os = "ios")]
-        ios_register_local_notifications();
-        Ok(Self::native_settings())
+        #[cfg(target_os = "macos")]
+        {
+            macos_request_notification_permission()
+        }
+        #[cfg(not(target_os = "macos"))]
+        {
+            #[cfg(target_os = "ios")]
+            ios_register_local_notifications();
+            Ok(Self::native_settings())
+        }
     }
 
     fn settings(&self) -> Result<NotificationSettings, NotificationError> {
-        Ok(Self::native_settings())
+        #[cfg(target_os = "macos")]
+        {
+            macos_notification_settings()
+        }
+        #[cfg(not(target_os = "macos"))]
+        {
+            Ok(Self::native_settings())
+        }
     }
 
     fn show(&self, request: NotificationRequest) -> Result<NotificationReceipt, NotificationError> {
@@ -375,9 +393,18 @@ impl NotificationHost for NativeNotificationHost {
             }
             #[cfg(not(target_os = "ios"))]
             NotificationSchedule::AfterMillis(ms) => {
-                if !(cfg!(target_os = "macos")
-                    || (cfg!(target_os = "linux") && command_exists("notify-send")))
-                {
+                if cfg!(target_os = "macos") {
+                    #[cfg(target_os = "macos")]
+                    {
+                        macos_deliver_notification(&request, Some(ms as f64 / 1000.0))?;
+                        return Ok(NotificationReceipt {
+                            id: request.id,
+                            scheduled: true,
+                            delivered: false,
+                        });
+                    }
+                }
+                if !(cfg!(target_os = "linux") && command_exists("notify-send")) {
                     return Err(NotificationError::unsupported("schedule"));
                 }
                 let id = request.id.clone();
@@ -395,15 +422,27 @@ impl NotificationHost for NativeNotificationHost {
             }
             #[cfg(not(target_os = "ios"))]
             NotificationSchedule::AtUnixMillis(ms) => {
-                if !(cfg!(target_os = "macos")
-                    || (cfg!(target_os = "linux") && command_exists("notify-send")))
-                {
-                    return Err(NotificationError::unsupported("schedule"));
-                }
                 let now_ms = std::time::SystemTime::now()
                     .duration_since(std::time::UNIX_EPOCH)
                     .map(|duration| duration.as_millis() as u64)
                     .unwrap_or(ms);
+                if cfg!(target_os = "macos") {
+                    #[cfg(target_os = "macos")]
+                    {
+                        macos_deliver_notification(
+                            &request,
+                            Some(ms.saturating_sub(now_ms) as f64 / 1000.0),
+                        )?;
+                        return Ok(NotificationReceipt {
+                            id: request.id,
+                            scheduled: true,
+                            delivered: false,
+                        });
+                    }
+                }
+                if !(cfg!(target_os = "linux") && command_exists("notify-send")) {
+                    return Err(NotificationError::unsupported("schedule"));
+                }
                 let id = request.id.clone();
                 let request = request.clone();
                 std::thread::spawn(move || {
@@ -420,12 +459,29 @@ impl NotificationHost for NativeNotificationHost {
         }
     }
 
-    fn cancel(&self, _request: CancelNotificationRequest) -> Result<(), NotificationError> {
-        Err(NotificationError::unsupported("cancel"))
+    fn cancel(&self, request: CancelNotificationRequest) -> Result<(), NotificationError> {
+        #[cfg(target_os = "macos")]
+        {
+            macos_cancel_notification(&request.id.0);
+            Ok(())
+        }
+        #[cfg(not(target_os = "macos"))]
+        {
+            let _ = request;
+            Err(NotificationError::unsupported("cancel"))
+        }
     }
 
     fn cancel_all(&self) -> Result<(), NotificationError> {
-        Err(NotificationError::unsupported("cancel_all"))
+        #[cfg(target_os = "macos")]
+        {
+            macos_cancel_all_notifications();
+            Ok(())
+        }
+        #[cfg(not(target_os = "macos"))]
+        {
+            Err(NotificationError::unsupported("cancel_all"))
+        }
     }
 
     fn set_badge_count(&self, request: SetBadgeCountRequest) -> Result<(), NotificationError> {
@@ -521,6 +577,243 @@ fn ios_set_badge_count(count: Option<u32>) {
 }
 
 #[cfg(target_os = "macos")]
+fn macos_request_notification_permission() -> Result<NotificationSettings, NotificationError> {
+    let pair = Arc::new((Mutex::new(None), Condvar::new()));
+    let pair_for_block = pair.clone();
+    let block = ConcreteBlock::new(move |granted: bool, _error: *mut objc::runtime::Object| {
+        let (lock, cvar) = &*pair_for_block;
+        if let Ok(mut result) = lock.lock() {
+            *result = Some(granted);
+            cvar.notify_all();
+        }
+    })
+    .copy();
+    unsafe {
+        let center: *mut objc::runtime::Object =
+            msg_send![class!(UNUserNotificationCenter), currentNotificationCenter];
+        if center.is_null() {
+            return Err(NotificationError::unsupported("notifications"));
+        }
+        let options = 1usize | 2usize | 4usize;
+        let _: () = msg_send![
+            center,
+            requestAuthorizationWithOptions: options
+            completionHandler: &*block
+        ];
+    }
+    let (lock, cvar) = &*pair;
+    let guard = lock.lock().unwrap();
+    let (guard, _) = cvar
+        .wait_timeout_while(guard, std::time::Duration::from_secs(30), |value| {
+            value.is_none()
+        })
+        .unwrap();
+    let granted = (*guard).unwrap_or(false);
+    Ok(NotificationSettings {
+        permission: if granted {
+            NotificationPermission::Granted
+        } else {
+            NotificationPermission::Denied
+        },
+        alerts: granted,
+        badge: granted,
+        sound: granted,
+        scheduling: granted,
+        push: false,
+    })
+}
+
+#[cfg(target_os = "macos")]
+fn macos_notification_settings() -> Result<NotificationSettings, NotificationError> {
+    let pair = Arc::new((Mutex::new(None), Condvar::new()));
+    let pair_for_block = pair.clone();
+    let block = ConcreteBlock::new(move |settings: *mut objc::runtime::Object| {
+        let status: i64 = if settings.is_null() {
+            0
+        } else {
+            unsafe { msg_send![settings, authorizationStatus] }
+        };
+        let permission = match status {
+            2 => NotificationPermission::Granted,
+            3 | 4 => NotificationPermission::Provisional,
+            1 => NotificationPermission::Denied,
+            _ => NotificationPermission::NotDetermined,
+        };
+        let enabled = matches!(
+            permission,
+            NotificationPermission::Granted | NotificationPermission::Provisional
+        );
+        let (lock, cvar) = &*pair_for_block;
+        if let Ok(mut result) = lock.lock() {
+            *result = Some(NotificationSettings {
+                permission,
+                alerts: enabled,
+                badge: enabled,
+                sound: enabled,
+                scheduling: enabled,
+                push: false,
+            });
+            cvar.notify_all();
+        }
+    })
+    .copy();
+    unsafe {
+        let center: *mut objc::runtime::Object =
+            msg_send![class!(UNUserNotificationCenter), currentNotificationCenter];
+        if center.is_null() {
+            return Err(NotificationError::unsupported("notifications"));
+        }
+        let _: () = msg_send![center, getNotificationSettingsWithCompletionHandler: &*block];
+    }
+    let (lock, cvar) = &*pair;
+    let guard = lock.lock().unwrap();
+    let (guard, _) = cvar
+        .wait_timeout_while(guard, std::time::Duration::from_secs(30), |value| {
+            value.is_none()
+        })
+        .unwrap();
+    Ok(guard.clone().unwrap_or(NotificationSettings {
+        permission: NotificationPermission::NotDetermined,
+        ..Default::default()
+    }))
+}
+
+#[cfg(target_os = "macos")]
+fn macos_deliver_notification(
+    request: &NotificationRequest,
+    delay_seconds: Option<f64>,
+) -> Result<(), NotificationError> {
+    let settings = macos_request_notification_permission()?;
+    if !matches!(
+        settings.permission,
+        NotificationPermission::Granted | NotificationPermission::Provisional
+    ) {
+        return Err(NotificationError::new(
+            "permission_denied",
+            "macOS notification permission is not granted",
+        ));
+    }
+
+    let pair = Arc::new((Mutex::new(None), Condvar::new()));
+    let pair_for_block = pair.clone();
+    let block = ConcreteBlock::new(move |error: *mut objc::runtime::Object| {
+        let message = if error.is_null() {
+            None
+        } else {
+            Some(macos_error_description(error))
+        };
+        let (lock, cvar) = &*pair_for_block;
+        if let Ok(mut result) = lock.lock() {
+            *result = Some(message);
+            cvar.notify_all();
+        }
+    })
+    .copy();
+
+    unsafe {
+        let content: *mut objc::runtime::Object =
+            msg_send![class!(UNMutableNotificationContent), new];
+        if content.is_null() {
+            return Err(NotificationError::unsupported("notification_content"));
+        }
+        let title = ns_string(&request.title);
+        let body = ns_string(&request.body);
+        let _: () = msg_send![content, setTitle: title];
+        let _: () = msg_send![content, setBody: body];
+        if let Some(subtitle) = request.subtitle.as_deref() {
+            let subtitle = ns_string(subtitle);
+            let _: () = msg_send![content, setSubtitle: subtitle];
+        }
+        if !matches!(request.sound, fission_core::NotificationSound::Silent) {
+            let sound: *mut objc::runtime::Object =
+                msg_send![class!(UNNotificationSound), defaultSound];
+            let _: () = msg_send![content, setSound: sound];
+        }
+        if let Some(badge) = request.badge {
+            let badge: *mut objc::runtime::Object =
+                msg_send![class!(NSNumber), numberWithUnsignedInteger: badge as usize];
+            let _: () = msg_send![content, setBadge: badge];
+        }
+
+        let trigger: *mut objc::runtime::Object = if let Some(delay) = delay_seconds {
+            msg_send![
+                class!(UNTimeIntervalNotificationTrigger),
+                triggerWithTimeInterval: delay.max(1.0)
+                repeats: false
+            ]
+        } else {
+            std::ptr::null_mut()
+        };
+        let identifier = ns_string(&request.id.0);
+        let notification_request: *mut objc::runtime::Object = msg_send![
+            class!(UNNotificationRequest),
+            requestWithIdentifier: identifier
+            content: content
+            trigger: trigger
+        ];
+        if notification_request.is_null() {
+            return Err(NotificationError::unsupported("notification_request"));
+        }
+        let center: *mut objc::runtime::Object =
+            msg_send![class!(UNUserNotificationCenter), currentNotificationCenter];
+        if center.is_null() {
+            return Err(NotificationError::unsupported("notifications"));
+        }
+        let _: () = msg_send![center, addNotificationRequest: notification_request withCompletionHandler: &*block];
+    }
+
+    let (lock, cvar) = &*pair;
+    let guard = lock.lock().unwrap();
+    let (guard, _) = cvar
+        .wait_timeout_while(guard, std::time::Duration::from_secs(30), |value| {
+            value.is_none()
+        })
+        .unwrap();
+    if let Some(Some(message)) = guard.clone() {
+        Err(NotificationError::new("host_error", message))
+    } else {
+        Ok(())
+    }
+}
+
+#[cfg(target_os = "macos")]
+fn macos_error_description(error: *mut objc::runtime::Object) -> String {
+    unsafe {
+        let description: *mut objc::runtime::Object = msg_send![error, localizedDescription];
+        ns_string_to_string(description).unwrap_or_else(|| "macOS notification error".into())
+    }
+}
+
+#[cfg(target_os = "macos")]
+fn macos_cancel_notification(id: &str) {
+    unsafe {
+        let center: *mut objc::runtime::Object =
+            msg_send![class!(UNUserNotificationCenter), currentNotificationCenter];
+        if center.is_null() {
+            return;
+        }
+        let identifier = ns_string(id);
+        let ids: *mut objc::runtime::Object =
+            msg_send![class!(NSArray), arrayWithObject: identifier];
+        let _: () = msg_send![center, removePendingNotificationRequestsWithIdentifiers: ids];
+        let _: () = msg_send![center, removeDeliveredNotificationsWithIdentifiers: ids];
+    }
+}
+
+#[cfg(target_os = "macos")]
+fn macos_cancel_all_notifications() {
+    unsafe {
+        let center: *mut objc::runtime::Object =
+            msg_send![class!(UNUserNotificationCenter), currentNotificationCenter];
+        if center.is_null() {
+            return;
+        }
+        let _: () = msg_send![center, removeAllPendingNotificationRequests];
+        let _: () = msg_send![center, removeAllDeliveredNotifications];
+    }
+}
+
+#[cfg(target_os = "macos")]
 fn macos_set_badge_count(count: Option<u32>) {
     unsafe {
         let app: *mut objc::runtime::Object = msg_send![class!(NSApplication), sharedApplication];
@@ -552,6 +845,17 @@ fn ns_string(value: &str) -> *mut objc::runtime::Object {
     }
 }
 
+#[cfg(target_os = "macos")]
+fn ns_string_to_string(value: *mut objc::runtime::Object) -> Option<String> {
+    if value.is_null() {
+        return None;
+    }
+    unsafe {
+        let ptr: *const std::os::raw::c_char = msg_send![value, UTF8String];
+        (!ptr.is_null()).then(|| CStr::from_ptr(ptr).to_string_lossy().into_owned())
+    }
+}
+
 fn command_exists(name: &str) -> bool {
     std::env::var_os("PATH")
         .and_then(|paths| {
@@ -565,12 +869,6 @@ fn command_exists(name: &str) -> bool {
 #[cfg(not(target_os = "ios"))]
 fn notification_command_error(error: std::io::Error) -> NotificationError {
     NotificationError::new("host_error", error.to_string())
-}
-
-#[cfg(not(target_os = "ios"))]
-fn osascript_string(value: &str) -> String {
-    let escaped = value.replace('\\', "\\\\").replace('"', "\\\"");
-    format!("\"{escaped}\"")
 }
 
 pub(crate) fn register_notification_capabilities(
