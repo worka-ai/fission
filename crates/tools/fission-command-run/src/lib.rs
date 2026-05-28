@@ -6,6 +6,7 @@ use serde::Serialize;
 use std::env;
 use std::fs::{self, File, OpenOptions};
 use std::io::{self, IsTerminal, Read, Seek, Write};
+use std::net::TcpListener;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::time::{Duration, Instant};
@@ -378,8 +379,18 @@ fn select_device(
         return Ok(devices[0].clone());
     }
 
+    if let Some(device) = preferred_device_for_target(target, &devices) {
+        return Ok(device);
+    }
+
     if !io::stdin().is_terminal() {
         print_device_choices(&devices);
+        if let Some(target) = target {
+            bail!(
+                "multiple {} devices are available; pass `--device <id>`",
+                target.as_str()
+            );
+        }
         bail!("multiple devices are available; pass `--device <id>` or `--target <target>`");
     }
 
@@ -396,6 +407,41 @@ fn select_device(
         bail!("device selection {index} is out of range");
     }
     Ok(devices[index - 1].clone())
+}
+
+fn preferred_device_for_target(target: Option<Target>, devices: &[Device]) -> Option<Device> {
+    match target? {
+        Target::Android => {
+            let running = devices
+                .iter()
+                .filter(|device| {
+                    matches!(device.kind.as_str(), "android-device" | "android-emulator")
+                })
+                .cloned()
+                .collect::<Vec<_>>();
+            if running.len() == 1 {
+                return Some(running[0].clone());
+            }
+            let avds = devices
+                .iter()
+                .filter(|device| device.kind == "android-avd")
+                .cloned()
+                .collect::<Vec<_>>();
+            if running.is_empty() && avds.len() == 1 {
+                return Some(avds[0].clone());
+            }
+            None
+        }
+        Target::Ios => {
+            let booted = devices
+                .iter()
+                .filter(|device| device.kind == "ios-simulator" && device.status == "booted")
+                .cloned()
+                .collect::<Vec<_>>();
+            (booted.len() == 1).then(|| booted[0].clone())
+        }
+        Target::Web | Target::Site | Target::Linux | Target::Macos | Target::Windows => None,
+    }
 }
 
 fn print_device_choices(devices: &[Device]) {
@@ -454,6 +500,7 @@ fn run_desktop(options: &RunOptions, _device: &Device) -> Result<()> {
 fn run_web(options: &RunOptions, _device: &Device) -> Result<()> {
     build_web(&options.project_dir, options.release)?;
     let open = !options.no_open;
+    let port = available_web_port(&options.host, options.port)?;
     if options.detach {
         let log_path = detached_log_path(&options.project_dir, "web");
         let log = open_log(&log_path)?;
@@ -465,7 +512,7 @@ fn run_web(options: &RunOptions, _device: &Device) -> Result<()> {
             .arg("--host")
             .arg(&options.host)
             .arg("--port")
-            .arg(options.port.to_string());
+            .arg(port.to_string());
         if open {
             command.arg("--open");
         }
@@ -477,7 +524,7 @@ fn run_web(options: &RunOptions, _device: &Device) -> Result<()> {
         println!(
             "Started web server pid {} at {}. Logs: {}",
             child.id(),
-            format!("http://{}:{}/platforms/web/", options.host, options.port),
+            format!("http://{}:{port}/platforms/web/", options.host),
             log_path.display()
         );
         return Ok(());
@@ -486,9 +533,40 @@ fn run_web(options: &RunOptions, _device: &Device) -> Result<()> {
     fission_command_site::serve_static(
         options.project_dir.clone(),
         options.host.clone(),
-        options.port,
+        port,
         open,
     )
+}
+
+fn available_web_port(host: &str, requested: u16) -> Result<u16> {
+    const SEARCH_LIMIT: u16 = 50;
+    let mut first_error = None;
+    for offset in 0..=SEARCH_LIMIT {
+        let Some(port) = requested.checked_add(offset) else {
+            break;
+        };
+        match TcpListener::bind((host, port)) {
+            Ok(listener) => {
+                drop(listener);
+                if offset > 0 {
+                    eprintln!(
+                        "Port {host}:{requested} is already in use; using {host}:{port}. Pass `--port {port}` to make this explicit."
+                    );
+                }
+                return Ok(port);
+            }
+            Err(error) if offset == 0 => {
+                first_error = Some(error);
+            }
+            Err(_) => {}
+        }
+    }
+    if let Some(error) = first_error {
+        bail!(
+            "failed to find an available web port from {host}:{requested}: first bind failed with {error}"
+        );
+    }
+    bail!("failed to find an available web port from {host}:{requested}");
 }
 
 fn run_ios(project: &FissionProject, options: &RunOptions, device: &Device) -> Result<()> {
