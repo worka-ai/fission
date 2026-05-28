@@ -9,7 +9,9 @@ use fission_core::{
 use fission_shell::async_host::AsyncRegistry;
 #[cfg(target_os = "ios")]
 use objc::{class, msg_send, sel, sel_impl};
-#[cfg(target_os = "ios")]
+#[cfg(target_os = "macos")]
+use objc::{class, msg_send, sel, sel_impl};
+#[cfg(any(target_os = "ios", target_os = "macos"))]
 use std::os::raw::c_void;
 #[cfg(not(target_os = "ios"))]
 use std::process::Command;
@@ -17,6 +19,10 @@ use std::sync::Arc;
 
 #[cfg(target_os = "ios")]
 #[link(name = "UIKit", kind = "framework")]
+extern "C" {}
+
+#[cfg(target_os = "macos")]
+#[link(name = "AppKit", kind = "framework")]
 extern "C" {}
 
 /// Host-side notification provider used by the shell capability registry.
@@ -241,7 +247,8 @@ impl NativeNotificationHost {
                 alerts: true,
                 badge: cfg!(any(target_os = "ios", target_os = "macos")),
                 sound: true,
-                scheduling: cfg!(target_os = "ios"),
+                scheduling: cfg!(any(target_os = "ios", target_os = "macos"))
+                    || (cfg!(target_os = "linux") && command_exists("notify-send")),
                 push: false,
             }
         } else {
@@ -367,7 +374,49 @@ impl NotificationHost for NativeNotificationHost {
                 })
             }
             #[cfg(not(target_os = "ios"))]
-            _ => Err(NotificationError::unsupported("schedule")),
+            NotificationSchedule::AfterMillis(ms) => {
+                if !(cfg!(target_os = "macos")
+                    || (cfg!(target_os = "linux") && command_exists("notify-send")))
+                {
+                    return Err(NotificationError::unsupported("schedule"));
+                }
+                let id = request.id.clone();
+                let request = request.clone();
+                std::thread::spawn(move || {
+                    std::thread::sleep(std::time::Duration::from_millis(ms));
+                    let host = NativeNotificationHost;
+                    let _ = host.show_now(&request);
+                });
+                Ok(NotificationReceipt {
+                    id,
+                    scheduled: true,
+                    delivered: false,
+                })
+            }
+            #[cfg(not(target_os = "ios"))]
+            NotificationSchedule::AtUnixMillis(ms) => {
+                if !(cfg!(target_os = "macos")
+                    || (cfg!(target_os = "linux") && command_exists("notify-send")))
+                {
+                    return Err(NotificationError::unsupported("schedule"));
+                }
+                let now_ms = std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .map(|duration| duration.as_millis() as u64)
+                    .unwrap_or(ms);
+                let id = request.id.clone();
+                let request = request.clone();
+                std::thread::spawn(move || {
+                    std::thread::sleep(std::time::Duration::from_millis(ms.saturating_sub(now_ms)));
+                    let host = NativeNotificationHost;
+                    let _ = host.show_now(&request);
+                });
+                Ok(NotificationReceipt {
+                    id,
+                    scheduled: true,
+                    delivered: false,
+                })
+            }
         }
     }
 
@@ -385,7 +434,12 @@ impl NotificationHost for NativeNotificationHost {
             ios_set_badge_count(request.count);
             return Ok(());
         }
-        #[cfg(not(target_os = "ios"))]
+        #[cfg(target_os = "macos")]
+        {
+            macos_set_badge_count(request.count);
+            return Ok(());
+        }
+        #[cfg(not(any(target_os = "ios", target_os = "macos")))]
         {
             let _ = request;
             Err(NotificationError::unsupported("set_badge_count"))
@@ -466,7 +520,26 @@ fn ios_set_badge_count(count: Option<u32>) {
     }
 }
 
-#[cfg(target_os = "ios")]
+#[cfg(target_os = "macos")]
+fn macos_set_badge_count(count: Option<u32>) {
+    unsafe {
+        let app: *mut objc::runtime::Object = msg_send![class!(NSApplication), sharedApplication];
+        if app.is_null() {
+            return;
+        }
+        let dock_tile: *mut objc::runtime::Object = msg_send![app, dockTile];
+        if dock_tile.is_null() {
+            return;
+        }
+        let label = count
+            .filter(|count| *count > 0)
+            .map(|count| ns_string(&count.to_string()))
+            .unwrap_or(std::ptr::null_mut());
+        let _: () = msg_send![dock_tile, setBadgeLabel: label];
+    }
+}
+
+#[cfg(any(target_os = "ios", target_os = "macos"))]
 fn ns_string(value: &str) -> *mut objc::runtime::Object {
     unsafe {
         let string: *mut objc::runtime::Object = msg_send![class!(NSString), alloc];

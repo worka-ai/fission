@@ -51,6 +51,7 @@ const fissionBluetoothDevices = new Map();
 const fissionBluetoothConnections = new Map();
 let fissionNfcAbortController = null;
 let fissionTorchStream = null;
+const fissionNotificationTimers = new Map();
 
 function unsupported(message) {
   const error = new Error(message);
@@ -215,6 +216,29 @@ function coseAlgorithm(name) {
   }
 }
 
+function pubKeyCredentialParameters(algorithms) {
+  const ids = [];
+  const pushUnique = (id) => {
+    if (!ids.includes(id)) ids.push(id);
+  };
+  for (const algorithm of Array.isArray(algorithms) ? algorithms : []) {
+    pushUnique(coseAlgorithm(algorithm));
+  }
+  pushUnique(-7);
+  pushUnique(-257);
+  return ids.map((alg) => ({ type: "public-key", alg }));
+}
+
+function webauthnRelyingParty(request) {
+  const rp = { name: request.relying_party.name };
+  if (request.relying_party.id) rp.id = request.relying_party.id;
+  return rp;
+}
+
+function webauthnRpId(request) {
+  return request.relying_party_id || undefined;
+}
+
 function userVerification(value) {
   switch (value) {
     case "Required": return "required";
@@ -286,11 +310,55 @@ export function fissionRequestNotificationPermission() {
   return Notification.requestPermission();
 }
 
+async function ensureNotificationPermission() {
+  if (!("Notification" in globalThis)) throw unsupported("Notification is not available in this browser");
+  if (Notification.permission === "granted") return;
+  if (Notification.permission === "default") await Notification.requestPermission();
+  if (Notification.permission !== "granted") {
+    throw Object.assign(new Error("notification permission is not granted"), { name: "permission_denied" });
+  }
+}
+
 export function fissionShowNotification(id, title, body, silent) {
-  if (!("Notification" in globalThis)) return Promise.reject(unsupported("Notification is not available in this browser"));
-  if (Notification.permission !== "granted") return Promise.reject(Object.assign(new Error("notification permission is not granted"), { name: "permission_denied" }));
-  const notification = new Notification(title, { body, tag: id, silent });
-  return Promise.resolve({ id, delivered: true });
+  return (async () => {
+    await ensureNotificationPermission();
+    const notification = new Notification(title, { body, tag: id, silent });
+    return { id, delivered: true };
+  })();
+}
+
+export function fissionScheduleNotification(id, title, body, silent, delayMs) {
+  return (async () => {
+    await ensureNotificationPermission();
+    if (fissionNotificationTimers.has(id)) {
+      clearTimeout(fissionNotificationTimers.get(id));
+      fissionNotificationTimers.delete(id);
+    }
+    const delay = Math.max(0, Number(delayMs || 0));
+    const timer = setTimeout(() => {
+      try {
+        new Notification(title, { body, tag: id, silent });
+      } finally {
+        fissionNotificationTimers.delete(id);
+      }
+    }, delay);
+    fissionNotificationTimers.set(id, timer);
+    return { id, scheduled: delay > 0, delivered: delay === 0 };
+  })();
+}
+
+export function fissionCancelNotification(id) {
+  if (fissionNotificationTimers.has(id)) {
+    clearTimeout(fissionNotificationTimers.get(id));
+    fissionNotificationTimers.delete(id);
+  }
+  return Promise.resolve();
+}
+
+export function fissionCancelAllNotifications() {
+  for (const timer of fissionNotificationTimers.values()) clearTimeout(timer);
+  fissionNotificationTimers.clear();
+  return Promise.resolve();
 }
 
 export function fissionSetAppBadge(count) {
@@ -580,10 +648,10 @@ export function fissionPasskeyRegister(requestJson) {
     await publicKeyCredential();
     const request = JSON.parse(requestJson);
     const publicKey = {
-      rp: { id: request.relying_party.id, name: request.relying_party.name },
+      rp: webauthnRelyingParty(request),
       user: { id: passkeyBytes(request.user.id), name: request.user.name, displayName: request.user.display_name },
       challenge: passkeyBytes(request.challenge),
-      pubKeyCredParams: (request.pub_key_algorithms || ["ES256"]).map((algorithm) => ({ type: "public-key", alg: coseAlgorithm(algorithm) })),
+      pubKeyCredParams: pubKeyCredentialParameters(request.pub_key_algorithms),
       timeout: request.timeout_ms || undefined,
       attestation: attestation(request.attestation),
       excludeCredentials: (request.exclude_credentials || []).map(credentialDescriptor),
@@ -613,7 +681,7 @@ export function fissionPasskeyAuthenticate(requestJson) {
     const request = JSON.parse(requestJson);
     const options = {
       challenge: passkeyBytes(request.challenge),
-      rpId: request.relying_party_id,
+      rpId: webauthnRpId(request),
       allowCredentials: (request.allow_credentials || []).map(credentialDescriptor),
       userVerification: userVerification(request.user_verification),
       timeout: request.timeout_ms || undefined,
@@ -641,6 +709,18 @@ extern "C" {
         body: &str,
         silent: bool,
     ) -> Result<Promise, JsValue>;
+    #[wasm_bindgen(catch)]
+    fn fissionScheduleNotification(
+        id: &str,
+        title: &str,
+        body: &str,
+        silent: bool,
+        delay_ms: f64,
+    ) -> Result<Promise, JsValue>;
+    #[wasm_bindgen(catch)]
+    fn fissionCancelNotification(id: &str) -> Result<Promise, JsValue>;
+    #[wasm_bindgen(catch)]
+    fn fissionCancelAllNotifications() -> Result<Promise, JsValue>;
     #[wasm_bindgen(catch)]
     fn fissionSetAppBadge(count: JsValue) -> Result<Promise, JsValue>;
     #[wasm_bindgen(catch)]
@@ -795,16 +875,40 @@ fn register_notifications(async_registry: &mut AsyncRegistry) {
                     delivered: true,
                 })
             } else {
-                Err(NotificationError::unsupported("schedule"))
+                let delay_ms = notification_delay_ms(&request.schedule);
+                let silent = matches!(request.sound, fission_core::NotificationSound::Silent);
+                await_promise(fissionScheduleNotification(
+                    &request.id.0,
+                    &request.title,
+                    &request.body,
+                    silent,
+                    delay_ms as f64,
+                ))
+                .await
+                .map_err(notification_error)?;
+                Ok(NotificationReceipt {
+                    id: request.id,
+                    scheduled: true,
+                    delivered: false,
+                })
             }
         },
     );
 
-    async_registry.register_operation_capability(CANCEL_NOTIFICATION, move |_request, _| async {
-        Err::<(), _>(NotificationError::unsupported("cancel"))
-    });
+    async_registry.register_operation_capability(
+        CANCEL_NOTIFICATION,
+        move |request, _| async move {
+            await_promise(fissionCancelNotification(&request.id.0))
+                .await
+                .map_err(notification_error)?;
+            Ok(())
+        },
+    );
     async_registry.register_operation_capability(CANCEL_ALL_NOTIFICATIONS, move |(), _| async {
-        Err::<(), _>(NotificationError::unsupported("cancel_all"))
+        await_promise(fissionCancelAllNotifications())
+            .await
+            .map_err(notification_error)?;
+        Ok(())
     });
     async_registry.register_operation_capability(SET_BADGE_COUNT, move |request, _| async move {
         let count = request
@@ -826,6 +930,17 @@ fn register_notifications(async_registry: &mut AsyncRegistry) {
         .register_operation_capability(UNREGISTER_PUSH_NOTIFICATIONS, move |(), _| async {
             Err::<(), _>(NotificationError::unsupported("unregister_push"))
         });
+}
+
+fn notification_delay_ms(schedule: &NotificationSchedule) -> u64 {
+    match schedule {
+        NotificationSchedule::Immediate => 0,
+        NotificationSchedule::AfterMillis(ms) => *ms,
+        NotificationSchedule::AtUnixMillis(ms) => {
+            let now_ms = js_sys::Date::now().max(0.0) as u64;
+            ms.saturating_sub(now_ms)
+        }
+    }
 }
 
 fn register_clipboard(async_registry: &mut AsyncRegistry) {
@@ -1575,7 +1690,7 @@ fn notification_settings_from_permission(value: &str) -> NotificationSettings {
         alerts: enabled,
         badge: enabled,
         sound: enabled,
-        scheduling: false,
+        scheduling: enabled,
         push: false,
     }
 }
