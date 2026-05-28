@@ -613,7 +613,7 @@ fn canvas_for_mount_selector(selector: &str) -> anyhow::Result<web_sys::HtmlCanv
 #[cfg(target_arch = "wasm32")]
 fn apply_web_canvas_style(canvas: &web_sys::HtmlCanvasElement) -> anyhow::Result<()> {
     let existing = canvas.get_attribute("style").unwrap_or_default();
-    let suffix = "display:block;border:0;outline:none;user-select:none;-webkit-user-drag:none;touch-action:none;-webkit-tap-highlight-color:transparent;";
+    let suffix = "display:block;width:100%;height:100%;border:0;outline:none;user-select:none;-webkit-user-drag:none;touch-action:none;-webkit-tap-highlight-color:transparent;";
     let style = if existing.trim().is_empty() {
         suffix.to_string()
     } else {
