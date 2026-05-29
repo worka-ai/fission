@@ -1,3 +1,4 @@
+use crate::render::{ServerRequest, ServerSession};
 use crate::{
     ProgressiveWorker, ServerJobRegistry, ServerRenderPolicy, VerifiedServerAction, WasmIsland,
     WebRoute, WebRouteMode,
@@ -16,6 +17,8 @@ use std::sync::Arc;
 
 pub(crate) type RouteRenderer =
     dyn for<'a> Fn(&ServerRenderContext<'a>) -> Result<ServerRenderedNode> + Send + Sync + 'static;
+type InitialStateLoader<S> =
+    dyn for<'a> Fn(&ServerRenderContext<'a>) -> Result<S> + Send + Sync + 'static;
 
 #[derive(Debug)]
 pub(crate) struct ServerRenderedNode {
@@ -30,6 +33,8 @@ pub struct ServerRenderContext<'a> {
     pub theme: &'a Theme,
     pub viewport_size: LayoutSize,
     pub jobs: &'a ServerJobRegistry,
+    pub request: &'a ServerRequest,
+    pub session: &'a ServerSession,
     pub action: Option<&'a VerifiedServerAction>,
     pub render_pass_limit: usize,
 }
@@ -76,7 +81,7 @@ impl FissionServerApp {
     }
 
     pub fn route_widget<S, W>(
-        mut self,
+        self,
         path: impl Into<String>,
         title: impl Into<String>,
         description: impl Into<Option<String>>,
@@ -87,7 +92,25 @@ impl FissionServerApp {
         S: AppState + Default + 'static,
         W: Widget<S> + Clone + Send + Sync + 'static,
     {
+        self.route_widget_with_state(path, title, description, mode, widget, |_| Ok(S::default()))
+    }
+
+    pub fn route_widget_with_state<S, W, F>(
+        mut self,
+        path: impl Into<String>,
+        title: impl Into<String>,
+        description: impl Into<Option<String>>,
+        mode: WebRouteMode,
+        widget: W,
+        initial_state: F,
+    ) -> Self
+    where
+        S: AppState + 'static,
+        W: Widget<S> + Clone + Send + Sync + 'static,
+        F: for<'a> Fn(&ServerRenderContext<'a>) -> Result<S> + Send + Sync + 'static,
+    {
         let widget = Arc::new(widget);
+        let initial_state: Arc<InitialStateLoader<S>> = Arc::new(initial_state);
         self.routes.push(ServerRouteEntry {
             route: WebRoute {
                 path: normalize_server_path(&path.into()),
@@ -97,7 +120,10 @@ impl FissionServerApp {
                 workers: Vec::new(),
                 islands: Vec::new(),
             },
-            render: Arc::new(move |ctx| render_widget_node::<S, W>(widget.as_ref().clone(), ctx)),
+            render: Arc::new(move |ctx| {
+                let state = initial_state(ctx)?;
+                render_widget_node::<S, W>(widget.as_ref().clone(), ctx, state)
+            }),
         });
         self
     }
@@ -159,16 +185,19 @@ impl FissionServerApp {
     }
 }
 
-fn render_widget_node<S, W>(widget: W, ctx: &ServerRenderContext<'_>) -> Result<ServerRenderedNode>
+fn render_widget_node<S, W>(
+    widget: W,
+    ctx: &ServerRenderContext<'_>,
+    mut state: S,
+) -> Result<ServerRenderedNode>
 where
-    S: AppState + Default + 'static,
+    S: AppState + 'static,
     W: Widget<S> + Clone,
 {
     let runtime = RuntimeState::default();
     let mut env = Env::default();
     env.theme = ctx.theme.clone();
     env.viewport_size = ctx.viewport_size;
-    let mut state = S::default();
     let mut executed_jobs = BTreeSet::new();
     let mut pending_action = ctx.action.cloned();
     let mut final_node = None;

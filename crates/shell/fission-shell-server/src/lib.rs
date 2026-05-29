@@ -41,7 +41,7 @@ pub use protocol::{
     WorkerRequestKind, WorkerResize, WorkerResponse, WorkerToMain,
 };
 pub use render::{
-    RenderedServerRoute, ServerRenderer, ServerRequest, ServerResponse,
+    RenderedServerRoute, ServerRenderer, ServerRequest, ServerResponse, ServerSession,
     MAX_SERVER_ACTION_BODY_BYTES,
 };
 pub use route::{

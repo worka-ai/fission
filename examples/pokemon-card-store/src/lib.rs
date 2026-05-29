@@ -1,4 +1,5 @@
 pub mod app;
+pub mod cart;
 pub mod components;
 pub mod data;
 pub mod islands;

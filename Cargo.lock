@@ -2802,6 +2802,7 @@ dependencies = [
  "fission-shell-site",
  "fission-theme",
  "fission-widgets",
+ "getrandom 0.2.17",
  "hyper 0.14.32",
  "moka",
  "redis",

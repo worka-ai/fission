@@ -1,3 +1,4 @@
+use crate::cart::{cart_service, CartService};
 use crate::components::{card_grid::CardGrid, hero::Hero, shell::StoreShell};
 use crate::data::{self, CatalogRequest, CatalogResponse, StoreError, CATALOG_JOB};
 use fission::core::ResourceKey;
@@ -6,6 +7,7 @@ use fission::prelude::*;
 #[derive(Debug, Clone)]
 pub struct StoreState {
     pub catalog: AsyncSnapshot<CatalogResponse, StoreError>,
+    pub session_id: String,
     pub cart_items: Vec<String>,
 }
 
@@ -13,12 +15,24 @@ impl Default for StoreState {
     fn default() -> Self {
         Self {
             catalog: AsyncSnapshot::waiting(),
+            session_id: String::new(),
             cart_items: Vec::new(),
         }
     }
 }
 
 impl AppState for StoreState {}
+
+impl StoreState {
+    pub fn for_session(session_id: impl Into<String>) -> Self {
+        let session_id = session_id.into();
+        Self {
+            catalog: AsyncSnapshot::waiting(),
+            cart_items: cart_service().load(&session_id).items,
+            session_id,
+        }
+    }
+}
 
 #[derive(Clone)]
 pub struct StoreHomePage;
@@ -190,7 +204,11 @@ pub fn on_catalog_failed(state: &mut StoreState, ctx: &mut ReducerContext<StoreS
 #[fission_reducer(AddToCart)]
 pub fn on_add_to_cart(state: &mut StoreState, slug: String) {
     if data::card_by_slug(&slug).is_some() {
-        state.cart_items.push(slug);
+        if state.session_id.is_empty() {
+            state.cart_items.push(slug);
+        } else {
+            state.cart_items = cart_service().add_item(&state.session_id, &slug).items;
+        }
     }
 }
 

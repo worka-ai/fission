@@ -4,12 +4,12 @@ A server-side Fission example that sells collectible Pokémon cards using normal
 
 It demonstrates:
 
-- revalidated routes with a five-minute TTL and tag invalidation metadata;
-- one route per product card, including cacheable detail pages under `/cards/<slug>`;
-- the default Moka-backed cache used through the server shell's `Cache` trait;
+- session-private server routes that can render shopper-specific basket state safely;
+- one route per product card, including session-aware detail pages under `/cards/<slug>`;
+- an in-memory cart service keyed by the Fission server session cookie;
 - server-side `FutureBuilder` job draining before HTML is returned;
 - signed HTTP action dispatch into normal reducers through real HTML forms;
-- add-to-basket buttons that post signed action tokens back to the server route;
+- add-to-basket buttons that post signed action tokens back to the server route and persist the cart across page loads;
 - route-local progressive-enhancement worker declarations loaded from generated WASM artifacts;
 - route-local WASM island declarations loaded from generated WASM artifacts;
 - the browser bridge ABI used by those artifacts to receive boot/event JSON and return constrained DOM operations;
@@ -34,8 +34,9 @@ fission server artifacts --project-dir examples/pokemon-card-store
 
 Useful files:
 
-- `src/server.rs` wires the server route, revalidation policy, worker, and island.
+- `src/server.rs` wires the server routes, session-private render policy, worker, and island.
 - `src/app.rs` builds the page from Fission widgets and registers the reducers used by jobs and signed actions.
+- `src/cart.rs` contains the demo cart service used to retain basket state by session.
 - `src/components/` contains the reusable page sections.
 - `src/data.rs` defines the store data and a sample job spec for catalog loading.
 - `src/workers.rs` and `src/islands.rs` provide the browser artifact entry points and bridge messages.

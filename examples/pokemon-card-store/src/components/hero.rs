@@ -35,14 +35,14 @@ fn copy() -> Node {
                     .weight(900)
                     .color(color(248, 250, 252))
                     .into_node(),
-                Text::new("A Fission web store selling Pokémon cards with cacheable product pages, route-local enhancement workers, and a cart island that can load only when the shopper needs it.")
+                Text::new("A Fission web store selling Pokémon cards with server-rendered product pages, route-local enhancement workers, and a session-backed cart.")
                     .size(18.0)
                     .line_height(29.0)
                     .color(color(203, 213, 225))
                     .into_node(),
                 Row {
                     gap: Some(12.0),
-                    children: vec![metric("6", "cards"), metric("5 min", "page TTL"), metric("2", "browser artifacts")],
+                    children: vec![metric("6", "cards"), metric("1", "session cart"), metric("2", "browser artifacts")],
                     ..Default::default()
                 }
                 .into_node(),

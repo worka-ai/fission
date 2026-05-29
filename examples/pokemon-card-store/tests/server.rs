@@ -1,13 +1,30 @@
 use fission::server::{
-    BrowserArtifactBuild, BrowserArtifactBuildOptions, Cache, CacheKey, Freshness, MokaCache,
-    ServerActionSigner, ServerRenderer, ServerRequest,
+    BrowserArtifactBuild, BrowserArtifactBuildOptions, ServerActionSigner, ServerRenderer,
+    ServerRequest,
 };
-use pokemon_card_store::{app::AddToCart, pokemon_card_store_server};
-use std::sync::Arc;
-use std::time::{Duration, SystemTime};
+use pokemon_card_store::{app::AddToCart, cart::cart_service, pokemon_card_store_server};
+use std::time::Duration;
+
+fn cookie_header(response: &fission::server::ServerResponse) -> String {
+    response
+        .headers
+        .iter()
+        .find(|(name, _)| name.eq_ignore_ascii_case("set-cookie"))
+        .map(|(_, value)| value.split(';').next().unwrap_or(value).to_string())
+        .expect("response should set a session cookie")
+}
+
+fn get_with_cookie(path: &str, cookie: &str) -> ServerRequest {
+    let mut request = ServerRequest::get(path);
+    request
+        .headers
+        .insert("cookie".to_string(), cookie.to_string());
+    request
+}
 
 #[test]
 fn store_home_renders_real_product_html_after_draining_catalog_job() {
+    cart_service().clear_all();
     let renderer = ServerRenderer::new(pokemon_card_store_server());
     let response = renderer.handle(ServerRequest::get("/")).unwrap();
     let html = response.body_string();
@@ -26,10 +43,16 @@ fn store_home_renders_real_product_html_after_draining_catalog_job() {
     assert!(html.contains("worker-filter-summary"));
     assert!(html.contains("method=\"post\""));
     assert!(html.contains("name=\"token\""));
+    assert!(response
+        .headers
+        .iter()
+        .any(|(name, value)| name.eq_ignore_ascii_case("set-cookie")
+            && value.contains("fission_session=")));
 }
 
 #[test]
 fn signed_action_dispatches_reducer_before_rendering_response() {
+    cart_service().clear_all();
     let renderer = ServerRenderer::new(pokemon_card_store_server());
     let token = renderer.sign_action(
         "/",
@@ -50,6 +73,7 @@ fn signed_action_dispatches_reducer_before_rendering_response() {
 
 #[test]
 fn form_encoded_action_token_dispatches_like_browser_submit() {
+    cart_service().clear_all();
     let renderer = ServerRenderer::new(pokemon_card_store_server());
     let token = renderer.sign_action(
         "/",
@@ -74,7 +98,8 @@ fn form_encoded_action_token_dispatches_like_browser_submit() {
 }
 
 #[test]
-fn card_detail_route_renders_a_cacheable_product_page() {
+fn card_detail_route_renders_a_session_aware_product_page() {
+    cart_service().clear_all();
     let renderer = ServerRenderer::new(pokemon_card_store_server());
     let response = renderer
         .handle(ServerRequest::get("/cards/charizard-holo"))
@@ -88,17 +113,35 @@ fn card_detail_route_renders_a_cacheable_product_page() {
 }
 
 #[test]
-fn store_home_uses_revalidation_cache() {
-    let cache = Arc::new(MokaCache::default());
-    let renderer = ServerRenderer::new(pokemon_card_store_server()).with_cache(cache.clone());
+fn cart_state_persists_across_requests_for_the_same_session() {
+    cart_service().clear_all();
+    let renderer = ServerRenderer::new(pokemon_card_store_server());
 
     let first = renderer.handle(ServerRequest::get("/")).unwrap();
     assert_eq!(first.status, 200);
-    let second = renderer.handle(ServerRequest::get("/")).unwrap();
-    assert_eq!(second.cache_status, Some(Freshness::Fresh));
-    assert!(cache
-        .contains_fresh(&CacheKey::new("page:/?"), SystemTime::now())
-        .unwrap());
+    let cookie = cookie_header(&first);
+
+    let token = renderer.sign_action(
+        "/",
+        0,
+        AddToCart("charizard-holo".to_string()),
+        Duration::from_secs(60),
+    );
+    let body = serde_json::to_vec(&token).unwrap();
+    let mut action = ServerRequest::post("/__fission/action", body);
+    action.headers.insert("cookie".to_string(), cookie.clone());
+    let response = renderer.handle(action).unwrap();
+    assert!(response.body_string().contains("1 item in the server cart"));
+
+    let second = renderer.handle(get_with_cookie("/", &cookie)).unwrap();
+    let html = second.body_string();
+    assert!(html.contains("1 item in the server cart"));
+    assert!(html.contains("Last added: Charizard Holo"));
+
+    let other_session = renderer.handle(ServerRequest::get("/")).unwrap();
+    assert!(other_session
+        .body_string()
+        .contains("0 items in the server cart"));
 }
 
 #[test]

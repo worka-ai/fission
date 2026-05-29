@@ -18,11 +18,14 @@ use serde::Serialize;
 use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
 use std::path::{Component, Path, PathBuf};
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, RwLock};
 use std::time::{Duration, SystemTime};
 
 pub const MAX_SERVER_ACTION_BODY_BYTES: usize = 1024 * 1024;
+pub const DEFAULT_SESSION_COOKIE_NAME: &str = "fission_session";
 const SERVER_BROWSER_RUNTIME_JS: &str = include_str!("../assets/server-runtime.js");
+static SESSION_COUNTER: AtomicU64 = AtomicU64::new(1);
 
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct ServerRequest {
@@ -75,6 +78,22 @@ impl ServerResponse {
 
     pub fn body_string(&self) -> String {
         String::from_utf8_lossy(&self.body).into_owned()
+    }
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ServerSession {
+    id: String,
+    is_new: bool,
+}
+
+impl ServerSession {
+    pub fn id(&self) -> &str {
+        &self.id
+    }
+
+    pub fn is_new(&self) -> bool {
+        self.is_new
     }
 }
 
@@ -172,7 +191,9 @@ impl ServerRenderer {
             .app
             .find_route(path)
             .ok_or_else(|| anyhow!("server route `{}` was not found", path))?;
-        self.render_uncached(route, None)
+        let request = ServerRequest::get(&route.route.path);
+        let session = self.session_for_request(&request)?;
+        self.render_uncached(route, None, &request, &session)
     }
 
     pub fn handle(&self, request: ServerRequest) -> Result<ServerResponse> {
@@ -198,6 +219,7 @@ impl ServerRenderer {
                 "not found",
             ));
         };
+        let session = self.session_for_request(&request)?;
 
         if let WebRouteMode::Revalidated(policy) = &route.route.mode {
             let cache_key = cache_key_for_route(&route.route, &request);
@@ -212,13 +234,14 @@ impl ServerRenderer {
                                 "x-fission-cache".to_string(),
                                 format!("{:?}", entry.freshness(now)).to_ascii_lowercase(),
                             ));
+                            self.attach_session_cookie(&mut response, &session);
                             return Ok(response);
                         }
                     }
                     Freshness::Expired => {}
                 }
             }
-            let rendered = self.render_uncached(route, None)?;
+            let rendered = self.render_uncached(route, None, &request, &session)?;
             let page = RenderedPage {
                 html: rendered.html.clone(),
                 css: rendered.css.clone(),
@@ -234,11 +257,13 @@ impl ServerRenderer {
                 CacheMetadata::full_page(&route.route.path),
             );
             self.cache.put(entry)?;
-            return Ok(page_response(&page, Freshness::Expired));
+            let mut response = page_response(&page, Freshness::Expired);
+            self.attach_session_cookie(&mut response, &session);
+            return Ok(response);
         }
 
-        let rendered = self.render_uncached(route, None)?;
-        Ok(ServerResponse {
+        let rendered = self.render_uncached(route, None, &request, &session)?;
+        let mut response = ServerResponse {
             status: 200,
             headers: vec![(
                 "content-type".to_string(),
@@ -246,13 +271,17 @@ impl ServerRenderer {
             )],
             body: rendered.html.into_bytes(),
             cache_status: None,
-        })
+        };
+        self.attach_session_cookie(&mut response, &session);
+        Ok(response)
     }
 
     fn render_uncached(
         &self,
         route: &ServerRouteEntry,
         action: Option<&VerifiedServerAction>,
+        request: &ServerRequest,
+        session: &ServerSession,
     ) -> Result<RenderedServerRoute> {
         let ctx = crate::ServerRenderContext {
             project_dir: &self.app.project_dir,
@@ -260,6 +289,8 @@ impl ServerRenderer {
             theme: &self.app.theme,
             viewport_size: self.viewport_size,
             jobs: &self.jobs,
+            request,
+            session,
             action,
             render_pass_limit: self.render_pass_limit,
         };
@@ -437,8 +468,9 @@ impl ServerRenderer {
                 "server action route not found",
             ));
         };
-        let rendered = self.render_uncached(route, Some(&action))?;
-        Ok(ServerResponse {
+        let session = self.session_for_request(&request)?;
+        let rendered = self.render_uncached(route, Some(&action), &request, &session)?;
+        let mut response = ServerResponse {
             status: 200,
             headers: vec![(
                 "content-type".to_string(),
@@ -446,7 +478,9 @@ impl ServerRenderer {
             )],
             body: rendered.html.into_bytes(),
             cache_status: None,
-        })
+        };
+        self.attach_session_cookie(&mut response, &session);
+        Ok(response)
     }
 
     fn decode_action_request(&self, request: &ServerRequest) -> Result<SignedServerAction> {
@@ -470,6 +504,32 @@ impl ServerRenderer {
             return true;
         };
         self.allowed_action_origins.contains(origin)
+    }
+
+    fn session_for_request(&self, request: &ServerRequest) -> Result<ServerSession> {
+        if let Some(cookie) = header_value(&request.headers, "cookie") {
+            if let Some(id) = cookie_value(cookie, DEFAULT_SESSION_COOKIE_NAME) {
+                if safe_session_id(&id) {
+                    return Ok(ServerSession { id, is_new: false });
+                }
+            }
+        }
+        Ok(ServerSession {
+            id: generate_session_id()?,
+            is_new: true,
+        })
+    }
+
+    fn attach_session_cookie(&self, response: &mut ServerResponse, session: &ServerSession) {
+        if session.is_new {
+            response.headers.push((
+                "set-cookie".to_string(),
+                format!(
+                    "{}={}; Path=/; HttpOnly; SameSite=Lax; Max-Age=2592000",
+                    DEFAULT_SESSION_COOKIE_NAME, session.id
+                ),
+            ));
+        }
     }
 }
 
@@ -523,6 +583,37 @@ fn form_decode(value: &str) -> String {
         }
     }
     String::from_utf8_lossy(&out).into_owned()
+}
+
+fn cookie_value(cookie: &str, key: &str) -> Option<String> {
+    cookie.split(';').find_map(|part| {
+        let (candidate, value) = part.trim().split_once('=')?;
+        (candidate == key).then(|| value.to_string())
+    })
+}
+
+fn safe_session_id(id: &str) -> bool {
+    id.len() == 64 && id.bytes().all(|byte| byte.is_ascii_hexdigit())
+}
+
+fn generate_session_id() -> Result<String> {
+    let mut random = [0u8; 32];
+    getrandom::getrandom(&mut random)
+        .map_err(|error| anyhow!("failed to create session id: {error}"))?;
+    let counter = SESSION_COUNTER
+        .fetch_add(1, Ordering::Relaxed)
+        .to_le_bytes();
+    let now = SystemTime::now()
+        .duration_since(SystemTime::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_nanos()
+        .to_le_bytes();
+    let mut hasher = blake3::Hasher::new();
+    hasher.update(b"fission.server.session.v1");
+    hasher.update(&random);
+    hasher.update(&counter);
+    hasher.update(&now);
+    Ok(hasher.finalize().to_hex().to_string())
 }
 
 fn hex_value(byte: u8) -> Option<u8> {

@@ -28,6 +28,7 @@ fission-ir = { path = "../../core/fission-ir", version = "0.2.0" }
 fission-layout = { path = "../../core/fission-layout", version = "0.2.0" }
 fission-shell-site = { path = "../fission-shell-site", version = "0.2.0" }
 fission-theme = { path = "../../core/fission-theme", version = "0.2.0" }
+getrandom = { version = "0.2", features = ["std"] }
 hyper = { version = "0.14", features = ["server", "http1", "tcp"] }
 moka = { version = "0.12", features = ["sync"] }
 redis = { version = "0.32", optional = true }

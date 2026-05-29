@@ -42,7 +42,7 @@ fn nav(view: &View<StoreState>) -> Node {
             }
             .into_node(),
             nav_link("Catalogue", "/"),
-            pill("Revalidated HTML", color(34, 197, 94)),
+            pill("Session cart", color(34, 197, 94)),
             pill("Worker filters", color(96, 165, 250)),
             pill("Cart island", color(244, 114, 182)),
         ],
@@ -63,9 +63,7 @@ fn nav_link(label: &str, href: &str) -> Node {
 }
 
 fn footer(_view: &View<StoreState>) -> Node {
-    Text::new(
-        "Demo storefront: cached server rendering, route-local workers, and focused WASM islands.",
-    )
+    Text::new("Demo storefront: server rendering, session state, route-local workers, and focused WASM islands.")
     .size(13.0)
     .line_height(20.0)
     .color(color(148, 163, 184))

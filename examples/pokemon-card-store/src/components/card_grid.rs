@@ -103,7 +103,7 @@ fn section_title() -> Node {
                         .weight(900)
                         .color(color(248, 250, 252))
                         .into_node(),
-                    Text::new("Generated as normal Fission widgets, rendered to HTML by the server shell, and cached with catalog tags.")
+                    Text::new("Generated as normal Fission widgets, rendered to HTML by the server shell, and combined with session cart state.")
                         .size(15.0)
                         .line_height(24.0)
                         .color(color(148, 163, 184))
@@ -114,7 +114,7 @@ fn section_title() -> Node {
             .into_node(),
             Spacer { flex_grow: 1.0, ..Default::default() }.into_node(),
             Container::new(
-                Text::new("Inventory updates invalidate catalog/product tags")
+                Text::new("Cart updates persist through the server session")
                     .size(13.0)
                     .line_height(18.0)
                     .weight(700)
