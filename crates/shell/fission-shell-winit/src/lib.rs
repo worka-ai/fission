@@ -29,7 +29,7 @@ use winit::{
     window::{CursorIcon, Window, WindowBuilder, WindowId},
 };
 
-use fission_core::env::VideoStatus;
+use fission_core::env::{VideoStatus, WindowInsets};
 use fission_core::lowering::LoweringContext;
 use fission_core::ui::custom_render::downcast_render_object;
 use fission_core::{
@@ -429,7 +429,10 @@ impl WindowViewportState {
         let reported_scale_factor = normalize_scale_factor(window.scale_factor());
         #[cfg(target_os = "ios")]
         {
-            let mut physical_size = window.inner_size();
+            // Winit's iOS `inner_size` is the safe-area rectangle. The renderer
+            // presents into the full view, so the viewport must use the outer
+            // bounds and expose the safe-area separately through `Env`.
+            let mut physical_size = window.outer_size();
             let effective_scale_factor = ios_effective_scale_factor(reported_scale_factor);
             if effective_scale_factor > reported_scale_factor && reported_scale_factor <= 1.0 {
                 physical_size = logical_viewport_to_physical_size(
@@ -470,6 +473,7 @@ impl WindowViewportState {
         ))
     }
 
+    #[cfg(any(test, not(target_os = "ios")))]
     fn with_scale_factor(self, scale_factor: f64) -> Self {
         let scale_factor = normalize_scale_factor(scale_factor);
         let logical_size = self.logical_size();
@@ -478,6 +482,48 @@ impl WindowViewportState {
             scale_factor,
         }
     }
+}
+
+#[cfg(any(test, target_os = "ios"))]
+fn window_insets_from_safe_area_frames(
+    inner_position: PhysicalPosition<i32>,
+    outer_position: PhysicalPosition<i32>,
+    inner_size: PhysicalSize<u32>,
+    outer_size: PhysicalSize<u32>,
+    scale_factor: f64,
+) -> WindowInsets {
+    let scale_factor = normalize_scale_factor(scale_factor) as f32;
+    let left_px = (inner_position.x - outer_position.x).max(0) as i64;
+    let top_px = (inner_position.y - outer_position.y).max(0) as i64;
+    let right_px = (outer_size.width as i64 - inner_size.width as i64 - left_px).max(0);
+    let bottom_px = (outer_size.height as i64 - inner_size.height as i64 - top_px).max(0);
+
+    WindowInsets {
+        top: top_px as f32 / scale_factor,
+        bottom: bottom_px as f32 / scale_factor,
+        left: left_px as f32 / scale_factor,
+        right: right_px as f32 / scale_factor,
+    }
+}
+
+fn window_safe_area_insets(window: &Window, scale_factor: f64) -> WindowInsets {
+    #[cfg(target_os = "ios")]
+    {
+        if let (Ok(inner_position), Ok(outer_position)) =
+            (window.inner_position(), window.outer_position())
+        {
+            return window_insets_from_safe_area_frames(
+                inner_position,
+                outer_position,
+                window.inner_size(),
+                window.outer_size(),
+                scale_factor,
+            );
+        }
+    }
+
+    let _ = (window, scale_factor);
+    WindowInsets::default()
 }
 
 #[cfg(not(target_arch = "wasm32"))]
@@ -2207,16 +2253,16 @@ fn physical_position_to_layout_point(
 fn window_content_origin_physical(window: &Window) -> PhysicalPosition<i32> {
     #[cfg(target_os = "ios")]
     {
-        // Winit's iOS backend reports touches in the full UIView/window
-        // coordinate space, while `inner_size` is the safe-area viewport.
-        // Convert input into the same safe-area-relative space used by layout.
-        if let (Ok(inner), Ok(outer)) = (window.inner_position(), window.outer_position()) {
-            return PhysicalPosition::new(inner.x - outer.x, inner.y - outer.y);
-        }
+        // Layout uses the full iOS view. Safe-area avoidance is exposed through
+        // `Env.window_insets`, so pointer coordinates stay in full-view space.
+        let _ = window;
+        PhysicalPosition::new(0, 0)
     }
-
-    let _ = window;
-    PhysicalPosition::new(0, 0)
+    #[cfg(not(target_os = "ios"))]
+    {
+        let _ = window;
+        PhysicalPosition::new(0, 0)
+    }
 }
 
 fn window_physical_position_to_layout_point(
@@ -4809,6 +4855,9 @@ impl<S: AppState + Default, W: Widget<S> + 'static> WinitApp<S, W> {
                         match event {
                             WindowEvent::Resized(size) => {
                                 if size.width > 0 && size.height > 0 {
+                                    #[cfg(target_os = "ios")]
+                                    let next_viewport = WindowViewportState::from_window(window);
+                                    #[cfg(not(target_os = "ios"))]
                                     let next_viewport = pending_resize
                                         .unwrap_or_else(|| WindowViewportState::from_window(window))
                                         .with_physical_size(size);
@@ -4839,6 +4888,11 @@ impl<S: AppState + Default, W: Widget<S> + 'static> WinitApp<S, W> {
                                 }
                             }
                             WindowEvent::ScaleFactorChanged { scale_factor, .. } => {
+                                #[cfg(target_os = "ios")]
+                                let _ = scale_factor;
+                                #[cfg(target_os = "ios")]
+                                let next_viewport = WindowViewportState::from_window(window);
+                                #[cfg(not(target_os = "ios"))]
                                 let next_viewport = pending_resize
                                     .unwrap_or_else(|| WindowViewportState::from_window(window))
                                     .with_scale_factor(scale_factor);
@@ -5189,6 +5243,8 @@ impl<S: AppState + Default, W: Widget<S> + 'static> WinitApp<S, W> {
                                     &mut invalidations,
                                 );
                                 env.viewport_size = build_viewport;
+                                env.window_insets =
+                                    window_safe_area_insets(window, viewport_state.scale_factor);
 
                                 if let Some(sync) = &self.sync_env {
                                     let state = runtime.get_app_state::<S>().unwrap();
@@ -6860,7 +6916,8 @@ mod tests {
         physical_size_to_layout_size, rect_visible_in_scroll_ancestors,
         repeating_animation_redraw_interval, resize_is_unsettled, resolve_build_viewport,
         sync_tracked_target_texture_size_to_surface, texture_plans_fit_device_limits,
-        visual_rect_for_node, LiveResizeController, WindowViewportState,
+        visual_rect_for_node, window_insets_from_safe_area_frames, LiveResizeController,
+        WindowViewportState,
     };
     use crate::pipeline::CompositorTexturePlan;
     use crate::InvalidationSet;
@@ -6923,6 +6980,22 @@ mod tests {
             PhysicalPosition::new(0, 100),
         );
         assert_eq!(point, fission_render::LayoutPoint::new(120.0, 180.0));
+    }
+
+    #[test]
+    fn safe_area_frames_convert_to_logical_window_insets() {
+        let insets = window_insets_from_safe_area_frames(
+            PhysicalPosition::new(0, 177),
+            PhysicalPosition::new(0, 0),
+            PhysicalSize::new(1206, 2343),
+            PhysicalSize::new(1206, 2622),
+            3.0,
+        );
+
+        assert_eq!(insets.left, 0.0);
+        assert_eq!(insets.right, 0.0);
+        assert_eq!(insets.top, 59.0);
+        assert_eq!(insets.bottom, 34.0);
     }
 
     #[test]
