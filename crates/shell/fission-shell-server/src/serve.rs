@@ -1,7 +1,10 @@
-use crate::{ServerRenderer, ServerRequest, MAX_SERVER_ACTION_BODY_BYTES};
+use crate::{hyper_adapter, ServerRenderer};
 use anyhow::{Context, Result};
-use std::io::{self, BufRead, Read, Write};
-use std::net::{TcpListener, TcpStream};
+use hyper::service::{make_service_fn, service_fn};
+use hyper::Server;
+use std::convert::Infallible;
+use std::net::SocketAddr;
+use std::sync::Arc;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ServeOptions {
@@ -19,126 +22,38 @@ impl Default for ServeOptions {
 }
 
 pub fn serve(renderer: ServerRenderer, options: ServeOptions) -> Result<()> {
-    let listener = TcpListener::bind((options.host.as_str(), options.port))
-        .with_context(|| format!("failed to bind {}:{}", options.host, options.port))?;
-    println!(
-        "Serving Fission server app at http://{}:{}/",
-        options.host, options.port
-    );
+    let runtime = tokio::runtime::Builder::new_multi_thread()
+        .enable_io()
+        .enable_time()
+        .build()
+        .context("failed to start server runtime")?;
+    runtime.block_on(serve_async(renderer, options))
+}
+
+async fn serve_async(renderer: ServerRenderer, options: ServeOptions) -> Result<()> {
+    let address: SocketAddr = format!("{}:{}", options.host, options.port)
+        .parse()
+        .with_context(|| {
+            format!(
+                "failed to parse server address {}:{}",
+                options.host, options.port
+            )
+        })?;
+    let renderer = Arc::new(renderer);
+    let service = make_service_fn(move |_| {
+        let renderer = renderer.clone();
+        async move {
+            Ok::<_, Infallible>(service_fn(move |request| {
+                hyper_adapter::handle(renderer.clone(), request)
+            }))
+        }
+    });
+
+    println!("Serving Fission server app at http://{address}/");
     println!("Press Ctrl+C to stop.");
-    for stream in listener.incoming() {
-        match stream {
-            Ok(stream) => {
-                if let Err(error) = handle_stream(stream, &renderer) {
-                    eprintln!("request failed: {error}");
-                }
-            }
-            Err(error) => eprintln!("accept failed: {error}"),
-        }
-    }
+    Server::bind(&address)
+        .serve(service)
+        .await
+        .context("server failed")?;
     Ok(())
-}
-
-fn handle_stream(mut stream: TcpStream, renderer: &ServerRenderer) -> Result<()> {
-    let request = parse_request(&stream)?;
-    let response = renderer.handle(request)?;
-    write!(
-        stream,
-        "HTTP/1.1 {} {}\r\ncontent-length: {}\r\n",
-        response.status,
-        reason_phrase(response.status),
-        response.body.len()
-    )?;
-    for (name, value) in response.headers {
-        write!(stream, "{name}: {value}\r\n")?;
-    }
-    write!(stream, "\r\n")?;
-    stream.write_all(&response.body)?;
-    Ok(())
-}
-
-fn parse_request(stream: &TcpStream) -> Result<ServerRequest> {
-    let mut reader = io::BufReader::new(stream.try_clone()?);
-    let mut request_line = String::new();
-    reader.read_line(&mut request_line)?;
-    let mut parts = request_line.split_whitespace();
-    let method = parts.next().unwrap_or("GET").to_string();
-    let raw_path = parts.next().unwrap_or("/");
-    let (path, query) = parse_path_and_query(raw_path);
-    let mut headers = std::collections::BTreeMap::new();
-    let mut content_length = 0usize;
-    loop {
-        let mut line = String::new();
-        reader.read_line(&mut line)?;
-        let line = line.trim_end();
-        if line.is_empty() {
-            break;
-        }
-        if let Some((name, value)) = line.split_once(':') {
-            let name = name.trim().to_ascii_lowercase();
-            let value = value.trim().to_string();
-            if name == "content-length" {
-                content_length = value.parse().unwrap_or(0);
-            }
-            headers.insert(name, value);
-        }
-    }
-    if content_length > MAX_SERVER_ACTION_BODY_BYTES {
-        anyhow::bail!(
-            "request body exceeds {} bytes",
-            MAX_SERVER_ACTION_BODY_BYTES
-        );
-    }
-    let mut body = vec![0u8; content_length];
-    if !body.is_empty() {
-        reader.read_exact(&mut body)?;
-    }
-    Ok(ServerRequest {
-        method,
-        path,
-        query,
-        headers,
-        body,
-    })
-}
-
-fn parse_path_and_query(raw: &str) -> (String, std::collections::BTreeMap<String, String>) {
-    let Some((path, query)) = raw.split_once('?') else {
-        return (raw.to_string(), Default::default());
-    };
-    let mut out = std::collections::BTreeMap::new();
-    for part in query.split('&') {
-        if part.is_empty() {
-            continue;
-        }
-        let (key, value) = part.split_once('=').unwrap_or((part, ""));
-        out.insert(key.to_string(), value.to_string());
-    }
-    (path.to_string(), out)
-}
-
-fn reason_phrase(status: u16) -> &'static str {
-    match status {
-        200 => "OK",
-        204 => "No Content",
-        400 => "Bad Request",
-        403 => "Forbidden",
-        404 => "Not Found",
-        405 => "Method Not Allowed",
-        413 => "Payload Too Large",
-        500 => "Internal Server Error",
-        _ => "OK",
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::reason_phrase;
-
-    #[test]
-    fn reason_phrase_matches_common_error_statuses() {
-        assert_eq!(reason_phrase(404), "Not Found");
-        assert_eq!(reason_phrase(405), "Method Not Allowed");
-        assert_eq!(reason_phrase(413), "Payload Too Large");
-    }
 }

@@ -1,7 +1,6 @@
 use crate::{ServerRenderer, ServerRequest, ServerResponse};
 use std::sync::Arc;
 
-#[cfg(feature = "hyper-adapter")]
 pub mod hyper_adapter {
     use super::*;
     use hyper::{Body, Request, Response, StatusCode};

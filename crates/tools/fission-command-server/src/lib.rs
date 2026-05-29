@@ -14,6 +14,7 @@ pub fn routes(project_dir: &Path) -> Result<()> {
 
 pub fn serve(project_dir: &Path, release: bool, host: String, port: u16) -> Result<()> {
     ensure_server_entry_configured(project_dir)?;
+    artifacts(project_dir, release, true).context("failed to build server browser artifacts")?;
     let port = port.to_string();
     run_server_builder(
         project_dir,

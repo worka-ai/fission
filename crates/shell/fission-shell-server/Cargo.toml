@@ -13,7 +13,7 @@ readme = "README.md"
 default = []
 actix-adapter = ["dep:actix-web"]
 axum-adapter = ["dep:axum"]
-hyper-adapter = ["dep:hyper"]
+hyper-adapter = []
 redis = ["dep:redis"]
 
 [dependencies]
@@ -28,11 +28,12 @@ fission-ir = { path = "../../core/fission-ir", version = "0.2.0" }
 fission-layout = { path = "../../core/fission-layout", version = "0.2.0" }
 fission-shell-site = { path = "../fission-shell-site", version = "0.2.0" }
 fission-theme = { path = "../../core/fission-theme", version = "0.2.0" }
-hyper = { version = "0.14", optional = true, features = ["server", "http1", "stream"] }
+hyper = { version = "0.14", features = ["server", "http1", "tcp"] }
 moka = { version = "0.12", features = ["sync"] }
 redis = { version = "0.32", optional = true }
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
+tokio = { version = "1.48", features = ["rt-multi-thread", "time"] }
 
 [dev-dependencies]
 fission-widgets = { path = "../../authoring/fission-widgets", version = "0.2.0", default-features = false }

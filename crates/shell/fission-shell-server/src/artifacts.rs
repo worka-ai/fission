@@ -123,11 +123,7 @@ fn write_shim(plan: &BrowserArtifactPlan, options: &BrowserArtifactBuildOptions)
 }
 
 fn shim_manifest(plan: &BrowserArtifactPlan, options: &BrowserArtifactBuildOptions) -> String {
-    let crate_name = format!(
-        "fission_{}_{}",
-        kind_name(plan.kind),
-        sanitize_ident(&plan.id)
-    );
+    let crate_name = shim_crate_name(plan);
     let dependency_name = options.package_name.replace('-', "_");
     let dependency = dependency_spec(&dependency_name, options, &plan.shim_dir);
     format!(
@@ -208,7 +204,59 @@ fn compile_shim(plan: &BrowserArtifactPlan, options: &BrowserArtifactBuildOption
     if !status.success() {
         bail!("browser artifact `{}` failed with {status}", plan.id);
     }
+    copy_compiled_artifact(plan, options)?;
     Ok(())
+}
+
+fn copy_compiled_artifact(
+    plan: &BrowserArtifactPlan,
+    options: &BrowserArtifactBuildOptions,
+) -> Result<()> {
+    let profile = if options.release { "release" } else { "debug" };
+    let wasm = plan
+        .shim_dir
+        .join("target/wasm32-unknown-unknown")
+        .join(profile)
+        .join(format!("{}.wasm", shim_crate_name(plan).replace('-', "_")));
+    let relative = safe_artifact_output_path(&plan.artifact)
+        .with_context(|| format!("browser artifact path `{}` is invalid", plan.artifact))?;
+    let output = options.output_dir.join(relative);
+    if let Some(parent) = output.parent() {
+        fs::create_dir_all(parent)
+            .with_context(|| format!("failed to create {}", parent.display()))?;
+    }
+    fs::copy(&wasm, &output).with_context(|| {
+        format!(
+            "failed to copy browser artifact {} to {}",
+            wasm.display(),
+            output.display()
+        )
+    })?;
+    Ok(())
+}
+
+fn shim_crate_name(plan: &BrowserArtifactPlan) -> String {
+    format!(
+        "fission_{}_{}",
+        kind_name(plan.kind),
+        sanitize_ident(&plan.id)
+    )
+}
+
+fn safe_artifact_output_path(path: &str) -> Option<PathBuf> {
+    let trimmed = path.trim_start_matches('/');
+    if trimmed.is_empty() || trimmed.contains('\\') {
+        return None;
+    }
+    let path = Path::new(trimmed);
+    let mut out = PathBuf::new();
+    for component in path.components() {
+        match component {
+            std::path::Component::Normal(segment) => out.push(segment),
+            _ => return None,
+        }
+    }
+    Some(out)
 }
 
 fn kind_name(kind: BrowserArtifactKind) -> &'static str {

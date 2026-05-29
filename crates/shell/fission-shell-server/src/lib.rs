@@ -6,6 +6,7 @@
 //! second server component model.
 
 mod action_token;
+mod adapters;
 mod app;
 mod artifacts;
 mod cache;
@@ -15,19 +16,11 @@ mod render;
 mod route;
 mod serve;
 
-#[cfg(any(
-    feature = "actix-adapter",
-    feature = "axum-adapter",
-    feature = "hyper-adapter"
-))]
-mod adapters;
-
 pub use action_token::{ServerActionSigner, SignedServerAction, VerifiedServerAction};
 #[cfg(feature = "actix-adapter")]
 pub use adapters::actix_adapter;
 #[cfg(feature = "axum-adapter")]
 pub use adapters::axum_adapter;
-#[cfg(feature = "hyper-adapter")]
 pub use adapters::hyper_adapter;
 pub use app::{FissionServerApp, ServerRenderContext};
 pub use artifacts::{
