@@ -1,0 +1,25 @@
+targets = ["server"]
+
+[app]
+name = "Pokemon Card Store"
+app_id = "ai.worka.fission.examples.pokemon-card-store"
+
+[server]
+entry = "pokemon_card_store::pokemon_card_store_server"
+default_route_mode = "server_private"
+render_pass_limit = 4
+
+[server.workers]
+separate_artifacts = true
+bridge = "generated"
+
+[server.islands]
+separate_artifacts = true
+preload = "route"
+
+[package.docker]
+port = 8080
+tags = ["ghcr.io/worka-ai/fission-pokemon-card-store:0.1.0"]
+
+[distribution.docker_registry.production]
+tags = ["ghcr.io/worka-ai/fission-pokemon-card-store:0.1.0"]

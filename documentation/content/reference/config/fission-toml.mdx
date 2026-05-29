@@ -43,7 +43,7 @@ Root fields appear before any table header.
 
 | Field | Type | Required | Accepted values | Meaning |
 | --- | --- | --- | --- | --- |
-| `targets` | array of strings | Yes for app/package commands | `android`, `ios`, `linux`, `macos`, `site`, `web`, `windows` | Declares which generated hosts belong to the project. Commands use it to reject packaging/running a target that has not been added. |
+| `targets` | array of strings | Yes for app/package commands | `android`, `ios`, `linux`, `macos`, `server`, `site`, `web`, `windows` | Declares which generated hosts belong to the project. Commands use it to reject packaging/running a target that has not been added. |
 | `capabilities` | array of strings | No | `barcode-scanner`, `biometric`, `bluetooth`, `camera`, `geolocation`, `haptics`, `microphone`, `nfc`, `notifications`, `passkeys`, `volume-control`, `wifi` | Declares host capabilities the app intends to use. `fission add-capability` updates this list and generated Android/iOS files where the configuration is deterministic. |
 
 Clipboard and deep-link APIs are runtime/platform capabilities, but they are not currently accepted values in the root `capabilities` array. Deep-link routes still need product-owned native or web routing configuration, and clipboard currently does not require root manifest declaration.
@@ -187,6 +187,143 @@ Client-side search is optional. When enabled, the build writes a local search in
 | `output_path` | string | No | `search` | Output directory below the site root for `search.js`, `manifest.json`, document metadata, and shards. |
 | `min_token_len` | integer | No | `2` | Minimum token length included in the search index. |
 
+## `[server]`
+
+`[server]` configures the server-rendered web target. It is used by `fission server ...`, `fission run --target server`, and `fission package --target server --format docker-image`.
+
+| Field | Type | Required | Default | Meaning |
+| --- | --- | --- | --- | --- |
+| `entry` | string | Yes for server commands | none | Rust path to the function that returns the `FissionServerApp`, such as `pokemon_card_store::pokemon_card_store_server`. The top-level CLI reads this field and generates/runs the server binary entrypoint. |
+| `default_locale` | string | No | `en` | Locale written to the rendered HTML `lang` attribute unless a route or future locale layer overrides it. |
+| `default_route_mode` | string | No | app default | Route mode applied to routes declared through the default server route helper. Accepted values are `static`, `server`, `dynamic`, `server_private`, `private`, `revalidated`, `client_app`, and `client`. `dynamic` is an alias for `server`; `private` is an alias for `server_private`. |
+| `render_pass_limit` | integer | No | `4` | Maximum render passes allowed while jobs/resources settle before the server returns HTML. `fission server check`, `fission server serve`, and the server binary read this value. |
+
+Route modes are intentionally explicit. Use `server_private` for pages that depend on a session or user, `server` for request-rendered public pages, and `revalidated` for public pages that can be cached and rebuilt after a TTL. Fission rejects a revalidated page if the rendered HTML contains signed server action forms, because action tokens are request-specific.
+
+### `[server.http]`
+
+`[server.http]` controls public HTTP metadata used by generated pages. It does not replace the production web server, load balancer, or reverse proxy; it gives Fission enough information to produce correct canonical links.
+
+| Field | Type | Required | Default | Meaning |
+| --- | --- | --- | --- | --- |
+| `base_url` | string | No | none | Absolute public origin used for canonical URLs, such as `https://shop.example`. A trailing slash is accepted and normalized away. |
+| `trust_proxy_headers` | boolean | No | `false` | When `true` and `base_url` is absent, Fission may derive canonical URLs from `X-Forwarded-Proto` and `X-Forwarded-Host`. Enable this only behind a trusted proxy that overwrites those headers. |
+
+Example:
+
+```toml
+[server.http]
+base_url = "https://cards.example"
+trust_proxy_headers = false
+```
+
+### `[server.sessions]`
+
+`[server.sessions]` configures the built-in cookie session identifier used by `ServerPrivate` routes. The current provider stores only an opaque session id in the browser. App data still belongs in your service layer, database, cache, or other server-owned store keyed by that session id.
+
+| Field | Type | Required | Default | Meaning |
+| --- | --- | --- | --- | --- |
+| `provider` | string | No | `cookie` | Session id transport. `cookie` is the currently supported provider. |
+| `cookie_name` | string | No | `fission_session` | Name of the session cookie. It must be a valid HTTP cookie token. |
+| `signing_key_env` | string | No | none | Environment variable containing the secret used to sign session cookie values. When set, Fission rejects tampered session cookies and creates a new session. |
+| `secure` | boolean | No | `false` | Adds the `Secure` cookie flag. Set this to `true` in HTTPS production deployments. |
+| `same_site` | string | No | `lax` | Cookie SameSite mode. Accepted values are `strict`, `lax`, and `none`. `none` requires `secure = true`. |
+
+Example:
+
+```toml
+[server.sessions]
+cookie_name = "shop_session"
+signing_key_env = "SHOP_SESSION_SECRET"
+secure = true
+same_site = "lax"
+```
+
+### `[server.cache]`
+
+`[server.cache]` selects the cache used for revalidated full pages and other server cache entries. The default is an in-process Moka cache. Redis is available when the server shell is built with the Redis feature, for example through the facade feature `server-redis`.
+
+| Field | Type | Required | Default | Meaning |
+| --- | --- | --- | --- | --- |
+| `provider` | string | No | `moka` | Cache backend. Accepted values are `moka`, `redis`, and `pipeline`. |
+| `max_capacity` | integer | No | `10000` | Maximum number of entries for the Moka in-memory provider. |
+| `ttl` | duration string | No | route default | Default time-to-live used when `default_route_mode = "revalidated"` creates a route policy. Examples: `30s`, `5m`, `2h`, `1d`. `default_ttl` is accepted as an alias. |
+| `stale_while_revalidate` | duration string | No | none | Stale window used when `default_route_mode = "revalidated"` creates a route policy. A stale entry can be served inside this window while the server prepares a fresh render. |
+| `redis_url` | string | Required when Redis is selected and `url_env` is absent | none | Redis connection URL. `url` is accepted as an alias. Prefer `url_env` for production secrets. |
+| `url_env` | string | Required when Redis is selected and `redis_url` is absent | none | Environment variable that contains the Redis connection URL. |
+| `redis_prefix` | string | No | `fission` | Key prefix used by the Redis cache provider. `prefix` is accepted as an alias. |
+
+Example in-memory cache:
+
+```toml
+[server.cache]
+provider = "moka"
+max_capacity = 10000
+ttl = "5m"
+stale_while_revalidate = "1m"
+```
+
+Example Redis cache:
+
+```toml
+[server.cache]
+provider = "redis"
+url_env = "REDIS_URL"
+prefix = "shop"
+```
+
+### `[[server.cache.layers]]`
+
+Use a cache pipeline when you want multiple cache layers, such as a small process-local hot cache in front of Redis. The table is valid only when `[server.cache].provider = "pipeline"`.
+
+| Field | Type | Required | Default | Meaning |
+| --- | --- | --- | --- | --- |
+| `name` | string | No | `layer-<index>` | Human-readable layer name. It is also used as the Redis prefix fallback for that layer. |
+| `provider` | string | No | `moka` | Layer provider. Accepted values are `moka` and `redis`. Nested pipelines are rejected. |
+| `policy` | string | No | `write-through` | Layer write policy. Accepted values are `write-through`, `read-only`, and `hot-only`. |
+| `max_capacity` | integer | No | `10000` | Maximum number of entries for a Moka layer. |
+| `redis_url` / `url` | string | Required for Redis when `url_env` is absent | none | Redis connection URL for this layer. |
+| `url_env` | string | Required for Redis when URL is absent | none | Environment variable containing the Redis URL for this layer. |
+| `redis_prefix` / `prefix` | string | No | layer `name` | Redis key prefix for this layer. |
+
+Example layered cache:
+
+```toml
+[server.cache]
+provider = "pipeline"
+
+[[server.cache.layers]]
+name = "hot"
+provider = "moka"
+policy = "hot-only"
+max_capacity = 2048
+
+[[server.cache.layers]]
+name = "shared"
+provider = "redis"
+policy = "write-through"
+url_env = "REDIS_URL"
+prefix = "shop"
+```
+
+### `[server.workers]`
+
+`[server.workers]` controls progressive browser workers declared on server routes. Workers are compiled as separate route-local browser artifacts; the server runtime serves them from `/assets/...`.
+
+| Field | Type | Required | Default | Meaning |
+| --- | --- | --- | --- | --- |
+| `separate_artifacts` | boolean | No | `true` | Must be `true` today. Fission rejects `false` because workers are intentionally compiled as separate artifacts. |
+| `bridge` | string | No | `generated` | Browser bridge mode for generated worker shims. `generated` is the current supported value. |
+
+### `[server.islands]`
+
+`[server.islands]` controls focused browser-side WASM islands declared on server routes. Islands can be full Fission widget sub-apps with their own state, reducers, and HTML bridge output.
+
+| Field | Type | Required | Default | Meaning |
+| --- | --- | --- | --- | --- |
+| `separate_artifacts` | boolean | No | `true` | Must be `true` today. Fission rejects `false` because islands are intentionally compiled as separate artifacts. |
+| `preload` | string | No | `route` | Preload policy for island and worker artifacts. `route` emits preload links for artifacts used by the current route; `none` disables those preload links. |
+
 ## `[package]`
 
 `[package]` contains packaging and signing references. It is read by `fission package`, `fission signing ...`, and readiness checks.
@@ -269,6 +406,27 @@ allow_upscale = false
 | `source` | string | No | Web app icon source used by web packaging flows. |
 | `favicon` | string | No | Browser favicon source for web/package metadata. Static sites separately use `[site].favicon`. |
 | `maskable` | string | No | Maskable web app icon source. |
+
+### `[package.docker]`
+
+`[package.docker]` configures `fission package --format docker-image` for static sites and server-rendered sites.
+
+| Field | Type | Required | Default | Meaning |
+| --- | --- | --- | --- | --- |
+| `adapter` | string | No | `axum` | Static-site image server adapter. Accepted values are `axum` and `actix`. Server-rendered app images ignore this field because the app binary is the server. |
+| `port` | integer | No | `8080` | Container port exposed by the generated Dockerfile and used as the default `PORT` environment value. |
+| `base_image` | string | No | `debian:bookworm-slim` | Runtime stage base image. The builder stage uses the official Rust image because the package is compiled inside the Docker build. |
+| `tags` | array of strings | No | `<app-name>:<cargo-version>` | Docker tags applied during `docker build`. Include registry prefixes here when you want the package step to tag for publishing. |
+| `build` | boolean | No | `true` | When `true`, Fission runs `docker build`. Set to `false` to generate only the Docker context and manifest for CI to build later. |
+
+Example:
+
+```toml
+[package.docker]
+adapter = "axum"
+port = 8080
+tags = ["ghcr.io/example/pokemon-card-store:0.1.0", "ghcr.io/example/pokemon-card-store:latest"]
+```
 
 ### `[package.macos]`
 
@@ -367,6 +525,21 @@ Distribution providers that support multiple profiles use `[distribution.<provid
 | `upload_artifact_manifest` | boolean | No | `true` | Uploads the Fission artifact manifest JSON alongside package assets. |
 
 GitHub Releases publishing uses the GitHub CLI. A developer can authenticate with `gh auth login`, `GH_TOKEN`, `GITHUB_TOKEN`, or a token imported into the Fission credential vault.
+
+### `[distribution.docker_registry.<profile>]`
+
+Docker registry publishing pushes image tags produced by `fission package --format docker-image`. Fission uses the Docker CLI for authentication and push operations, so the normal setup is `docker login <registry>` before publishing.
+
+| Field | Type | Required | Meaning |
+| --- | --- | --- | --- |
+| `tags` | array of strings | Required unless `image-metadata.json` from the package contains tags | Fully qualified tags to push, such as `ghcr.io/example/app:1.0.0`. If these tags differ from the package tags, Fission tags the local image before pushing. |
+
+Example:
+
+```toml
+[distribution.docker_registry.production]
+tags = ["ghcr.io/example/pokemon-card-store:0.1.0", "ghcr.io/example/pokemon-card-store:latest"]
+```
 
 ### `[distribution.cloudflare_pages.<profile>]`
 
@@ -656,6 +829,11 @@ enabled = true
 output_path = "search"
 min_token_len = 2
 
+[package.docker]
+adapter = "axum"
+port = 8080
+tags = ["ghcr.io/example/example-docs:1.0.0"]
+
 [[site.nav]]
 title = "Learn"
 href = "/docs/learn/overview/"
@@ -683,6 +861,45 @@ custom_domain = "docs.example.com"
 enforce_https = true
 workflow = "publish-website.yml"
 production_branch = "main"
+
+[distribution.docker_registry.production]
+tags = ["ghcr.io/example/example-docs:1.0.0"]
+```
+
+## Complete server-rendered site example
+
+```toml
+targets = ["server"]
+
+[app]
+name = "pokemon-card-store"
+app_id = "ai.worka.fission.examples.pokemon-card-store"
+
+[server]
+entry = "pokemon_card_store::pokemon_card_store_server"
+default_route_mode = "server_private"
+render_pass_limit = 4
+
+[server.cache]
+provider = "moka"
+max_capacity = 10000
+ttl = "5m"
+stale_while_revalidate = "1m"
+
+[server.workers]
+separate_artifacts = true
+bridge = "generated"
+
+[server.islands]
+separate_artifacts = true
+preload = "route"
+
+[package.docker]
+port = 8080
+tags = ["ghcr.io/example/pokemon-card-store:0.1.0"]
+
+[distribution.docker_registry.production]
+tags = ["ghcr.io/example/pokemon-card-store:0.1.0"]
 ```
 
 ## Complete release skeleton

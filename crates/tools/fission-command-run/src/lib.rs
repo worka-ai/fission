@@ -146,6 +146,12 @@ pub fn run_app(options: RunOptions) -> Result<()> {
             options.port,
             !options.no_open,
         ),
+        Target::Server => fission_command_server::serve(
+            &options.project_dir,
+            options.release,
+            options.host,
+            options.port,
+        ),
         Target::Ios => run_ios(&project, &options, &device),
         Target::Android => run_android(&project, &options, &device),
     }
@@ -164,6 +170,7 @@ pub fn build_app(options: BuildOptions) -> Result<()> {
         }
         Target::Web => build_web(&options.project_dir, options.release),
         Target::Site => site_build(&options.project_dir, options.release),
+        Target::Server => fission_command_server::build(&options.project_dir, options.release),
         Target::Ios => {
             require_host(Target::Ios)?;
             let script = options.project_dir.join("platforms/ios/package-sim.sh");
@@ -201,6 +208,7 @@ pub fn test_app(options: TestOptions) -> Result<()> {
             |_| {},
         ),
         Target::Site => site_check(&options.project_dir, false),
+        Target::Server => fission_command_server::check(&options.project_dir, false),
         Target::Ios => {
             require_host(Target::Ios)?;
             run_target_script(
@@ -252,6 +260,10 @@ pub fn attach_logs(options: LogOptions) -> Result<()> {
         ),
         Target::Site => tail_log_file(
             &detached_log_path(&options.project_dir, "site"),
+            options.follow,
+        ),
+        Target::Server => tail_log_file(
+            &detached_log_path(&options.project_dir, "server"),
             options.follow,
         ),
         Target::Linux | Target::Macos | Target::Windows => tail_log_file(
@@ -335,6 +347,15 @@ pub fn discover_devices(_project_dir: &Path) -> Vec<Device> {
         kind: "site-server".to_string(),
         status: "available".to_string(),
         detail: "multi-page static output".to_string(),
+        available: true,
+    });
+    devices.push(Device {
+        id: "server".to_string(),
+        name: "Server-rendered web app".to_string(),
+        target: Target::Server,
+        kind: "server".to_string(),
+        status: "available".to_string(),
+        detail: "dynamic HTML server".to_string(),
         available: true,
     });
     devices
@@ -457,7 +478,12 @@ fn preferred_device_for_target(target: Option<Target>, devices: &[Device]) -> Op
                 .collect::<Vec<_>>();
             (booted.len() == 1).then(|| booted[0].clone())
         }
-        Target::Web | Target::Site | Target::Linux | Target::Macos | Target::Windows => None,
+        Target::Web
+        | Target::Site
+        | Target::Server
+        | Target::Linux
+        | Target::Macos
+        | Target::Windows => None,
     }
 }
 

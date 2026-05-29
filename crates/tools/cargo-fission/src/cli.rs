@@ -127,6 +127,11 @@ pub(crate) enum Command {
         #[command(subcommand)]
         command: SiteCommand,
     },
+    /// Build, check, serve, or list routes for a server-rendered Fission web app.
+    Server {
+        #[command(subcommand)]
+        command: ServerCommand,
+    },
     /// Package a build output into a distributable artifact.
     Package {
         /// Target to package.
@@ -160,6 +165,36 @@ pub(crate) enum Command {
         #[arg(long, default_value = "production")]
         site: String,
         /// Deployment id used by promote/rollback/status operations.
+        #[arg(long)]
+        deploy: Option<String>,
+        /// Provider track/channel/group, such as internal, testflight, or production.
+        #[arg(long)]
+        track: Option<String>,
+        /// Show what would happen without mutating provider state.
+        #[arg(long)]
+        dry_run: bool,
+        /// Confirm overwrites or provider-side setup changes.
+        #[arg(long)]
+        yes: bool,
+        /// Project directory; defaults to the current working directory.
+        #[arg(long, default_value = ".")]
+        project_dir: PathBuf,
+        /// Emit machine-readable JSON.
+        #[arg(long)]
+        json: bool,
+    },
+    /// Publish a packaged artifact to a configured distribution provider.
+    Publish {
+        /// Distribution provider.
+        #[arg(long, value_enum)]
+        provider: DistributionProvider,
+        /// Artifact manifest emitted by `fission package`.
+        #[arg(long)]
+        artifact: Option<PathBuf>,
+        /// Named distribution site/profile from fission.toml.
+        #[arg(long, default_value = "production")]
+        site: String,
+        /// Provider deployment id, release tag, or image tag override where supported.
         #[arg(long)]
         deploy: Option<String>,
         /// Provider track/channel/group, such as internal, testflight, or production.
@@ -333,5 +368,60 @@ pub(crate) enum SiteCommand {
         /// Project directory; defaults to the current working directory.
         #[arg(long, default_value = ".")]
         project_dir: PathBuf,
+    },
+}
+
+#[derive(Subcommand, Debug)]
+pub(crate) enum ServerCommand {
+    /// Build the server binary and route-local browser artifacts.
+    Build {
+        /// Project directory; defaults to the current working directory.
+        #[arg(long, default_value = ".")]
+        project_dir: PathBuf,
+        /// Build in release mode.
+        #[arg(long)]
+        release: bool,
+    },
+    /// Check that the server app renders all declared routes.
+    Check {
+        /// Project directory; defaults to the current working directory.
+        #[arg(long, default_value = ".")]
+        project_dir: PathBuf,
+        /// Build in release mode.
+        #[arg(long)]
+        release: bool,
+    },
+    /// Serve the server-rendered app locally.
+    Serve {
+        /// Project directory; defaults to the current working directory.
+        #[arg(long, default_value = ".")]
+        project_dir: PathBuf,
+        /// Host for the local server.
+        #[arg(long, default_value = "127.0.0.1")]
+        host: String,
+        /// Port for the local server.
+        #[arg(long, default_value_t = 8124)]
+        port: u16,
+        /// Build in release mode before serving.
+        #[arg(long)]
+        release: bool,
+    },
+    /// List server routes and their rendering modes.
+    Routes {
+        /// Project directory; defaults to the current working directory.
+        #[arg(long, default_value = ".")]
+        project_dir: PathBuf,
+    },
+    /// Generate and optionally compile per-worker/per-island browser WASM shims.
+    Artifacts {
+        /// Project directory; defaults to the current working directory.
+        #[arg(long, default_value = ".")]
+        project_dir: PathBuf,
+        /// Build in release mode.
+        #[arg(long)]
+        release: bool,
+        /// Write shim crates without compiling them.
+        #[arg(long)]
+        no_compile: bool,
     },
 }

@@ -30,7 +30,7 @@ The design is Rust-first at the orchestration layer. Fission should use Rust cra
 Fission needs separate concepts for build, package, sign, capture, render, validate, distribute, publish, promote, and observe.
 
 - Build: compile Rust, platform shells, assets, and web output into platform-specific build directories.
-- Package: turn a build output into an installable or uploadable artifact such as `.run`, `.app`, `.pkg`, `.msix`, `.apk`, `.aab`, `.ipa`, or a static web archive.
+- Package: turn a build output into an installable or uploadable artifact such as `.run`, `.app`, `.pkg`, `.msix`, `.apk`, `.aab`, `.ipa`, a static web archive, or an OCI/Docker image for static and server-rendered web targets.
 - Sign: apply platform signing or artifact signing where required.
 - Notarize: submit macOS direct-distribution artifacts to Apple's notary service and staple the ticket when required.
 - Capture: run scripted app states on simulators, emulators, browsers, or devices and capture screenshots, videos, logs, and diagnostics.
@@ -45,7 +45,7 @@ The CLI must keep these steps separate internally even when the user chooses a s
 
 ## 4. Command surface
 
-The public CLI should use `package` for artifact creation and `distribute` for everything that sends artifacts to a destination. `doctor` remains the broad environment diagnostic command, while `readiness` is the focused release preflight command.
+The public CLI should use `package` for artifact creation and `publish` for the common case where an artifact is sent to a destination. `distribute <action>` remains the lower-level lifecycle spelling for setup, status, promote, rollback, and compatibility with existing workflows. `doctor` remains the broad environment diagnostic command, while `readiness` is the focused release preflight command.
 
 ```text
 fission readiness package --project-dir . --target <target> --format <format> [--release]
@@ -62,7 +62,10 @@ fission package --project-dir . --target android --format apk --release
 fission package --project-dir . --target android --format aab --release
 fission package --project-dir . --target ios --format ipa --release
 fission package --project-dir . --target web --format static --release
+fission package --project-dir . --target site --format docker-image --release
+fission package --project-dir . --target server --format docker-image --release
 
+fission publish --project-dir . --provider docker-registry --artifact <manifest> --site production
 fission distribute --project-dir . --provider s3 --artifact <manifest>
 fission distribute --project-dir . --provider google-drive --artifact <manifest>
 fission distribute --project-dir . --provider onedrive --artifact <manifest>
@@ -1434,7 +1437,38 @@ Authentication:
 - Publishing requires repository Contents write permission because release and release-asset operations mutate repository release state [R64][R65].
 - Public status checks may work unauthenticated, but Fission should still prefer the user's `gh` authentication so private repositories and draft releases behave consistently.
 
-### 15.2 GitHub Pages
+### 15.2 Docker registries
+
+```text
+fission package --target server --format docker-image --release
+fission publish --provider docker-registry --artifact <manifest> --site production
+```
+
+Docker registry distribution MUST work for Docker image packages produced from the `site` and `server` targets. It is not a static-hosting provider. The package step owns Docker context generation, Dockerfile generation, image metadata, tags, and optional `docker build`; the publish step owns tagging and `docker push` for the configured registry tags.
+
+Static-site Docker packages MUST contain the generated static site and a small Rust static-file server selected by `[package.docker].adapter`. Server-rendered Docker packages MUST build the server app inside the Docker builder stage and run the compiled server binary as the container process. Fission must not implement a custom registry protocol in this phase; it uses the Docker CLI for login, tag, inspect, and push so authentication follows the developer or CI runner's standard Docker setup.
+
+Configuration:
+
+```toml
+[package.docker]
+adapter = "axum"
+port = 8080
+tags = ["ghcr.io/example/app:1.2.3"]
+
+[distribution.docker_registry.production]
+tags = ["ghcr.io/example/app:1.2.3", "ghcr.io/example/app:latest"]
+```
+
+Readiness MUST verify:
+
+- the artifact manifest is a `docker-image` package;
+- `image-metadata.json` exists and contains tags or the distribution profile provides tags;
+- Docker CLI is available;
+- server packages have `[server].entry`;
+- static-site packages include rendered `index.html` before image context generation.
+
+### 15.3 GitHub Pages
 
 ```text
 fission distribute --provider github-pages --artifact <manifest> --site production
@@ -1477,7 +1511,7 @@ Required behavior:
 - poll deployment/build status;
 - record page URL, custom-domain URL, deployment ID, source branch/workflow run, and DNS/HTTPS status in the receipt.
 
-### 15.3 Cloudflare Pages
+### 15.4 Cloudflare Pages
 
 ```text
 fission distribute --provider cloudflare-pages --artifact <manifest> --site production
@@ -1509,7 +1543,7 @@ Required behavior:
 - poll deployment status;
 - report preview URL, production URL, custom-domain status, deployment ID, and any DNS/certificate remediation.
 
-### 15.3 Netlify
+### 15.5 Netlify
 
 ```text
 fission distribute --provider netlify --artifact <manifest> --site production
@@ -1541,7 +1575,7 @@ Required behavior:
 - poll deploy state;
 - return deploy ID, deploy URL, production URL, SSL URL, custom-domain status, and provider state in the receipt.
 
-### 15.4 S3-compatible object stores
+### 15.6 S3-compatible object stores
 
 ```text
 fission distribute --provider s3 --artifact <manifest> --profile production
@@ -1561,7 +1595,7 @@ Required behavior:
 
 Readiness MUST check credentials, bucket existence/access, prefix writability, public/presigned mode, object overwrite policy, and clock skew if presigned URLs are used.
 
-### 15.5 Google Drive
+### 15.7 Google Drive
 
 Google Drive distribution MUST use OAuth and Drive resumable upload for large artifacts. Google documents resumable upload as the appropriate Drive upload type for files larger than 5 MB or unstable network conditions [R21]. Sharing links require permissions to be created or updated through the Drive permissions API [R22].
 
@@ -1574,7 +1608,7 @@ Required behavior:
 - create or update sharing permissions if `visibility = "link"`;
 - return file IDs and web links.
 
-### 15.6 OneDrive
+### 15.8 OneDrive
 
 OneDrive distribution MUST use Microsoft Graph. Microsoft Graph supports `createUploadSession` for large file uploads [R23]. Microsoft identity platform supports OAuth device code flow, which is useful for CLI and headless sign-in [R34].
 
@@ -1586,7 +1620,7 @@ Required behavior:
 - create sharing links when requested;
 - return drive item IDs and web URLs.
 
-### 15.7 Dropbox
+### 15.9 Dropbox
 
 Dropbox distribution MUST use Dropbox OAuth and upload sessions for large artifacts. Dropbox documents OAuth for API authorization and upload session endpoints for chunked uploads [R24].
 

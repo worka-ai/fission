@@ -90,6 +90,9 @@ struct WebIcons {
 }
 
 pub fn resolve_app_icon(root: &Path, target: Target) -> Result<Option<ResolvedIcon>> {
+    if target == Target::Server {
+        return Ok(None);
+    }
     let manifest = read_icon_manifest(root)?;
     if let Some(configured) = configured_icon_path(&manifest, target) {
         let path = root.join(configured);
@@ -133,6 +136,9 @@ fn read_icon_manifest(root: &Path) -> Result<IconManifest> {
 }
 
 fn configured_icon_path(manifest: &IconManifest, target: Target) -> Option<&str> {
+    if target == Target::Server {
+        return None;
+    }
     let package = manifest.package.as_ref()?;
     let icons = package.icons.as_ref();
     let platform = match target {
@@ -154,6 +160,7 @@ fn configured_icon_path(manifest: &IconManifest, target: Target) -> Option<&str>
         Target::Web | Target::Site => icons
             .and_then(|icons| icons.web.as_ref())
             .and_then(|icons| icons.source.as_deref().or(icons.favicon.as_deref())),
+        Target::Server => None,
     };
     platform
         .or_else(|| icons.and_then(|icons| icons.source.as_deref()))
@@ -180,6 +187,7 @@ fn fallback_icon_paths(target: Target) -> &'static [&'static str] {
             "assets/icon.svg",
             "assets/icon.png",
         ],
+        Target::Server => &[],
         _ => &[DEFAULT_APP_ICON, "assets/icon.png"],
     }
 }
@@ -200,6 +208,7 @@ fn validate_icon_file(path: &Path, target: Target) -> Result<()> {
         Target::Macos => &["icns", "png", "jpg", "jpeg"][..],
         Target::Windows => &["ico", "png", "jpg", "jpeg"][..],
         Target::Linux => &["png", "svg"][..],
+        Target::Server => &[][..],
         Target::Web | Target::Site => &["ico", "png", "jpg", "jpeg", "svg", "webp"][..],
     };
     if !allowed.contains(&extension.as_str()) {

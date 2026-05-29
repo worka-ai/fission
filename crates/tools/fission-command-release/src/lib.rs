@@ -714,6 +714,9 @@ fn print_login_instructions(provider: DistributionProvider) {
         DistributionProvider::CloudflarePages => println!(
             "Cloudflare Pages uses an API token with Pages project edit/deploy permissions."
         ),
+        DistributionProvider::DockerRegistry => println!(
+            "Docker registry publishing uses the Docker CLI. Run `docker login <registry>` for the registry referenced by your image tags."
+        ),
         DistributionProvider::Netlify => println!(
             "Netlify uses a personal access token with deploy permissions for the configured site."
         ),
@@ -922,6 +925,7 @@ fn auth_providers() -> Vec<DistributionProvider> {
         DistributionProvider::GithubPages,
         DistributionProvider::GithubReleases,
         DistributionProvider::CloudflarePages,
+        DistributionProvider::DockerRegistry,
         DistributionProvider::Netlify,
         DistributionProvider::S3,
         DistributionProvider::GoogleDrive,
@@ -959,6 +963,12 @@ fn provider_auth_spec(provider: DistributionProvider) -> ProviderAuthSpec {
             env: &["CLOUDFLARE_API_TOKEN", "CLOUDFLARE_ACCOUNT_ID"],
             command: "fission auth import cloudflare-pages --from env:CLOUDFLARE_API_TOKEN --yes",
             permissions: "Pages edit/deploy permission for the target account/project",
+        },
+        DistributionProvider::DockerRegistry => ProviderAuthSpec {
+            kind: "Authenticated Docker CLI session for the target registry",
+            env: &["DOCKER_CONFIG"],
+            command: "docker login <registry>",
+            permissions: "push permission for every image repository configured in [distribution.docker_registry.<profile>].tags",
         },
         DistributionProvider::Netlify => ProviderAuthSpec {
             kind: "Netlify personal access token",
@@ -1021,6 +1031,7 @@ fn provider_env_check(provider: DistributionProvider) -> LifecycleCheck {
         DistributionProvider::GithubPages => &["GH_TOKEN", "GITHUB_TOKEN"],
         DistributionProvider::GithubReleases => &["GH_TOKEN", "GITHUB_TOKEN"],
         DistributionProvider::CloudflarePages => &["CLOUDFLARE_API_TOKEN"],
+        DistributionProvider::DockerRegistry => &["DOCKER_CONFIG"],
         DistributionProvider::Netlify => &["NETLIFY_AUTH_TOKEN"],
         DistributionProvider::S3 => &["AWS_PROFILE", "AWS_ACCESS_KEY_ID"],
         DistributionProvider::GoogleDrive => &["GOOGLE_DRIVE_ACCESS_TOKEN"],

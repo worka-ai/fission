@@ -7,7 +7,7 @@ mod cli;
 #[cfg(test)]
 use fission_command_core::{read_project_config, Target};
 
-use cli::{Cli, Command, SiteCommand};
+use cli::{Cli, Command, ServerCommand, SiteCommand};
 
 pub fn run<I, S>(args: I) -> Result<()>
 where
@@ -106,6 +106,28 @@ where
             } => fission_command_site::serve(&project_dir, release, host, port, !no_open),
             SiteCommand::Routes { project_dir } => fission_command_site::routes(&project_dir),
         },
+        Command::Server { command } => match command {
+            ServerCommand::Build {
+                project_dir,
+                release,
+            } => fission_command_server::build(&project_dir, release),
+            ServerCommand::Check {
+                project_dir,
+                release,
+            } => fission_command_server::check(&project_dir, release),
+            ServerCommand::Serve {
+                project_dir,
+                host,
+                port,
+                release,
+            } => fission_command_server::serve(&project_dir, release, host, port),
+            ServerCommand::Routes { project_dir } => fission_command_server::routes(&project_dir),
+            ServerCommand::Artifacts {
+                project_dir,
+                release,
+                no_compile,
+            } => fission_command_server::artifacts(&project_dir, release, !no_compile),
+        },
         Command::Package {
             target,
             format,
@@ -134,6 +156,28 @@ where
             project_dir,
             provider,
             action: action.unwrap_or(fission_command_package::DistributeAction::Publish),
+            artifact,
+            site,
+            deploy,
+            track,
+            dry_run,
+            yes,
+            json,
+        }),
+        Command::Publish {
+            provider,
+            artifact,
+            site,
+            deploy,
+            track,
+            dry_run,
+            yes,
+            project_dir,
+            json,
+        } => fission_command_package::distribute(fission_command_package::DistributeOptions {
+            project_dir,
+            provider,
+            action: fission_command_package::DistributeAction::Publish,
             artifact,
             site,
             deploy,
