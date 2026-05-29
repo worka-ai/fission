@@ -98,6 +98,7 @@ impl DomBatch {
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct WorkerDomPolicy {
     allowed_nodes: BTreeSet<u64>,
+    allowed_semantics: BTreeSet<String>,
     allow_navigation: bool,
     allowed_url_prefixes: Vec<String>,
 }
@@ -120,6 +121,21 @@ impl WorkerDomPolicy {
         self
     }
 
+    pub fn allow_semantics(mut self, semantics: impl Into<String>) -> Self {
+        self.allowed_semantics.insert(semantics.into());
+        self
+    }
+
+    pub fn allow_semantics_many<I, S>(mut self, semantics: I) -> Self
+    where
+        I: IntoIterator<Item = S>,
+        S: Into<String>,
+    {
+        self.allowed_semantics
+            .extend(semantics.into_iter().map(Into::into));
+        self
+    }
+
     pub fn allow_navigation_to_prefix(mut self, prefix: impl Into<String>) -> Self {
         self.allow_navigation = true;
         self.allowed_url_prefixes.push(prefix.into());
@@ -128,6 +144,10 @@ impl WorkerDomPolicy {
 
     fn can_mutate_node(&self, node: u64) -> bool {
         self.allowed_nodes.contains(&node)
+    }
+
+    fn can_mutate_semantics(&self, semantics: &str) -> bool {
+        self.allowed_semantics.contains(semantics)
     }
 
     fn can_navigate_to(&self, url: &str) -> bool {
@@ -168,8 +188,17 @@ pub enum DomOp {
         node: u64,
         text: String,
     },
+    SetTextBySemantics {
+        semantics: String,
+        text: String,
+    },
     SetAttr {
         node: u64,
+        name: String,
+        value: String,
+    },
+    SetAttrBySemantics {
+        semantics: String,
         name: String,
         value: String,
     },
@@ -177,16 +206,33 @@ pub enum DomOp {
         node: u64,
         name: String,
     },
+    RemoveAttrBySemantics {
+        semantics: String,
+        name: String,
+    },
     AddClass {
         node: u64,
+        class: String,
+    },
+    AddClassBySemantics {
+        semantics: String,
         class: String,
     },
     RemoveClass {
         node: u64,
         class: String,
     },
+    RemoveClassBySemantics {
+        semantics: String,
+        class: String,
+    },
     ToggleClass {
         node: u64,
+        class: String,
+        enabled: bool,
+    },
+    ToggleClassBySemantics {
+        semantics: String,
         class: String,
         enabled: bool,
     },
@@ -195,23 +241,46 @@ pub enum DomOp {
         name: String,
         value: String,
     },
+    SetStyleVarBySemantics {
+        semantics: String,
+        name: String,
+        value: String,
+    },
     SetHidden {
         node: u64,
+        hidden: bool,
+    },
+    SetHiddenBySemantics {
+        semantics: String,
         hidden: bool,
     },
     SetValue {
         node: u64,
         value: String,
     },
+    SetValueBySemantics {
+        semantics: String,
+        value: String,
+    },
     SetChecked {
         node: u64,
+        checked: bool,
+    },
+    SetCheckedBySemantics {
+        semantics: String,
         checked: bool,
     },
     Focus {
         node: u64,
     },
+    FocusBySemantics {
+        semantics: String,
+    },
     Blur {
         node: u64,
+    },
+    BlurBySemantics {
+        semantics: String,
     },
     ScrollIntoView {
         node: u64,
@@ -249,12 +318,38 @@ impl DomOp {
             | Self::Blur { node }
             | Self::ScrollIntoView { node, .. }
             | Self::SetScroll { node, .. } => validate_node(policy, *node),
+            Self::SetTextBySemantics { semantics, .. }
+            | Self::RemoveAttrBySemantics { semantics, .. }
+            | Self::AddClassBySemantics { semantics, .. }
+            | Self::RemoveClassBySemantics { semantics, .. }
+            | Self::ToggleClassBySemantics { semantics, .. }
+            | Self::SetHiddenBySemantics { semantics, .. }
+            | Self::SetValueBySemantics { semantics, .. }
+            | Self::SetCheckedBySemantics { semantics, .. }
+            | Self::FocusBySemantics { semantics }
+            | Self::BlurBySemantics { semantics } => validate_semantics(policy, semantics),
             Self::SetAttr { node, name, value } => {
                 validate_node(policy, *node)?;
                 validate_attr(name, value)
             }
+            Self::SetAttrBySemantics {
+                semantics,
+                name,
+                value,
+            } => {
+                validate_semantics(policy, semantics)?;
+                validate_attr(name, value)
+            }
             Self::SetStyleVar { node, name, value } => {
                 validate_node(policy, *node)?;
+                validate_style_var(name, value)
+            }
+            Self::SetStyleVarBySemantics {
+                semantics,
+                name,
+                value,
+            } => {
+                validate_semantics(policy, semantics)?;
                 validate_style_var(name, value)
             }
             Self::PushHistory { url } | Self::ReplaceHistory { url } => {
@@ -279,6 +374,32 @@ fn validate_node(policy: &WorkerDomPolicy, node: u64) -> Result<(), WorkerProtoc
             "worker cannot mutate node `{node}`"
         )))
     }
+}
+
+fn validate_semantics(
+    policy: &WorkerDomPolicy,
+    semantics: &str,
+) -> Result<(), WorkerProtocolError> {
+    if !safe_semantics_identifier(semantics) {
+        return Err(WorkerProtocolError::new(format!(
+            "worker semantic target `{semantics}` is not allowed"
+        )));
+    }
+    if policy.can_mutate_semantics(semantics) {
+        Ok(())
+    } else {
+        Err(WorkerProtocolError::new(format!(
+            "worker cannot mutate semantic target `{semantics}`"
+        )))
+    }
+}
+
+fn safe_semantics_identifier(semantics: &str) -> bool {
+    !semantics.is_empty()
+        && semantics.len() <= 160
+        && semantics.bytes().all(|byte| {
+            byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'_' | b':' | b'.' | b'/')
+        })
 }
 
 fn validate_attr(name: &str, value: &str) -> Result<(), WorkerProtocolError> {
@@ -412,6 +533,59 @@ pub struct WorkerError {
     pub stack: Option<String>,
 }
 
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+pub struct BrowserBridgeOutput {
+    #[serde(default)]
+    pub messages: Vec<WorkerToMain>,
+    #[serde(default)]
+    pub bindings: Vec<BrowserEventBinding>,
+}
+
+impl BrowserBridgeOutput {
+    pub fn validate(&self, policy: &WorkerDomPolicy) -> Result<(), WorkerProtocolError> {
+        for message in &self.messages {
+            if let WorkerToMain::DomBatch(batch) = message {
+                batch.validate(policy)?;
+            }
+        }
+        for binding in &self.bindings {
+            binding.validate()?;
+            validate_semantics(policy, &binding.semantics)?;
+        }
+        Ok(())
+    }
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct BrowserEventBinding {
+    pub semantics: String,
+    pub event: BrowserEventKind,
+    #[serde(default)]
+    pub message: Value,
+}
+
+impl BrowserEventBinding {
+    pub fn validate(&self) -> Result<(), WorkerProtocolError> {
+        if safe_semantics_identifier(&self.semantics) {
+            Ok(())
+        } else {
+            Err(WorkerProtocolError::new(format!(
+                "browser event binding target `{}` is not allowed",
+                self.semantics
+            )))
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum BrowserEventKind {
+    Click,
+    Input,
+    Change,
+    Submit,
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -430,6 +604,10 @@ mod tests {
                     node: 42,
                     class: "open".into(),
                 },
+                DomOp::SetTextBySemantics {
+                    semantics: "cart-count".into(),
+                    text: "1 item".into(),
+                },
             ],
         });
         let encoded = serde_json::to_string(&message).unwrap();
@@ -442,6 +620,7 @@ mod tests {
     fn worker_dom_policy_rejects_off_tree_and_xss_operations() {
         let policy = WorkerDomPolicy::new()
             .allow_node(42)
+            .allow_semantics("cart-count")
             .allow_navigation_to_prefix("/products/");
 
         let valid = DomBatch {
@@ -464,6 +643,10 @@ mod tests {
                 },
                 DomOp::PushHistory {
                     url: "/products/charizard".into(),
+                },
+                DomOp::SetTextBySemantics {
+                    semantics: "cart-count".into(),
+                    text: "1 item".into(),
                 },
             ],
         };
@@ -509,5 +692,58 @@ mod tests {
             }],
         };
         assert!(unsafe_navigation.validate(&policy).is_err());
+
+        let unsafe_semantics = DomBatch {
+            sequence: 6,
+            transaction_id: None,
+            ops: vec![DomOp::SetTextBySemantics {
+                semantics: "cart count".into(),
+                text: "No".into(),
+            }],
+        };
+        assert!(unsafe_semantics.validate(&policy).is_err());
+
+        let off_semantics = DomBatch {
+            sequence: 7,
+            transaction_id: None,
+            ops: vec![DomOp::SetTextBySemantics {
+                semantics: "checkout-total".into(),
+                text: "No".into(),
+            }],
+        };
+        assert!(off_semantics.validate(&policy).is_err());
+    }
+
+    #[test]
+    fn browser_bridge_output_validates_messages_and_bindings() {
+        let output = BrowserBridgeOutput {
+            messages: vec![WorkerToMain::DomBatch(DomBatch {
+                sequence: 1,
+                transaction_id: None,
+                ops: vec![DomOp::SetTextBySemantics {
+                    semantics: "cart-count".into(),
+                    text: "1 item".into(),
+                }],
+            })],
+            bindings: vec![BrowserEventBinding {
+                semantics: "cart-add".into(),
+                event: BrowserEventKind::Click,
+                message: serde_json::json!({ "action": "add" }),
+            }],
+        };
+        let policy = WorkerDomPolicy::new()
+            .allow_semantics("cart-count")
+            .allow_semantics("cart-add");
+        assert!(output.validate(&policy).is_ok());
+
+        let output = BrowserBridgeOutput {
+            bindings: vec![BrowserEventBinding {
+                semantics: "cart add".into(),
+                event: BrowserEventKind::Click,
+                message: serde_json::json!({ "action": "add" }),
+            }],
+            ..Default::default()
+        };
+        assert!(output.validate(&policy).is_err());
     }
 }

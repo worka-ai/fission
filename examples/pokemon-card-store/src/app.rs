@@ -242,15 +242,85 @@ fn cart_summary(view: &View<StoreState>) -> Node {
 
 fn browser_runtime_panel() -> Node {
     Container::new(
-        Row {
-            gap: Some(14.0),
+        Column {
+            gap: Some(16.0),
             children: vec![
-                status_chip(
-                    "Worker",
-                    "worker-status:catalog-filters",
-                    "Waiting for worker",
-                ),
-                status_chip("Island", "island-status:cart-drawer", "Waiting for island"),
+                Row {
+                    gap: Some(14.0),
+                    children: vec![
+                        status_chip(
+                            "Worker",
+                            "worker-status:catalog-filters",
+                            "Waiting for worker",
+                        ),
+                        status_chip("Island", "island-status:cart-drawer", "Waiting for island"),
+                    ],
+                    ..Default::default()
+                }
+                .into_node(),
+                Text::new("Browser bridge")
+                    .size(20.0)
+                    .line_height(26.0)
+                    .weight(900)
+                    .color(color(248, 250, 252))
+                    .into_node(),
+                Text::new("The page is server rendered first. The worker and island artifacts then load as small WASM modules and update only the semantic targets they own.")
+                    .size(14.0)
+                    .line_height(22.0)
+                    .color(color(148, 163, 184))
+                    .into_node(),
+                Row {
+                    gap: Some(14.0),
+                    children: vec![
+                        Column {
+                            gap: Some(6.0),
+                            children: vec![
+                                Text::new("0 items in the browser island cart")
+                                    .size(16.0)
+                                    .line_height(22.0)
+                                    .weight(900)
+                                    .color(color(226, 232, 240))
+                                    .semantics_identifier("island-cart-count")
+                                    .into_node(),
+                                Text::new("Waiting for island boot")
+                                    .size(13.0)
+                                    .line_height(18.0)
+                                    .color(color(147, 197, 253))
+                                    .semantics_identifier("island-last-event")
+                                    .into_node(),
+                            ],
+                            ..Default::default()
+                        }
+                        .into_node(),
+                        Spacer {
+                            flex_grow: 1.0,
+                            ..Default::default()
+                        }
+                        .into_node(),
+                        Container::new(
+                            Text::new("Add in browser island")
+                                .size(14.0)
+                                .line_height(20.0)
+                                .weight(900)
+                                .color(color(15, 23, 42))
+                                .semantics_identifier("island-action:add-card")
+                                .into_node(),
+                        )
+                        .padding([14.0, 14.0, 12.0, 12.0])
+                        .border_radius(999.0)
+                        .bg(color(251, 191, 36))
+                        .into_node(),
+                    ],
+                    align_items: ir_op::AlignItems::Center,
+                    ..Default::default()
+                }
+                .into_node(),
+                Text::new("Worker enhancement status pending")
+                    .size(13.0)
+                    .line_height(18.0)
+                    .color(color(148, 163, 184))
+                    .semantics_identifier("worker-filter-summary")
+                    .into_node(),
             ],
             ..Default::default()
         }

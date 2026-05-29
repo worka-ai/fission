@@ -12,6 +12,8 @@ It demonstrates:
 - add-to-basket buttons that post signed action tokens back to the server route;
 - route-local progressive-enhancement worker declarations loaded from generated WASM artifacts;
 - route-local WASM island declarations loaded from generated WASM artifacts;
+- the browser bridge ABI used by those artifacts to receive boot/event JSON and return constrained DOM operations;
+- client-side island events that update semantic DOM targets without submitting a form or re-rendering the page;
 - generated per-worker and per-island WASM shim crates copied into `/assets/...`;
 - production-style Rust organisation with data, server setup, and reusable widget components split into modules.
 
@@ -36,4 +38,4 @@ Useful files:
 - `src/app.rs` builds the page from Fission widgets and registers the reducers used by jobs and signed actions.
 - `src/components/` contains the reusable page sections.
 - `src/data.rs` defines the store data and a sample job spec for catalog loading.
-- `src/workers.rs` and `src/islands.rs` provide the browser artifact entry points.
+- `src/workers.rs` and `src/islands.rs` provide the browser artifact entry points and bridge messages.

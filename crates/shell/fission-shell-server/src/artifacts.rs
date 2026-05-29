@@ -173,16 +173,85 @@ fn dependency_spec(
 }
 
 fn shim_source(plan: &BrowserArtifactPlan) -> String {
-    let exported = match plan.kind {
+    let entry_export = match plan.kind {
         BrowserArtifactKind::Worker => "fission_worker_entry",
         BrowserArtifactKind::Island => "fission_island_entry",
     };
+    let event_export = match plan.kind {
+        BrowserArtifactKind::Worker => "fission_worker_event",
+        BrowserArtifactKind::Island => "fission_island_event",
+    };
     format!(
-        r#"#[no_mangle]
-pub extern "C" fn {exported}() {{
-    {entry}();
+        r###"use std::cell::RefCell;
+
+thread_local! {{
+    static FISSION_BRIDGE_OUTPUT: RefCell<Vec<u8>> = RefCell::new(Vec::new());
 }}
-"#,
+
+#[no_mangle]
+pub extern "C" fn fission_bridge_alloc(len: usize) -> *mut u8 {{
+    let mut buffer = Vec::with_capacity(len);
+    buffer.resize(len, 0);
+    let ptr = buffer.as_mut_ptr();
+    std::mem::forget(buffer);
+    ptr
+}}
+
+#[no_mangle]
+pub unsafe extern "C" fn fission_bridge_dealloc(ptr: *mut u8, len: usize) {{
+    if !ptr.is_null() {{
+        drop(Vec::from_raw_parts(ptr, len, len));
+    }}
+}}
+
+#[no_mangle]
+pub extern "C" fn fission_bridge_output_ptr() -> *const u8 {{
+    FISSION_BRIDGE_OUTPUT.with(|output| output.borrow().as_ptr())
+}}
+
+#[no_mangle]
+pub extern "C" fn fission_bridge_output_len() -> usize {{
+    FISSION_BRIDGE_OUTPUT.with(|output| output.borrow().len())
+}}
+
+#[no_mangle]
+pub unsafe extern "C" fn {entry_export}(ptr: *const u8, len: usize) -> i32 {{
+    fission_call_entry(ptr, len)
+}}
+
+#[no_mangle]
+pub unsafe extern "C" fn {event_export}(ptr: *const u8, len: usize) -> i32 {{
+    fission_call_entry(ptr, len)
+}}
+
+unsafe fn fission_call_entry(ptr: *const u8, len: usize) -> i32 {{
+    let input = if len == 0 {{
+        ""
+    }} else if ptr.is_null() {{
+        fission_store_output(r#"{{"messages":[{{"type":"error","message":"null bridge input pointer","stack":null}}],"bindings":[]}}"#);
+        return 1;
+    }} else {{
+        match std::str::from_utf8(std::slice::from_raw_parts(ptr, len)) {{
+            Ok(input) => input,
+            Err(_) => {{
+                fission_store_output(r#"{{"messages":[{{"type":"error","message":"bridge input is not valid UTF-8","stack":null}}],"bindings":[]}}"#);
+                return 1;
+            }}
+        }}
+    }};
+    let output = {entry}(input);
+    fission_store_output(output);
+    0
+}}
+
+fn fission_store_output(output: impl AsRef<str>) {{
+    FISSION_BRIDGE_OUTPUT.with(|buffer| {{
+        let mut buffer = buffer.borrow_mut();
+        buffer.clear();
+        buffer.extend_from_slice(output.as_ref().as_bytes());
+    }});
+}}
+"###,
         entry = plan.entry
     )
 }
@@ -399,6 +468,10 @@ mod tests {
         )
         .unwrap();
         assert!(worker.contains("demo::filters::boot"));
+        assert!(worker.contains("fission_bridge_alloc"));
+        assert!(worker.contains("fission_worker_entry"));
+        assert!(worker.contains("fission_worker_event"));
+        assert!(worker.contains("fission_call_entry(ptr, len)"));
         let _ = fs::remove_dir_all(&root);
     }
 

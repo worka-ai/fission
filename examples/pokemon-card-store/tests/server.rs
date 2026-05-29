@@ -21,6 +21,9 @@ fn store_home_renders_real_product_html_after_draining_catalog_job() {
     assert!(html.contains("cart-drawer"));
     assert!(html.contains("View details"));
     assert!(html.contains("cards/charizard-holo/"));
+    assert!(html.contains("Browser bridge"));
+    assert!(html.contains("island-action:add-card"));
+    assert!(html.contains("worker-filter-summary"));
     assert!(html.contains("method=\"post\""));
     assert!(html.contains("name=\"token\""));
 }
@@ -129,6 +132,9 @@ fn browser_artifact_build_writes_worker_and_island_shims() {
             .unwrap();
     assert!(worker_manifest.contains("package = \"pokemon-card-store\""));
     assert!(island_source.contains("pokemon_card_store::islands::cart_drawer_boot"));
+    assert!(island_source.contains("fission_bridge_alloc"));
+    assert!(island_source.contains("fission_island_entry"));
+    assert!(island_source.contains("fission_island_event"));
 
     let _ = std::fs::remove_dir_all(&root);
 }

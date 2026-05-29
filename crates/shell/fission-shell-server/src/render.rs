@@ -327,6 +327,9 @@ impl ServerRenderer {
     fn site_css_response(&self) -> Result<ServerResponse> {
         let mut css = String::new();
         css.push_str(site_base_css());
+        css.push_str(
+            "\n.fission-browser-action{cursor:pointer;user-select:none;display:inline-flex;align-items:center;justify-content:center;}\n.fission-browser-action:focus-visible{outline:3px solid rgba(96,165,250,.85);outline-offset:3px;}\n",
+        );
         css.push('\n');
         css.push_str(&theme_variables_css(":root", &self.app.theme));
         let styles = self

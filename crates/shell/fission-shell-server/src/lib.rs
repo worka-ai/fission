@@ -35,10 +35,10 @@ pub use cache::{
 };
 pub use jobs::{ServerJobCtx, ServerJobError, ServerJobRegistry};
 pub use protocol::{
-    AriaPoliteness, DomBatch, DomOp, MainToWorker, NavigateMode, NavigateRequest, ScrollBlock,
-    WorkerBoot, WorkerDomEvent, WorkerDomPolicy, WorkerError, WorkerLog, WorkerLogLevel,
-    WorkerProtocolError, WorkerRequest, WorkerRequestKind, WorkerResize, WorkerResponse,
-    WorkerToMain,
+    AriaPoliteness, BrowserBridgeOutput, BrowserEventBinding, BrowserEventKind, DomBatch, DomOp,
+    MainToWorker, NavigateMode, NavigateRequest, ScrollBlock, WorkerBoot, WorkerDomEvent,
+    WorkerDomPolicy, WorkerError, WorkerLog, WorkerLogLevel, WorkerProtocolError, WorkerRequest,
+    WorkerRequestKind, WorkerResize, WorkerResponse, WorkerToMain,
 };
 pub use render::{
     RenderedServerRoute, ServerRenderer, ServerRequest, ServerResponse,
