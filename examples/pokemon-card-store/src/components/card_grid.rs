@@ -1,16 +1,22 @@
 use crate::app::StoreState;
-use crate::data::Card;
+use crate::data::{Card, CatalogResponse, StoreError};
 use fission::prelude::*;
 
 #[derive(Clone)]
 pub struct CardGrid {
-    pub cards: Vec<Card>,
+    pub snapshot: AsyncSnapshot<CatalogResponse, StoreError>,
 }
 
 impl Widget<StoreState> for CardGrid {
     fn build(&self, _ctx: &mut BuildCtx<StoreState>, _view: &View<StoreState>) -> Node {
+        let Some(catalog) = self.snapshot.data() else {
+            return loading_or_error(&self.snapshot);
+        };
         let mut children = Vec::new();
-        for (index, card) in self.cards.iter().enumerate() {
+        for (index, summary) in catalog.cards.iter().enumerate() {
+            let Some(card) = crate::data::card_by_slug(&summary.slug) else {
+                continue;
+            };
             let row = (index / 3 + 1) as i16;
             let col = (index % 3 + 1) as i16;
             children.push(GridItem::new(card_tile(card)).cell(row, col).into_node());
@@ -37,6 +43,47 @@ impl Widget<StoreState> for CardGrid {
         }
         .into_node()
     }
+}
+
+fn loading_or_error(snapshot: &AsyncSnapshot<CatalogResponse, StoreError>) -> Node {
+    let (title, detail, accent) = if let Some(error) = snapshot.error() {
+        (
+            "Catalogue unavailable",
+            error.message.as_str(),
+            color(248, 113, 113),
+        )
+    } else {
+        (
+            "Loading cards",
+            "The server route declares a catalogue job and renders the completed state after the job drains.",
+            color(96, 165, 250),
+        )
+    };
+    Container::new(
+        Column {
+            gap: Some(10.0),
+            children: vec![
+                Text::new(title)
+                    .size(24.0)
+                    .line_height(30.0)
+                    .weight(900)
+                    .color(color(248, 250, 252))
+                    .into_node(),
+                Text::new(detail)
+                    .size(15.0)
+                    .line_height(24.0)
+                    .color(color(203, 213, 225))
+                    .into_node(),
+            ],
+            ..Default::default()
+        }
+        .into_node(),
+    )
+    .padding_all(24.0)
+    .border(accent.with_alpha(120), 1.0)
+    .border_radius(24.0)
+    .bg(color(15, 23, 42))
+    .into_node()
 }
 
 fn section_title() -> Node {

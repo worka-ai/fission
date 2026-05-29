@@ -23,6 +23,22 @@ pub fn serve(project_dir: &Path, release: bool, host: String, port: u16) -> Resu
     )
 }
 
+pub fn artifacts(project_dir: &Path, release: bool, compile: bool) -> Result<()> {
+    ensure_server_entry_configured(project_dir)?;
+    let package_name = package_name(project_dir)?;
+    let features = package_features(project_dir)?;
+    let mut args = vec!["--package-name", package_name.as_str()];
+    if features.iter().any(|feature| feature == "browser") {
+        args.push("--package-no-default-features");
+        args.push("--package-feature");
+        args.push("browser");
+    }
+    if !compile {
+        args.push("--no-compile");
+    }
+    run_server_builder(project_dir, release, "artifacts", &args)
+}
+
 fn ensure_server_entry_configured(project_dir: &Path) -> Result<()> {
     let path = project_dir.join("fission.toml");
     let data = std::fs::read_to_string(&path)
@@ -41,6 +57,33 @@ fn ensure_server_entry_configured(project_dir: &Path) -> Result<()> {
     }
 }
 
+fn package_name(project_dir: &Path) -> Result<String> {
+    let path = project_dir.join("Cargo.toml");
+    let data = std::fs::read_to_string(&path)
+        .with_context(|| format!("failed to read {}", path.display()))?;
+    let value: toml::Value =
+        toml::from_str(&data).with_context(|| format!("failed to parse {}", path.display()))?;
+    value
+        .get("package")
+        .and_then(|package| package.get("name"))
+        .and_then(|name| name.as_str())
+        .map(ToString::to_string)
+        .ok_or_else(|| anyhow::anyhow!("{} is missing [package].name", path.display()))
+}
+
+fn package_features(project_dir: &Path) -> Result<Vec<String>> {
+    let path = project_dir.join("Cargo.toml");
+    let data = std::fs::read_to_string(&path)
+        .with_context(|| format!("failed to read {}", path.display()))?;
+    let value: toml::Value =
+        toml::from_str(&data).with_context(|| format!("failed to parse {}", path.display()))?;
+    Ok(value
+        .get("features")
+        .and_then(|features| features.as_table())
+        .map(|features| features.keys().cloned().collect())
+        .unwrap_or_default())
+}
+
 fn run_server_builder(
     project_dir: &Path,
     release: bool,
@@ -54,7 +97,11 @@ fn run_server_builder(
             manifest_path.display()
         );
     }
+    let manifest_path = manifest_path
+        .canonicalize()
+        .with_context(|| format!("failed to resolve {}", manifest_path.display()))?;
     let mut command = Command::new("cargo");
+    command.current_dir(project_dir);
     command
         .arg("run")
         .arg("--manifest-path")

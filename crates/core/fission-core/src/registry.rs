@@ -177,6 +177,31 @@ impl<S: AppState> ActionRegistry<S> {
         });
     }
 
+    pub fn dispatch_with_input(
+        &mut self,
+        state: &mut S,
+        action: &ActionEnvelope,
+        target: NodeId,
+        input: &ActionInput,
+    ) -> Result<Vec<EffectEnvelope>> {
+        let mut effects_builder = Effects::new_headless(0);
+        if let Some(reducers) = self.handlers.get_mut(&action.id) {
+            for reducer in reducers {
+                reducer(state, action, target, &mut effects_builder, input)?;
+            }
+        }
+        Ok(effects_builder.out)
+    }
+
+    pub fn dispatch(
+        &mut self,
+        state: &mut S,
+        action: &ActionEnvelope,
+        target: NodeId,
+    ) -> Result<Vec<EffectEnvelope>> {
+        self.dispatch_with_input(state, action, target, &ActionInput::None)
+    }
+
     pub fn into_runtime_reducers(self) -> HashMap<ActionId, Vec<BoxedReducer>> {
         let mut runtime_reducers: HashMap<ActionId, Vec<BoxedReducer>> = HashMap::new();
         let state_type_id = TypeId::of::<S>();

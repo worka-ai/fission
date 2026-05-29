@@ -118,6 +118,11 @@ where
                 release,
             } => fission_command_server::serve(&project_dir, release, host, port),
             ServerCommand::Routes { project_dir } => fission_command_server::routes(&project_dir),
+            ServerCommand::Artifacts {
+                project_dir,
+                release,
+                no_compile,
+            } => fission_command_server::artifacts(&project_dir, release, !no_compile),
         },
         Command::Package {
             target,

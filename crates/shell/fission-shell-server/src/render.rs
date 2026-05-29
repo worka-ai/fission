@@ -1,7 +1,8 @@
 use crate::app::{normalize_server_path, FissionServerApp, ServerRenderedNode, ServerRouteEntry};
 use crate::{
     Cache, CacheEntry, CacheKey, CacheMetadata, CacheScope, Freshness, MokaCache, RenderedPage,
-    WebRoute, WebRouteMode,
+    ServerActionSigner, ServerJobRegistry, SignedServerAction, VerifiedServerAction, WebRoute,
+    WebRouteMode,
 };
 use anyhow::{anyhow, Result};
 use fission_core::{Env, LoweringContext, RuntimeResourceDeclaration, RuntimeState};
@@ -21,6 +22,7 @@ pub struct ServerRequest {
     pub path: String,
     pub query: BTreeMap<String, String>,
     pub headers: BTreeMap<String, String>,
+    pub body: Vec<u8>,
 }
 
 impl ServerRequest {
@@ -30,6 +32,17 @@ impl ServerRequest {
             path: path.into(),
             query: BTreeMap::new(),
             headers: BTreeMap::new(),
+            body: Vec::new(),
+        }
+    }
+
+    pub fn post(path: impl Into<String>, body: impl Into<Vec<u8>>) -> Self {
+        Self {
+            method: "POST".to_string(),
+            path: path.into(),
+            query: BTreeMap::new(),
+            headers: BTreeMap::new(),
+            body: body.into(),
         }
     }
 }
@@ -68,14 +81,21 @@ pub struct RenderedServerRoute {
 pub struct ServerRenderer {
     app: FissionServerApp,
     cache: Arc<dyn Cache>,
+    jobs: ServerJobRegistry,
+    action_signer: ServerActionSigner,
+    render_pass_limit: usize,
     viewport_size: LayoutSize,
 }
 
 impl ServerRenderer {
     pub fn new(app: FissionServerApp) -> Self {
+        let jobs = app.jobs.clone();
         Self {
             app,
             cache: Arc::new(MokaCache::default()),
+            jobs,
+            action_signer: ServerActionSigner::development(),
+            render_pass_limit: 4,
             viewport_size: LayoutSize::new(1280.0, 900.0),
         }
     }
@@ -90,6 +110,32 @@ impl ServerRenderer {
         self
     }
 
+    pub fn with_jobs(mut self, jobs: ServerJobRegistry) -> Self {
+        self.jobs = jobs;
+        self
+    }
+
+    pub fn with_action_signer(mut self, signer: ServerActionSigner) -> Self {
+        self.action_signer = signer;
+        self
+    }
+
+    pub fn with_render_pass_limit(mut self, limit: usize) -> Self {
+        self.render_pass_limit = limit;
+        self
+    }
+
+    pub fn sign_action<A: fission_core::Action>(
+        &self,
+        route_path: impl Into<String>,
+        target_node: u128,
+        action: A,
+        ttl: std::time::Duration,
+    ) -> SignedServerAction {
+        self.action_signer
+            .sign(route_path, target_node, action, ttl)
+    }
+
     pub fn routes(&self) -> Vec<WebRoute> {
         self.app.routes()
     }
@@ -99,10 +145,14 @@ impl ServerRenderer {
             .app
             .find_route(path)
             .ok_or_else(|| anyhow!("server route `{}` was not found", path))?;
-        self.render_uncached(route)
+        self.render_uncached(route, None)
     }
 
     pub fn handle(&self, request: ServerRequest) -> Result<ServerResponse> {
+        if request.method == "POST" && normalize_server_path(&request.path) == "/__fission/action/"
+        {
+            return self.handle_action(request);
+        }
         if request.method != "GET" {
             return Ok(ServerResponse::text(
                 405,
@@ -137,7 +187,7 @@ impl ServerRenderer {
                     Freshness::Expired => {}
                 }
             }
-            let rendered = self.render_uncached(route)?;
+            let rendered = self.render_uncached(route, None)?;
             let page = RenderedPage {
                 html: rendered.html.clone(),
                 css: rendered.css.clone(),
@@ -156,7 +206,7 @@ impl ServerRenderer {
             return Ok(page_response(&page, Freshness::Expired));
         }
 
-        let rendered = self.render_uncached(route)?;
+        let rendered = self.render_uncached(route, None)?;
         Ok(ServerResponse {
             status: 200,
             headers: vec![(
@@ -168,12 +218,19 @@ impl ServerRenderer {
         })
     }
 
-    fn render_uncached(&self, route: &ServerRouteEntry) -> Result<RenderedServerRoute> {
+    fn render_uncached(
+        &self,
+        route: &ServerRouteEntry,
+        action: Option<&VerifiedServerAction>,
+    ) -> Result<RenderedServerRoute> {
         let ctx = crate::ServerRenderContext {
             project_dir: &self.app.project_dir,
             route_path: &route.route.path,
             theme: &self.app.theme,
             viewport_size: self.viewport_size,
+            jobs: &self.jobs,
+            action,
+            render_pass_limit: self.render_pass_limit,
         };
         let ServerRenderedNode { node, resources } = (route.render)(&ctx)?;
         let runtime = RuntimeState::default();
@@ -214,6 +271,29 @@ impl ServerRenderer {
             html: rendered.html,
             css,
             resources,
+        })
+    }
+
+    fn handle_action(&self, request: ServerRequest) -> Result<ServerResponse> {
+        let token: SignedServerAction = serde_json::from_slice(&request.body)?;
+        let action = self.action_signer.verify(&token)?;
+        let route_path = normalize_server_path(&action.route_path);
+        let Some(route) = self.app.find_route(&route_path) else {
+            return Ok(ServerResponse::text(
+                404,
+                "text/plain; charset=utf-8",
+                "server action route not found",
+            ));
+        };
+        let rendered = self.render_uncached(route, Some(&action))?;
+        Ok(ServerResponse {
+            status: 200,
+            headers: vec![(
+                "content-type".to_string(),
+                "text/html; charset=utf-8".to_string(),
+            )],
+            body: rendered.html.into_bytes(),
+            cache_status: None,
         })
     }
 }

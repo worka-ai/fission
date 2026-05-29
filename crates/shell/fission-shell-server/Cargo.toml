@@ -9,14 +9,28 @@ homepage = "https://fission.rs"
 documentation = "https://fission.rs"
 readme = "README.md"
 
+[features]
+default = []
+actix-adapter = ["dep:actix-web"]
+axum-adapter = ["dep:axum"]
+hyper-adapter = ["dep:hyper"]
+redis = ["dep:redis"]
+
 [dependencies]
+actix-web = { version = "4.12", optional = true, default-features = false }
 anyhow = "1.0"
+axum = { version = "0.7", optional = true, default-features = false }
+base64 = "0.22"
+bincode = "1.3"
+blake3 = "1.8"
 fission-core = { path = "../../core/fission-core", version = "0.2.0" }
 fission-ir = { path = "../../core/fission-ir", version = "0.2.0" }
 fission-layout = { path = "../../core/fission-layout", version = "0.2.0" }
 fission-shell-site = { path = "../fission-shell-site", version = "0.2.0" }
 fission-theme = { path = "../../core/fission-theme", version = "0.2.0" }
+hyper = { version = "0.14", optional = true, features = ["server", "http1", "stream"] }
 moka = { version = "0.12", features = ["sync"] }
+redis = { version = "0.32", optional = true }
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 

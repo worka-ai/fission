@@ -107,6 +107,7 @@ pub enum ServerResourcePolicy {
 pub struct ProgressiveWorker {
     pub id: String,
     pub artifact: String,
+    pub entry: Option<String>,
     pub root_node_id: Option<String>,
     pub description: Option<String>,
 }
@@ -116,9 +117,15 @@ impl ProgressiveWorker {
         Self {
             id: id.into(),
             artifact: artifact.into(),
+            entry: None,
             root_node_id: None,
             description: None,
         }
+    }
+
+    pub fn entry(mut self, entry: impl Into<String>) -> Self {
+        self.entry = Some(entry.into());
+        self
     }
 
     pub fn root_node_id(mut self, id: impl Into<String>) -> Self {
@@ -136,6 +143,7 @@ impl ProgressiveWorker {
 pub struct WasmIsland {
     pub id: String,
     pub artifact: String,
+    pub entry: Option<String>,
     pub mount_id: String,
     pub description: Option<String>,
 }
@@ -149,9 +157,15 @@ impl WasmIsland {
         Self {
             id: id.into(),
             artifact: artifact.into(),
+            entry: None,
             mount_id: mount_id.into(),
             description: None,
         }
+    }
+
+    pub fn entry(mut self, entry: impl Into<String>) -> Self {
+        self.entry = Some(entry.into());
+        self
     }
 
     pub fn description(mut self, description: impl Into<String>) -> Self {

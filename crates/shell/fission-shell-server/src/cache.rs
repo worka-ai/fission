@@ -316,6 +316,115 @@ pub struct CachePipeline {
     layers: Vec<(Arc<dyn Cache>, CacheLayerPolicy)>,
 }
 
+#[cfg(feature = "redis")]
+pub struct RedisCache {
+    client: redis::Client,
+    prefix: String,
+}
+
+#[cfg(feature = "redis")]
+impl RedisCache {
+    pub fn new(url: &str, prefix: impl Into<String>) -> Result<Self, CacheError> {
+        let client = redis::Client::open(url)
+            .map_err(|error| CacheError::new(format!("failed to create redis client: {error}")))?;
+        Ok(Self {
+            client,
+            prefix: prefix.into(),
+        })
+    }
+
+    fn entry_key(&self, key: &CacheKey) -> String {
+        format!("{}:entry:{}", self.prefix, key.as_str())
+    }
+
+    fn tag_key(&self, tag: &CacheTag) -> String {
+        format!("{}:tag:{}", self.prefix, tag.as_str())
+    }
+}
+
+#[cfg(feature = "redis")]
+impl Cache for RedisCache {
+    fn get(&self, key: &CacheKey) -> Result<Option<CacheEntry>, CacheError> {
+        let mut conn = self
+            .client
+            .get_connection()
+            .map_err(|error| CacheError::new(format!("failed to connect to redis: {error}")))?;
+        let data: Option<Vec<u8>> = redis::Commands::get(&mut conn, self.entry_key(key))
+            .map_err(|error| CacheError::new(format!("failed to read redis cache: {error}")))?;
+        data.map(|bytes| {
+            bincode::deserialize::<CacheEntry>(&bytes).map_err(|error| {
+                CacheError::new(format!("failed to decode redis cache entry: {error}"))
+            })
+        })
+        .transpose()
+    }
+
+    fn put(&self, entry: CacheEntry) -> Result<(), CacheError> {
+        if matches!(entry.scope, CacheScope::NoStore) {
+            return Ok(());
+        }
+        let mut conn = self
+            .client
+            .get_connection()
+            .map_err(|error| CacheError::new(format!("failed to connect to redis: {error}")))?;
+        let key = self.entry_key(&entry.key);
+        let bytes = bincode::serialize(&entry).map_err(|error| {
+            CacheError::new(format!("failed to encode redis cache entry: {error}"))
+        })?;
+        let ttl_secs = entry
+            .stale_until
+            .or(Some(entry.fresh_until))
+            .and_then(|expires| expires.duration_since(SystemTime::now()).ok())
+            .map(|duration| duration.as_secs().max(1))
+            .unwrap_or(60);
+        let _: () = redis::Commands::set_ex(&mut conn, &key, bytes, ttl_secs)
+            .map_err(|error| CacheError::new(format!("failed to write redis cache: {error}")))?;
+        for tag in &entry.tags {
+            let tag_key = self.tag_key(tag);
+            let _: () = redis::Commands::sadd(&mut conn, &tag_key, &key).map_err(|error| {
+                CacheError::new(format!("failed to update redis tag index: {error}"))
+            })?;
+            let _: () =
+                redis::Commands::expire(&mut conn, &tag_key, ttl_secs as i64).map_err(|error| {
+                    CacheError::new(format!("failed to expire redis tag index: {error}"))
+                })?;
+        }
+        Ok(())
+    }
+
+    fn remove(&self, key: &CacheKey) -> Result<(), CacheError> {
+        let mut conn = self
+            .client
+            .get_connection()
+            .map_err(|error| CacheError::new(format!("failed to connect to redis: {error}")))?;
+        let _: () = redis::Commands::del(&mut conn, self.entry_key(key)).map_err(|error| {
+            CacheError::new(format!("failed to remove redis cache entry: {error}"))
+        })?;
+        Ok(())
+    }
+
+    fn invalidate_tag(&self, tag: &CacheTag) -> Result<InvalidationReport, CacheError> {
+        let mut conn = self
+            .client
+            .get_connection()
+            .map_err(|error| CacheError::new(format!("failed to connect to redis: {error}")))?;
+        let tag_key = self.tag_key(tag);
+        let keys: Vec<String> = redis::Commands::smembers(&mut conn, &tag_key)
+            .map_err(|error| CacheError::new(format!("failed to read redis tag index: {error}")))?;
+        for key in &keys {
+            let _: () = redis::Commands::del(&mut conn, key).map_err(|error| {
+                CacheError::new(format!("failed to delete redis cache key: {error}"))
+            })?;
+        }
+        let _: () = redis::Commands::del(&mut conn, &tag_key)
+            .map_err(|error| CacheError::new(format!("failed to delete redis tag key: {error}")))?;
+        Ok(InvalidationReport {
+            removed_keys: keys.len(),
+            removed_tags: usize::from(!keys.is_empty()),
+        })
+    }
+}
+
 impl CachePipeline {
     pub fn new(layers: Vec<Arc<dyn Cache>>) -> Self {
         Self {
@@ -456,5 +565,30 @@ mod tests {
 
         assert!(pipeline.get(&key).unwrap().is_some());
         assert!(hot.get(&key).unwrap().is_some());
+    }
+
+    #[cfg(feature = "redis")]
+    #[test]
+    fn redis_cache_stores_and_invalidates_by_tag_when_available() {
+        let Ok(url) = std::env::var("FISSION_REDIS_URL") else {
+            return;
+        };
+        let prefix = format!("fission-test-{}", std::process::id());
+        let cache = RedisCache::new(&url, &prefix).unwrap();
+        let key = CacheKey::new("page:/redis");
+        cache
+            .put(entry(
+                key.as_str(),
+                "redis-catalog",
+                Duration::from_secs(60),
+            ))
+            .unwrap();
+
+        assert!(cache.get(&key).unwrap().is_some());
+        let report = cache
+            .invalidate_tag(&CacheTag::new("redis-catalog"))
+            .unwrap();
+        assert_eq!(report.removed_keys, 1);
+        assert!(cache.get(&key).unwrap().is_none());
     }
 }

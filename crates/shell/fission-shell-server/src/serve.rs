@@ -1,6 +1,6 @@
 use crate::{ServerRenderer, ServerRequest};
 use anyhow::{Context, Result};
-use std::io::{self, BufRead, Write};
+use std::io::{self, BufRead, Read, Write};
 use std::net::{TcpListener, TcpStream};
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -64,18 +64,34 @@ fn parse_request(stream: &TcpStream) -> Result<ServerRequest> {
     let method = parts.next().unwrap_or("GET").to_string();
     let raw_path = parts.next().unwrap_or("/");
     let (path, query) = parse_path_and_query(raw_path);
+    let mut headers = std::collections::BTreeMap::new();
+    let mut content_length = 0usize;
     loop {
         let mut line = String::new();
         reader.read_line(&mut line)?;
-        if line.trim_end().is_empty() {
+        let line = line.trim_end();
+        if line.is_empty() {
             break;
         }
+        if let Some((name, value)) = line.split_once(':') {
+            let name = name.trim().to_ascii_lowercase();
+            let value = value.trim().to_string();
+            if name == "content-length" {
+                content_length = value.parse().unwrap_or(0);
+            }
+            headers.insert(name, value);
+        }
+    }
+    let mut body = vec![0u8; content_length.min(1024 * 1024)];
+    if !body.is_empty() {
+        reader.read_exact(&mut body)?;
     }
     Ok(ServerRequest {
         method,
         path,
         query,
-        headers: Default::default(),
+        headers,
+        body,
     })
 }
 

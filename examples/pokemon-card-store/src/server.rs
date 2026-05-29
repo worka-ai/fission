@@ -1,11 +1,17 @@
 use crate::app::{StoreHomePage, StoreState};
+use crate::data::{catalog_response, CATALOG_JOB};
 use fission::server::{
-    FissionServerApp, ProgressiveWorker, RevalidationPolicy, WasmIsland, WebRouteMode,
+    FissionServerApp, ProgressiveWorker, RevalidationPolicy, ServerJobRegistry, WasmIsland,
+    WebRouteMode,
 };
 use std::time::Duration;
 
 pub fn pokemon_card_store_server() -> FissionServerApp {
     FissionServerApp::new("Pokemon Card Store")
+        .jobs(
+            ServerJobRegistry::new()
+                .register_job(CATALOG_JOB, |_request, _ctx| Ok(catalog_response())),
+        )
         .route_widget::<StoreState, _>(
             "/",
             "Pokemon Card Store",
@@ -20,6 +26,7 @@ pub fn pokemon_card_store_server() -> FissionServerApp {
         .worker(
             "/",
             ProgressiveWorker::new("catalog-filters", "/assets/workers/catalog-filters.wasm")
+                .entry("pokemon_card_store::workers::catalog_filters_boot")
                 .root_node_id("catalog-grid")
                 .description("Client-side filtering and sort controls over server-rendered cards."),
         )
@@ -30,6 +37,7 @@ pub fn pokemon_card_store_server() -> FissionServerApp {
                 "/assets/islands/cart-drawer.wasm",
                 "cart-drawer",
             )
+            .entry("pokemon_card_store::islands::cart_drawer_boot")
             .description("Focused Fission island for cart state, checkout totals, and item edits."),
         )
 }

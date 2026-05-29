@@ -373,4 +373,16 @@ pub(crate) enum ServerCommand {
         #[arg(long, default_value = ".")]
         project_dir: PathBuf,
     },
+    /// Generate and optionally compile per-worker/per-island browser WASM shims.
+    Artifacts {
+        /// Project directory; defaults to the current working directory.
+        #[arg(long, default_value = ".")]
+        project_dir: PathBuf,
+        /// Build in release mode.
+        #[arg(long)]
+        release: bool,
+        /// Write shim crates without compiling them.
+        #[arg(long)]
+        no_compile: bool,
+    },
 }

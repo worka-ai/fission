@@ -120,6 +120,10 @@ pub fn cards() -> &'static [Card] {
     ]
 }
 
+pub fn card_by_slug(slug: &str) -> Option<&'static Card> {
+    cards().iter().find(|card| card.slug == slug)
+}
+
 pub fn catalog_response() -> CatalogResponse {
     CatalogResponse {
         cards: cards()
