@@ -22,6 +22,22 @@ img, svg { max-width: 100%; }
 .fission-site-img { display: block; height: auto; }
 .fission-site-svg svg { display: inline-block; max-width: 100%; }
 
+.fission-server-action-form {
+  display: contents;
+  margin: 0;
+}
+
+.fission-server-action {
+  appearance: none;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+  font: inherit;
+  padding: 0;
+  text-align: inherit;
+}
+
 .fission-site-theme-toggle,
 .fission-site-search-trigger,
 .fission-site-sidebar-toggle {

@@ -4,7 +4,7 @@ use fission_ir::op::{
     FontStyle, GridPlacement, GridTrack, ImageFit, ImageSource, JustifyContent, LayoutOp, LineCap,
     LineJoin, Op, PaintOp, Stroke, TextAlign, TextOverflow, TextRun,
 };
-use fission_ir::{CoreIR, CoreNode, NodeId, Role};
+use fission_ir::{semantics::ActionTrigger, CoreIR, CoreNode, NodeId, Role};
 use fission_theme::{DesignMode, Theme};
 use std::collections::{BTreeMap, HashSet};
 
@@ -24,6 +24,8 @@ pub struct HtmlRenderOptions {
     pub theme_switching: bool,
     pub code_highlighting: CodeHighlightingOptions,
     pub search_script_href: Option<String>,
+    pub server_action_post_path: Option<String>,
+    pub server_action_tokens: BTreeMap<(NodeId, u128), String>,
     pub structured_data: Vec<String>,
     pub head_start_html: Vec<String>,
     pub head_end_html: Vec<String>,
@@ -48,6 +50,8 @@ impl Default for HtmlRenderOptions {
             theme_switching: false,
             code_highlighting: CodeHighlightingOptions::default(),
             search_script_href: None,
+            server_action_post_path: None,
+            server_action_tokens: BTreeMap::new(),
             structured_data: Vec::new(),
             head_start_html: Vec::new(),
             head_end_html: Vec::new(),
@@ -95,7 +99,7 @@ pub fn render_ir_to_html_with_styles(
     options: &HtmlRenderOptions,
     styles: &mut StyleRegistry,
 ) -> Result<RenderedHtml> {
-    validate_static_ir(ir)?;
+    validate_static_ir(ir, options.server_action_post_path.is_some())?;
     let root = ir
         .root
         .ok_or_else(|| anyhow!("site render failed: Core IR has no root node"))?;
@@ -475,11 +479,11 @@ fn stable_hash(bytes: &[u8]) -> u64 {
     hash
 }
 
-fn validate_static_ir(ir: &CoreIR) -> Result<()> {
+fn validate_static_ir(ir: &CoreIR, allow_server_actions: bool) -> Result<()> {
     for node in ir.nodes.values() {
         match &node.op {
             Op::Semantics(semantics) => {
-                if !semantics.actions.entries.is_empty() {
+                if !semantics.actions.entries.is_empty() && !allow_server_actions {
                     bail!(
                         "static site renderer cannot lower interactive actions on node {}; use a web target or add explicit static enhancement support",
                         node.id
@@ -931,6 +935,9 @@ impl HtmlRenderer<'_> {
                 );
             }
         }
+        if let Some(html) = self.render_server_action_semantics(node, semantics)? {
+            return Ok(html);
+        }
         let tag = match semantics.role {
             Role::Button => "button",
             Role::Image => "figure",
@@ -968,6 +975,48 @@ impl HtmlRenderer<'_> {
             "<{tag} class=\"fission-site-node fission-site-semantics\"{attrs} data-fission-node=\"{}\">{children}</{tag}>",
             node.id
         ))
+    }
+
+    fn render_server_action_semantics(
+        &mut self,
+        node: &CoreNode,
+        semantics: &fission_ir::Semantics,
+    ) -> Result<Option<String>> {
+        let Some(action_path) = self.options.server_action_post_path.as_ref() else {
+            return Ok(None);
+        };
+        let Some(action) = semantics
+            .actions
+            .entries
+            .iter()
+            .find(|entry| entry.trigger == ActionTrigger::Default)
+        else {
+            return Ok(None);
+        };
+        let Some(token) = self
+            .options
+            .server_action_tokens
+            .get(&(node.id, action.action_id))
+        else {
+            return Ok(None);
+        };
+        let children = self.render_children(&node.children, &HashSet::new())?;
+        let mut attrs = String::new();
+        if let Some(label) = &semantics.label {
+            attrs.push_str(&format!(" aria-label=\"{}\"", escape_attr(label)));
+        }
+        if let Some(identifier) = &semantics.identifier {
+            attrs.push_str(&format!(
+                " data-fission-semantics=\"{}\"",
+                escape_attr(identifier)
+            ));
+        }
+        Ok(Some(format!(
+            "<form class=\"fission-site-node fission-server-action-form\" method=\"post\" action=\"{}\" data-fission-node=\"{}\"><input type=\"hidden\" name=\"token\" value=\"{}\"><button class=\"fission-site-node fission-site-semantics fission-server-action\" type=\"submit\"{attrs}>{children}</button></form>",
+            escape_attr(action_path),
+            node.id,
+            escape_attr(token),
+        )))
     }
 
     fn render_markdown_table(&mut self, node: &CoreNode) -> Result<String> {
@@ -1823,5 +1872,47 @@ mod tests {
         ir.set_root(root);
         let error = render_ir_to_html(&ir, &HtmlRenderOptions::default()).unwrap_err();
         assert!(error.to_string().contains("interactive actions"));
+    }
+
+    #[test]
+    fn server_action_options_render_signed_post_form() {
+        let root = NodeId::explicit("server-action");
+        let mut semantics = Semantics {
+            role: Role::Button,
+            ..Default::default()
+        };
+        semantics.actions = ActionSet {
+            entries: vec![ActionEntry {
+                trigger: fission_ir::semantics::ActionTrigger::Default,
+                action_id: 7,
+                payload_data: Some(vec![1, 2, 3]),
+            }],
+        };
+        let mut ir = CoreIR::new();
+        ir.nodes.insert(
+            root,
+            CoreNode {
+                id: root,
+                op: Op::Semantics(semantics),
+                composite: Default::default(),
+                children: Vec::new(),
+                parent: None,
+                hash: 0,
+            },
+        );
+        ir.set_root(root);
+        let mut options = HtmlRenderOptions {
+            server_action_post_path: Some("/__fission/action".to_string()),
+            ..Default::default()
+        };
+        options
+            .server_action_tokens
+            .insert((root, 7), "signed-token".to_string());
+
+        let rendered = render_ir_to_html(&ir, &options).unwrap();
+        assert!(rendered.html.contains("method=\"post\""));
+        assert!(rendered.html.contains("action=\"/__fission/action\""));
+        assert!(rendered.html.contains("name=\"token\""));
+        assert!(rendered.html.contains("signed-token"));
     }
 }

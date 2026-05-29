@@ -5,7 +5,10 @@ use crate::{
     WebRouteMode,
 };
 use anyhow::{anyhow, Result};
-use fission_core::{Env, LoweringContext, RuntimeResourceDeclaration, RuntimeState};
+use fission_core::{
+    ActionEnvelope, ActionId, Env, LoweringContext, RuntimeResourceDeclaration, RuntimeState,
+};
+use fission_ir::{semantics::ActionTrigger, CoreIR, Op};
 use fission_layout::LayoutSize;
 use fission_shell_site::{
     render_ir_to_html_with_styles, site_base_css, site_enhancement_js, theme_variables_css,
@@ -16,9 +19,10 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
 use std::path::{Component, Path, PathBuf};
 use std::sync::{Arc, RwLock};
-use std::time::SystemTime;
+use std::time::{Duration, SystemTime};
 
 pub const MAX_SERVER_ACTION_BODY_BYTES: usize = 1024 * 1024;
+const SERVER_BROWSER_RUNTIME_JS: &str = include_str!("../assets/server-runtime.js");
 
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct ServerRequest {
@@ -272,7 +276,14 @@ impl ServerRenderer {
         let mut body_end_html = Vec::new();
         if !route.route.workers.is_empty() || !route.route.islands.is_empty() {
             body_end_html.push(route_manifest_script(&route.route)?);
+            body_end_html.push(server_browser_runtime_script());
         }
+        let action_tokens = collect_server_action_tokens(
+            &lowering.ir,
+            &route.route.path,
+            &self.action_signer,
+            Duration::from_secs(10 * 60),
+        )?;
         let render_options = HtmlRenderOptions {
             lang: "en".to_string(),
             document_title: route.route.title.clone(),
@@ -283,6 +294,8 @@ impl ServerRenderer {
             stylesheet_href: "/site.css".to_string(),
             current_route_path: route.route.path.clone(),
             css_variables: CssVariableMap::from_theme(&self.app.theme),
+            server_action_post_path: Some("/__fission/action".to_string()),
+            server_action_tokens: action_tokens,
             body_end_html,
             ..Default::default()
         };
@@ -393,7 +406,7 @@ impl ServerRenderer {
                 "server action origin rejected",
             ));
         }
-        let token: SignedServerAction = match serde_json::from_slice(&request.body) {
+        let token: SignedServerAction = match self.decode_action_request(&request) {
             Ok(token) => token,
             Err(_) => {
                 return Ok(ServerResponse::text(
@@ -433,6 +446,19 @@ impl ServerRenderer {
         })
     }
 
+    fn decode_action_request(&self, request: &ServerRequest) -> Result<SignedServerAction> {
+        let content_type = header_value(&request.headers, "content-type")
+            .map(|value| value.split(';').next().unwrap_or(value).trim())
+            .unwrap_or("application/json");
+        if content_type.eq_ignore_ascii_case("application/x-www-form-urlencoded") {
+            let body = String::from_utf8_lossy(&request.body);
+            let token = form_value(&body, "token")
+                .ok_or_else(|| anyhow!("server action form is missing token"))?;
+            return self.action_signer.decode(&token);
+        }
+        serde_json::from_slice(&request.body).map_err(Into::into)
+    }
+
     fn action_origin_allowed(&self, request: &ServerRequest) -> bool {
         if self.allowed_action_origins.is_empty() {
             return true;
@@ -457,6 +483,52 @@ fn asset_request_path(path: &str) -> String {
         out = out.trim_end_matches('/').to_string();
     }
     out
+}
+
+fn form_value(body: &str, key: &str) -> Option<String> {
+    body.split('&').find_map(|field| {
+        let (candidate, value) = field.split_once('=')?;
+        (candidate == key).then(|| form_decode(value))
+    })
+}
+
+fn form_decode(value: &str) -> String {
+    let bytes = value.as_bytes();
+    let mut out = Vec::with_capacity(bytes.len());
+    let mut index = 0;
+    while index < bytes.len() {
+        match bytes[index] {
+            b'+' => {
+                out.push(b' ');
+                index += 1;
+            }
+            b'%' if index + 2 < bytes.len() => {
+                let hi = hex_value(bytes[index + 1]);
+                let lo = hex_value(bytes[index + 2]);
+                if let (Some(hi), Some(lo)) = (hi, lo) {
+                    out.push((hi << 4) | lo);
+                    index += 3;
+                } else {
+                    out.push(bytes[index]);
+                    index += 1;
+                }
+            }
+            byte => {
+                out.push(byte);
+                index += 1;
+            }
+        }
+    }
+    String::from_utf8_lossy(&out).into_owned()
+}
+
+fn hex_value(byte: u8) -> Option<u8> {
+    match byte {
+        b'0'..=b'9' => Some(byte - b'0'),
+        b'a'..=b'f' => Some(byte - b'a' + 10),
+        b'A'..=b'F' => Some(byte - b'A' + 10),
+        _ => None,
+    }
 }
 
 fn safe_relative_asset_path(request_path: &str) -> Option<PathBuf> {
@@ -524,6 +596,36 @@ fn page_response(page: &RenderedPage, freshness: Freshness) -> ServerResponse {
     }
 }
 
+fn collect_server_action_tokens(
+    ir: &CoreIR,
+    route_path: &str,
+    signer: &ServerActionSigner,
+    ttl: Duration,
+) -> Result<BTreeMap<(fission_ir::NodeId, u128), String>> {
+    let mut tokens = BTreeMap::new();
+    for node in ir.nodes.values() {
+        let Op::Semantics(semantics) = &node.op else {
+            continue;
+        };
+        for entry in &semantics.actions.entries {
+            if entry.trigger != ActionTrigger::Default {
+                continue;
+            }
+            let Some(payload) = entry.payload_data.clone() else {
+                continue;
+            };
+            let envelope = ActionEnvelope {
+                id: ActionId::from_u128(entry.action_id),
+                payload,
+            };
+            let token =
+                signer.sign_envelope(route_path.to_string(), node.id.as_u128(), envelope, ttl);
+            tokens.insert((node.id, entry.action_id), signer.encode(&token)?);
+        }
+    }
+    Ok(tokens)
+}
+
 fn cache_key_for_route(route: &WebRoute, request: &ServerRequest) -> CacheKey {
     let query = request
         .query
@@ -560,6 +662,10 @@ fn route_manifest_script(route: &WebRoute) -> Result<String> {
     Ok(format!(
         "<script type=\"application/json\" id=\"fission-route-manifest\">{json}</script>"
     ))
+}
+
+fn server_browser_runtime_script() -> String {
+    format!("<script>\n{SERVER_BROWSER_RUNTIME_JS}\n</script>")
 }
 
 #[cfg(test)]
