@@ -28,9 +28,23 @@
     return document.querySelector('[data-fission-semantics="'+cssEscape(semantics)+'"]');
   }
 
+  function textTarget(el){
+    if(!el)return null;
+    var run=el.querySelector('.fission-site-text-run');
+    if(run)return run;
+    var richText=el.querySelector('.fission-site-rich-text');
+    if(richText)return richText;
+    return el;
+  }
+
+  function setElementText(el,text){
+    var target=textTarget(el);
+    if(target)target.textContent=String(text==null?'':text);
+  }
+
   function setTextBySemantics(semantics,text){
     var el=bySemantics(semantics);
-    if(el)el.textContent=String(text==null?'':text);
+    setElementText(el,text);
   }
 
   function getMemory(exports){
@@ -135,7 +149,7 @@
     if(!op||typeof op.op!=='string')return;
     var el=targetForOp(op);
     switch(op.op){
-      case'set_text_by_semantics': if(el)el.textContent=String(op.text==null?'':op.text); break;
+      case'set_text_by_semantics': setElementText(el,op.text); break;
       case'set_attr_by_semantics': if(el&&safeAttrName(op.name)&&(!/^(href|src|xlink:href)$/i.test(op.name)||safeUrl(op.value)))el.setAttribute(op.name,String(op.value==null?'':op.value)); break;
       case'remove_attr_by_semantics': if(el&&safeAttrName(op.name))el.removeAttribute(op.name); break;
       case'add_class_by_semantics': if(el&&typeof op.class==='string')el.classList.add(op.class); break;

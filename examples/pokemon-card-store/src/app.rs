@@ -261,7 +261,7 @@ fn cart_summary(view: &View<StoreState>) -> Node {
 fn browser_runtime_panel() -> Node {
     Container::new(
         Column {
-            gap: Some(16.0),
+            gap: Some(18.0),
             children: vec![
                 Row {
                     gap: Some(14.0),
@@ -288,22 +288,67 @@ fn browser_runtime_panel() -> Node {
                     .color(color(148, 163, 184))
                     .into_node(),
                 Row {
-                    gap: Some(14.0),
+                    gap: Some(18.0),
                     children: vec![
                         Column {
-                            gap: Some(6.0),
+                            gap: Some(10.0),
                             children: vec![
-                                Text::new("0 items in the browser island cart")
-                                    .size(16.0)
-                                    .line_height(22.0)
-                                    .weight(900)
-                                    .color(color(226, 232, 240))
-                                    .semantics_identifier("island-cart-count")
-                                    .into_node(),
-                                Text::new("Waiting for island boot")
+                                Text::new("Worker enhancement status pending")
                                     .size(13.0)
                                     .line_height(18.0)
-                                    .color(color(147, 197, 253))
+                                    .color(color(148, 163, 184))
+                                    .semantics_identifier("worker-filter-summary")
+                                    .into_node(),
+                                Text::new("This side represents progressive enhancement. The browser worker runs off the main thread and reports when route-local catalogue behaviour is ready.")
+                                    .size(14.0)
+                                    .line_height(22.0)
+                                    .color(color(203, 213, 225))
+                                    .into_node(),
+                            ],
+                            ..Default::default()
+                        }
+                        .flex_grow(1.0)
+                        .into_node(),
+                        browser_cart_island(),
+                    ],
+                    align_items: ir_op::AlignItems::Stretch,
+                    ..Default::default()
+                }
+                .into_node(),
+            ],
+            ..Default::default()
+        }
+        .into_node(),
+    )
+    .padding_all(18.0)
+    .border(color(71, 85, 105), 1.0)
+    .border_radius(20.0)
+    .bg(color(15, 23, 42))
+    .into_node()
+}
+
+fn browser_cart_island() -> Node {
+    Container::new(
+        Column {
+            gap: Some(14.0),
+            children: vec![
+                Row {
+                    gap: Some(10.0),
+                    children: vec![
+                        Column {
+                            gap: Some(2.0),
+                            children: vec![
+                                Text::new("Client cart island")
+                                    .size(18.0)
+                                    .line_height(24.0)
+                                    .weight(900)
+                                    .color(color(248, 250, 252))
+                                    .into_node(),
+                                Text::new("Transient browser-side cart state")
+                                    .size(12.0)
+                                    .line_height(17.0)
+                                    .weight(700)
+                                    .color(color(251, 191, 36))
                                     .semantics_identifier("island-last-event")
                                     .into_node(),
                             ],
@@ -315,38 +360,127 @@ fn browser_runtime_panel() -> Node {
                             ..Default::default()
                         }
                         .into_node(),
-                        Container::new(
-                            Text::new("Add in browser island")
-                                .size(14.0)
-                                .line_height(20.0)
-                                .weight(900)
-                                .color(color(15, 23, 42))
-                                .semantics_identifier("island-action:add-card")
-                                .into_node(),
-                        )
-                        .padding([14.0, 14.0, 12.0, 12.0])
-                        .border_radius(999.0)
-                        .bg(color(251, 191, 36))
-                        .into_node(),
+                        cart_metric("0", "items", "island-cart-count-short"),
                     ],
                     align_items: ir_op::AlignItems::Center,
                     ..Default::default()
                 }
                 .into_node(),
-                Text::new("Worker enhancement status pending")
-                    .size(13.0)
-                    .line_height(18.0)
+                Container::new(
+                    Column {
+                        gap: Some(6.0),
+                        children: vec![
+                            Text::new("No browser cart items yet")
+                                .size(15.0)
+                                .line_height(21.0)
+                                .weight(800)
+                                .color(color(226, 232, 240))
+                                .semantics_identifier("island-cart-line")
+                                .into_node(),
+                            Text::new("0 items in the browser island cart")
+                                .size(13.0)
+                                .line_height(18.0)
+                                .color(color(148, 163, 184))
+                                .semantics_identifier("island-cart-count")
+                                .into_node(),
+                        ],
+                        ..Default::default()
+                    }
+                    .into_node(),
+                )
+                .padding_all(14.0)
+                .border(color(251, 191, 36).with_alpha(90), 1.0)
+                .border_radius(16.0)
+                .bg(color(30, 41, 59))
+                .into_node(),
+                Row {
+                    gap: Some(12.0),
+                    children: vec![
+                        Column {
+                            gap: Some(4.0),
+                            children: vec![
+                                Text::new("Island subtotal")
+                                    .size(12.0)
+                                    .line_height(16.0)
+                                    .weight(800)
+                                    .color(color(148, 163, 184))
+                                    .into_node(),
+                                Text::new("£0.00")
+                                    .size(24.0)
+                                    .line_height(30.0)
+                                    .weight(900)
+                                    .color(color(248, 250, 252))
+                                    .semantics_identifier("island-cart-total")
+                                    .into_node(),
+                            ],
+                            ..Default::default()
+                        }
+                        .into_node(),
+                        Spacer {
+                            flex_grow: 1.0,
+                            ..Default::default()
+                        }
+                        .into_node(),
+                        browser_island_action(),
+                    ],
+                    align_items: ir_op::AlignItems::Center,
+                    ..Default::default()
+                }
+                .into_node(),
+            ],
+            ..Default::default()
+        }
+        .into_node(),
+    )
+    .width(440.0)
+    .padding_all(18.0)
+    .border(color(251, 191, 36).with_alpha(130), 1.0)
+    .border_radius(24.0)
+    .bg(color(24, 35, 58))
+    .into_node()
+}
+
+fn browser_island_action() -> Node {
+    Container::new(
+        Text::new("Add Charizard")
+            .size(14.0)
+            .line_height(20.0)
+            .weight(900)
+            .color(color(15, 23, 42))
+            .semantics_identifier("island-action:add-card")
+            .into_node(),
+    )
+    .padding([14.0, 14.0, 12.0, 12.0])
+    .border_radius(999.0)
+    .bg(color(251, 191, 36))
+    .into_node()
+}
+
+fn cart_metric(value: &str, label: &str, identifier: &str) -> Node {
+    Container::new(
+        Column {
+            gap: Some(0.0),
+            children: vec![
+                Text::new(value)
+                    .size(22.0)
+                    .line_height(24.0)
+                    .weight(900)
+                    .color(color(248, 250, 252))
+                    .semantics_identifier(identifier)
+                    .into_node(),
+                Text::new(label)
+                    .size(11.0)
+                    .line_height(15.0)
+                    .weight(800)
                     .color(color(148, 163, 184))
-                    .semantics_identifier("worker-filter-summary")
                     .into_node(),
             ],
             ..Default::default()
         }
         .into_node(),
     )
-    .padding_all(18.0)
-    .border(color(71, 85, 105), 1.0)
-    .border_radius(20.0)
+    .padding([10.0, 10.0, 8.0, 8.0])
+    .border_radius(14.0)
     .bg(color(15, 23, 42))
     .into_node()
 }

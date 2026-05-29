@@ -25,6 +25,12 @@ pub fn cart_drawer_boot(input: &str) -> String {
         CART_COUNT.load(Ordering::Relaxed)
     };
     let item_word = if count == 1 { "item" } else { "items" };
+    let subtotal = 249.00 * count as f32;
+    let line = if count == 0 {
+        "No browser cart items yet".to_string()
+    } else {
+        format!("{count} x Charizard Holo staged in the browser island")
+    };
     let status = if is_event {
         format!("Island handled {count} client event(s)")
     } else {
@@ -40,6 +46,9 @@ pub fn cart_drawer_boot(input: &str) -> String {
                 "ops": [
                     { "op": "set_text_by_semantics", "semantics": "island-status:cart-drawer", "text": status },
                     { "op": "set_text_by_semantics", "semantics": "island-cart-count", "text": format!("{count} {item_word} in the browser island cart") },
+                    { "op": "set_text_by_semantics", "semantics": "island-cart-count-short", "text": count.to_string() },
+                    { "op": "set_text_by_semantics", "semantics": "island-cart-line", "text": line },
+                    { "op": "set_text_by_semantics", "semantics": "island-cart-total", "text": format!("£{subtotal:.2}") },
                     { "op": "set_text_by_semantics", "semantics": "island-last-event", "text": if is_event { "Updated without a full page request" } else { "Ready for client-side cart edits" } },
                     { "op": "set_attr_by_semantics", "semantics": "island-action:add-card", "name": "role", "value": "button" },
                     { "op": "set_attr_by_semantics", "semantics": "island-action:add-card", "name": "tabindex", "value": "0" },
@@ -72,6 +81,8 @@ mod tests {
             r#"{"type":"event","sequence":2,"binding":{"message":{"action":"add"}}}"#,
         );
         assert!(click.contains("1 item in the browser island cart"));
+        assert!(click.contains("1 x Charizard Holo staged in the browser island"));
+        assert!(click.contains("£249.00"));
         assert!(click.contains("Updated without a full page request"));
     }
 }

@@ -349,6 +349,11 @@ impl ServerRenderer {
                 "application/javascript; charset=utf-8",
                 site_enhancement_js(),
             ))),
+            "/server-runtime.js" => Ok(Some(ServerResponse::text(
+                200,
+                "application/javascript; charset=utf-8",
+                SERVER_BROWSER_RUNTIME_JS,
+            ))),
             "/favicon.ico" => Ok(Some(self.favicon_response()?)),
             path if path.starts_with("/assets/") => Ok(Some(self.project_asset_response(path)?)),
             _ => Ok(None),
@@ -759,7 +764,7 @@ fn route_manifest_script(route: &WebRoute) -> Result<String> {
 }
 
 fn server_browser_runtime_script() -> String {
-    format!("<script>\n{SERVER_BROWSER_RUNTIME_JS}\n</script>")
+    "<script defer src=\"/server-runtime.js\"></script>".to_string()
 }
 
 #[cfg(test)]
@@ -961,6 +966,7 @@ mod tests {
         let response = renderer.handle(ServerRequest::get("/")).unwrap();
         let html = response.body_string();
         assert!(html.contains("fission-route-manifest"));
+        assert!(html.contains("src=\"/server-runtime.js\""));
         assert!(html.contains("filters"));
         assert!(html.contains("cart-root"));
     }
@@ -998,6 +1004,18 @@ mod tests {
             Some("application/javascript; charset=utf-8")
         );
         assert!(js.body_string().contains("fission-site-js"));
+
+        let runtime = renderer
+            .handle(ServerRequest::get("/server-runtime.js"))
+            .unwrap();
+        assert_eq!(runtime.status, 200);
+        assert_eq!(
+            response_header(&runtime, "content-type"),
+            Some("application/javascript; charset=utf-8")
+        );
+        let runtime = runtime.body_string();
+        assert!(runtime.contains("fission_bridge_alloc"));
+        assert!(runtime.contains("fission-site-text-run"));
     }
 
     #[test]
