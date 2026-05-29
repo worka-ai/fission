@@ -58,8 +58,36 @@ The terminal user interface shell is currently a shell/tooling surface rather th
 | --- | --- | --- | --- |
 | `name` | string | Yes | Rust package/app name used by generated scripts and site fallback title. Prefer a Cargo-compatible kebab-case name such as `field-inspector`. |
 | `app_id` | string | Yes | Stable application identifier used by generated mobile/desktop package metadata. Use a reverse-domain identifier such as `com.example.field_inspector`. |
+| `splash` | table | No | Native launch-screen configuration for iOS and Android. When omitted, generated mobile targets use `assets/app-icon.png` on a neutral background instead of showing an empty black startup window. |
 
 `app.name` should match the Cargo package name for normal generated projects. `fission init` refuses to set a conflicting name for an existing Cargo package because the generated scripts call Cargo by package name.
+
+### `[app.splash]`
+
+`[app.splash]` controls the platform-owned launch surface shown before the first Fission frame is ready. This is not an in-app loading page; it is native startup configuration generated into the Android activity theme and the iOS launch storyboard so the operating system has something branded to draw while the process, renderer, and app code start.
+
+Use it when mobile startup currently shows a blank or black screen, or when the app needs a product-specific launch mark. Keep the content simple. The launch surface should introduce the app, not perform onboarding, advertising, account selection, or any work that belongs in the real Fission widget tree.
+
+| Field | Type | Required | Default | Meaning |
+| --- | --- | --- | --- | --- |
+| `background_color` | string | No | `#F8FAFC` | Hex color in `#RRGGBB` or `#RRGGBBAA` form. Android receives the matching Android color literal; iOS receives an sRGB storyboard color. |
+| `image` | string | No | `assets/app-icon.png` | Project-relative image used as the static splash mark. Android accepts PNG, JPEG, and WebP. iOS accepts PNG and JPEG. |
+| `resize_mode` | string | No | `contain` | How the image is placed where the platform supports it: `center`, `contain`, or `cover`. Use `contain` for logos and `cover` only for artwork designed to crop safely. |
+| `android_animated_icon` | string | No | none | Project-relative Android XML drawable used for Android's native animated splash icon. This is Android-only and should be an animated vector drawable or other Android XML drawable accepted by the platform packager. |
+| `android_animation_duration_ms` | integer | No | `800` | Android native splash icon animation duration. Must be greater than zero when set. |
+
+Example:
+
+```toml
+[app.splash]
+background_color = "#06131F"
+image = "assets/splash-mark.png"
+resize_mode = "contain"
+android_animated_icon = "assets/android/splash-animated.xml"
+android_animation_duration_ms = 900
+```
+
+iOS launch screens are static by platform design. If an app needs a longer animated handoff after launch, implement that as the first route or app state in the Fission widget tree, then transition into the main screen when the required data is ready.
 
 ## `[site]`
 
@@ -162,6 +190,85 @@ Client-side search is optional. When enabled, the build writes a local search in
 ## `[package]`
 
 `[package]` contains packaging and signing references. It is read by `fission package`, `fission signing ...`, and readiness checks.
+
+| Field | Type | Required | Meaning |
+| --- | --- | --- | --- |
+| `icon` | string | No | Legacy shorthand for `[package.icons].source`. Prefer `[package.icons]` for new projects because it supports target-specific icon sources. |
+
+### `[package.icons]`
+
+`[package.icons]` declares the application icon sources used by generated run bundles, platform packages, and release readiness checks. `assets/app-icon.png` is only the default seed written by `fission init`; it is not the only supported icon path.
+
+Use the shared `source` when one high-resolution icon can represent the app everywhere. Add platform-specific overrides when a platform needs a different source, file format, silhouette, background plate, or store treatment. All paths are project-relative.
+
+`fission add-target`, `fission run`, and `fission package` preserve this table when they update `targets`, `capabilities`, or generated platform files. For Android and iOS, adding or syncing a mobile target copies configured platform icons into `platforms/android/res/...` or `platforms/ios/AppIcon.*` so the checked-in platform scaffold remains reproducible. Desktop development bundles resolve the same table at run/package time and copy the selected icon into the generated `.app`, Linux desktop bundle, or Windows development bundle.
+
+| Field | Type | Required | Default | Meaning |
+| --- | --- | --- | --- | --- |
+| `mode` | string | No | `generate` | Icon handling intent. `generate` means Fission may generate platform outputs from sources, `provided` means the project supplies target-ready files, and `mixed` means platform-provided outputs win while missing outputs can be generated. Current run/package flows consume the declared sources directly and validate paths early. |
+| `source` | string | No | `assets/app-icon.png` fallback | Shared full-colour launcher icon source. The file must be usable by every target that falls back to it; set platform-specific overrides when one format does not work everywhere. |
+| `monochrome` | string | No | none | Shared monochrome/silhouette source for platforms that support themed icons. |
+| `background_color` | string | No | none | Hex colour used when a target icon requires a background plate and no platform-specific background is supplied. |
+| `safe_zone` | string or number | No | `platform` | Padding/cropping intent for generated icon outputs. Accepted design values are `platform`, `none`, or a numeric fraction such as `0.72`. |
+| `allow_upscale` | boolean | No | `true` | Whether generated icon output may enlarge raster sources when a target output needs more pixels than the source provides. Current development run bundles validate and copy the selected source directly; release icon generation uses this as a quality rule. |
+
+Example:
+
+```toml
+[package.icons]
+mode = "mixed"
+source = "assets/brand/app-icon.png"
+monochrome = "assets/brand/app-icon-monochrome.svg"
+background_color = "#07111F"
+safe_zone = "platform"
+allow_upscale = false
+```
+
+### `[package.icons.android]`
+
+| Field | Type | Required | Meaning |
+| --- | --- | --- | --- |
+| `source` | string | No | Android launcher icon source. Current generated Android packages copy PNG, JPEG, WebP, or XML drawable sources into the APK resource set as `app_icon`. |
+| `foreground` | string | No | Adaptive-icon foreground source. If `source` is omitted, current generated packages use this as the launcher icon source. |
+| `background` | string | No | Adaptive-icon background source or plate. |
+| `monochrome` | string | No | Android themed-icon monochrome source. |
+
+### `[package.icons.ios]`
+
+| Field | Type | Required | Meaning |
+| --- | --- | --- | --- |
+| `source` | string | No | iOS app icon source copied into generated simulator bundles as `AppIcon.*`. Use PNG for best compatibility with the current simulator bundle flow. |
+| `dark` | string | No | Dark appearance app icon source for release icon generation. |
+| `tinted` | string | No | Tinted appearance app icon source for release icon generation. |
+
+### `[package.icons.macos]`
+
+| Field | Type | Required | Meaning |
+| --- | --- | --- | --- |
+| `source` | string | No | macOS bundle icon source. `.icns` is preferred for release packages; PNG is accepted by current development bundles. |
+
+### `[package.icons.windows]`
+
+| Field | Type | Required | Meaning |
+| --- | --- | --- | --- |
+| `source` | string | No | Windows app icon source. `.ico` is preferred for packaged release output; PNG is accepted by current development bundles. |
+| `light` | string | No | Light-theme tile/icon source for package generation. |
+| `dark` | string | No | Dark-theme tile/icon source for package generation. |
+| `unplated` | string | No | Unplated Store icon source. |
+
+### `[package.icons.linux]`
+
+| Field | Type | Required | Meaning |
+| --- | --- | --- | --- |
+| `source` | string | No | Linux desktop icon source. SVG is copied to the scalable icon directory; PNG is copied to the generated hicolor bitmap icon directory. |
+
+### `[package.icons.web]`
+
+| Field | Type | Required | Meaning |
+| --- | --- | --- | --- |
+| `source` | string | No | Web app icon source used by web packaging flows. |
+| `favicon` | string | No | Browser favicon source for web/package metadata. Static sites separately use `[site].favicon`. |
+| `maskable` | string | No | Maskable web app icon source. |
 
 ### `[package.macos]`
 

@@ -4,9 +4,15 @@ use serde::{Deserialize, Serialize};
 use std::collections::BTreeSet;
 use std::fs;
 use std::path::{Path, PathBuf};
+use toml_edit::{value, Array, DocumentMut, Item, Table, Value};
 
 const CURRENT_VERSION: &str = env!("CARGO_PKG_VERSION");
 const DEFAULT_APP_ICON_PNG: &[u8] = include_bytes!("../assets/fission_logo.png");
+
+mod icons;
+mod splash;
+pub use icons::{copy_icon_for_bundle, normalized_extension, resolve_app_icon, ResolvedIcon};
+pub use splash::{SplashConfig, SplashResizeMode};
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Ord, PartialOrd, ValueEnum, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
@@ -135,6 +141,8 @@ pub struct FissionProject {
 pub struct AppConfig {
     pub name: String,
     pub app_id: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub splash: Option<SplashConfig>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -202,7 +210,7 @@ pub fn init_project(
     for target in targets {
         scaffold_target_with_policy(root, &project, target, write_policy)?;
     }
-    apply_platform_capability_config(root, &project)?;
+    sync_platform_config(root, &project)?;
 
     Ok(())
 }
@@ -253,6 +261,9 @@ fn initial_project_config(
             app_id: app_id
                 .or_else(|| existing.as_ref().map(|project| project.app.app_id.clone()))
                 .unwrap_or_else(|| format!("com.example.{}", normalized_name.replace('-', "_"))),
+            splash: existing
+                .as_ref()
+                .and_then(|project| project.app.splash.clone()),
         },
         targets,
         capabilities: existing
@@ -305,7 +316,7 @@ pub fn add_targets(project_dir: &Path, targets: &[Target]) -> Result<()> {
         };
         scaffold_target_with_policy(project_dir, &project, *target, write_policy)?;
     }
-    apply_platform_capability_config(project_dir, &project)?;
+    sync_platform_config(project_dir, &project)?;
     write_project_config(project_dir, &project)?;
     update_cargo_fission_features(project_dir, &project)?;
     write_file_with_policy(
@@ -325,8 +336,125 @@ pub fn add_capabilities(project_dir: &Path, capabilities: &[PlatformCapability])
         project.capabilities.insert(*capability);
     }
     write_project_config(project_dir, &project)?;
-    apply_platform_capability_config(project_dir, &project)?;
+    sync_platform_config(project_dir, &project)?;
     Ok(())
+}
+
+pub fn sync_platform_config(root: &Path, project: &FissionProject) -> Result<()> {
+    apply_platform_capability_config(root, project)?;
+    splash::apply_platform_splash_config(root, project)?;
+    icons::apply_platform_icon_config(root, project)?;
+    apply_mobile_run_script_hardening(root, project)?;
+    Ok(())
+}
+
+fn apply_mobile_run_script_hardening(root: &Path, project: &FissionProject) -> Result<()> {
+    if project.targets.contains(&Target::Ios) {
+        apply_ios_run_script_hardening(root)?;
+    }
+    if project.targets.contains(&Target::Android) {
+        apply_android_run_script_hardening(root)?;
+    }
+    Ok(())
+}
+
+fn apply_ios_run_script_hardening(root: &Path) -> Result<()> {
+    let path = root.join("platforms/ios/run-sim.sh");
+    if !path.exists() {
+        return Ok(());
+    }
+    let existing =
+        fs::read_to_string(&path).with_context(|| format!("failed to read {}", path.display()))?;
+    if existing.contains("IOS_SIM_UNINSTALL_BEFORE_INSTALL") {
+        return Ok(());
+    }
+    let marker = "xcrun simctl bootstatus \"$DEVICE_ID\" -b\n";
+    let insertion = "xcrun simctl bootstatus \"$DEVICE_ID\" -b\nif [[ \"${IOS_SIM_UNINSTALL_BEFORE_INSTALL:-1}\" == \"1\" ]]; then\n  xcrun simctl uninstall \"$DEVICE_ID\" \"$BUNDLE_ID\" >/dev/null 2>&1 || true\nfi\n";
+    let updated = existing.replacen(marker, insertion, 1);
+    fs::write(&path, updated).with_context(|| format!("failed to write {}", path.display()))
+}
+
+fn apply_android_run_script_hardening(root: &Path) -> Result<()> {
+    let path = root.join("platforms/android/run-emulator.sh");
+    if !path.exists() {
+        return Ok(());
+    }
+    let existing =
+        fs::read_to_string(&path).with_context(|| format!("failed to read {}", path.display()))?;
+    let mut updated = existing.clone();
+    let wait_function = android_wait_for_boot_function();
+    if let Some(start) = updated.find("wait_for_android_boot() {") {
+        let marker = "\n}\n\nANDROID_EMULATOR_API_LEVEL=";
+        if let Some(relative_end) = updated[start..].find(marker) {
+            let end = start + relative_end + "\n}\n\n".len();
+            updated.replace_range(start..end, &format!("{wait_function}\n\n"));
+        }
+    } else {
+        updated = updated.replacen(
+            "\nANDROID_EMULATOR_API_LEVEL=",
+            &format!("\n{wait_function}\n\nANDROID_EMULATOR_API_LEVEL="),
+            1,
+        );
+    }
+    updated =
+        replace_android_boot_wait_after(updated, "  disown || true\n", "  wait_for_android_boot\n");
+    updated = replace_android_boot_wait_after(
+        updated,
+        "  \"$EMULATOR_BIN\" \"${EMULATOR_ARGS[@]}\" >/tmp/fission-android-emulator.log 2>&1 &\n",
+        "  wait_for_android_boot\n",
+    );
+    if !updated.contains(
+        "printf 'Using existing emulator %s\\n' \"$RUNNING_EMULATOR\"\n  wait_for_android_boot\n",
+    ) {
+        updated = updated.replacen(
+            "printf 'Using existing emulator %s\\n' \"$RUNNING_EMULATOR\"\n",
+            "printf 'Using existing emulator %s\\n' \"$RUNNING_EMULATOR\"\n  wait_for_android_boot\n",
+            1,
+        );
+    }
+    while updated.contains("  wait_for_android_boot\n  wait_for_android_boot\n") {
+        updated = updated.replace(
+            "  wait_for_android_boot\n  wait_for_android_boot\n",
+            "  wait_for_android_boot\n",
+        );
+    }
+    updated = updated.replace(
+        "\"$ADB\" install -r \"$APK\"",
+        "read -r -a ADB_INSTALL_FLAGS <<< \"${ADB_INSTALL_FLAGS:---no-streaming -r}\"\n\"$ADB\" install \"${ADB_INSTALL_FLAGS[@]}\" \"$APK\"",
+    );
+    if updated != existing {
+        fs::write(&path, updated).with_context(|| format!("failed to write {}", path.display()))?;
+    }
+    Ok(())
+}
+
+fn android_wait_for_boot_function() -> &'static str {
+    r#"wait_for_android_boot() {
+  "$ADB" wait-for-device
+  until "$ADB" shell getprop sys.boot_completed 2>/dev/null | tr -d '\r' | grep -q '^1$'; do
+    sleep 1
+  done
+  local deadline=$((SECONDS + 180))
+  until "$ADB" shell cmd package list packages >/dev/null 2>&1; do
+    if (( SECONDS > deadline )); then
+      printf 'Android package manager did not become available. Restart the emulator with ANDROID_EMULATOR_RESTART=1 and try again.\n' >&2
+      exit 1
+    fi
+    sleep 1
+  done
+}"#
+}
+
+fn replace_android_boot_wait_after(mut text: String, marker: &str, replacement: &str) -> String {
+    let Some(start) = text.find(marker) else {
+        return text;
+    };
+    let wait_start = start + marker.len();
+    let old_wait = "  \"$ADB\" wait-for-device\n  until \"$ADB\" shell getprop sys.boot_completed 2>/dev/null | tr -d '\\r' | grep -q '^1$'; do\n    sleep 1\n  done\n";
+    if text[wait_start..].starts_with(old_wait) {
+        text.replace_range(wait_start..wait_start + old_wait.len(), replacement);
+    }
+    text
 }
 
 fn apply_platform_capability_config(root: &Path, project: &FissionProject) -> Result<()> {
@@ -334,12 +462,21 @@ fn apply_platform_capability_config(root: &Path, project: &FissionProject) -> Re
         return Ok(());
     }
     if project.targets.contains(&Target::Android) {
+        ensure_android_capability_helper(root)?;
         apply_android_capability_config(root, project)?;
     }
     if project.targets.contains(&Target::Ios) {
         apply_ios_capability_config(root, project)?;
     }
     Ok(())
+}
+
+fn ensure_android_capability_helper(root: &Path) -> Result<()> {
+    write_file_with_policy(
+        &root.join("platforms/android/java/rs/fission/runtime/FissionAndroidCapabilities.java"),
+        render_android_capabilities_java(),
+        WritePolicy::PreserveExisting,
+    )
 }
 
 fn apply_android_capability_config(root: &Path, project: &FissionProject) -> Result<()> {
@@ -594,8 +731,80 @@ fn target_scaffold_dir_exists(project_dir: &Path, target: Target) -> bool {
 }
 
 fn write_project_config(root: &Path, project: &FissionProject) -> Result<()> {
+    let path = root.join("fission.toml");
+    if path.exists() {
+        let existing = fs::read_to_string(&path)
+            .with_context(|| format!("failed to read {}", path.display()))?;
+        let mut doc = existing
+            .parse::<DocumentMut>()
+            .with_context(|| format!("failed to parse {}", path.display()))?;
+        update_project_config_document(&mut doc, project);
+        write_file(&path, &doc.to_string())?;
+        return Ok(());
+    }
     let data = toml::to_string_pretty(project)?;
-    write_file(&root.join("fission.toml"), &(data + "\n"))
+    write_file(&path, &(data + "\n"))
+}
+
+fn update_project_config_document(doc: &mut DocumentMut, project: &FissionProject) {
+    doc["targets"] = value(string_array(
+        project.targets.iter().map(|target| target.as_str()),
+    ));
+    if project.capabilities.is_empty() {
+        doc.as_table_mut().remove("capabilities");
+    } else {
+        doc["capabilities"] = value(string_array(
+            project
+                .capabilities
+                .iter()
+                .map(|capability| capability.as_str()),
+        ));
+    }
+
+    if !doc["app"].is_table() {
+        doc["app"] = Item::Table(Table::new());
+    }
+    doc["app"]["name"] = value(project.app.name.clone());
+    doc["app"]["app_id"] = value(project.app.app_id.clone());
+    if let Some(splash) = &project.app.splash {
+        if !doc["app"]["splash"].is_table() {
+            doc["app"]["splash"] = Item::Table(Table::new());
+        }
+        let splash_item = &mut doc["app"]["splash"];
+        if let Some(background_color) = &splash.background_color {
+            splash_item["background_color"] = value(background_color.clone());
+        }
+        if let Some(image) = &splash.image {
+            splash_item["image"] = value(image.clone());
+        }
+        if let Some(resize_mode) = splash.resize_mode {
+            splash_item["resize_mode"] = value(match resize_mode {
+                SplashResizeMode::Center => "center",
+                SplashResizeMode::Contain => "contain",
+                SplashResizeMode::Cover => "cover",
+            });
+        }
+        if let Some(animated_icon) = &splash.android_animated_icon {
+            splash_item["android_animated_icon"] = value(animated_icon.clone());
+        }
+        if let Some(duration) = splash.android_animation_duration_ms {
+            splash_item["android_animation_duration_ms"] = value(i64::from(duration));
+        }
+    } else if let Some(app) = doc["app"].as_table_like_mut() {
+        app.remove("splash");
+    }
+}
+
+fn string_array<'a>(values: impl Iterator<Item = &'a str>) -> Array {
+    let mut array = Array::new();
+    for value in values {
+        let mut value = Value::from(value);
+        value.decor_mut().set_prefix("\n    ");
+        array.push_formatted(value);
+    }
+    array.set_trailing("\n");
+    array.set_trailing_comma(true);
+    array
 }
 
 pub fn read_project_config(root: &Path) -> Result<FissionProject> {
@@ -729,6 +938,7 @@ fn scaffold_target_with_policy(
                     "Override `ANDROID_HOME`, `ANDROID_NDK`, `ANDROID_MIN_API_LEVEL`, `ANDROID_TARGET_API_LEVEL`, `ANDROID_AVD_NAME`, or `ANDROID_SYSTEM_IMAGE` if your local SDK setup differs.",
                     "Set `ANDROID_EMULATOR_HEADLESS=1` for background/CI runs, or `ANDROID_EMULATOR_RESTART=1` to relaunch a hidden emulator visibly.",
                     "The generated package uses `assets/app-icon.png` as its default launcher icon.",
+                    "Configure `[app.splash]` in `fission.toml` to generate the native Android launch theme, splash background, static image, and optional Android animated drawable.",
                     "Run `fission add-capability nfc --project-dir .` to add NFC manifest permission and feature declarations.",
                     "Run `fission add-capability notifications --project-dir .` to add Android notification permission for API 33 and newer.",
                     "Run `fission add-capability biometric --project-dir .` to add biometric manifest permissions.",
@@ -760,6 +970,7 @@ fn scaffold_target_with_policy(
                     "Run `fission test --target ios --project-dir .` for a simulator launch plus test-control health check.",
                     "Run `./platforms/ios/run-sim.sh` from the project root to build, install, and launch the app on the first available iPhone simulator.",
                     "The generated bundle uses `assets/app-icon.png` as its default app icon.",
+                    "Configure `[app.splash]` in `fission.toml` to generate the native iOS launch storyboard and splash image copied into the simulator bundle.",
                     "Run `fission add-capability nfc --project-dir .` to add the NFC usage description and entitlements file.",
                     "Run `fission add-capability notifications --project-dir .` to record local-notification use. iOS prompts at runtime and does not require an Info.plist usage key for local notifications.",
                     "Run `fission add-capability biometric --project-dir .` to add the Face ID usage description.",
@@ -899,7 +1110,6 @@ fn scaffold_android_bundle(
     let package_script = render_android_package_script(project);
     let run_script = render_android_run_script(project);
     let test_script = render_android_test_script();
-    let android_capabilities = render_android_capabilities_java();
 
     write_file_with_policy(
         &root.join("platforms/android/AndroidManifest.xml"),
@@ -919,11 +1129,6 @@ fn scaffold_android_bundle(
     write_file_with_policy(
         &root.join("platforms/android/test-emulator.sh"),
         &test_script,
-        write_policy,
-    )?;
-    write_file_with_policy(
-        &root.join("platforms/android/java/rs/fission/runtime/FissionAndroidCapabilities.java"),
-        android_capabilities,
         write_policy,
     )?;
     #[cfg(unix)]
@@ -1000,7 +1205,7 @@ fn scaffold_web_bundle(
     Ok(())
 }
 
-fn write_file(path: &Path, contents: &str) -> Result<()> {
+pub(crate) fn write_file(path: &Path, contents: &str) -> Result<()> {
     write_file_with_policy(path, contents, WritePolicy::Overwrite)
 }
 
@@ -1169,6 +1374,8 @@ fn render_ios_plist(project: &FissionProject, executable: &str) -> String {
   <string>1</string>
   <key>CFBundleIconFile</key>
   <string>AppIcon</string>
+  <key>UILaunchStoryboardName</key>
+  <string>LaunchScreen</string>
   <key>LSRequiresIPhoneOS</key>
   <true/>
   <key>MinimumOSVersion</key>
@@ -1303,7 +1510,42 @@ plist["CFBundleExecutable"] = executable_name
 with open(dest, "wb") as handle:
     plistlib.dump(plist, handle, sort_keys=False)
 PY
-cp "$PROJECT_DIR/assets/app-icon.png" "$BUNDLE_DIR/AppIcon.png"
+shopt -s nullglob
+PLATFORM_APP_ICONS=("$SCRIPT_DIR"/AppIcon.*)
+if (( ${{#PLATFORM_APP_ICONS[@]}} == 0 )); then
+  cp "$PROJECT_DIR/assets/app-icon.png" "$BUNDLE_DIR/AppIcon.png"
+else
+  app_icon="${{PLATFORM_APP_ICONS[0]}}"
+  cp "$app_icon" "$BUNDLE_DIR/$(basename "$app_icon")"
+fi
+shopt -u nullglob
+shopt -s nullglob
+SPLASH_IMAGES=("$SCRIPT_DIR"/SplashImage.*)
+if (( ${{#SPLASH_IMAGES[@]}} == 0 )); then
+  cp "$PROJECT_DIR/assets/app-icon.png" "$BUNDLE_DIR/SplashImage.png"
+else
+  for splash_image in "${{SPLASH_IMAGES[@]}}"; do
+    cp "$splash_image" "$BUNDLE_DIR/"
+  done
+fi
+shopt -u nullglob
+if [[ -f "$SCRIPT_DIR/LaunchScreen.storyboard" ]]; then
+  IBTOOL=$(xcrun --find ibtool 2>/dev/null || true)
+  if [[ -z "$IBTOOL" ]]; then
+    printf 'ibtool not found. Install Xcode command line tools to compile the iOS launch screen storyboard.\n' >&2
+    exit 1
+  fi
+  "$IBTOOL" \
+    --errors \
+    --warnings \
+    --notices \
+    --target-device iphone \
+    --target-device ipad \
+    --minimum-deployment-target 18.0 \
+    --output-format human-readable-text \
+    --compile "$BUNDLE_DIR/LaunchScreen.storyboardc" \
+    "$SCRIPT_DIR/LaunchScreen.storyboard"
+fi
 printf 'APPL????' > "$BUNDLE_DIR/PkgInfo"
 printf '%s\n' "$BUNDLE_DIR"
 "#,
@@ -1349,6 +1591,9 @@ fi
 
 xcrun simctl boot "$DEVICE_ID" >/dev/null 2>&1 || true
 xcrun simctl bootstatus "$DEVICE_ID" -b
+if [[ "${{IOS_SIM_UNINSTALL_BEFORE_INSTALL:-1}}" == "1" ]]; then
+  xcrun simctl uninstall "$DEVICE_ID" "$BUNDLE_ID" >/dev/null 2>&1 || true
+fi
 xcrun simctl install "$DEVICE_ID" "$BUNDLE_DIR"
 
 if [[ -n "${{FISSION_TEST_CONTROL_PORT:-}}" ]]; then
@@ -1420,7 +1665,8 @@ fn render_android_manifest(project: &FissionProject) -> String {
             android:name="android.app.NativeActivity"
             android:configChanges="orientation|keyboardHidden|screenSize|screenLayout|smallestScreenSize|uiMode|density"
             android:exported="true"
-            android:launchMode="singleTask">
+            android:launchMode="singleTask"
+            android:theme="@style/FissionLaunchTheme">
             <meta-data
                 android:name="android.app.lib_name"
                 android:value="{lib_name}" />
@@ -1899,7 +2145,22 @@ KEYSTORE="${{ANDROID_DEBUG_KEYSTORE:-$HOME/.android/debug.keystore}}"
 rm -rf "$APK_ROOT"
 mkdir -p "$APK_ROOT/lib/arm64-v8a" "$APK_ROOT/res/drawable-nodpi" "$BUILD_DIR"
 cp "$SO_PATH" "$APK_ROOT/lib/arm64-v8a/lib$LIB_NAME.so"
-cp "$PROJECT_DIR/assets/app-icon.png" "$APK_ROOT/res/drawable-nodpi/app_icon.png"
+shopt -s nullglob
+APP_ICONS=("$SCRIPT_DIR"/res/drawable-nodpi/app_icon.* "$SCRIPT_DIR"/res/drawable/app_icon.*)
+if (( ${{#APP_ICONS[@]}} == 0 )); then
+  cp "$PROJECT_DIR/assets/app-icon.png" "$APK_ROOT/res/drawable-nodpi/app_icon.png"
+fi
+shopt -u nullglob
+shopt -s nullglob
+SPLASH_IMAGES=("$SCRIPT_DIR"/res/drawable-nodpi/fission_splash_image.*)
+if (( ${{#SPLASH_IMAGES[@]}} == 0 )); then
+  cp "$PROJECT_DIR/assets/app-icon.png" "$APK_ROOT/res/drawable-nodpi/fission_splash_image.png"
+fi
+shopt -u nullglob
+if [[ -d "$SCRIPT_DIR/res" ]]; then
+  mkdir -p "$APK_ROOT/res"
+  cp -R "$SCRIPT_DIR/res/." "$APK_ROOT/res/"
+fi
 
 JAVA_SRC_DIR="$SCRIPT_DIR/java"
 if [[ -d "$JAVA_SRC_DIR" ]] && find "$JAVA_SRC_DIR" -name '*.java' -print -quit | grep -q .; then
@@ -1992,6 +2253,21 @@ android_system_image_path() {{
   printf '%s/system-images/%s\n' "$ANDROID_HOME" "${{image//;/\/}}"
 }}
 
+wait_for_android_boot() {{
+  "$ADB" wait-for-device
+  until "$ADB" shell getprop sys.boot_completed 2>/dev/null | tr -d '\r' | grep -q '^1$'; do
+    sleep 1
+  done
+  local deadline=$((SECONDS + 180))
+  until "$ADB" shell cmd package list packages >/dev/null 2>&1; do
+    if (( SECONDS > deadline )); then
+      printf 'Android package manager did not become available. Restart the emulator with ANDROID_EMULATOR_RESTART=1 and try again.\n' >&2
+      exit 1
+    fi
+    sleep 1
+  done
+}}
+
 ANDROID_EMULATOR_API_LEVEL="${{ANDROID_EMULATOR_API_LEVEL:-$(detect_latest_emulator_api)}}"
 if [[ -z "$ANDROID_EMULATOR_API_LEVEL" ]]; then
   printf 'No Android arm64 google_apis emulator image found under %s/system-images.\nInstall one with sdkmanager "system-images;android-35;google_apis;arm64-v8a" or set ANDROID_SYSTEM_IMAGE.\n' "$ANDROID_HOME" >&2
@@ -2036,19 +2312,18 @@ if [[ -z "$RUNNING_EMULATOR" ]]; then
   printf 'Launching emulator %s (%s)\n' "$AVD_NAME" "$([[ "$HEADLESS" == "1" ]] && echo headless || echo visible)"
   nohup "$EMULATOR_BIN" "${{EMULATOR_ARGS[@]}}" >/tmp/fission-android-emulator.log 2>&1 &
   disown || true
-  "$ADB" wait-for-device
-  until "$ADB" shell getprop sys.boot_completed 2>/dev/null | tr -d '\r' | grep -q '^1$'; do
-    sleep 1
-  done
+  wait_for_android_boot
 else
   printf 'Using existing emulator %s\n' "$RUNNING_EMULATOR"
+  wait_for_android_boot
   if [[ "$HEADLESS" != "1" ]]; then
     printf 'If the window is not visible, restart with ANDROID_EMULATOR_RESTART=1 to relaunch a visible emulator.\n'
   fi
 fi
 
 APK=$("$SCRIPT_DIR/package-apk.sh")
-"$ADB" install -r "$APK"
+read -r -a ADB_INSTALL_FLAGS <<< "${{ADB_INSTALL_FLAGS:---no-streaming -r}}"
+"$ADB" install "${{ADB_INSTALL_FLAGS[@]}}" "$APK"
 "$ADB" forward "tcp:$HOST_PORT" "tcp:$DEVICE_PORT"
 "$ADB" shell am start -n {app_id}/android.app.NativeActivity >/dev/null
 printf 'APK=%s\n' "$APK"

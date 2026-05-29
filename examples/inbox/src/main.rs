@@ -1,7 +1,10 @@
 use fission::core::ui::{Container, Node, Row};
 use fission::core::{reduce_with, BuildCtx, Env, View, Widget, WidgetNodeId};
 use fission::i18n::{Locale, TranslationBundle};
-use fission::prelude::DesktopApp;
+use fission::prelude::{
+    DesignMode, DesignSystem, DesktopApp, FissionCupertinoDesignSystem, FissionFluent2DesignSystem,
+    FissionLiquidGlassDesignSystem, FissionMaterialDesign3DesignSystem,
+};
 use fission::theme::Theme;
 use fission::widgets::{
     Center, Drawer, DrawerSide, Overlay, Route, Router, SafeArea, SplitDirection, SplitView, Toast,
@@ -606,13 +609,37 @@ fn main() -> anyhow::Result<()> {
     let mut app = DesktopApp::new(InboxApp)
         .with_title("Fission Inbox")
         .with_env(create_env())
+        // .with_sync_env(|state: &InboxState, env: &mut Env| {
+        //     env.locale = state.locale.clone();
+        //     env.theme = if state.theme_mode == "Dark" {
+        //         Theme::dark()
+        //     } else {
+        //         Theme::default()
+        //     };
+        // })
+        // .with_design_system::<FissionCupertinoDesignSystem>(DesignMode::Light)
+        // .with_sync_env(|state: &InboxState, env: &mut Env| {
+        //     env.locale = state.locale.clone();
+        //     env.theme = FissionCupertinoDesignSystem::theme(if state.theme_mode == "dark"{ DesignMode::Dark} else {DesignMode::Light});
+        // })
+        // .with_design_system::<FissionLiquidGlassDesignSystem>(DesignMode::Light)
+        // .with_sync_env(|state: &InboxState, env: &mut Env| {
+        //     env.locale = state.locale.clone();
+        //     env.theme = FissionLiquidGlassDesignSystem::theme(if state.theme_mode == "dark"{ DesignMode::Dark} else {DesignMode::Light});
+        // })
+        // .with_design_system::<FissionMaterialDesign3DesignSystem>(DesignMode::Light)
+        // .with_sync_env(|state: &InboxState, env: &mut Env| {
+        //     env.locale = state.locale.clone();
+        //     env.theme = FissionMaterialDesign3DesignSystem::theme(if state.theme_mode == "dark"{ DesignMode::Dark} else {DesignMode::Light});
+        // })
+        .with_design_system::<FissionFluent2DesignSystem>(DesignMode::Light)
         .with_sync_env(|state: &InboxState, env: &mut Env| {
             env.locale = state.locale.clone();
-            env.theme = if state.theme_mode == "Dark" {
-                Theme::dark()
+            env.theme = FissionFluent2DesignSystem::theme(if state.theme_mode == "dark" {
+                DesignMode::Dark
             } else {
-                Theme::default()
-            };
+                DesignMode::Light
+            });
         });
 
     // Register global handlers

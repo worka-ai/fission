@@ -1,7 +1,8 @@
 use super::*;
 use anyhow::{bail, Context, Result};
 use fission_command_core::{
-    cargo_package_name, read_project_config, FissionProject, PlatformCapability, Target,
+    cargo_package_name, normalized_extension, read_project_config, resolve_app_icon,
+    sync_platform_config, FissionProject, PlatformCapability, Target,
 };
 use flate2::write::GzEncoder;
 use flate2::Compression;
@@ -229,6 +230,7 @@ fn package_windows_exe(options: &PackageOptions) -> Result<ArtifactManifest> {
 fn package_android_apk(options: &PackageOptions) -> Result<ArtifactManifest> {
     ensure_package_target(options, Target::Android, PackageFormat::Apk)?;
     let project = read_project_config(&options.project_dir)?;
+    sync_platform_config(&options.project_dir, &project)?;
     let profile = profile_name(options.release);
     let staging_dir = clean_package_dir(options)?;
     let script = options.project_dir.join("platforms/android/package-apk.sh");
@@ -264,6 +266,9 @@ fn package_with_project_script(
 ) -> Result<ArtifactManifest> {
     ensure_package_target(options, target, options.format)?;
     let project = read_project_config(&options.project_dir)?;
+    if matches!(target, Target::Android | Target::Ios) {
+        sync_platform_config(&options.project_dir, &project)?;
+    }
     let profile = profile_name(options.release);
     let staging_dir = clean_package_dir(options)?;
     let script = options.project_dir.join(relative_script);
@@ -1033,8 +1038,16 @@ fn create_macos_app_bundle(
             app_bundle.display()
         )
     })?;
-    if let Some(icon) = app_icon_path(&options.project_dir) {
-        let _ = fs::copy(icon, resources.join("AppIcon.png"));
+    if let Some(icon) = resolve_app_icon(&options.project_dir, Target::Macos)? {
+        let extension = normalized_extension(&icon.path)?;
+        let destination = resources.join(format!("AppIcon.{extension}"));
+        fs::copy(&icon.path, &destination).with_context(|| {
+            format!(
+                "failed to copy macOS app icon {} to {}",
+                icon.path.display(),
+                destination.display()
+            )
+        })?;
     }
     let version =
         cargo_package_version(&options.project_dir).unwrap_or_else(|| "0.1.0".to_string());
@@ -1071,6 +1084,8 @@ fn render_info_plist(
   <string>{}</string>
   <key>CFBundlePackageType</key>
   <string>APPL</string>
+  <key>CFBundleIconFile</key>
+  <string>AppIcon</string>
   <key>CFBundleShortVersionString</key>
   <string>{}</string>
   <key>CFBundleVersion</key>
@@ -1401,18 +1416,6 @@ fn display_app_name(value: &str) -> String {
     } else {
         out.trim().to_string()
     }
-}
-
-fn app_icon_path(project_dir: &Path) -> Option<PathBuf> {
-    [
-        "assets/app-icon.icns",
-        "assets/AppIcon.icns",
-        "assets/app-icon.png",
-        "assets/icon.png",
-    ]
-    .into_iter()
-    .map(|relative| project_dir.join(relative))
-    .find(|path| path.exists())
 }
 
 fn escape_xml(value: &str) -> String {

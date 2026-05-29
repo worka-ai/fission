@@ -2,7 +2,8 @@ pub mod doctor;
 
 use anyhow::{bail, Context, Result};
 use fission_command_core::{
-    ios_executable_name, read_project_config, FissionProject, PlatformCapability, Target,
+    ios_executable_name, normalized_extension, read_project_config, resolve_app_icon,
+    sync_platform_config, FissionProject, PlatformCapability, Target,
 };
 use serde::{Deserialize, Serialize};
 use std::env;
@@ -133,6 +134,7 @@ pub fn run_app(options: RunOptions) -> Result<()> {
         options.device.as_deref(),
     )?;
     ensure_target_configured(&project, &options.project_dir, device.target)?;
+    sync_target_platform_config(&options.project_dir, &project, device.target)?;
 
     match device.target {
         Target::Linux | Target::Macos | Target::Windows => run_desktop(&project, &options, &device),
@@ -153,6 +155,7 @@ pub fn build_app(options: BuildOptions) -> Result<()> {
     let project = read_project_config(&options.project_dir)?;
     let target = options.target.unwrap_or_else(host_desktop_target);
     ensure_target_configured(&project, &options.project_dir, target)?;
+    sync_target_platform_config(&options.project_dir, &project, target)?;
 
     match target {
         Target::Linux | Target::Macos | Target::Windows => {
@@ -183,6 +186,7 @@ pub fn test_app(options: TestOptions) -> Result<()> {
     let project = read_project_config(&options.project_dir)?;
     let target = options.target.unwrap_or_else(host_desktop_target);
     ensure_target_configured(&project, &options.project_dir, target)?;
+    sync_target_platform_config(&options.project_dir, &project, target)?;
 
     match target {
         Target::Linux | Target::Macos | Target::Windows => {
@@ -219,6 +223,17 @@ pub fn test_app(options: TestOptions) -> Result<()> {
             },
         ),
     }
+}
+
+fn sync_target_platform_config(
+    project_dir: &Path,
+    project: &FissionProject,
+    target: Target,
+) -> Result<()> {
+    if matches!(target, Target::Android | Target::Ios) {
+        sync_platform_config(project_dir, project)?;
+    }
+    Ok(())
 }
 
 pub fn attach_logs(options: LogOptions) -> Result<()> {
@@ -654,6 +669,7 @@ fn run_android(project: &FissionProject, options: &RunOptions, device: &Device) 
             .arg("-s")
             .arg(&device.id)
             .arg("install")
+            .arg("--no-streaming")
             .arg("-r")
             .arg(&apk),
         "Android install",
@@ -975,8 +991,16 @@ fn package_macos_run_app(
             binary.path.display()
         )
     })?;
-    if let Some(icon) = app_icon_path(&project_dir) {
-        let _ = fs::copy(icon, resources_dir.join("AppIcon.png"));
+    if let Some(icon) = resolve_app_icon(&project_dir, Target::Macos)? {
+        let extension = normalized_extension(&icon.path)?;
+        let destination = resources_dir.join(format!("AppIcon.{extension}"));
+        fs::copy(&icon.path, &destination).with_context(|| {
+            format!(
+                "failed to copy macOS app icon {} to {}",
+                icon.path.display(),
+                destination.display()
+            )
+        })?;
     }
 
     fs::write(
@@ -1015,10 +1039,8 @@ fn package_linux_run_app(
     }
     let bin_dir = app_root.join("bin");
     let applications_dir = app_root.join("share/applications");
-    let icons_dir = app_root.join("share/icons/hicolor/512x512/apps");
     fs::create_dir_all(&bin_dir)?;
     fs::create_dir_all(&applications_dir)?;
-    fs::create_dir_all(&icons_dir)?;
 
     let executable = bin_dir.join(&binary.executable_name);
     fs::copy(&binary.path, &executable).with_context(|| {
@@ -1028,8 +1050,22 @@ fn package_linux_run_app(
         )
     })?;
     copy_unix_mode(&binary.path, &executable).ok();
-    if let Some(icon) = app_icon_path(&project_dir) {
-        let _ = fs::copy(icon, icons_dir.join(format!("{}.png", project.app.app_id)));
+    if let Some(icon) = resolve_app_icon(&project_dir, Target::Linux)? {
+        let extension = normalized_extension(&icon.path)?;
+        let icons_dir = if extension == "svg" {
+            app_root.join("share/icons/hicolor/scalable/apps")
+        } else {
+            app_root.join("share/icons/hicolor/512x512/apps")
+        };
+        fs::create_dir_all(&icons_dir)?;
+        let destination = icons_dir.join(format!("{}.{}", project.app.app_id, extension));
+        fs::copy(&icon.path, &destination).with_context(|| {
+            format!(
+                "failed to copy Linux app icon {} to {}",
+                icon.path.display(),
+                destination.display()
+            )
+        })?;
     }
     fs::write(
         applications_dir.join(format!("{}.desktop", project.app.app_id)),
@@ -1071,8 +1107,16 @@ fn package_windows_run_app(
             binary.path.display()
         )
     })?;
-    if let Some(icon) = app_icon_path(&project_dir) {
-        let _ = fs::copy(icon, app_root.join("app-icon.png"));
+    if let Some(icon) = resolve_app_icon(&project_dir, Target::Windows)? {
+        let extension = normalized_extension(&icon.path)?;
+        let destination = app_root.join(format!("app-icon.{extension}"));
+        fs::copy(&icon.path, &destination).with_context(|| {
+            format!(
+                "failed to copy Windows app icon {} to {}",
+                icon.path.display(),
+                destination.display()
+            )
+        })?;
     }
     fs::write(
         app_root.join(format!(
@@ -1164,6 +1208,8 @@ fn render_macos_run_info_plist(
   <string>{}</string>
   <key>LSMinimumSystemVersion</key>
   <string>13.0</string>
+  <key>CFBundleIconFile</key>
+  <string>AppIcon</string>
   <key>NSHighResolutionCapable</key>
   <true/>
 {}
@@ -1217,11 +1263,6 @@ fn render_macos_run_capability_plist_entries(project: &FissionProject) -> String
         );
     }
     out
-}
-
-fn app_icon_path(project_dir: &Path) -> Option<PathBuf> {
-    let path = project_dir.join("assets/app-icon.png");
-    path.is_file().then_some(path)
 }
 
 fn macos_display_name(name: &str) -> String {
