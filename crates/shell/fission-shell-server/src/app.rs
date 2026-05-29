@@ -183,6 +183,17 @@ impl FissionServerApp {
         let path = normalize_server_path(path);
         self.routes.iter().find(|entry| entry.route.path == path)
     }
+
+    pub(crate) fn apply_default_route_mode(&mut self, mode: WebRouteMode) {
+        for entry in &mut self.routes {
+            if matches!(
+                entry.route.mode,
+                WebRouteMode::Server(ServerRenderPolicy { cache_scope: None })
+            ) {
+                entry.route.mode = mode.clone();
+            }
+        }
+    }
 }
 
 fn render_widget_node<S, W>(

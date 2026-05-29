@@ -10,6 +10,7 @@ mod adapters;
 mod app;
 mod artifacts;
 mod cache;
+mod config;
 mod jobs;
 mod protocol;
 mod render;
@@ -33,6 +34,11 @@ pub use cache::{
     CacheScope, CacheTag, CacheValue, Freshness, InvalidationReport, MokaCache, MokaCacheOptions,
     RenderedPage, StoredJobResult,
 };
+pub use config::{
+    ServerBrowserArtifactConfig, ServerCacheConfig, ServerCacheLayerConfig, ServerCacheProvider,
+    ServerHttpConfig, ServerIslandConfig, ServerIslandPreload, ServerRuntimeConfig, ServerSameSite,
+    ServerSessionConfig, ServerSessionProvider, ServerWorkerBridge,
+};
 pub use jobs::{ServerJobCtx, ServerJobError, ServerJobRegistry};
 pub use protocol::{
     AriaPoliteness, BrowserBridgeOutput, BrowserEventBinding, BrowserEventKind, DomBatch, DomOp,
@@ -54,7 +60,7 @@ pub fn run_from_cli(app: FissionServerApp) -> anyhow::Result<()> {
     let args = CliArgs::parse(std::env::args().skip(1))?;
     match args.command.as_str() {
         "check" => {
-            let renderer = ServerRenderer::new(app);
+            let renderer = ServerRenderer::configured(app)?;
             for route in renderer.routes() {
                 renderer.render_route(&route.path)?;
                 println!("{}  {}  {:?}", route.path, route.title, route.mode);
@@ -62,13 +68,14 @@ pub fn run_from_cli(app: FissionServerApp) -> anyhow::Result<()> {
             Ok(())
         }
         "routes" => {
-            for route in app.routes() {
+            let renderer = ServerRenderer::configured(app)?;
+            for route in renderer.routes() {
                 println!("{}  {}  {:?}", route.path, route.title, route.mode);
             }
             Ok(())
         }
         "serve" => serve(
-            ServerRenderer::new(app),
+            ServerRenderer::configured(app)?,
             ServeOptions {
                 host: args.host,
                 port: args.port,
@@ -76,6 +83,17 @@ pub fn run_from_cli(app: FissionServerApp) -> anyhow::Result<()> {
         ),
         "artifacts" => {
             let project_dir = app.project_dir.clone();
+            let config = ServerRuntimeConfig::load(&project_dir)?;
+            if !config.workers.separate_artifacts {
+                anyhow::bail!(
+                    "[server.workers].separate_artifacts = false is not supported; server workers are compiled as route-local artifacts"
+                );
+            }
+            if !config.islands.separate_artifacts {
+                anyhow::bail!(
+                    "[server.islands].separate_artifacts = false is not supported; server islands are compiled as route-local artifacts"
+                );
+            }
             let output_dir = args
                 .output_dir
                 .unwrap_or_else(|| project_dir.join("target/fission/server"));

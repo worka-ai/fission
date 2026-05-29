@@ -55,12 +55,16 @@ pub mod hyper_adapter {
 #[cfg(feature = "axum-adapter")]
 pub mod axum_adapter {
     use super::*;
-    use axum::{body::Bytes, extract::State, http::StatusCode, response::IntoResponse};
+    use axum::{
+        body::{Body, Bytes},
+        extract::State,
+        http::{Response, StatusCode},
+    };
 
     pub async fn handle(
         State(renderer): State<Arc<ServerRenderer>>,
         request: axum::http::Request<axum::body::Body>,
-    ) -> impl IntoResponse {
+    ) -> Response<Body> {
         let method = request.method().as_str().to_string();
         let path = request.uri().path().to_string();
         let query = parse_query(request.uri().query().unwrap_or(""));
@@ -91,17 +95,11 @@ pub mod axum_adapter {
             });
         let status =
             StatusCode::from_u16(response.status).unwrap_or(StatusCode::INTERNAL_SERVER_ERROR);
-        let content_type = response_header_value(&response, "content-type")
-            .unwrap_or_else(|| "text/plain; charset=utf-8".to_string());
-        (status, [("content-type", content_type)], response.body)
-    }
-
-    fn response_header_value(response: &ServerResponse, name: &str) -> Option<String> {
-        response
-            .headers
-            .iter()
-            .find(|(candidate, _)| candidate.eq_ignore_ascii_case(name))
-            .map(|(_, value)| value.clone())
+        let mut builder = Response::builder().status(status);
+        for (name, value) in &response.headers {
+            builder = builder.header(name.as_str(), value.as_str());
+        }
+        builder.body(Body::from(response.body)).unwrap()
     }
 }
 

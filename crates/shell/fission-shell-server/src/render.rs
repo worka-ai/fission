@@ -1,10 +1,12 @@
 use crate::app::{normalize_server_path, FissionServerApp, ServerRenderedNode, ServerRouteEntry};
 use crate::{
-    Cache, CacheEntry, CacheKey, CacheMetadata, CacheScope, Freshness, MokaCache, RenderedPage,
-    ServerActionSigner, ServerJobRegistry, SignedServerAction, VerifiedServerAction, WebRoute,
-    WebRouteMode,
+    Cache, CacheEntry, CacheKey, CacheMetadata, CachePipeline, CacheScope, Freshness, MokaCache,
+    RenderedPage, ServerActionSigner, ServerBrowserArtifactConfig, ServerCacheLayerConfig,
+    ServerCacheProvider, ServerHttpConfig, ServerIslandConfig, ServerIslandPreload,
+    ServerJobRegistry, ServerRuntimeConfig, ServerSameSite, ServerSessionConfig,
+    SignedServerAction, VerifiedServerAction, WebRoute, WebRouteMode,
 };
-use anyhow::{anyhow, Result};
+use anyhow::{anyhow, Context, Result};
 use fission_core::{
     ActionEnvelope, ActionId, Env, LoweringContext, RuntimeResourceDeclaration, RuntimeState,
 };
@@ -76,6 +78,18 @@ impl ServerResponse {
         }
     }
 
+    pub fn see_other(location: impl Into<String>) -> Self {
+        Self {
+            status: 303,
+            headers: vec![
+                ("location".to_string(), location.into()),
+                ("cache-control".to_string(), "no-store".to_string()),
+            ],
+            body: Vec::new(),
+            cache_status: None,
+        }
+    }
+
     pub fn body_string(&self) -> String {
         String::from_utf8_lossy(&self.body).into_owned()
     }
@@ -103,6 +117,7 @@ pub struct RenderedServerRoute {
     pub html: String,
     pub css: String,
     pub resources: Vec<RuntimeResourceDeclaration>,
+    pub server_action_count: usize,
 }
 
 pub struct ServerRenderer {
@@ -114,6 +129,12 @@ pub struct ServerRenderer {
     allowed_action_origins: BTreeSet<String>,
     render_pass_limit: usize,
     viewport_size: LayoutSize,
+    default_locale: String,
+    http_config: ServerHttpConfig,
+    session_config: ServerSessionConfig,
+    session_signing_key: Option<[u8; 32]>,
+    workers_config: ServerBrowserArtifactConfig,
+    islands_config: ServerIslandConfig,
 }
 
 impl ServerRenderer {
@@ -128,7 +149,37 @@ impl ServerRenderer {
             allowed_action_origins: BTreeSet::new(),
             render_pass_limit: 4,
             viewport_size: LayoutSize::new(1280.0, 900.0),
+            default_locale: "en".to_string(),
+            http_config: ServerHttpConfig::default(),
+            session_config: ServerSessionConfig::default(),
+            session_signing_key: None,
+            workers_config: ServerBrowserArtifactConfig::default(),
+            islands_config: ServerIslandConfig::default(),
         }
+    }
+
+    pub fn configured(app: FissionServerApp) -> Result<Self> {
+        let config = ServerRuntimeConfig::load(&app.project_dir)?;
+        Self::with_config(app, config)
+    }
+
+    pub fn with_config(mut app: FissionServerApp, config: ServerRuntimeConfig) -> Result<Self> {
+        if let Some(mode) = config.default_route_mode {
+            app.apply_default_route_mode(mode);
+        }
+        let mut renderer = Self::new(app);
+        if let Some(limit) = config.render_pass_limit {
+            renderer = renderer.with_render_pass_limit(limit);
+        }
+        renderer.default_locale = config.default_locale;
+        renderer.http_config = config.http;
+        renderer.session_signing_key = session_signing_key(&config.sessions)?;
+        renderer.session_config = config.sessions;
+        renderer.workers_config = config.workers;
+        renderer.islands_config = config.islands;
+        renderer.validate_browser_artifact_config()?;
+        renderer.cache = cache_from_config(&config.cache)?;
+        Ok(renderer)
     }
 
     pub fn with_cache(mut self, cache: Arc<dyn Cache>) -> Self {
@@ -222,7 +273,7 @@ impl ServerRenderer {
         let session = self.session_for_request(&request)?;
 
         if let WebRouteMode::Revalidated(policy) = &route.route.mode {
-            let cache_key = cache_key_for_route(&route.route, &request);
+            let cache_key = self.cache_key_for_route(&route.route, &request);
             let now = SystemTime::now();
             if let Some(entry) = self.cache.get(&cache_key)? {
                 match entry.freshness(now) {
@@ -242,6 +293,12 @@ impl ServerRenderer {
                 }
             }
             let rendered = self.render_uncached(route, None, &request, &session)?;
+            if rendered.server_action_count > 0 {
+                anyhow::bail!(
+                    "revalidated route `{}` renders server action forms; use ServerPrivate/Server mode or move the interactive region into an island before caching the page",
+                    route.route.path
+                );
+            }
             let page = RenderedPage {
                 html: rendered.html.clone(),
                 css: rendered.css.clone(),
@@ -304,6 +361,10 @@ impl ServerRenderer {
         lowering.ir.set_root(root);
 
         let mut styles = StyleRegistry::default();
+        let mut head_end_html = Vec::new();
+        if matches!(self.islands_config.preload, ServerIslandPreload::Route) {
+            head_end_html.extend(browser_artifact_preload_links(&route.route));
+        }
         let mut body_end_html = Vec::new();
         if !route.route.workers.is_empty() || !route.route.islands.is_empty() {
             body_end_html.push(route_manifest_script(&route.route)?);
@@ -315,11 +376,12 @@ impl ServerRenderer {
             &self.action_signer,
             Duration::from_secs(10 * 60),
         )?;
+        let server_action_count = action_tokens.len();
         let render_options = HtmlRenderOptions {
-            lang: "en".to_string(),
+            lang: self.default_locale.clone(),
             document_title: route.route.title.clone(),
             description: route.route.description.clone(),
-            canonical_url: None,
+            canonical_url: self.canonical_url_for_route(&route.route.path, request),
             site_name: Some(self.app.project_name.clone()),
             favicon_href: None,
             stylesheet_href: "/site.css".to_string(),
@@ -327,6 +389,7 @@ impl ServerRenderer {
             css_variables: CssVariableMap::from_theme(&self.app.theme),
             server_action_post_path: Some("/__fission/action".to_string()),
             server_action_tokens: action_tokens,
+            head_end_html,
             body_end_html,
             ..Default::default()
         };
@@ -338,6 +401,7 @@ impl ServerRenderer {
             html: rendered.html,
             css,
             resources,
+            server_action_count,
         })
     }
 
@@ -413,11 +477,16 @@ impl ServerRenderer {
                 "invalid asset path",
             ));
         };
-        for root in [
+        let mut roots = Vec::new();
+        if let Some(path) = std::env::var_os("FISSION_SERVER_ARTIFACTS") {
+            roots.push(PathBuf::from(path));
+        }
+        roots.extend([
             self.app.project_dir.join("target/fission/server"),
             self.app.project_dir.clone(),
             self.app.project_dir.join("public"),
-        ] {
+        ]);
+        for root in roots {
             let candidate = root.join(&relative);
             if candidate.is_file() {
                 return file_response(&candidate);
@@ -474,15 +543,20 @@ impl ServerRenderer {
             ));
         };
         let session = self.session_for_request(&request)?;
+        let wants_redirect = action_request_should_redirect(&request);
         let rendered = self.render_uncached(route, Some(&action), &request, &session)?;
-        let mut response = ServerResponse {
-            status: 200,
-            headers: vec![(
-                "content-type".to_string(),
-                "text/html; charset=utf-8".to_string(),
-            )],
-            body: rendered.html.into_bytes(),
-            cache_status: None,
+        let mut response = if wants_redirect {
+            ServerResponse::see_other(route_path)
+        } else {
+            ServerResponse {
+                status: 200,
+                headers: vec![(
+                    "content-type".to_string(),
+                    "text/html; charset=utf-8".to_string(),
+                )],
+                body: rendered.html.into_bytes(),
+                cache_status: None,
+            }
         };
         self.attach_session_cookie(&mut response, &session);
         Ok(response)
@@ -513,8 +587,8 @@ impl ServerRenderer {
 
     fn session_for_request(&self, request: &ServerRequest) -> Result<ServerSession> {
         if let Some(cookie) = header_value(&request.headers, "cookie") {
-            if let Some(id) = cookie_value(cookie, DEFAULT_SESSION_COOKIE_NAME) {
-                if safe_session_id(&id) {
+            if let Some(value) = cookie_value(cookie, &self.session_config.cookie_name) {
+                if let Some(id) = self.verify_session_cookie_value(&value) {
                     return Ok(ServerSession { id, is_new: false });
                 }
             }
@@ -527,15 +601,214 @@ impl ServerRenderer {
 
     fn attach_session_cookie(&self, response: &mut ServerResponse, session: &ServerSession) {
         if session.is_new {
+            let secure = if self.session_config.secure {
+                "; Secure"
+            } else {
+                ""
+            };
+            let same_site = match self.session_config.same_site {
+                ServerSameSite::Strict => "Strict",
+                ServerSameSite::Lax => "Lax",
+                ServerSameSite::None => "None",
+            };
             response.headers.push((
                 "set-cookie".to_string(),
                 format!(
-                    "{}={}; Path=/; HttpOnly; SameSite=Lax; Max-Age=2592000",
-                    DEFAULT_SESSION_COOKIE_NAME, session.id
+                    "{}={}; Path=/; HttpOnly; SameSite={same_site}; Max-Age=2592000{secure}",
+                    self.session_config.cookie_name,
+                    self.encode_session_cookie_value(session.id())
                 ),
             ));
         }
     }
+
+    fn verify_session_cookie_value(&self, value: &str) -> Option<String> {
+        match self.session_signing_key {
+            Some(key) => {
+                let (id, signature) = value.split_once('.')?;
+                if safe_session_id(id)
+                    && constant_time_eq(
+                        session_signature(&key, &self.session_config.cookie_name, id).as_bytes(),
+                        signature.as_bytes(),
+                    )
+                {
+                    Some(id.to_string())
+                } else {
+                    None
+                }
+            }
+            None => safe_session_id(value).then(|| value.to_string()),
+        }
+    }
+
+    fn encode_session_cookie_value(&self, id: &str) -> String {
+        match self.session_signing_key {
+            Some(key) => format!(
+                "{}.{}",
+                id,
+                session_signature(&key, &self.session_config.cookie_name, id)
+            ),
+            None => id.to_string(),
+        }
+    }
+
+    fn canonical_url_for_route(&self, route_path: &str, request: &ServerRequest) -> Option<String> {
+        let base = self.http_config.base_url.clone().or_else(|| {
+            self.http_config
+                .trust_proxy_headers
+                .then(|| trusted_proxy_base_url(request))
+                .flatten()
+        });
+        base.as_ref().map(|base| {
+            if route_path == "/" {
+                format!("{base}/")
+            } else {
+                format!("{base}{}", route_path.trim_end_matches('/'))
+            }
+        })
+    }
+
+    fn validate_browser_artifact_config(&self) -> Result<()> {
+        if !self.workers_config.separate_artifacts {
+            anyhow::bail!(
+                "[server.workers].separate_artifacts = false is not supported; server workers are compiled as route-local artifacts"
+            );
+        }
+        if !self.islands_config.separate_artifacts {
+            anyhow::bail!(
+                "[server.islands].separate_artifacts = false is not supported; server islands are compiled as route-local artifacts"
+            );
+        }
+        Ok(())
+    }
+
+    fn cache_key_for_route(&self, route: &WebRoute, request: &ServerRequest) -> CacheKey {
+        let query = request
+            .query
+            .iter()
+            .map(|(key, value)| format!("{key}={value}"))
+            .collect::<Vec<_>>()
+            .join("&");
+        let vary = route
+            .mode
+            .revalidation()
+            .map(|policy| {
+                policy
+                    .vary
+                    .iter()
+                    .map(|name| {
+                        let normalized = name.trim().to_ascii_lowercase();
+                        let value = header_value(&request.headers, &normalized)
+                            .map(String::as_str)
+                            .unwrap_or("");
+                        format!("{normalized}={value}")
+                    })
+                    .collect::<Vec<_>>()
+                    .join("&")
+            })
+            .unwrap_or_default();
+        let theme_hash = blake3::hash(format!("{:?}", self.app.theme).as_bytes());
+        let build_id = option_env!("FISSION_BUILD_ID").unwrap_or(env!("CARGO_PKG_VERSION"));
+        let mut key = format!(
+            "page:{}?{}#app:{}#locale:{}#theme:{}#build:{}",
+            route.path,
+            query,
+            self.app.project_name,
+            self.default_locale,
+            &theme_hash.to_hex().to_string()[..16],
+            build_id
+        );
+        if !vary.is_empty() {
+            key.push_str("#vary:");
+            key.push_str(&vary);
+        }
+        CacheKey::new(key)
+    }
+}
+
+fn cache_from_config(config: &crate::ServerCacheConfig) -> Result<Arc<dyn Cache>> {
+    match config.provider {
+        ServerCacheProvider::Moka => Ok(Arc::new(MokaCache::new(config.moka.clone()))),
+        ServerCacheProvider::Redis => redis_cache_from_config(config),
+        ServerCacheProvider::Pipeline => {
+            if config.layers.is_empty() {
+                anyhow::bail!(
+                    "[server.cache].provider = \"pipeline\" requires [[server.cache.layers]]"
+                );
+            }
+            let mut layers = Vec::new();
+            for layer in &config.layers {
+                layers.push((cache_layer_from_config(layer)?, layer.policy));
+            }
+            Ok(Arc::new(CachePipeline::with_policies(layers)))
+        }
+    }
+}
+
+fn session_signing_key(config: &ServerSessionConfig) -> Result<Option<[u8; 32]>> {
+    let Some(env) = &config.signing_key_env else {
+        return Ok(None);
+    };
+    let secret = std::env::var(env)
+        .with_context(|| format!("failed to read server session signing key from `{env}`"))?;
+    if secret.trim().is_empty() {
+        anyhow::bail!("server session signing key environment variable `{env}` is empty");
+    }
+    Ok(Some(*blake3::hash(secret.as_bytes()).as_bytes()))
+}
+
+fn cache_layer_from_config(config: &ServerCacheLayerConfig) -> Result<Arc<dyn Cache>> {
+    match config.provider {
+        ServerCacheProvider::Moka => Ok(Arc::new(MokaCache::new(config.moka.clone()))),
+        ServerCacheProvider::Redis => redis_cache_from_layer_config(config),
+        ServerCacheProvider::Pipeline => {
+            anyhow::bail!("nested server cache pipelines are not supported")
+        }
+    }
+}
+
+#[cfg(feature = "redis")]
+fn redis_cache_from_config(config: &crate::ServerCacheConfig) -> Result<Arc<dyn Cache>> {
+    let url = resolve_redis_url(config.redis_url.as_deref(), config.redis_url_env.as_deref())?;
+    let prefix = config.redis_prefix.as_deref().unwrap_or("fission");
+    Ok(Arc::new(crate::RedisCache::new(&url, prefix)?))
+}
+
+#[cfg(feature = "redis")]
+fn redis_cache_from_layer_config(config: &ServerCacheLayerConfig) -> Result<Arc<dyn Cache>> {
+    let url = resolve_redis_url(config.redis_url.as_deref(), config.redis_url_env.as_deref())?;
+    let prefix = config
+        .redis_prefix
+        .as_deref()
+        .unwrap_or(config.name.as_str());
+    Ok(Arc::new(crate::RedisCache::new(&url, prefix)?))
+}
+
+#[cfg(feature = "redis")]
+fn resolve_redis_url(url: Option<&str>, env: Option<&str>) -> Result<String> {
+    if let Some(url) = url {
+        return Ok(url.to_string());
+    }
+    if let Some(env) = env {
+        let value = std::env::var(env)
+            .with_context(|| format!("failed to read Redis URL environment variable `{env}`"))?;
+        return Ok(value);
+    }
+    anyhow::bail!("[server.cache].redis_url or url_env is required when provider = \"redis\"")
+}
+
+#[cfg(not(feature = "redis"))]
+fn redis_cache_from_config(_config: &crate::ServerCacheConfig) -> Result<Arc<dyn Cache>> {
+    anyhow::bail!(
+        "[server.cache].provider = \"redis\" requires enabling the fission-shell-server `redis` feature"
+    )
+}
+
+#[cfg(not(feature = "redis"))]
+fn redis_cache_from_layer_config(_config: &ServerCacheLayerConfig) -> Result<Arc<dyn Cache>> {
+    anyhow::bail!(
+        "[server.cache].provider = \"redis\" requires enabling the fission-shell-server `redis` feature"
+    )
 }
 
 fn asset_request_path(path: &str) -> String {
@@ -621,6 +894,68 @@ fn generate_session_id() -> Result<String> {
     Ok(hasher.finalize().to_hex().to_string())
 }
 
+fn session_signature(key: &[u8; 32], cookie_name: &str, id: &str) -> String {
+    let mut hasher = blake3::Hasher::new_keyed(key);
+    hasher.update(b"fission.server.session.cookie.v1");
+    hasher.update(cookie_name.as_bytes());
+    hasher.update(id.as_bytes());
+    to_hex(hasher.finalize().as_bytes())
+}
+
+fn trusted_proxy_base_url(request: &ServerRequest) -> Option<String> {
+    let host = forwarded_header_value(request, "x-forwarded-host")
+        .or_else(|| header_value(&request.headers, "host").cloned())?;
+    let proto = forwarded_header_value(request, "x-forwarded-proto").or_else(|| {
+        header_value(&request.headers, "x-forwarded-ssl")
+            .filter(|value| value.eq_ignore_ascii_case("on"))
+            .map(|_| "https".to_string())
+    })?;
+    let proto = proto.trim().to_ascii_lowercase();
+    if !matches!(proto.as_str(), "http" | "https") || !safe_forwarded_host(&host) {
+        return None;
+    }
+    Some(format!("{proto}://{}", host.trim()))
+}
+
+fn forwarded_header_value(request: &ServerRequest, name: &str) -> Option<String> {
+    header_value(&request.headers, name)
+        .and_then(|value| value.split(',').next())
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(ToOwned::to_owned)
+}
+
+fn safe_forwarded_host(host: &str) -> bool {
+    let trimmed = host.trim();
+    !trimmed.is_empty()
+        && trimmed.len() <= 253
+        && !trimmed.starts_with('.')
+        && !trimmed.ends_with('.')
+        && trimmed.bytes().all(|byte| {
+            byte.is_ascii_alphanumeric() || matches!(byte, b'.' | b'-' | b':' | b'[' | b']')
+        })
+}
+
+fn to_hex(bytes: &[u8]) -> String {
+    const HEX: &[u8; 16] = b"0123456789abcdef";
+    let mut out = String::with_capacity(bytes.len() * 2);
+    for byte in bytes {
+        out.push(HEX[(byte >> 4) as usize] as char);
+        out.push(HEX[(byte & 0x0f) as usize] as char);
+    }
+    out
+}
+
+fn constant_time_eq(left: &[u8], right: &[u8]) -> bool {
+    if left.len() != right.len() {
+        return false;
+    }
+    left.iter()
+        .zip(right)
+        .fold(0u8, |acc, (a, b)| acc | (a ^ b))
+        == 0
+}
+
 fn hex_value(byte: u8) -> Option<u8> {
     match byte {
         b'0'..=b'9' => Some(byte - b'0'),
@@ -683,6 +1018,13 @@ fn header_value<'a>(headers: &'a BTreeMap<String, String>, name: &str) -> Option
         .map(|(_, value)| value)
 }
 
+fn action_request_should_redirect(request: &ServerRequest) -> bool {
+    let content_type = header_value(&request.headers, "content-type")
+        .map(|value| value.split(';').next().unwrap_or(value).trim())
+        .unwrap_or("application/json");
+    content_type.eq_ignore_ascii_case("application/x-www-form-urlencoded")
+}
+
 fn page_response(page: &RenderedPage, freshness: Freshness) -> ServerResponse {
     ServerResponse {
         status: page.status,
@@ -725,16 +1067,6 @@ fn collect_server_action_tokens(
     Ok(tokens)
 }
 
-fn cache_key_for_route(route: &WebRoute, request: &ServerRequest) -> CacheKey {
-    let query = request
-        .query
-        .iter()
-        .map(|(key, value)| format!("{key}={value}"))
-        .collect::<Vec<_>>()
-        .join("&");
-    CacheKey::new(format!("page:{}?{}", route.path, query))
-}
-
 #[derive(Serialize)]
 struct RouteManifest<'a> {
     route: &'a str,
@@ -763,8 +1095,31 @@ fn route_manifest_script(route: &WebRoute) -> Result<String> {
     ))
 }
 
+fn browser_artifact_preload_links(route: &WebRoute) -> Vec<String> {
+    route
+        .workers
+        .iter()
+        .map(|worker| worker.artifact.as_str())
+        .chain(route.islands.iter().map(|island| island.artifact.as_str()))
+        .map(|artifact| {
+            format!(
+                "<link rel=\"preload\" href=\"{}\" as=\"fetch\" type=\"application/wasm\" crossorigin>",
+                html_escape_attr(artifact)
+            )
+        })
+        .collect()
+}
+
 fn server_browser_runtime_script() -> String {
     "<script defer src=\"/server-runtime.js\"></script>".to_string()
+}
+
+fn html_escape_attr(value: &str) -> String {
+    value
+        .replace('&', "&amp;")
+        .replace('"', "&quot;")
+        .replace('<', "&lt;")
+        .replace('>', "&gt;")
 }
 
 #[cfg(test)]
@@ -774,7 +1129,7 @@ mod tests {
         CacheError, CacheTag, InvalidationReport, MokaCache, ProgressiveWorker, RevalidationPolicy,
         WasmIsland, WebRouteMode,
     };
-    use fission_core::ui::Text;
+    use fission_core::ui::{Button, Text};
     use fission_core::{
         Action, ActionId, AppState, BuildCtx, Handler, JobRef, JobResource, JobSpec, Node,
         ReducerContext, ResourceKey, View, Widget,
@@ -783,7 +1138,7 @@ mod tests {
     use std::fs;
     use std::path::PathBuf;
     use std::sync::atomic::{AtomicUsize, Ordering};
-    use std::sync::Arc;
+    use std::sync::{Arc, Mutex, OnceLock};
     use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
     #[derive(Debug, Default)]
@@ -796,6 +1151,20 @@ mod tests {
     impl Widget<TestState> for TestPage {
         fn build(&self, _ctx: &mut BuildCtx<TestState>, _view: &View<TestState>) -> Node {
             Text::new(self.0).into_node()
+        }
+    }
+
+    #[derive(Clone)]
+    struct TestActionPage;
+
+    impl Widget<TestState> for TestActionPage {
+        fn build(&self, _ctx: &mut BuildCtx<TestState>, _view: &View<TestState>) -> Node {
+            Button {
+                child: Some(Box::new(Text::new("Run action").into_node())),
+                on_press: Some(ActionEnvelope::from(TestAction)),
+                ..Default::default()
+            }
+            .into_node()
         }
     }
 
@@ -856,6 +1225,7 @@ mod tests {
             TestPage("Hello cache"),
         );
         let renderer = ServerRenderer::new(app).with_cache(cache.clone());
+        let key = renderer.cache_key_for_route(&renderer.routes()[0], &ServerRequest::get("/"));
 
         let first = renderer.handle(ServerRequest::get("/")).unwrap();
         assert_eq!(first.status, 200);
@@ -863,9 +1233,7 @@ mod tests {
 
         let second = renderer.handle(ServerRequest::get("/")).unwrap();
         assert_eq!(second.cache_status, Some(Freshness::Fresh));
-        assert!(cache
-            .contains_fresh(&CacheKey::new("page:/?"), SystemTime::now())
-            .unwrap());
+        assert!(cache.contains_fresh(&key, SystemTime::now()).unwrap());
     }
 
     #[test]
@@ -888,6 +1256,7 @@ mod tests {
         second.query.insert("a".to_string(), "1".to_string());
         second.query.insert("b".to_string(), "2".to_string());
 
+        let first_key = renderer.cache_key_for_route(&renderer.routes()[0], &first);
         assert_eq!(
             renderer.handle(first).unwrap().cache_status,
             Some(Freshness::Expired)
@@ -896,9 +1265,41 @@ mod tests {
             renderer.handle(second).unwrap().cache_status,
             Some(Freshness::Fresh)
         );
-        assert!(cache
-            .contains_fresh(&CacheKey::new("page:/search/?a=1&b=2"), SystemTime::now())
-            .unwrap());
+        assert!(cache.contains_fresh(&first_key, SystemTime::now()).unwrap());
+    }
+
+    #[test]
+    fn revalidated_cache_key_includes_declared_vary_headers() {
+        let cache = Arc::new(MokaCache::default());
+        let app = FissionServerApp::new("Test").route_widget::<TestState, _>(
+            "/catalog",
+            "Catalog",
+            None,
+            WebRouteMode::Revalidated(
+                RevalidationPolicy::new(Duration::from_secs(60)).vary("accept-language"),
+            ),
+            TestPage("Localized catalog"),
+        );
+        let renderer = ServerRenderer::new(app).with_cache(cache.clone());
+        let mut en = ServerRequest::get("/catalog");
+        en.headers
+            .insert("accept-language".to_string(), "en-GB".to_string());
+        let mut fr = ServerRequest::get("/catalog");
+        fr.headers
+            .insert("accept-language".to_string(), "fr-FR".to_string());
+
+        let en_key = renderer.cache_key_for_route(&renderer.routes()[0], &en);
+        let fr_key = renderer.cache_key_for_route(&renderer.routes()[0], &fr);
+        assert_eq!(
+            renderer.handle(en).unwrap().cache_status,
+            Some(Freshness::Expired)
+        );
+        assert_eq!(
+            renderer.handle(fr).unwrap().cache_status,
+            Some(Freshness::Expired)
+        );
+        assert!(cache.contains_fresh(&en_key, SystemTime::now()).unwrap());
+        assert!(cache.contains_fresh(&fr_key, SystemTime::now()).unwrap());
     }
 
     #[test]
@@ -942,6 +1343,142 @@ mod tests {
         let second = renderer.handle(ServerRequest::get("/")).unwrap();
         assert_eq!(second.cache_status, Some(Freshness::Expired));
         assert!(second.body_string().contains("Hello rebuild"));
+    }
+
+    #[test]
+    fn revalidated_routes_reject_cached_server_action_tokens() {
+        let app = FissionServerApp::new("Test").route_widget::<TestState, _>(
+            "/",
+            "Home",
+            None,
+            WebRouteMode::Revalidated(RevalidationPolicy::new(Duration::from_secs(60))),
+            TestActionPage,
+        );
+        let renderer = ServerRenderer::new(app);
+
+        let error = renderer.handle(ServerRequest::get("/")).unwrap_err();
+
+        assert!(error.to_string().contains("renders server action forms"));
+    }
+
+    #[test]
+    fn configured_renderer_applies_fission_toml_server_settings() {
+        let root = temp_project_dir("server-renderer-config");
+        fs::create_dir_all(&root).unwrap();
+        fs::write(
+            root.join("fission.toml"),
+            r#"[server]
+default_route_mode = "revalidated"
+render_pass_limit = 9
+
+[server.cache]
+provider = "moka"
+max_capacity = 12
+ttl = "2m"
+stale_while_revalidate = "15s"
+"#,
+        )
+        .unwrap();
+        let app = FissionServerApp::new("Test")
+            .project_dir(&root)
+            .server_route_widget::<TestState, _>("/", "Home", None, TestPage("Configured"));
+
+        let renderer = ServerRenderer::configured(app).unwrap();
+        let routes = renderer.routes();
+
+        assert!(matches!(
+            routes.first().map(|route| &route.mode),
+            Some(WebRouteMode::Revalidated(policy))
+                if policy.ttl == Duration::from_secs(120)
+                    && policy.stale_while_revalidate == Some(Duration::from_secs(15))
+        ));
+        assert_eq!(renderer.render_pass_limit, 9);
+
+        let _ = fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn configured_renderer_signs_session_cookie_when_secret_env_is_set() {
+        let _guard = env_lock().lock().unwrap();
+        let root = temp_project_dir("server-renderer-session-config");
+        fs::create_dir_all(&root).unwrap();
+        std::env::set_var("FISSION_TEST_SESSION_KEY", "test-session-secret");
+        fs::write(
+            root.join("fission.toml"),
+            r#"[server]
+default_route_mode = "server_private"
+
+[server.sessions]
+cookie_name = "shop_session"
+signing_key_env = "FISSION_TEST_SESSION_KEY"
+secure = true
+same_site = "none"
+"#,
+        )
+        .unwrap();
+        let app = FissionServerApp::new("Test")
+            .project_dir(&root)
+            .server_route_widget::<TestState, _>("/", "Home", None, TestPage("Signed session"));
+        let renderer = ServerRenderer::configured(app).unwrap();
+
+        let response = renderer.handle(ServerRequest::get("/")).unwrap();
+        let cookie = response_header(&response, "set-cookie")
+            .unwrap()
+            .to_string();
+        let raw_value = cookie
+            .split(';')
+            .next()
+            .unwrap()
+            .strip_prefix("shop_session=")
+            .unwrap()
+            .to_string();
+        assert_eq!(raw_value.split('.').count(), 2);
+
+        let mut second = ServerRequest::get("/");
+        second
+            .headers
+            .insert("cookie".to_string(), format!("shop_session={raw_value}"));
+        let second = renderer.handle(second).unwrap();
+        assert!(response_header(&second, "set-cookie").is_none());
+
+        let mut tampered = ServerRequest::get("/");
+        tampered.headers.insert(
+            "cookie".to_string(),
+            "shop_session=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.bad"
+                .to_string(),
+        );
+        let tampered = renderer.handle(tampered).unwrap();
+        assert!(response_header(&tampered, "set-cookie").is_some());
+
+        std::env::remove_var("FISSION_TEST_SESSION_KEY");
+        let _ = fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn trusted_proxy_headers_can_supply_canonical_url_when_enabled() {
+        let app = FissionServerApp::new("Test").server_route_widget::<TestState, _>(
+            "/docs",
+            "Docs",
+            None,
+            TestPage("Docs"),
+        );
+        let mut renderer = ServerRenderer::new(app);
+        renderer.http_config = ServerHttpConfig {
+            base_url: None,
+            trust_proxy_headers: true,
+        };
+        let mut request = ServerRequest::get("/docs");
+        request
+            .headers
+            .insert("x-forwarded-proto".to_string(), "https".to_string());
+        request
+            .headers
+            .insert("x-forwarded-host".to_string(), "fission.rs".to_string());
+
+        let response = renderer.handle(request).unwrap();
+        let html = response.body_string();
+
+        assert!(html.contains(r#"rel="canonical" href="https://fission.rs/docs""#));
     }
 
     #[test]
@@ -1066,6 +1603,30 @@ mod tests {
     }
 
     #[test]
+    fn server_renderer_serves_artifacts_from_container_artifact_root() {
+        let _guard = env_lock().lock().unwrap();
+        let root = temp_project_dir("server-renderer-env-assets");
+        let artifact_root = root.join("server-artifacts/assets/islands");
+        fs::create_dir_all(&artifact_root).unwrap();
+        fs::write(artifact_root.join("cart.wasm"), b"\0asm").unwrap();
+        std::env::set_var("FISSION_SERVER_ARTIFACTS", root.join("server-artifacts"));
+        let renderer = ServerRenderer::new(
+            FissionServerApp::new("Test")
+                .project_dir(&root)
+                .server_route_widget::<TestState, _>("/", "Home", None, TestPage("Asset page")),
+        );
+
+        let asset = renderer
+            .handle(ServerRequest::get("/assets/islands/cart.wasm"))
+            .unwrap();
+
+        std::env::remove_var("FISSION_SERVER_ARTIFACTS");
+        assert_eq!(asset.status, 200);
+        assert_eq!(asset.body, b"\0asm");
+        let _ = fs::remove_dir_all(&root);
+    }
+
+    #[test]
     fn signed_action_post_rejects_invalid_body_signature_origin_size_and_replay() {
         let renderer = ServerRenderer::new(
             FissionServerApp::new("Test").server_route_widget::<TestState, _>(
@@ -1121,6 +1682,34 @@ mod tests {
             .headers
             .insert("origin".to_string(), "https://app.example".to_string());
         assert_eq!(renderer.handle(forged_request).unwrap().status, 403);
+    }
+
+    #[test]
+    fn form_encoded_server_actions_redirect_back_to_the_route() {
+        let renderer = ServerRenderer::new(
+            FissionServerApp::new("Test").server_route_widget::<TestState, _>(
+                "/cart",
+                "Cart",
+                None,
+                TestPage("Cart page"),
+            ),
+        );
+        let token = renderer.sign_action("/cart", 0, TestAction, Duration::from_secs(60));
+        let encoded = renderer.action_signer.encode(&token).unwrap();
+        let mut request = ServerRequest::post("/__fission/action", format!("token={encoded}"));
+        request.headers.insert(
+            "content-type".to_string(),
+            "application/x-www-form-urlencoded".to_string(),
+        );
+
+        let response = renderer.handle(request).unwrap();
+
+        assert_eq!(response.status, 303);
+        assert_eq!(response_header(&response, "location"), Some("/cart/"));
+        assert_eq!(
+            response_header(&response, "cache-control"),
+            Some("no-store")
+        );
     }
 
     #[derive(Debug)]
@@ -1256,5 +1845,10 @@ mod tests {
             .unwrap()
             .as_nanos();
         std::env::temp_dir().join(format!("{name}-{}-{nanos}", std::process::id()))
+    }
+
+    fn env_lock() -> &'static Mutex<()> {
+        static LOCK: OnceLock<Mutex<()>> = OnceLock::new();
+        LOCK.get_or_init(|| Mutex::new(()))
     }
 }
