@@ -15,6 +15,7 @@ pub enum Target {
     Ios,
     Linux,
     Macos,
+    Server,
     Site,
     Web,
     Windows,
@@ -63,6 +64,7 @@ impl Target {
             Self::Ios => "ios",
             Self::Linux => "linux",
             Self::Macos => "macos",
+            Self::Server => "server",
             Self::Site => "site",
             Self::Web => "web",
             Self::Windows => "windows",
@@ -75,6 +77,7 @@ impl Target {
             Self::Ios => "platforms/ios/README.md",
             Self::Linux => "platforms/linux/README.md",
             Self::Macos => "platforms/macos/README.md",
+            Self::Server => "platforms/server/README.md",
             Self::Site => "platforms/site/README.md",
             Self::Web => "platforms/web/README.md",
             Self::Windows => "platforms/windows/README.md",
@@ -92,6 +95,8 @@ pub enum DistributionProvider {
     GithubReleases,
     #[value(name = "cloudflare-pages")]
     CloudflarePages,
+    #[value(name = "docker-registry")]
+    DockerRegistry,
     Dropbox,
     #[value(name = "google-drive")]
     GoogleDrive,
@@ -112,6 +117,7 @@ impl DistributionProvider {
             Self::GithubPages => "github-pages",
             Self::GithubReleases => "github-releases",
             Self::CloudflarePages => "cloudflare-pages",
+            Self::DockerRegistry => "docker-registry",
             Self::Dropbox => "dropbox",
             Self::GoogleDrive => "google-drive",
             Self::MicrosoftStore => "microsoft-store",
@@ -134,6 +140,7 @@ pub struct FissionProject {
 #[derive(Debug, Serialize, Deserialize)]
 pub struct AppConfig {
     pub name: String,
+    #[serde(alias = "identifier")]
     pub app_id: String,
 }
 
@@ -278,6 +285,7 @@ fn detect_project_targets(root: &Path) -> BTreeSet<Target> {
         (Target::Ios, "platforms/ios"),
         (Target::Linux, "platforms/linux"),
         (Target::Macos, "platforms/macos"),
+        (Target::Server, "platforms/server"),
         (Target::Site, "content"),
         (Target::Web, "platforms/web"),
         (Target::Windows, "platforms/windows"),
@@ -799,6 +807,17 @@ fn scaffold_target_with_policy(
                 ],
             )
         }
+        Target::Server => platform_readme(
+            "Server",
+            "Server-rendered Fission target. The CLI runs the app through the server shell for dynamic HTML, revalidated pages, server jobs, signed actions, worker artifacts, and focused browser islands.",
+            &[
+                "Configure `[server].entry` in `fission.toml` so the CLI can invoke the server app.",
+                "Run `fission server check --project-dir .` to render all declared server routes.",
+                "Run `fission server serve --project-dir .` to serve the app locally.",
+                "Run `fission server artifacts --project-dir .` to generate browser worker and island WASM shims.",
+                "Run `fission package --target server --format docker-image --release --project-dir .` to package the server app as an OCI/Docker image.",
+            ],
+        ),
         Target::Site => {
             write_file_with_policy(
                 &root.join("content/getting-started.md"),
@@ -1078,6 +1097,9 @@ fn fission_features_for_targets(targets: &BTreeSet<Target>) -> Vec<&'static str>
     }
     if targets.contains(&Target::Site) {
         features.push("site");
+    }
+    if targets.contains(&Target::Server) {
+        features.push("server");
     }
     features
 }

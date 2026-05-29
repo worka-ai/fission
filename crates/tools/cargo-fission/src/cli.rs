@@ -183,6 +183,36 @@ pub(crate) enum Command {
         #[arg(long)]
         json: bool,
     },
+    /// Publish a packaged artifact to a configured distribution provider.
+    Publish {
+        /// Distribution provider.
+        #[arg(long, value_enum)]
+        provider: DistributionProvider,
+        /// Artifact manifest emitted by `fission package`.
+        #[arg(long)]
+        artifact: Option<PathBuf>,
+        /// Named distribution site/profile from fission.toml.
+        #[arg(long, default_value = "production")]
+        site: String,
+        /// Provider deployment id, release tag, or image tag override where supported.
+        #[arg(long)]
+        deploy: Option<String>,
+        /// Provider track/channel/group, such as internal, testflight, or production.
+        #[arg(long)]
+        track: Option<String>,
+        /// Show what would happen without mutating provider state.
+        #[arg(long)]
+        dry_run: bool,
+        /// Confirm overwrites or provider-side setup changes.
+        #[arg(long)]
+        yes: bool,
+        /// Project directory; defaults to the current working directory.
+        #[arg(long, default_value = ".")]
+        project_dir: PathBuf,
+        /// Emit machine-readable JSON.
+        #[arg(long)]
+        json: bool,
+    },
     /// Run package or distribution readiness checks.
     Readiness {
         /// Readiness area to check.

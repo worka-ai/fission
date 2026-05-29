@@ -371,18 +371,20 @@ pub fn target_label(target: Target) -> &'static str {
         Target::Ios => "iOS",
         Target::Linux => "Linux",
         Target::Macos => "macOS",
+        Target::Server => "Server",
         Target::Site => "Static site",
         Target::Web => "Web",
         Target::Windows => "Windows",
     }
 }
 
-pub fn all_targets() -> [Target; 7] {
+pub fn all_targets() -> [Target; 8] {
     [
         Target::Android,
         Target::Ios,
         Target::Linux,
         Target::Macos,
+        Target::Server,
         Target::Site,
         Target::Web,
         Target::Windows,

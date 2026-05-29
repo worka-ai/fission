@@ -13,6 +13,7 @@ use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::time::{SystemTime, UNIX_EPOCH};
 
+mod docker_registry;
 mod files;
 mod github_releases;
 mod package;
@@ -26,6 +27,8 @@ pub enum PackageFormat {
     Aab,
     Apk,
     App,
+    #[value(name = "docker-image")]
+    DockerImage,
     Exe,
     Ipa,
     Msi,
@@ -41,6 +44,7 @@ impl PackageFormat {
             Self::Aab => "aab",
             Self::Apk => "apk",
             Self::App => "app",
+            Self::DockerImage => "docker-image",
             Self::Exe => "exe",
             Self::Ipa => "ipa",
             Self::Msi => "msi",
@@ -232,6 +236,8 @@ struct DistributionManifest {
     #[serde(default)]
     cloudflare_pages: BTreeMap<String, CloudflarePagesConfig>,
     #[serde(default)]
+    docker_registry: BTreeMap<String, DockerRegistryConfig>,
+    #[serde(default)]
     netlify: BTreeMap<String, NetlifyConfig>,
 }
 
@@ -358,6 +364,11 @@ struct NetlifyConfig {
     base_path: Option<String>,
 }
 
+#[derive(Clone, Debug, Deserialize, Default)]
+struct DockerRegistryConfig {
+    tags: Option<Vec<String>>,
+}
+
 pub fn package(options: PackageOptions) -> Result<()> {
     let manifest = package::package_artifact(&options)?;
     if options.json {
@@ -458,6 +469,7 @@ fn setup_provider(options: &DistributeOptions, config: &PublishManifest) -> Resu
     match options.provider {
         DistributionProvider::GithubPages => setup_github_pages(options, config),
         DistributionProvider::GithubReleases => github_releases::setup(options, config),
+        DistributionProvider::DockerRegistry => setup_non_static_provider(options, config),
         DistributionProvider::CloudflarePages => {
             let cfg = cloudflare_config(config, &options.site)?;
             println!("Cloudflare Pages setup checks for `{}`", options.site);
@@ -499,7 +511,16 @@ fn publish_artifact(options: &DistributeOptions, config: &PublishManifest) -> Re
         .as_deref()
         .map(PathBuf::from)
         .unwrap_or_else(|| {
-            default_artifact_manifest_path(&options.project_dir, Target::Site, true)
+            if options.provider == DistributionProvider::DockerRegistry {
+                default_artifact_manifest_path_for_format(
+                    &options.project_dir,
+                    Target::Server,
+                    PackageFormat::DockerImage,
+                    true,
+                )
+            } else {
+                default_artifact_manifest_path(&options.project_dir, Target::Site, true)
+            }
         });
     let manifest = read_artifact_manifest(&artifact_path)?;
     let checks = readiness_distribute(
@@ -527,6 +548,9 @@ fn publish_artifact(options: &DistributeOptions, config: &PublishManifest) -> Re
         }
         DistributionProvider::GithubReleases => {
             github_releases::publish(options, config, &artifact_path, &manifest)?
+        }
+        DistributionProvider::DockerRegistry => {
+            docker_registry::publish(options, config, &artifact_path, &manifest)?
         }
         DistributionProvider::CloudflarePages => {
             publish_cloudflare_pages(options, config, &artifact_path, &manifest)?
@@ -583,6 +607,7 @@ fn provider_status(options: &DistributeOptions, config: &PublishManifest) -> Res
     let receipt = match options.provider {
         DistributionProvider::GithubPages => github_pages_status(options, config)?,
         DistributionProvider::GithubReleases => github_releases::status(options, config)?,
+        DistributionProvider::DockerRegistry => docker_registry::status(options, config)?,
         DistributionProvider::CloudflarePages => cloudflare_pages_status(options, config)?,
         DistributionProvider::Netlify => static_hosts::netlify_status(options, config)?,
         DistributionProvider::PlayStore => stores::play_store_status(options, config)?,
@@ -1217,7 +1242,7 @@ fn readiness_package(
             target.as_str(),
             format.as_str()
         )),
-        vec!["Use a valid target/format pair, such as site/static, linux/run, macos/app, macos/pkg, windows/exe, windows/msi, windows/msix, android/apk, android/aab, or ios/ipa."],
+        vec!["Use a valid target/format pair, such as site/static, site/docker-image, server/docker-image, linux/run, macos/app, macos/pkg, windows/exe, windows/msi, windows/msix, android/apk, android/aab, or ios/ipa."],
     ));
     checks.push(check_path(
         "release.package.fission_toml_exists",
@@ -1272,6 +1297,8 @@ fn package_format_supported(target: Target, format: PackageFormat) -> bool {
         (target, format),
         (Target::Site, PackageFormat::Static)
             | (Target::Web, PackageFormat::Static)
+            | (Target::Site, PackageFormat::DockerImage)
+            | (Target::Server, PackageFormat::DockerImage)
             | (Target::Linux, PackageFormat::Run)
             | (Target::Macos, PackageFormat::App)
             | (Target::Macos, PackageFormat::Pkg)
@@ -1297,6 +1324,33 @@ fn readiness_package_tools(
                 "cargo",
                 "Install Rust from https://rustup.rs/ and ensure cargo is on PATH.",
             ));
+        }
+        (Target::Site, PackageFormat::DockerImage)
+        | (Target::Server, PackageFormat::DockerImage) => {
+            checks.push(check_tool(
+                "release.package.cargo_available",
+                "cargo",
+                "Install Rust from https://rustup.rs/ and ensure cargo is on PATH.",
+            ));
+            checks.push(check_tool(
+                "release.package.docker_available",
+                "docker",
+                "Install Docker and ensure the docker CLI can reach a running Docker engine.",
+            ));
+            if target == Target::Server {
+                checks.push(check(
+                    "release.package.server_entry_configured",
+                    CheckSeverity::Error,
+                    if server_entry_configured(project_dir) {
+                        CheckStatus::Passed
+                    } else {
+                        CheckStatus::Missing
+                    },
+                    "server entry is configured",
+                    Some("[server].entry".to_string()),
+                    vec!["Add [server].entry to fission.toml so the Docker image can run the server app."],
+                ));
+            }
         }
         (Target::Linux, PackageFormat::Run) => {
             checks.push(host_os_check("release.package.host_is_linux", "linux"));
@@ -1442,6 +1496,20 @@ fn readiness_package_tools(
     }
 }
 
+fn server_entry_configured(project_dir: &Path) -> bool {
+    fs::read_to_string(project_dir.join("fission.toml"))
+        .ok()
+        .and_then(|data| toml::from_str::<toml::Value>(&data).ok())
+        .and_then(|value| {
+            value
+                .get("server")
+                .and_then(|server| server.get("entry"))
+                .and_then(toml::Value::as_str)
+                .map(|entry| !entry.trim().is_empty())
+        })
+        .unwrap_or(false)
+}
+
 fn android_packaging_checks(checks: &mut Vec<ReadinessCheck>) {
     checks.push(check_tool(
         "release.package.cargo_available",
@@ -1518,6 +1586,9 @@ fn readiness_distribute(
         }
         DistributionProvider::GithubReleases => {
             github_releases::readiness(project_dir, site, artifact, config, &mut checks)?
+        }
+        DistributionProvider::DockerRegistry => {
+            docker_registry::readiness(site, artifact, config, &mut checks)?
         }
         DistributionProvider::CloudflarePages => {
             readiness_cloudflare_pages(site, config, &mut checks)?
@@ -1818,6 +1889,9 @@ fn hex_lower(bytes: &[u8]) -> String {
 }
 
 fn content_type(path: &Path) -> &'static str {
+    if path.file_name().and_then(OsStr::to_str) == Some("Dockerfile") {
+        return "text/plain; charset=utf-8";
+    }
     match path.extension().and_then(OsStr::to_str).unwrap_or("") {
         "html" => "text/html; charset=utf-8",
         "css" => "text/css; charset=utf-8",
@@ -1901,11 +1975,20 @@ fn read_artifact_manifest(path: &Path) -> Result<ArtifactManifest> {
 }
 
 fn default_artifact_manifest_path(project_dir: &Path, target: Target, release: bool) -> PathBuf {
+    default_artifact_manifest_path_for_format(project_dir, target, PackageFormat::Static, release)
+}
+
+fn default_artifact_manifest_path_for_format(
+    project_dir: &Path,
+    target: Target,
+    format: PackageFormat,
+    release: bool,
+) -> PathBuf {
     project_dir
         .join("target/fission")
         .join(if release { "release" } else { "debug" })
         .join(target.as_str())
-        .join("static")
+        .join(format.as_str())
         .join(ARTIFACT_MANIFEST)
 }
 
@@ -1925,6 +2008,15 @@ fn github_releases_config(config: &PublishManifest, site: &str) -> Result<Github
         .and_then(|distribution| distribution.github_releases.get(site))
         .cloned()
         .with_context(|| format!("missing [distribution.github_releases.{site}] in fission.toml"))
+}
+
+fn docker_registry_config(config: &PublishManifest, site: &str) -> Result<DockerRegistryConfig> {
+    Ok(config
+        .distribution
+        .as_ref()
+        .and_then(|distribution| distribution.docker_registry.get(site))
+        .cloned()
+        .unwrap_or_default())
 }
 
 fn s3_config(config: &PublishManifest, site: &str) -> Result<S3Config> {

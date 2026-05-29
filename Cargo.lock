@@ -2537,6 +2537,7 @@ version = "0.2.0"
 dependencies = [
  "anyhow",
  "fission-command-core",
+ "fission-command-server",
  "fission-command-site",
  "serde",
  "serde_json",
