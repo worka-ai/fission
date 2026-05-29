@@ -52,28 +52,35 @@ pub fn responsive_grid<S: AppState>(
 }
 
 pub fn muted_text<S: AppState>(view: &View<S>, text: impl Into<String>) -> Node {
+    let compact = is_compact(view);
     Text::new(text.into())
-        .size(13.0)
-        .line_height(19.0)
+        .size(if compact { 12.0 } else { 13.0 })
+        .line_height(if compact { 18.0 } else { 19.0 })
         .color(view.env.theme.tokens.colors.text_secondary)
         .into_node()
 }
 
 pub fn body_text<S: AppState>(view: &View<S>, text: impl Into<String>) -> Node {
+    let compact = is_compact(view);
     Text::new(text.into())
-        .size(14.0)
-        .line_height(21.0)
+        .size(if compact { 13.0 } else { 14.0 })
+        .line_height(if compact { 19.0 } else { 21.0 })
         .color(view.env.theme.tokens.colors.text_primary)
         .into_node()
 }
 
 pub fn title_text<S: AppState>(view: &View<S>, text: impl Into<String>, size: f32) -> Node {
-    Text::new(text.into())
+    let compact = is_compact(view);
+    let size = if compact { size.min(22.0) } else { size };
+    let mut title = Text::new(text.into())
         .size(size)
-        .line_height(size + 8.0)
+        .line_height(size + if compact { 6.0 } else { 8.0 })
         .weight(800)
-        .color(view.env.theme.tokens.colors.text_primary)
-        .into_node()
+        .color(view.env.theme.tokens.colors.text_primary);
+    if compact {
+        title = title.max_width(usable_width(view, 64.0));
+    }
+    title.into_node()
 }
 
 pub fn panel_card<S: AppState>(view: &View<S>, child: Node) -> Node {
@@ -159,15 +166,20 @@ pub fn status_pill<S: AppState>(
     };
     Container::new(
         Text::new(label.into())
-            .size(12.0)
-            .line_height(16.0)
+            .size(if is_compact(view) { 11.0 } else { 12.0 })
+            .line_height(if is_compact(view) { 15.0 } else { 16.0 })
             .weight(800)
+            .wrap(false)
             .color(fg)
             .into_node(),
     )
     .bg(bg)
     .border_radius(999.0)
-    .padding([10.0, 10.0, 4.0, 4.0])
+    .padding(if is_compact(view) {
+        [8.0, 8.0, 4.0, 4.0]
+    } else {
+        [10.0, 10.0, 4.0, 4.0]
+    })
     .into_node()
 }
 
@@ -183,8 +195,8 @@ pub fn metric<S: AppState>(
             children: vec![
                 muted_text(view, label.into()),
                 Text::new(value.into())
-                    .size(19.0)
-                    .line_height(25.0)
+                    .size(if is_compact(view) { 17.0 } else { 19.0 })
+                    .line_height(if is_compact(view) { 23.0 } else { 25.0 })
                     .weight(800)
                     .color(view.env.theme.tokens.colors.text_primary)
                     .into_node(),

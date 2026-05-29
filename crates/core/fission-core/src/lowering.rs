@@ -147,7 +147,7 @@ pub fn wrap_zstack_child(cx: &mut LoweringContext, child_id: NodeId) -> NodeId {
     item.build(cx)
 }
 
-pub fn build_layout_tree(ir: &CoreIR, env: &Env) -> Vec<LayoutInputNode> {
+pub fn build_layout_tree(ir: &CoreIR, _env: &Env) -> Vec<LayoutInputNode> {
     let mut input_nodes = Vec::new();
 
     let mut parent_map = HashMap::new();
@@ -395,12 +395,6 @@ pub fn build_layout_tree(ir: &CoreIR, env: &Env) -> Vec<LayoutInputNode> {
                     inherit_max_height,
                 ) = inherited_box.unwrap_or((None, None, None, None, None, None));
 
-                let (measured_w, measured_h): (f32, f32) = if let Some(m) = &env.measurer {
-                    m.measure(text, *size, None)
-                } else {
-                    (0.0, 0.0)
-                };
-
                 rich_text_content = Some(vec![fission_ir::op::TextRun {
                     text: text.clone(),
                     style: fission_ir::op::TextStyle {
@@ -419,8 +413,8 @@ pub fn build_layout_tree(ir: &CoreIR, env: &Env) -> Vec<LayoutInputNode> {
                 children_to_visit.clear(); // Leaf node for layout
                 (
                     LayoutOp::Box {
-                        width: inherit_width.or(Some(measured_w)),
-                        height: inherit_height.or(Some(measured_h)),
+                        width: inherit_width,
+                        height: inherit_height,
                         min_width: inherit_min_width,
                         max_width: inherit_max_width,
                         min_height: inherit_min_height,
@@ -430,8 +424,8 @@ pub fn build_layout_tree(ir: &CoreIR, env: &Env) -> Vec<LayoutInputNode> {
                         flex_shrink: 1.0,
                         aspect_ratio: None,
                     },
-                    inherit_width.or(Some(measured_w)),
-                    inherit_height.or(Some(measured_h)),
+                    inherit_width,
+                    inherit_height,
                     0.0,
                     1.0,
                 )
@@ -453,12 +447,6 @@ pub fn build_layout_tree(ir: &CoreIR, env: &Env) -> Vec<LayoutInputNode> {
                     inherit_max_height,
                 ) = inherited_box.unwrap_or((None, None, None, None, None, None));
 
-                let (measured_w, measured_h): (f32, f32) = if let Some(m) = &env.measurer {
-                    m.measure_rich_text(runs, None)
-                } else {
-                    (0.0, 0.0)
-                };
-
                 rich_text_content = Some(runs.clone());
                 if !runs.iter().any(|run| {
                     decode_inline_widget_marker(run.style.font_family.as_deref()).is_some()
@@ -467,8 +455,8 @@ pub fn build_layout_tree(ir: &CoreIR, env: &Env) -> Vec<LayoutInputNode> {
                 }
                 (
                     LayoutOp::Box {
-                        width: inherit_width.or(Some(measured_w)),
-                        height: inherit_height.or(Some(measured_h)),
+                        width: inherit_width,
+                        height: inherit_height,
                         min_width: inherit_min_width,
                         max_width: inherit_max_width,
                         min_height: inherit_min_height,
@@ -478,8 +466,8 @@ pub fn build_layout_tree(ir: &CoreIR, env: &Env) -> Vec<LayoutInputNode> {
                         flex_shrink: 1.0,
                         aspect_ratio: None,
                     },
-                    inherit_width.or(Some(measured_w)),
-                    inherit_height.or(Some(measured_h)),
+                    inherit_width,
+                    inherit_height,
                     0.0,
                     1.0,
                 )

@@ -2485,6 +2485,7 @@ dependencies = [
  "clap",
  "serde",
  "toml",
+ "toml_edit 0.23.9",
 ]
 
 [[package]]

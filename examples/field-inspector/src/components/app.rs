@@ -49,12 +49,18 @@ impl Widget<FieldInspectorState> for FieldInspectorApp {
             .into_node()
         };
 
+        let scroll = Scroll {
+            child: Some(Box::new(content)),
+            direction: FlexDirection::Column,
+            show_scrollbar: true,
+            flex_grow: 1.0,
+            ..Default::default()
+        }
+        .into_node();
+
         Container::new(
-            Scroll {
-                child: Some(Box::new(content)),
-                direction: FlexDirection::Column,
-                show_scrollbar: true,
-                flex_grow: 1.0,
+            SafeArea {
+                child: Box::new(scroll),
                 ..Default::default()
             }
             .into_node(),
@@ -113,7 +119,7 @@ fn hero(ctx: &mut BuildCtx<FieldInspectorState>, view: &View<FieldInspectorState
             title_text(
                 view,
                 "Capability-driven field service",
-                if is_compact(view) { 25.0 } else { 34.0 },
+                if is_compact(view) { 19.0 } else { 34.0 },
             ),
             muted_text(
                 view,

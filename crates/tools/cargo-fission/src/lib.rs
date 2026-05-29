@@ -326,11 +326,17 @@ mod tests {
         assert!(dir.join("platforms/web/test-browser.sh").exists());
         assert!(dir.join("platforms/ios/README.md").exists());
         assert!(dir.join("platforms/ios/Info.plist").exists());
+        assert!(dir.join("platforms/ios/LaunchScreen.storyboard").exists());
         assert!(dir.join("platforms/ios/package-sim.sh").exists());
         assert!(dir.join("platforms/ios/run-sim.sh").exists());
         assert!(dir.join("platforms/ios/test-sim.sh").exists());
         assert!(dir.join("platforms/android/README.md").exists());
         assert!(dir.join("platforms/android/AndroidManifest.xml").exists());
+        assert!(dir.join("platforms/android/res/values/colors.xml").exists());
+        assert!(dir.join("platforms/android/res/values/styles.xml").exists());
+        assert!(dir
+            .join("platforms/android/res/drawable/fission_splash_background.xml")
+            .exists());
         assert!(dir.join("platforms/android/package-apk.sh").exists());
         assert!(dir.join("platforms/android/run-emulator.sh").exists());
         assert!(dir.join("platforms/android/test-emulator.sh").exists());
@@ -338,6 +344,11 @@ mod tests {
             std::fs::read_to_string(dir.join("platforms/android/AndroidManifest.xml")).unwrap();
         assert!(android_manifest.contains("android:icon=\"@drawable/app_icon\""));
         assert!(android_manifest.contains("android:targetSdkVersion=\"35\""));
+        assert!(android_manifest.contains("android:theme=\"@style/FissionLaunchTheme\""));
+        let android_styles =
+            std::fs::read_to_string(dir.join("platforms/android/res/values/styles.xml")).unwrap();
+        assert!(android_styles.contains("android:windowBackground"));
+        assert!(android_styles.contains("android:windowSplashScreenAnimatedIcon"));
         let android_package_script =
             std::fs::read_to_string(dir.join("platforms/android/package-apk.sh")).unwrap();
         assert!(android_package_script.contains("detect_android_toolchain"));
@@ -352,10 +363,19 @@ mod tests {
         );
         assert!(android_package_script.contains("BUILD_MANIFEST"));
         assert!(android_package_script.contains("android:targetSdkVersion=\"{target_api}\""));
+        assert!(android_package_script.contains("cp -R \"$SCRIPT_DIR/res/.\""));
+        assert!(android_package_script.contains("fission_splash_image.png"));
+        assert!(android_package_script.contains("APP_ICONS"));
+        assert!(android_package_script.contains("res/drawable-nodpi/app_icon.*"));
         let android_run_script =
             std::fs::read_to_string(dir.join("platforms/android/run-emulator.sh")).unwrap();
         assert!(android_run_script.contains("ANDROID_EMULATOR_API_LEVEL"));
         assert!(android_run_script.contains("fission doctor android"));
+        assert!(android_run_script.contains("wait_for_android_boot()"));
+        assert!(android_run_script.contains("cmd package list packages"));
+        assert!(android_run_script.contains("ADB_INSTALL_FLAGS:---no-streaming -r"));
+        assert!(!android_run_script.contains("wait_for_android_boot() {\n  wait_for_android_boot"));
+        assert!(!android_run_script.contains("  wait_for_android_boot\n  wait_for_android_boot"));
         assert!(
             std::fs::read_to_string(dir.join("platforms/android/README.md"))
                 .unwrap()
@@ -373,9 +393,17 @@ mod tests {
         assert!(ios_package_script.contains("EXECUTABLE_NAME=\"${IOS_EXECUTABLE_NAME:-"));
         assert!(ios_package_script.contains("plistlib.load"));
         assert!(ios_package_script.contains("PkgInfo"));
+        assert!(ios_package_script.contains("PLATFORM_APP_ICONS"));
         assert!(ios_package_script.contains("AppIcon.png"));
+        assert!(ios_package_script.contains("LaunchScreen.storyboard"));
+        assert!(ios_package_script.contains("ibtool"));
+        assert!(ios_package_script.contains("LaunchScreen.storyboardc"));
+        assert!(ios_package_script.contains("SplashImage.png"));
+        let ios_plist = std::fs::read_to_string(dir.join("platforms/ios/Info.plist")).unwrap();
+        assert!(ios_plist.contains("UILaunchStoryboardName"));
         let ios_run_script = std::fs::read_to_string(dir.join("platforms/ios/run-sim.sh")).unwrap();
         assert!(ios_run_script.contains("BUNDLE_ID=\"${IOS_BUNDLE_ID:-com.example."));
+        assert!(ios_run_script.contains("IOS_SIM_UNINSTALL_BEFORE_INSTALL"));
         assert!(ios_run_script.contains(
             "xcrun simctl launch --terminate-running-process \"$DEVICE_ID\" \"$BUNDLE_ID\""
         ));
@@ -405,6 +433,121 @@ mod tests {
         assert!(std::fs::read_to_string(dir.join("platforms/web/README.md"))
             .unwrap()
             .contains("fission run --target web"));
+    }
+
+    #[test]
+    fn custom_icon_config_is_preserved_and_applied_to_mobile_scaffolds() {
+        let dir = unique_dir("custom-icons");
+        run(["fission", "init", dir.to_str().unwrap()]).unwrap();
+        fs::copy(
+            dir.join("assets/app-icon.png"),
+            dir.join("assets/shared-icon.png"),
+        )
+        .unwrap();
+        fs::copy(
+            dir.join("assets/app-icon.png"),
+            dir.join("assets/android-icon.png"),
+        )
+        .unwrap();
+        fs::copy(
+            dir.join("assets/app-icon.png"),
+            dir.join("assets/ios-icon.png"),
+        )
+        .unwrap();
+        let mut manifest = fs::read_to_string(dir.join("fission.toml")).unwrap();
+        manifest.push_str(
+            r##"
+
+[package.icons]
+mode = "mixed"
+source = "assets/shared-icon.png"
+safe_zone = 0.72
+allow_upscale = false
+
+[package.icons.android]
+source = "assets/android-icon.png"
+
+[package.icons.ios]
+source = "assets/ios-icon.png"
+"##,
+        );
+        fs::write(dir.join("fission.toml"), manifest).unwrap();
+
+        run([
+            "fission",
+            "add-target",
+            "ios",
+            "android",
+            "--project-dir",
+            dir.to_str().unwrap(),
+        ])
+        .unwrap();
+
+        let manifest = fs::read_to_string(dir.join("fission.toml")).unwrap();
+        assert!(manifest.contains("[package.icons]"));
+        assert!(manifest.contains("source = \"assets/shared-icon.png\""));
+        assert!(manifest.contains("[package.icons.android]"));
+        assert!(manifest.contains("[package.icons.ios]"));
+        assert!(dir
+            .join("platforms/android/res/drawable-nodpi/app_icon.png")
+            .exists());
+        assert!(dir.join("platforms/ios/AppIcon.png").exists());
+        let android_manifest =
+            fs::read_to_string(dir.join("platforms/android/AndroidManifest.xml")).unwrap();
+        assert!(android_manifest.contains("android:icon=\"@drawable/app_icon\""));
+        let android_package =
+            fs::read_to_string(dir.join("platforms/android/package-apk.sh")).unwrap();
+        assert!(android_package.contains("APP_ICONS"));
+        let ios_package = fs::read_to_string(dir.join("platforms/ios/package-sim.sh")).unwrap();
+        assert!(ios_package.contains("PLATFORM_APP_ICONS"));
+    }
+
+    #[test]
+    fn custom_splash_config_updates_mobile_platform_files() {
+        let dir = unique_dir("custom-splash");
+        run(["fission", "init", dir.to_str().unwrap()]).unwrap();
+        fs::copy(
+            dir.join("assets/app-icon.png"),
+            dir.join("assets/custom-splash.png"),
+        )
+        .unwrap();
+        let mut manifest = fs::read_to_string(dir.join("fission.toml")).unwrap();
+        manifest.push_str(
+            r##"
+
+[app.splash]
+background_color = "#123456"
+image = "assets/custom-splash.png"
+resize_mode = "cover"
+android_animation_duration_ms = 650
+"##,
+        );
+        fs::write(dir.join("fission.toml"), manifest).unwrap();
+
+        run([
+            "fission",
+            "add-target",
+            "ios",
+            "android",
+            "--project-dir",
+            dir.to_str().unwrap(),
+        ])
+        .unwrap();
+
+        let android_colors =
+            fs::read_to_string(dir.join("platforms/android/res/values/colors.xml")).unwrap();
+        assert!(android_colors.contains("#123456"));
+        let android_styles =
+            fs::read_to_string(dir.join("platforms/android/res/values/styles.xml")).unwrap();
+        assert!(android_styles.contains("650"));
+        assert!(dir
+            .join("platforms/android/res/drawable-nodpi/fission_splash_image.png")
+            .exists());
+        let storyboard =
+            fs::read_to_string(dir.join("platforms/ios/LaunchScreen.storyboard")).unwrap();
+        assert!(storyboard.contains("scaleAspectFill"));
+        assert!(storyboard.contains("red=\"0.070588\""));
+        assert!(dir.join("platforms/ios/SplashImage.png").exists());
     }
 
     #[test]
@@ -486,6 +629,9 @@ mod tests {
         assert!(android_manifest.contains("android.permission.MODIFY_AUDIO_SETTINGS"));
         assert!(android_manifest.contains("android.permission.NEARBY_WIFI_DEVICES"));
         assert!(android_manifest.contains("android.permission.ACCESS_WIFI_STATE"));
+        assert!(dir
+            .join("platforms/android/java/rs/fission/runtime/FissionAndroidCapabilities.java")
+            .exists());
 
         let ios_info = std::fs::read_to_string(dir.join("platforms/ios/Info.plist")).unwrap();
         assert!(ios_info.contains("NFCReaderUsageDescription"));

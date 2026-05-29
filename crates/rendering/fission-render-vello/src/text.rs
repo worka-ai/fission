@@ -149,6 +149,18 @@ impl VelloTextMeasurer {
         }
     }
 
+    fn layout_measured_size(layout: &Layout<ParleyBrush>) -> (f32, f32) {
+        let height = layout.lines().fold(0.0_f32, |height, line| {
+            let metrics = line.metrics();
+            let line_height = metrics
+                .line_height
+                .max(metrics.ascent + metrics.descent)
+                .max(1.0);
+            height.max(metrics.baseline - metrics.ascent + line_height)
+        });
+        (layout.width(), height)
+    }
+
     pub(crate) fn rich_layout_input_from_render_runs(
         runs: &[fission_render::TextRun],
     ) -> RichLayoutInput {
@@ -657,7 +669,7 @@ pub(crate) fn resolve_rich_text_annotation_at_index(
 impl TextMeasurer for VelloTextMeasurer {
     fn measure(&self, text: &str, font_size: f32, available_width: Option<f32>) -> (f32, f32) {
         let layout = self.get_layout(text, font_size, available_width);
-        (layout.width(), layout.height())
+        Self::layout_measured_size(&layout)
     }
 
     fn measure_rich_text(&self, runs: &[TextRun], available_width: Option<f32>) -> (f32, f32) {
@@ -687,7 +699,7 @@ impl TextMeasurer for VelloTextMeasurer {
             },
         );
 
-        (layout.width(), layout.height())
+        Self::layout_measured_size(&layout)
     }
 
     fn layout_rich_text(
@@ -727,9 +739,10 @@ impl TextMeasurer for VelloTextMeasurer {
             }
         }
 
+        let (width, height) = Self::layout_measured_size(&layout);
         RichTextLayoutInfo {
-            width: layout.width(),
-            height: layout.height(),
+            width,
+            height,
             inline_boxes,
         }
     }
@@ -929,5 +942,49 @@ impl TextMeasurer for VelloTextMeasurer {
         }
 
         (0.0, 0.0)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use fission_ir::op::{Color, FontStyle, TextStyle};
+    use fission_layout::TextMeasurer;
+
+    fn measurer() -> VelloTextMeasurer {
+        VelloTextMeasurer::new(Arc::new(Mutex::new(FontContext::new())))
+    }
+
+    fn text_run(text: &str, font_size: f32, line_height: f32) -> TextRun {
+        TextRun {
+            text: text.to_string(),
+            style: TextStyle {
+                font_size,
+                color: Color::BLACK,
+                underline: false,
+                font_family: None,
+                locale: None,
+                font_weight: 800,
+                font_style: FontStyle::Normal,
+                line_height: Some(line_height),
+                letter_spacing: 0.0,
+                background_color: None,
+            },
+        }
+    }
+
+    #[test]
+    fn rich_text_measurement_height_tracks_wrapped_lines() {
+        let measurer = measurer();
+        let runs = vec![text_run("Capability-driven field service", 22.0, 28.0)];
+
+        let (_, one_line_height) = measurer.measure_rich_text(&runs, None);
+        let (wrapped_width, wrapped_height) = measurer.measure_rich_text(&runs, Some(170.0));
+
+        assert!(wrapped_width <= 170.5);
+        assert!(
+            wrapped_height > one_line_height * 1.5,
+            "wrapped text should report multi-line height; one_line={one_line_height}, wrapped={wrapped_height}"
+        );
     }
 }
