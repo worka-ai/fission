@@ -559,6 +559,59 @@ fn create_render_state<'w>(
 }
 
 #[cfg(not(target_arch = "wasm32"))]
+fn present_startup_clear_frame(
+    render_state: &mut RenderState<'_>,
+    render_cx: &RenderContext,
+    clear_color: wgpu::Color,
+) -> anyhow::Result<()> {
+    let surface_texture = render_state
+        .surface
+        .surface
+        .get_current_texture()
+        .map_err(|error| anyhow::anyhow!("failed to get startup surface texture: {error}"))?;
+    let target_view = surface_texture
+        .texture
+        .create_view(&wgpu::TextureViewDescriptor::default());
+    let device_handle = &render_cx.devices[render_state.surface.dev_id];
+    let mut encoder =
+        device_handle
+            .device
+            .create_command_encoder(&wgpu::CommandEncoderDescriptor {
+                label: Some("Fission startup clear encoder"),
+            });
+    {
+        let _pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+            label: Some("Fission startup clear pass"),
+            color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                view: &target_view,
+                resolve_target: None,
+                depth_slice: None,
+                ops: wgpu::Operations {
+                    load: wgpu::LoadOp::Clear(clear_color),
+                    store: wgpu::StoreOp::Store,
+                },
+            })],
+            depth_stencil_attachment: None,
+            timestamp_writes: None,
+            occlusion_query_set: None,
+        });
+    }
+    device_handle.queue.submit(Some(encoder.finish()));
+    surface_texture.present();
+    Ok(())
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+fn theme_background_wgpu_color(env: &Env) -> wgpu::Color {
+    wgpu::Color {
+        r: f64::from(env.theme.tokens.colors.background.r) / 255.0,
+        g: f64::from(env.theme.tokens.colors.background.g) / 255.0,
+        b: f64::from(env.theme.tokens.colors.background.b) / 255.0,
+        a: f64::from(env.theme.tokens.colors.background.a) / 255.0,
+    }
+}
+
+#[cfg(not(target_arch = "wasm32"))]
 fn native_renderer_request() -> RendererRequest {
     let request = RendererRequest::from_env();
     let force_cpu_vello = std::env::var("FISSION_VELLO_USE_CPU")
@@ -4107,6 +4160,33 @@ impl<S: AppState + Default, W: Widget<S> + 'static> WinitApp<S, W> {
                         #[cfg(target_os = "android")]
                         {
                             window_viewport = Some(current_viewport);
+                        }
+                        #[cfg(not(target_arch = "wasm32"))]
+                        if render_state.is_none()
+                            && current_viewport.physical_size.width > 0
+                            && current_viewport.physical_size.height > 0
+                        {
+                            if let Some(render_window) = platform_window.active_window_arc() {
+                                match create_render_state(
+                                    &mut render_cx,
+                                    render_window,
+                                    current_viewport,
+                                ) {
+                                    Ok(mut state) => {
+                                        if let Err(err) = present_startup_clear_frame(
+                                            &mut state,
+                                            &render_cx,
+                                            theme_background_wgpu_color(&env),
+                                        ) {
+                                            eprintln!("startup clear frame failed: {err}");
+                                        }
+                                        render_state = Some(state);
+                                    }
+                                    Err(err) => {
+                                        eprintln!("render surface not ready on resume: {err}");
+                                    }
+                                }
+                            }
                         }
                         pending_resize = Some(current_viewport);
                         resize_needs_settled_frame = true;

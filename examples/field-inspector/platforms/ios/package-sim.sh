@@ -55,5 +55,32 @@ with open(dest, "wb") as handle:
     plistlib.dump(plist, handle, sort_keys=False)
 PY
 cp "$PROJECT_DIR/assets/app-icon.png" "$BUNDLE_DIR/AppIcon.png"
+shopt -s nullglob
+SPLASH_IMAGES=("$SCRIPT_DIR"/SplashImage.*)
+if (( ${#SPLASH_IMAGES[@]} == 0 )); then
+  cp "$PROJECT_DIR/assets/app-icon.png" "$BUNDLE_DIR/SplashImage.png"
+else
+  for splash_image in "${SPLASH_IMAGES[@]}"; do
+    cp "$splash_image" "$BUNDLE_DIR/"
+  done
+fi
+shopt -u nullglob
+if [[ -f "$SCRIPT_DIR/LaunchScreen.storyboard" ]]; then
+  IBTOOL=$(xcrun --find ibtool 2>/dev/null || true)
+  if [[ -z "$IBTOOL" ]]; then
+    printf 'ibtool not found. Install Xcode command line tools to compile the iOS launch screen storyboard.\n' >&2
+    exit 1
+  fi
+  "$IBTOOL" \
+    --errors \
+    --warnings \
+    --notices \
+    --target-device iphone \
+    --target-device ipad \
+    --minimum-deployment-target 18.0 \
+    --output-format human-readable-text \
+    --compile "$BUNDLE_DIR/LaunchScreen.storyboardc" \
+    "$SCRIPT_DIR/LaunchScreen.storyboard"
+fi
 printf 'APPL????' > "$BUNDLE_DIR/PkgInfo"
 printf '%s\n' "$BUNDLE_DIR"
