@@ -1790,6 +1790,7 @@ mod tests {
             app: fission_command_core::AppConfig {
                 name: "field-inspector".into(),
                 app_id: "com.fission.examples.fieldinspector".into(),
+                splash: None,
             },
             targets: BTreeSet::new(),
             capabilities: BTreeSet::new(),

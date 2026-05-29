@@ -1992,6 +1992,7 @@ mod tests {
             app: AppConfig {
                 name: "demo".to_string(),
                 app_id: "com.example.demo".to_string(),
+                splash: None,
             },
             targets: BTreeSet::from([Target::Macos]),
             capabilities: BTreeSet::from([
