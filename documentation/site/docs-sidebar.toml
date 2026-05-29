@@ -228,6 +228,11 @@ href = "/docs/guides/server-site-caching-jobs-actions/"
 level = 3
 
 [[items]]
+title = "Server security"
+href = "/docs/guides/server-site-security/"
+level = 3
+
+[[items]]
 title = "Workers and islands"
 href = "/docs/guides/server-site-workers-islands/"
 level = 3

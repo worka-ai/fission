@@ -1,15 +1,47 @@
 ---
 title: Server caching, jobs, and actions
-description: Use server-side jobs, cache policies, revalidation, and signed actions in Fission server-rendered apps.
+description: Use server-side jobs, cache policies, revalidation, sessions, and signed actions in Fission server-rendered apps.
 ---
 
 # Server caching, jobs, and actions
 
-Server-rendered Fission routes need a clear data story. A page may be static for a while, dynamic per request, or dynamic per user. Fission keeps those decisions explicit through route modes, cache configuration, jobs, and signed action dispatch.
+Server-rendered Fission routes need a clear data story. A page may be public and reusable, public but rebuilt after a short time, or private to one browser session. Fission keeps those decisions explicit through route modes, cache configuration, jobs, and signed action dispatch.
 
-## 1. Configure the cache provider
+## 1. Choose what may be reused
 
-The default in-memory cache is Moka. It is appropriate for local development, small deployments, and single-process services.
+Start by deciding whether the complete HTML response can be shared between users.
+
+Use `ServerPrivate` for pages that contain a cart, account panel, preferences, permissions, or any other session-specific data:
+
+```rust
+.route_widget_with_state::<StoreState, _, _>(
+    "/",
+    "Pokemon Card Store",
+    Some("A server-rendered storefront.".to_string()),
+    WebRouteMode::ServerPrivate(ServerPrivatePolicy::default()),
+    StoreHomePage,
+    |ctx| Ok(StoreState::for_session(ctx.session.id())),
+)
+```
+
+The session id is opaque. It is safe to use as a key into your own cart service, database session table, or cache entry, but it should not contain user data itself.
+
+Use `Revalidated` when the full page is public and can be reused for a period:
+
+```rust
+WebRouteMode::Revalidated(
+    RevalidationPolicy::new(Duration::from_secs(300))
+        .stale_while_revalidate(Duration::from_secs(60))
+        .tag("catalog")
+        .vary("accept-language"),
+)
+```
+
+Fission includes the normalized query string, app identity, locale, theme fingerprint, build id, and declared `vary` headers in the revalidated page cache key. It does not implicitly vary on every cookie or header, because that would create accidental cache explosion. If a header changes the rendered public page, declare it with `vary`; if a cookie changes the rendered page, make the route private instead.
+
+## 2. Configure the cache provider
+
+The default cache is an in-process Moka cache. It is appropriate for local development, single-process services, and simple deployments.
 
 ```toml
 [server.cache]
@@ -19,27 +51,50 @@ ttl = "5m"
 stale_while_revalidate = "1m"
 ```
 
-The cache trait is intentionally separate from the provider. That lets a project use Redis or a layered cache later without changing page widgets. A common production shape is an in-memory layer for hot entries and a shared network cache for cross-instance reuse.
+For multi-process deployments, use Redis or a pipeline. The Redis URL should normally come from an environment variable rather than `fission.toml`.
 
-## 2. Pick a route mode
+```toml
+[server.cache]
+provider = "pipeline"
 
-Use a revalidated route when the page can be reused for a period, then rebuilt after its time-to-live expires.
+[[server.cache.layers]]
+name = "hot"
+provider = "moka"
+policy = "hot-only"
+max_capacity = 2048
 
-```rust
-WebRouteMode::Revalidated(
-    RevalidationPolicy::new(Duration::from_secs(300))
-        .stale_while_revalidate(Duration::from_secs(60))
-        .tags(["catalog", "pokemon-cards"]),
-)
+[[server.cache.layers]]
+name = "shared"
+provider = "redis"
+policy = "write-through"
+url_env = "REDIS_URL"
+prefix = "pokemon-store"
 ```
 
-The route can be served from cache while it is fresh. After the TTL, the server can rebuild it without recompiling or redeploying the application. Tags let product events invalidate related routes, such as invalidating `catalog` pages after a product import.
+Enable Redis through the facade feature in the server app's `Cargo.toml`:
 
-Use fully dynamic routes for pages that depend on the current user, request headers, private account data, or a session-specific cart. Use static-site output for pages that never need request-time data.
+```toml
+[dependencies]
+fission = { version = "0.2", features = ["server", "server-redis"] }
+```
 
-## 3. Drain jobs before returning HTML
+## 3. Configure sessions before using private routes
 
-Jobs are server-owned work units that produce data needed by a route. The Pokémon example registers a catalog job:
+`ServerPrivate` routes use a cookie-backed session id. For production HTTPS deployments, sign the cookie value and mark it secure.
+
+```toml
+[server.sessions]
+cookie_name = "shop_session"
+signing_key_env = "SHOP_SESSION_SECRET"
+secure = true
+same_site = "lax"
+```
+
+`signing_key_env` names an environment variable containing the secret. If the cookie value is tampered with, Fission rejects it and creates a new session. The cookie is always `HttpOnly`; `same_site = "none"` is accepted only with `secure = true`.
+
+## 4. Drain jobs before returning HTML
+
+Jobs are server-owned work units that produce data needed by a route. The Pokémon store registers a catalog job:
 
 ```rust
 ServerJobRegistry::new().register_job(CATALOG_JOB, |_request, _ctx| {
@@ -47,34 +102,71 @@ ServerJobRegistry::new().register_job(CATALOG_JOB, |_request, _ctx| {
 })
 ```
 
-A `FutureBuilder` or resource-like widget can request that job during the render pass. The server shell drains the registered job, stores the result in the render context, and renders the final HTML with the data already present.
+A widget requests the job during rendering:
 
-Use jobs for data fetching, product catalogs, recommendations, inventory summaries, user-specific account panels, and other work that should happen on the server before the page is sent.
+```rust
+let catalog = FutureBuilder::new(
+    ResourceKey::new("pokemon-card-store.catalog"),
+    CATALOG_JOB,
+    CatalogRequest { generation: 1 },
+    view.state.catalog.clone(),
+    |ctx, view, snapshot| CardGrid { snapshot: snapshot.clone() }.build(ctx, view),
+)
+.on_ok(with_reducer!(ctx, CatalogLoaded, on_catalog_loaded))
+.on_err(with_reducer!(ctx, CatalogFailed, on_catalog_failed))
+.build(ctx, view);
+```
 
-## 4. Use signed action dispatch for mutations
+During server rendering, Fission drains registered blocking jobs, dispatches the configured success or error reducer, and renders again until the page settles or `render_pass_limit` is reached. Missing jobs fail the render instead of producing an empty page.
 
-Server actions are HTTP-triggered reducer dispatches. They must be signed because the server is accepting an external request and translating it into application state changes.
+## 5. Use signed action dispatch for mutations
+
+Server actions are HTTP-triggered reducer dispatches. They are signed because the server is accepting an external request and translating it into application state changes.
 
 The safe model is:
 
-1. render a form or control with an action identity;
-2. include a signed token scoped to the route, action, expiry, and intended payload shape;
-3. accept the HTTP request only if the signature, expiry, and payload size pass validation;
+1. render a button or form with a typed Fission action;
+2. let the server renderer emit a signed action token scoped to the route, target node, payload, expiry, and nonce;
+3. accept the HTTP request only if the body size, origin policy, signature, expiry, and replay checks pass;
 4. run the reducer on the server;
-5. return a redirect, updated HTML, or a focused response for the enhanced client.
+5. return either a post/redirect/get response for normal forms or an HTML response for explicit JSON/fetch enhancement.
 
-Do not expose arbitrary Rust functions as HTTP actions. Keep actions narrow and typed. Use the same reducer discipline you would use in the app: a small action describes what happened, and the reducer updates state.
+A typical reducer remains ordinary Fission code:
 
-## 5. Test the threat model
+```rust
+#[fission_reducer(AddToCart)]
+pub fn on_add_to_cart(state: &mut StoreState, slug: String) {
+    if data::card_by_slug(&slug).is_some() {
+        state.cart_items = cart_service().add_item(&state.session_id, &slug).items;
+    }
+}
+```
 
-Server routes should have tests for more than happy-path rendering. Cover these cases:
+Do not expose arbitrary Rust functions as HTTP actions. Keep actions narrow and typed. A small action describes what happened; a reducer updates state and can request any follow-up work through jobs or services.
+
+## 6. Keep cached pages and actions separate
+
+Do not cache a full page that contains signed server action forms. The action token is request-specific and short lived; putting it into a public revalidated cache would either replay the same token for different users or leave users with expired controls. Fission rejects that combination.
+
+If a catalogue page needs public revalidation and cart controls, use one of these shapes:
+
+| Shape | When to use it |
+| --- | --- |
+| Keep the page `ServerPrivate` | The page is simple and the cart summary is part of the main response. |
+| Split routes | The catalogue is public and the cart lives on a private route or drawer endpoint. |
+| Use a focused island | The main catalogue is reusable and a small Fission WASM island owns cart interaction. |
+
+## 7. Test the threat model
+
+Server routes should have tests for more than happy-path rendering.
 
 | Test area | What to verify |
 | --- | --- |
-| Cache expiry | Fresh entries are reused, stale entries can be rebuilt, and invalidation tags clear the right routes |
-| Job draining | Missing jobs fail clearly and registered jobs produce the expected page data |
-| Action signatures | Unsigned, expired, tampered, oversized, or wrong-route requests are rejected |
-| Private data | User-specific data is not cached under a public key |
-| Generated artifacts | Worker and island artifact declarations produce the expected output paths |
+| Cache expiry | Fresh entries are reused, stale entries can be rebuilt, and invalidation tags clear the right routes. |
+| Cache keys | Query order is normalized and declared vary headers create distinct entries. |
+| Job draining | Missing jobs fail clearly and registered jobs produce the expected page data. |
+| Action signatures | Unsigned, expired, tampered, oversized, wrong-origin, and replayed requests are rejected. |
+| Private data | User-specific data is not cached under a public key. |
+| Generated artifacts | Worker and island artifact declarations produce the expected output paths and are served by the server. |
 
-The server shell has unit and integration tests for the protocol pieces. Your app tests should add product-specific assertions for the data and reducers you own.
+The server shell has unit and integration tests for these protocol pieces. Your app tests should add product-specific assertions for the data, reducers, and service calls you own.

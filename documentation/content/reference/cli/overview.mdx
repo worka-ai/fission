@@ -47,6 +47,7 @@ Fission exposes these public command-line interface entry points:
 | `fission site check` | Renders all static site routes and validates links without writing the final site | In pull-request validation for site content |
 | `fission site build` | Builds the static site into the configured output directory | Before publishing documentation or marketing pages |
 | `fission site serve` | Builds and serves the generated static site locally | When reviewing site pages in a browser |
+| `fission server build` | Builds the server binary and route-local browser artifacts | Before packaging or deploying a server-rendered app |
 | `fission server check` | Renders all server routes and verifies the server app can produce HTML | Before deploying server-rendered routes |
 | `fission server serve` | Runs the server-rendered app locally | When reviewing dynamic pages, jobs, workers, and islands |
 | `fission server artifacts` | Generates per-worker and per-island browser artifacts | Before packaging server pages with browser enhancements |
@@ -347,7 +348,15 @@ Builds the static site and serves the generated output with a local static file 
 fission server check [--project-dir <dir>] [--release]
 ```
 
-Runs the configured `[server].entry`, renders every declared server route, and fails if the route cannot produce HTML.
+Builds route-local browser artifacts, runs the configured `[server].entry`, renders every declared server route, and fails if the route cannot produce HTML or a worker/island artifact cannot be generated.
+
+### `fission server build`
+
+```sh
+fission server build [--project-dir <dir>] [--release]
+```
+
+Builds the server app and the route-local browser artifacts declared by its workers and islands. Use this command when you want the same pre-deployment build that `fission build --target server` performs: first the worker/island WASM shims are generated and compiled, then the server binary is compiled.
 
 ### `fission server serve`
 
@@ -355,7 +364,7 @@ Runs the configured `[server].entry`, renders every declared server route, and f
 fission server serve [--project-dir <dir>] [--host <host>] [--port <port>] [--release]
 ```
 
-Runs the server-rendered app locally. The default port is `8124`.
+Builds route-local browser artifacts, then runs the server-rendered app locally. The default port is `8124`.
 
 ### `fission server artifacts`
 

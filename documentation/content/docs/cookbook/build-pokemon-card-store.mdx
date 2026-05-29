@@ -6,7 +6,7 @@ description: Recreate the Pokémon Card Store example with server routes, cache 
 
 # Build a server-rendered store
 
-This cookbook recreates the structure of the Pokémon Card Store example. The goal is a server-rendered ecommerce page: HTML is produced on the server, product data is loaded through a job, the page is cacheable with a TTL, filters use a progressive worker, and the cart uses a focused WASM island.
+This cookbook recreates the structure of the Pokémon Card Store example. The goal is a server-rendered ecommerce page: HTML is produced on the server, product data is loaded through a job, the server cart is keyed by a private session, filters use a progressive worker, and the cart drawer demonstrates a focused Fission WASM island.
 
 ## 1. Configure the server target
 
@@ -19,14 +19,12 @@ app_id = "ai.worka.fission.examples.pokemon-card-store"
 
 [server]
 entry = "pokemon_card_store::pokemon_card_store_server"
-default_route_mode = "revalidated"
+default_route_mode = "server_private"
 render_pass_limit = 4
 
 [server.cache]
 provider = "moka"
 max_capacity = 10000
-ttl = "5m"
-stale_while_revalidate = "1m"
 
 [server.workers]
 separate_artifacts = true
@@ -37,7 +35,7 @@ separate_artifacts = true
 preload = "route"
 ```
 
-The cache settings say that generated pages can be held in memory and revalidated. The worker and island settings say browser artifacts should be generated separately rather than bundled into one large file.
+The route mode says the storefront is rendered per session, which is the right default for a cart. The worker and island settings say browser artifacts should be generated separately rather than bundled into one large file. Before production, add `[server.sessions]` with a signed cookie secret as described in [Server security](/docs/guides/server-site-security/).
 
 ## 2. Model the data
 
