@@ -917,10 +917,10 @@ impl TextInput {
     ) -> NodeId {
         let controls = &self.selection_controls;
         let diameter = controls.handle_radius * 2.0;
-        let handle_node = Button {
+        let handle_node = Button::<Node> {
             id: Some(text_input_selection_handle_id(input_id, kind)),
             child: Some(Box::new(
-                Container::new(
+                Container::<Node>::lowered(
                     Spacer {
                         width: Some(diameter),
                         height: Some(diameter),
@@ -950,7 +950,7 @@ impl TextInput {
         }
         .into_node();
 
-        Positioned {
+        Positioned::<Node> {
             left: Some((point.x - controls.handle_radius).max(0.0)),
             top: Some((point.y - controls.handle_radius).max(0.0)),
             width: Some(diameter),
@@ -968,10 +968,10 @@ impl TextInput {
         anchor: fission_layout::LayoutPoint,
     ) -> NodeId {
         let tokens = &cx.env.theme.tokens;
-        let mut row = Row::default().gap(self.context_menu.gap);
+        let mut row = Row::<Node>::default().gap(self.context_menu.gap);
         for action in &self.context_menu.actions {
             row.children.push(
-                Button {
+                Button::<Node> {
                     id: Some(text_input_toolbar_button_id(input_id, *action)),
                     child: Some(Box::new(
                         Text::new(action.label())
@@ -988,14 +988,14 @@ impl TextInput {
             );
         }
 
-        let toolbar = Container::new(row.into_node())
+        let toolbar = Container::<Node>::lowered(row.into_node())
             .bg_fill(Fill::Solid(tokens.colors.surface))
             .border(tokens.colors.border, 1.0)
             .border_radius(self.context_menu.border_radius)
             .padding(self.context_menu.padding)
             .into_node();
 
-        Positioned {
+        Positioned::<Node> {
             left: Some(anchor.x.max(0.0)),
             top: Some((anchor.y - 44.0).max(0.0)),
             child: Some(Box::new(toolbar)),
@@ -1056,7 +1056,7 @@ impl TextInput {
             .letter_spacing(base_text_style.letter_spacing * cfg.scale)
             .into_node();
 
-        let magnifier = Container::new(preview_text)
+        let magnifier = Container::<Node>::lowered(preview_text)
             .width(cfg.diameter)
             .height(cfg.diameter)
             .bg_fill(Fill::Solid(tokens.colors.surface))
@@ -1068,7 +1068,7 @@ impl TextInput {
             .padding_all(8.0)
             .into_node();
 
-        Positioned {
+        Positioned::<Node> {
             left: Some((anchor.x - cfg.diameter * 0.5).max(0.0)),
             top: Some((anchor.y - cfg.diameter - 18.0).max(0.0)),
             width: Some(cfg.diameter),
@@ -1728,7 +1728,7 @@ impl Lower for TextInput {
                 column.add_child(final_visual_id);
 
                 if supporting_text.is_some() || counter_text.is_some() {
-                    let mut row = Row::default().gap(8.0);
+                    let mut row = Row::<Node>::default().gap(8.0);
                     if let Some(supporting_text) = supporting_text {
                         row.children.push(
                             Text::new(supporting_text)

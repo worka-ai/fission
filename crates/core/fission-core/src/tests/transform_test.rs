@@ -3,6 +3,7 @@ use crate::lowering::LoweringContext;
 use crate::ui::traits::Lower;
 use crate::ui::widgets::container::Container;
 use crate::ui::widgets::transform::Transform;
+use crate::ui::Node;
 use fission_ir::{LayoutOp, Op};
 
 #[test]
@@ -17,7 +18,7 @@ fn test_transform_lowering() {
 
     let transform = Transform {
         transform: matrix,
-        child: Box::new(Container::default().into_node()),
+        child: Box::new(Container::<Node>::default().into_node()),
         ..Default::default()
     };
 

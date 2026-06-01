@@ -1,7 +1,10 @@
 use crate::lowering::{LoweringContext, NodeBuilder};
 use crate::ui::traits::Lower;
 use crate::ui::Node;
-use crate::{ActionEnvelope, Env, InteractionStateMap};
+use crate::{
+    ActionEnvelope, AnyWidget, AppState, BuildCtx, Env, InteractionStateMap, IntoWidget, View,
+    Widget,
+};
 use fission_ir::{
     op::{BoxShadow, Color as IrColor, Fill, LayoutOp, Op, PaintOp, Stroke},
     ActionEntry, ActionSet, NodeId, Role, Semantics,
@@ -83,28 +86,14 @@ pub enum ButtonContentAlign {
 /// A pressable button widget with built-in theming, hover/press states, and
 /// focus ring.
 ///
-/// Buttons come in three visual [`ButtonVariant`]s (Filled, Outline, Ghost)
-/// and support flexible content alignment via [`ButtonContentAlign`].
-///
-/// # Example
-///
-/// ```rust,ignore
-/// let on_press = ctx.bind(Submit, reduce_with!(handle_submit));
-///
-/// Button {
-///     child: Some(Box::new(Text::new("Submit").into_node())),
-///     on_press: Some(on_press),
-///     variant: ButtonVariant::Filled,
-///     content_align: ButtonContentAlign::Center,
-///     ..Default::default()
-/// }
-/// ```
+/// Buttons accept any Fission widget as their child. Use [`Button::new`] for
+/// normal authoring instead of constructing internal nodes manually.
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct Button {
+pub struct Button<Child = Node> {
     /// Explicit node identity (auto-generated if `None`).
     pub id: Option<NodeId>,
     /// The button's content widget (typically [`Text`] or [`Icon`]).
-    pub child: Option<Box<Node>>,
+    pub child: Option<Box<Child>>,
     /// Action dispatched when the button is pressed.
     pub on_press: Option<ActionEnvelope>,
     /// Custom semantics (overrides the default button semantics).
@@ -125,24 +114,71 @@ pub struct Button {
     pub padding: Option<[f32; 4]>,
     /// Style overrides (reserved for future use).
     pub style: Option<ButtonStyleOverride>,
-    /// Visual variant (Filled, Outline, or Ghost).
+    /// Visual variant.
     pub variant: ButtonVariant,
     /// Design-system size slot.
-    #[serde(default)]
     pub size: ComponentSize,
     /// Optional fill override for the button background.
     pub background_fill: Option<Fill>,
     /// Optional text color override for direct `Text` children.
     pub text_color: Option<IrColor>,
     /// Horizontal alignment of the child content.
-    #[serde(default)]
     pub content_align: ButtonContentAlign,
     /// When `true`, the button is greyed out and its `on_press` action is not
     /// attached.
     pub disabled: bool,
 }
 
-impl Button {
+impl<Child> Default for Button<Child> {
+    fn default() -> Self {
+        Self {
+            id: None,
+            child: None,
+            on_press: None,
+            semantics: None,
+            width: None,
+            height: None,
+            min_width: None,
+            max_width: None,
+            flex_grow: 0.0,
+            flex_shrink: 1.0,
+            padding: None,
+            style: None,
+            variant: ButtonVariant::Filled,
+            size: ComponentSize::Md,
+            background_fill: None,
+            text_color: None,
+            content_align: ButtonContentAlign::Center,
+            disabled: false,
+        }
+    }
+}
+
+impl<S: AppState> Button<AnyWidget<S>> {
+    pub fn new(child: impl IntoWidget<S>) -> Self {
+        Self {
+            child: Some(Box::new(child.into_widget())),
+            ..Default::default()
+        }
+    }
+
+    pub fn child(mut self, child: impl IntoWidget<S>) -> Self {
+        self.child = Some(Box::new(child.into_widget()));
+        self
+    }
+}
+
+impl<Child> Button<Child> {
+    pub fn id(mut self, id: NodeId) -> Self {
+        self.id = Some(id);
+        self
+    }
+
+    pub fn on_press(mut self, action: ActionEnvelope) -> Self {
+        self.on_press = Some(action);
+        self
+    }
+
     pub fn background_fill(mut self, fill: Fill) -> Self {
         self.background_fill = Some(fill);
         self
@@ -173,33 +209,65 @@ impl Button {
         self
     }
 
-    pub fn into_node(self) -> crate::ui::Node {
-        crate::ui::Node::Button(self)
+    pub fn width(mut self, width: f32) -> Self {
+        self.width = Some(width);
+        self
+    }
+
+    pub fn height(mut self, height: f32) -> Self {
+        self.height = Some(height);
+        self
+    }
+
+    pub fn variant(mut self, variant: ButtonVariant) -> Self {
+        self.variant = variant;
+        self
+    }
+
+    pub fn content_align(mut self, align: ButtonContentAlign) -> Self {
+        self.content_align = align;
+        self
+    }
+
+    pub fn padding(mut self, padding: [f32; 4]) -> Self {
+        self.padding = Some(padding);
+        self
     }
 }
 
-impl Default for Button {
-    fn default() -> Self {
-        Self {
-            id: None,
-            child: None,
-            on_press: None,
-            semantics: None,
-            width: None,
-            height: None,
-            min_width: None,
-            max_width: None,
-            flex_grow: 0.0,
-            flex_shrink: 1.0,
-            padding: None,
-            style: None,
-            variant: ButtonVariant::Filled,
-            size: ComponentSize::Md,
-            background_fill: None,
-            text_color: None,
-            content_align: ButtonContentAlign::Center,
-            disabled: false,
-        }
+impl Button<Node> {
+    #[doc(hidden)]
+    pub fn into_node(self) -> Node {
+        Node::Button(self)
+    }
+}
+
+impl<S: AppState> Widget<S> for Button<AnyWidget<S>> {
+    fn build(&self, ctx: &mut BuildCtx<S>, view: &View<S>) -> impl IntoWidget<S> {
+        crate::view::internal_node_widget(Node::Button(Button {
+            id: self.id,
+            child: self
+                .child
+                .as_ref()
+                .map(|child| child.lower_to_node(ctx, view))
+                .map(Box::new),
+            on_press: self.on_press.clone(),
+            semantics: self.semantics.clone(),
+            width: self.width,
+            height: self.height,
+            min_width: self.min_width,
+            max_width: self.max_width,
+            flex_grow: self.flex_grow,
+            flex_shrink: self.flex_shrink,
+            padding: self.padding,
+            style: self.style.clone(),
+            variant: self.variant,
+            size: self.size,
+            background_fill: self.background_fill.clone(),
+            text_color: self.text_color,
+            content_align: self.content_align,
+            disabled: self.disabled,
+        }))
     }
 }
 
@@ -221,7 +289,7 @@ struct ButtonStyleResolved {
     line_height: Option<f32>,
 }
 
-impl Button {
+impl Button<Node> {
     fn resolve_style(
         &self,
         env: &Env,
@@ -338,7 +406,7 @@ impl Button {
     }
 }
 
-impl Lower for Button {
+impl Lower for Button<Node> {
     fn lower(&self, cx: &mut LoweringContext) -> NodeId {
         let semantics_op = self.build_semantics();
         let outermost_id = self.id.unwrap_or_else(|| cx.next_node_id());

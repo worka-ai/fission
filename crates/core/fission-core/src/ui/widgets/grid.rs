@@ -109,7 +109,7 @@ impl Default for GridItem {
         Self {
             id: None,
             // Default child: empty Row
-            child: Box::new(Node::Row(crate::ui::Row::default())),
+            child: Box::new(Node::Row(crate::ui::Row::<Node>::default())),
             row_start: GridPlacement::Auto,
             row_end: GridPlacement::Auto,
             col_start: GridPlacement::Auto,

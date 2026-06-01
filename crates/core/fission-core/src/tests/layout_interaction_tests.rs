@@ -32,12 +32,12 @@ fn test_overlay_backdrop_hit_geometry() {
     let runtime_state = RuntimeState::default();
     
     // Backdrop: Fills parent
-    let backdrop = crate::ui::Container::default()
+    let backdrop = crate::ui::Container::<Node>::default()
         .bg(fission_core::op::Color::BLACK)
         .into_node();
         
     // Modal Card: Centered, small
-    let card = crate::ui::Container::default()
+    let card = crate::ui::Container::<Node>::default()
         .width(100.0)
         .height(100.0)
         .bg(fission_core::op::Color::WHITE)
@@ -67,11 +67,11 @@ fn test_overlay_backdrop_hit_geometry() {
         render_object: None,
     });
 
-    let root = crate::ui::Container::new(
+    let root = crate::ui::Container::<Node>::lowered(
                         crate::ui::Row::default()
                             .flex_grow(1.0)
                             .children(vec![
-                                crate::ui::Container::new(absolute_zstack)
+                                crate::ui::Container::<Node>::lowered(absolute_zstack)
                                 .flex_grow(1.0)
                                 .into_node()
                             ])

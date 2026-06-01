@@ -45,12 +45,16 @@ fn test_hero_text_layout_height() {
     });
 
     // VStack
-    let vstack = crate::ui::Column::default()
-        .children(vec![hero, crate::ui::Text::new("Preview").into_node()])
-        .into_node();
+    let vstack = crate::ui::Column::<Node> {
+        children: vec![hero, crate::ui::Text::new("Preview").into_node()],
+        ..Default::default()
+    }
+    .into_node();
 
     // Root Container (Constraint 100px width)
-    let root = crate::ui::Container::new(vstack).width(100.0).into_node();
+    let root = crate::ui::Container::<Node>::lowered(vstack)
+        .width(100.0)
+        .into_node();
 
     let root_id = root.lower(&mut cx);
     cx.ir.root = Some(root_id);

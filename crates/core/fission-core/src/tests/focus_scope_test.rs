@@ -4,6 +4,7 @@ use crate::lowering::LoweringContext;
 use crate::ui::traits::Lower;
 use crate::ui::widgets::button::Button;
 use crate::ui::widgets::focus_scope::FocusScope;
+use crate::ui::Node;
 use fission_ir::{CoreIR, NodeId, Op};
 
 #[test]
@@ -24,19 +25,19 @@ fn test_focus_scope_traversal() {
         payload: vec![],
     };
 
-    let b1 = Button {
+    let b1 = Button::<Node> {
         on_press: Some(action.clone()),
         ..Default::default()
     };
-    let b2 = Button {
+    let b2 = Button::<Node> {
         on_press: Some(action.clone()),
         ..Default::default()
     };
-    let b3 = Button {
+    let b3 = Button::<Node> {
         on_press: Some(action.clone()),
         ..Default::default()
     };
-    let b4 = Button {
+    let b4 = Button::<Node> {
         on_press: Some(action.clone()),
         ..Default::default()
     };
@@ -47,7 +48,7 @@ fn test_focus_scope_traversal() {
         ..Default::default()
     };
 
-    let root = crate::ui::widgets::column::Column {
+    let root = crate::ui::widgets::column::Column::<Node> {
         children: vec![b1.into_node(), scope.into_node(), b4.into_node()],
         ..Default::default()
     };

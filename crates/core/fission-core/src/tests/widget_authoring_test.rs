@@ -1,3 +1,4 @@
+use crate::view::lower_widget_to_node;
 use crate::{
     ui::{Node, Text, TextContent},
     AnyWidget, AppState, BuildCtx, Env, IntoWidget, RuntimeState, View, Widget,
@@ -36,7 +37,7 @@ fn widget_build_can_return_another_widget_without_exposing_node() {
     let view = View::new(&state, &runtime, &env, None);
     let mut ctx = BuildCtx::new();
 
-    let node = LabelHost.build_node(&mut ctx, &view);
+    let node = lower_widget_to_node(&LabelHost, &mut ctx, &view);
 
     match node {
         Node::Text(text) => assert_eq!(text.content, TextContent::Literal("Fission".into())),
@@ -55,7 +56,7 @@ fn any_widget_erases_heterogeneous_widget_storage_at_the_framework_boundary() {
     let mut ctx = BuildCtx::new();
     let stored = AnyWidget::new(LabelText);
 
-    let node = stored.build_node(&mut ctx, &view);
+    let node = stored.lower_to_node(&mut ctx, &view);
 
     match node {
         Node::Text(text) => assert_eq!(text.content, TextContent::Literal("Stored".into())),

@@ -65,7 +65,7 @@ struct ActiveResource {
 /// 2. runtime.add_app_state(Box::new(MyState::default()))?;
 /// 3. loop {
 ///        let mut ctx = BuildCtx::new();
-///        let tree = my_widget.build_node(&mut ctx, &view);
+///        let tree = fission_core::view::lower_widget_to_node(&my_widget, &mut ctx, &view);
 ///        runtime.clear_reducers();
 ///        runtime.absorb_registry(ctx.registry);
 ///        // lower tree -> IR -> layout -> render

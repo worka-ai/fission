@@ -1,6 +1,7 @@
 use crate::lowering::{LoweringContext, NodeBuilder};
 use crate::ui::traits::Lower;
 use crate::ui::Node;
+use crate::{AnyWidget, AppState, BuildCtx, IntoWidget, View, Widget};
 use fission_ir::{
     op::{LayoutOp, Op},
     NodeId,
@@ -8,58 +9,111 @@ use fission_ir::{
 use serde::{Deserialize, Serialize};
 
 /// Absolutely positions a child within a [`ZStack`](super::ZStack).
-///
-/// Specify one or more edge offsets (`left`, `top`, `right`, `bottom`) and
-/// optional explicit `width`/`height`. Omitting both horizontal offsets (or
-/// both vertical offsets) leaves the child unconstrained on that axis.
-///
-/// # Example
-///
-/// ```rust,ignore
-/// // Pin a badge to the top-right corner
-/// Positioned {
-///     top: Some(8.0),
-///     right: Some(8.0),
-///     child: Some(Box::new(badge_widget)),
-///     ..Default::default()
-/// }
-/// ```
-#[derive(Debug, Default, Clone, Serialize, Deserialize)]
-pub struct Positioned {
-    /// Explicit node identity.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Positioned<Child = Node> {
     pub id: Option<NodeId>,
-    /// Distance from the left edge of the parent.
     pub left: Option<f32>,
-    /// Distance from the top edge of the parent.
     pub top: Option<f32>,
-    /// Distance from the right edge of the parent.
     pub right: Option<f32>,
-    /// Distance from the bottom edge of the parent.
     pub bottom: Option<f32>,
-    /// Explicit width override.
     pub width: Option<f32>,
-    /// Explicit height override.
     pub height: Option<f32>,
-    /// The child widget to position.
-    pub child: Option<Box<Node>>,
+    pub child: Option<Box<Child>>,
 }
 
-impl Positioned {
+impl<Child> Default for Positioned<Child> {
+    fn default() -> Self {
+        Self {
+            id: None,
+            left: None,
+            top: None,
+            right: None,
+            bottom: None,
+            width: None,
+            height: None,
+            child: None,
+        }
+    }
+}
+
+impl<S: AppState> Positioned<AnyWidget<S>> {
+    pub fn new(child: impl IntoWidget<S>) -> Self {
+        Self {
+            child: Some(Box::new(child.into_widget())),
+            ..Default::default()
+        }
+    }
+
+    pub fn child(mut self, child: impl IntoWidget<S>) -> Self {
+        self.child = Some(Box::new(child.into_widget()));
+        self
+    }
+}
+
+impl<Child> Positioned<Child> {
+    pub fn left(mut self, value: f32) -> Self {
+        self.left = Some(value);
+        self
+    }
+
+    pub fn top(mut self, value: f32) -> Self {
+        self.top = Some(value);
+        self
+    }
+
+    pub fn right(mut self, value: f32) -> Self {
+        self.right = Some(value);
+        self
+    }
+
+    pub fn bottom(mut self, value: f32) -> Self {
+        self.bottom = Some(value);
+        self
+    }
+
+    pub fn width(mut self, value: f32) -> Self {
+        self.width = Some(value);
+        self
+    }
+
+    pub fn height(mut self, value: f32) -> Self {
+        self.height = Some(value);
+        self
+    }
+}
+
+impl Positioned<Node> {
+    #[doc(hidden)]
     pub fn into_node(self) -> Node {
         Node::Positioned(self)
     }
 }
 
-impl Lower for Positioned {
+impl<S: AppState> Widget<S> for Positioned<AnyWidget<S>> {
+    fn build(&self, ctx: &mut BuildCtx<S>, view: &View<S>) -> impl IntoWidget<S> {
+        crate::view::internal_node_widget(Node::Positioned(Positioned {
+            id: self.id,
+            left: self.left,
+            top: self.top,
+            right: self.right,
+            bottom: self.bottom,
+            width: self.width,
+            height: self.height,
+            child: self
+                .child
+                .as_ref()
+                .map(|child| child.lower_to_node(ctx, view))
+                .map(Box::new),
+        }))
+    }
+}
+
+impl Lower for Positioned<Node> {
     fn lower(&self, cx: &mut LoweringContext) -> NodeId {
         let id = self.id.unwrap_or_else(|| cx.next_node_id());
         cx.push_scope(id);
 
-        let child_id = if let Some(child) = &self.child {
-            Some(child.lower(cx))
-        } else {
-            None
-        };
+        let child_id = self.child.as_ref().map(|child| child.lower(cx));
 
         let mut builder = NodeBuilder::new(
             id,

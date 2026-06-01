@@ -1,74 +1,36 @@
 use crate::lowering::{LoweringContext, NodeBuilder};
 use crate::ui::traits::Lower;
 use crate::ui::Node;
+use crate::{AnyWidget, AppState, BuildCtx, IntoWidget, View, Widget};
 use fission_ir::{
     op::{BoxShadow, Color, Fill, LayoutOp, Op, PaintOp, Stroke},
     NodeId,
 };
 use serde::{Deserialize, Serialize};
 
-/// The universal wrapper widget: background fill, border, padding, size
-/// constraints, and box shadow on a single child.
-///
-/// `Container` is the workhorse of layout composition. Use it whenever you
-/// need to add visual decoration or spacing around a child widget.
-///
-/// # Example
-///
-/// ```rust,ignore
-/// Container::new(Text::new("Card body").into_node())
-///     .bg(theme.tokens.colors.surface)
-///     .border(theme.tokens.colors.border, 1.0)
-///     .border_radius(8.0)
-///     .padding_all(16.0)
-///     .width(320.0)
-///     .flex_grow(1.0)
-/// ```
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct Container {
-    /// Explicit node identity.
+pub struct Container<Child = Node> {
     pub id: Option<NodeId>,
-    /// The single child widget.
-    pub child: Option<Box<Node>>,
-
-    // -- Layout constraints --
-    /// Fixed width in layout points.
+    pub child: Option<Box<Child>>,
     pub width: Option<f32>,
-    /// Fixed height in layout points.
     pub height: Option<f32>,
-    /// Minimum width constraint.
     pub min_width: Option<f32>,
-    /// Maximum width constraint.
     pub max_width: Option<f32>,
-    /// Minimum height constraint.
     pub min_height: Option<f32>,
-    /// Maximum height constraint.
     pub max_height: Option<f32>,
-    /// Padding `[left, right, top, bottom]`.
     pub padding: [f32; 4],
-    /// Flex grow factor (how much extra space this container absorbs).
     pub flex_grow: f32,
-    /// Flex shrink factor (how much this container shrinks when space is tight).
     pub flex_shrink: f32,
-
-    // -- Visual style --
-    /// Background fill.
     pub background_fill: Option<Fill>,
-    /// Legacy background fill colour.
     pub background_color: Option<Color>,
-    /// Border stroke colour.
     pub border_color: Option<Color>,
-    /// Border stroke width in layout points.
     pub border_width: f32,
-    /// Corner radius for rounded corners.
     pub border_radius: f32,
-    /// Optional drop shadow.
     pub shadow: Option<BoxShadow>,
-    /// Additional shadows drawn behind the container in order.
     pub shadows: Vec<BoxShadow>,
 }
 
-impl Default for Container {
+impl<Child> Default for Container<Child> {
     fn default() -> Self {
         Self {
             id: None,
@@ -92,121 +54,154 @@ impl Default for Container {
         }
     }
 }
-impl Container {
-    pub fn new(child: Node) -> Self {
+
+impl<S: AppState> Container<AnyWidget<S>> {
+    pub fn new(child: impl IntoWidget<S>) -> Self {
+        Self {
+            child: Some(Box::new(child.into_widget())),
+            ..Default::default()
+        }
+    }
+
+    pub fn empty() -> Self {
+        Self::default()
+    }
+
+    pub fn child(mut self, child: impl IntoWidget<S>) -> Self {
+        self.child = Some(Box::new(child.into_widget()));
+        self
+    }
+}
+
+impl<Child> Container<Child> {
+    pub fn id(mut self, id: NodeId) -> Self {
+        self.id = Some(id);
+        self
+    }
+    pub fn size(mut self, w: f32, h: f32) -> Self {
+        self.width = Some(w);
+        self.height = Some(h);
+        self
+    }
+    pub fn width(mut self, w: f32) -> Self {
+        self.width = Some(w);
+        self
+    }
+    pub fn height(mut self, h: f32) -> Self {
+        self.height = Some(h);
+        self
+    }
+    pub fn min_width(mut self, w: f32) -> Self {
+        self.min_width = Some(w);
+        self
+    }
+    pub fn max_width(mut self, w: f32) -> Self {
+        self.max_width = Some(w);
+        self
+    }
+    pub fn min_height(mut self, h: f32) -> Self {
+        self.min_height = Some(h);
+        self
+    }
+    pub fn max_height(mut self, h: f32) -> Self {
+        self.max_height = Some(h);
+        self
+    }
+    pub fn padding_all(mut self, p: f32) -> Self {
+        self.padding = [p; 4];
+        self
+    }
+    pub fn padding(mut self, padding: [f32; 4]) -> Self {
+        self.padding = padding;
+        self
+    }
+    pub fn flex_grow(mut self, grow: f32) -> Self {
+        self.flex_grow = grow;
+        self
+    }
+    pub fn flex_shrink(mut self, shrink: f32) -> Self {
+        self.flex_shrink = shrink;
+        self
+    }
+    pub fn bg(mut self, color: Color) -> Self {
+        self.background_fill = Some(Fill::Solid(color));
+        self.background_color = Some(color);
+        self
+    }
+    pub fn bg_fill(mut self, fill: Fill) -> Self {
+        self.background_fill = Some(fill);
+        self.background_color = None;
+        self
+    }
+    pub fn border(mut self, color: Color, width: f32) -> Self {
+        self.border_color = Some(color);
+        self.border_width = width;
+        self
+    }
+    pub fn border_radius(mut self, radius: f32) -> Self {
+        self.border_radius = radius;
+        self
+    }
+    pub fn shadow(mut self, shadow: BoxShadow) -> Self {
+        self.shadow = Some(shadow);
+        self
+    }
+    pub fn shadows(mut self, shadows: Vec<BoxShadow>) -> Self {
+        self.shadows = shadows;
+        self
+    }
+}
+
+impl Container<Node> {
+    pub fn lowered(child: Node) -> Self {
         Self {
             child: Some(Box::new(child)),
             ..Default::default()
         }
     }
 
-    pub fn id(mut self, id: NodeId) -> Self {
-        self.id = Some(id);
-        self
-    }
-
-    pub fn size(mut self, w: f32, h: f32) -> Self {
-        self.width = Some(w);
-        self.height = Some(h);
-        self
-    }
-
-    pub fn width(mut self, w: f32) -> Self {
-        self.width = Some(w);
-        self
-    }
-
-    pub fn height(mut self, h: f32) -> Self {
-        self.height = Some(h);
-        self
-    }
-
-    pub fn min_width(mut self, w: f32) -> Self {
-        self.min_width = Some(w);
-        self
-    }
-
-    pub fn max_width(mut self, w: f32) -> Self {
-        self.max_width = Some(w);
-        self
-    }
-
-    pub fn min_height(mut self, h: f32) -> Self {
-        self.min_height = Some(h);
-        self
-    }
-
-    pub fn max_height(mut self, h: f32) -> Self {
-        self.max_height = Some(h);
-        self
-    }
-
-    pub fn padding_all(mut self, p: f32) -> Self {
-        self.padding = [p; 4];
-        self
-    }
-
-    pub fn padding(mut self, padding: [f32; 4]) -> Self {
-        self.padding = padding;
-        self
-    }
-
-    pub fn flex_grow(mut self, grow: f32) -> Self {
-        self.flex_grow = grow;
-        self
-    }
-
-    pub fn flex_shrink(mut self, shrink: f32) -> Self {
-        self.flex_shrink = shrink;
-        self
-    }
-
-    pub fn bg(mut self, color: Color) -> Self {
-        self.background_fill = Some(Fill::Solid(color));
-        self.background_color = Some(color);
-        self
-    }
-
-    pub fn bg_fill(mut self, fill: Fill) -> Self {
-        self.background_fill = Some(fill);
-        self.background_color = None;
-        self
-    }
-
-    pub fn border(mut self, color: Color, width: f32) -> Self {
-        self.border_color = Some(color);
-        self.border_width = width;
-        self
-    }
-
-    pub fn border_radius(mut self, radius: f32) -> Self {
-        self.border_radius = radius;
-        self
-    }
-
-    pub fn shadow(mut self, shadow: BoxShadow) -> Self {
-        self.shadow = Some(shadow);
-        self
-    }
-
-    pub fn shadows(mut self, shadows: Vec<BoxShadow>) -> Self {
-        self.shadows = shadows;
-        self
-    }
-
+    #[doc(hidden)]
     pub fn into_node(self) -> Node {
         Node::Container(self)
     }
 }
 
-impl Lower for Container {
+impl<S: AppState> Widget<S> for Container<AnyWidget<S>> {
+    fn build(&self, ctx: &mut BuildCtx<S>, view: &View<S>) -> impl IntoWidget<S> {
+        crate::view::internal_node_widget(Node::Container(Container {
+            id: self.id,
+            child: self
+                .child
+                .as_ref()
+                .map(|child| child.lower_to_node(ctx, view))
+                .map(Box::new),
+            width: self.width,
+            height: self.height,
+            min_width: self.min_width,
+            max_width: self.max_width,
+            min_height: self.min_height,
+            max_height: self.max_height,
+            padding: self.padding,
+            flex_grow: self.flex_grow,
+            flex_shrink: self.flex_shrink,
+            background_fill: self.background_fill.clone(),
+            background_color: self.background_color,
+            border_color: self.border_color,
+            border_width: self.border_width,
+            border_radius: self.border_radius,
+            shadow: self.shadow,
+            shadows: self.shadows.clone(),
+        }))
+    }
+}
+
+impl Lower for Container<Node> {
     fn lower(&self, cx: &mut LoweringContext) -> NodeId {
         let id = self.id.unwrap_or_else(|| cx.next_node_id());
         cx.push_scope(id);
 
         let mut children_ids = Vec::new();
 
-        // 1. Background Layer (PaintOp -> AbsoluteFill)
         if self.background_fill.is_some()
             || self.background_color.is_some()
             || self.border_color.is_some()
@@ -248,7 +243,6 @@ impl Lower for Container {
             children_ids.push(paint);
         }
 
-        // 2. Content Layer
         if let Some(child) = &self.child {
             children_ids.push(child.lower(cx));
         }

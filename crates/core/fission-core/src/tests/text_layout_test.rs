@@ -141,7 +141,7 @@ fn text_parent_max_width_drives_wrapping() {
         max_width: Some(40.0),
         ..Default::default()
     };
-    let root = Container::new(Node::from(text))
+    let root = Container::<Node>::lowered(Node::from(text))
         .width(200.0)
         .height(200.0)
         .into_node();

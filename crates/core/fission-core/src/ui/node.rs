@@ -14,23 +14,23 @@ use std::sync::Arc;
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub enum Node {
     ActionScope(ActionScope),
-    Row(Row),
-    Column(Column),
+    Row(Row<Node>),
+    Column(Column<Node>),
     Align(Align),
     FocusScope(FocusScope),
     Clip(Clip),
     Text(Text),
     RichText(RichText),
     Transform(Transform),
-    Button(Button),
+    Button(Button<Node>),
     TextInput(TextInput),
     Scroll(Scroll),
     SemanticsRegion(SemanticsRegion),
     Image(Image),
     Video(Video),
-    ZStack(ZStack),
+    ZStack(ZStack<Node>),
     Overlay(Overlay),
-    Container(Container),
+    Container(Container<Node>),
     GestureDetector(GestureDetector),
     Grid(Grid),
     GridItem(GridItem),
@@ -38,7 +38,7 @@ pub enum Node {
     Switch(Switch),
     Radio(Radio),
     SafeArea(SafeArea),
-    Positioned(Positioned),
+    Positioned(Positioned<Node>),
     Spacer(Spacer),
     Slider(Slider),
     LazyColumn(LazyColumn),
@@ -127,8 +127,8 @@ impl Node {
     }
 }
 
-impl From<Row> for Node {
-    fn from(w: Row) -> Self {
+impl From<Row<Node>> for Node {
+    fn from(w: Row<Node>) -> Self {
         Node::Row(w)
     }
 }
@@ -137,8 +137,8 @@ impl From<ActionScope> for Node {
         Node::ActionScope(w)
     }
 }
-impl From<Column> for Node {
-    fn from(w: Column) -> Self {
+impl From<Column<Node>> for Node {
+    fn from(w: Column<Node>) -> Self {
         Node::Column(w)
     }
 }
@@ -172,8 +172,8 @@ impl From<Transform> for Node {
         Node::Transform(w)
     }
 }
-impl From<Button> for Node {
-    fn from(w: Button) -> Self {
+impl From<Button<Node>> for Node {
+    fn from(w: Button<Node>) -> Self {
         Node::Button(w)
     }
 }
@@ -197,8 +197,8 @@ impl From<Image> for Node {
         Node::Image(w)
     }
 }
-impl From<ZStack> for Node {
-    fn from(w: ZStack) -> Self {
+impl From<ZStack<Node>> for Node {
+    fn from(w: ZStack<Node>) -> Self {
         Node::ZStack(w)
     }
 }
@@ -207,8 +207,8 @@ impl From<Overlay> for Node {
         Node::Overlay(w)
     }
 }
-impl From<Container> for Node {
-    fn from(w: Container) -> Self {
+impl From<Container<Node>> for Node {
+    fn from(w: Container<Node>) -> Self {
         Node::Container(w)
     }
 }
@@ -252,8 +252,8 @@ impl From<Composite> for Node {
         Node::Composite(w)
     }
 }
-impl From<Positioned> for Node {
-    fn from(w: Positioned) -> Self {
+impl From<Positioned<Node>> for Node {
+    fn from(w: Positioned<Node>) -> Self {
         Node::Positioned(w)
     }
 }

@@ -9,9 +9,9 @@ use crate::{
     env::VideoState,
     registry::{AnimationPropertyId, VideoRegistration},
     ui::{
-        Align, Button, Checkbox, Column, Container, Grid, GridItem, Image, LazyColumn, Node,
-        Overlay, Positioned, Radio, Row, Scroll, Slider, Spacer, Switch, Text, TextInput, Video,
-        ZStack,
+        ActionScope, Align, Checkbox, Clip, Composite, FocusScope, GestureDetector, Grid, GridItem,
+        Icon, Image, LazyColumn, Node, Overlay, Radio, RichText, SafeArea, Scroll, SemanticsRegion,
+        Slider, Spacer, Switch, Text, TextInput, Transform, Video,
     },
     AppState, BuildCtx, Env, LayoutRect, LayoutSize, LayoutSnapshot, RuntimeState,
 };
@@ -19,7 +19,7 @@ use fission_i18n::I18nRegistry;
 use fission_ir::{NodeId, WidgetNodeId};
 use fission_layout::BoxConstraints;
 use fission_theme::Theme;
-use std::sync::Arc;
+use std::{any::Any, sync::Arc};
 
 /// Read-only access to application state and environment during widget building.
 ///
@@ -141,22 +141,14 @@ pub trait Selector<S: AppState> {
 /// allowing each widget's `build` method to return a concrete Rust type.
 ///
 /// A tempting alternative is `Vec<Box<dyn Widget<S>>>`, but that would force
-/// [`Widget`] to be object-safe. The normal Fission build signature intentionally
-/// is not object-safe: it returns `impl IntoWidget<S>` so component authors can
-/// return ordinary structs without boxing, dynamic dispatch, or manually naming
-/// an erased type. Rust cannot put a trait method returning `impl Trait` into a
-/// trait-object vtable, so `Box<dyn Widget<S>>` is not the right public model.
-///
-/// `AnyWidget<S>` is the narrow internal erasure point that solves that problem:
-/// public APIs accept `impl IntoWidget<S>`, user components implement
-/// [`Widget`], and Fission stores mixed children as `AnyWidget<S>` only after
-/// the value has entered the framework.
+/// [`Widget`] itself to be object-safe. Fission deliberately keeps [`Widget`]
+/// as a normal Rust authoring trait whose only surface is [`Widget::build`].
+/// Internal erasure and lowering live here instead of on the public trait.
 pub struct AnyWidget<S: AppState> {
     inner: AnyWidgetInner<S>,
 }
 
 enum AnyWidgetInner<S: AppState> {
-    Node(Node),
     Widget(Arc<dyn ErasedWidget<S>>),
 }
 
@@ -171,23 +163,25 @@ impl<S: AppState> Clone for AnyWidget<S> {
 impl<S: AppState> Clone for AnyWidgetInner<S> {
     fn clone(&self) -> Self {
         match self {
-            Self::Node(node) => Self::Node(node.clone()),
             Self::Widget(widget) => Self::Widget(Arc::clone(widget)),
         }
     }
 }
 
 trait ErasedWidget<S: AppState>: Send + Sync {
-    fn build_node(&self, ctx: &mut BuildCtx<S>, view: &View<S>) -> Node;
+    fn lower_to_node(&self, ctx: &mut BuildCtx<S>, view: &View<S>) -> Node;
 }
 
 impl<S, W> ErasedWidget<S> for W
 where
     S: AppState,
-    W: Widget<S> + Send + Sync + 'static,
+    W: Widget<S> + Send + Sync + Any + 'static,
 {
-    fn build_node(&self, ctx: &mut BuildCtx<S>, view: &View<S>) -> Node {
-        Widget::build_node(self, ctx, view)
+    fn lower_to_node(&self, ctx: &mut BuildCtx<S>, view: &View<S>) -> Node {
+        if let Some(node) = (self as &dyn Any).downcast_ref::<InternalNodeWidget>() {
+            return node.node.clone();
+        }
+        self.build(ctx, view).into_widget().lower_to_node(ctx, view)
     }
 }
 
@@ -202,24 +196,11 @@ impl<S: AppState> AnyWidget<S> {
         }
     }
 
-    /// Create an erased widget from a pre-lowered node.
-    ///
-    /// This is retained for framework internals and the migration of existing
-    /// built-in widgets. New application code should return concrete widgets
-    /// from `build`, not manually construct or return `Node`.
+    /// Lower this erased widget to Fission's internal node representation.
     #[doc(hidden)]
-    pub fn from_node(node: Node) -> Self {
-        Self {
-            inner: AnyWidgetInner::Node(node),
-        }
-    }
-
-    /// Build this erased widget to the internal node representation.
-    #[doc(hidden)]
-    pub fn build_node(&self, ctx: &mut BuildCtx<S>, view: &View<S>) -> Node {
+    pub fn lower_to_node(&self, ctx: &mut BuildCtx<S>, view: &View<S>) -> Node {
         match &self.inner {
-            AnyWidgetInner::Node(node) => node.clone(),
-            AnyWidgetInner::Widget(widget) => widget.build_node(ctx, view),
+            AnyWidgetInner::Widget(widget) => widget.lower_to_node(ctx, view),
         }
     }
 }
@@ -254,6 +235,46 @@ where
     }
 }
 
+/// A hidden framework-owned widget that terminates recursive build lowering at
+/// the internal node representation.
+#[doc(hidden)]
+#[derive(Clone)]
+pub struct InternalNodeWidget {
+    node: Node,
+}
+
+/// Convert a concrete framework-owned node into the internal widget pipeline.
+///
+/// This is hidden because application code should return widgets, not nodes.
+#[doc(hidden)]
+pub fn internal_node_widget(node: Node) -> InternalNodeWidget {
+    InternalNodeWidget { node }
+}
+
+impl<S: AppState> Widget<S> for InternalNodeWidget {
+    fn build(&self, _ctx: &mut BuildCtx<S>, _view: &View<S>) -> impl IntoWidget<S> {
+        self.clone()
+    }
+}
+
+/// Lower a widget to Fission's internal node representation.
+///
+/// Runtime, testing, and shell code use this as the boundary between the public
+/// widget authoring model and the internal node/IR pipeline. It is deliberately
+/// a free function rather than a method on [`Widget`], so the Widget API surface
+/// remains strictly `build`.
+#[doc(hidden)]
+pub fn lower_widget_to_node<S, W>(widget: &W, ctx: &mut BuildCtx<S>, view: &View<S>) -> Node
+where
+    S: AppState,
+    W: Widget<S> + ?Sized,
+{
+    widget
+        .build(ctx, view)
+        .into_widget()
+        .lower_to_node(ctx, view)
+}
+
 /// The core trait for composable UI components.
 ///
 /// A `Widget` produces another widget-like value given read-only access to
@@ -282,58 +303,42 @@ pub trait Widget<S: AppState> {
     /// Called once per frame. Implementations must be pure -- all side-effects
     /// go through `ctx` (action binding, portals, animations).
     fn build(&self, ctx: &mut BuildCtx<S>, view: &View<S>) -> impl IntoWidget<S>;
-
-    /// Build this widget directly into Fission's internal node representation.
-    ///
-    /// Framework internals use this when lowering the root widget or composing
-    /// widgets into child slots that still lower through the internal node
-    /// tree. Application code should call `build` and return widgets.
-    #[doc(hidden)]
-    fn build_node(&self, ctx: &mut BuildCtx<S>, view: &View<S>) -> Node {
-        self.build(ctx, view).into_widget().build_node(ctx, view)
-    }
-}
-
-impl<S: AppState> Widget<S> for AnyWidget<S> {
-    fn build(&self, _ctx: &mut BuildCtx<S>, _view: &View<S>) -> impl IntoWidget<S> {
-        self.clone()
-    }
-
-    fn build_node(&self, ctx: &mut BuildCtx<S>, view: &View<S>) -> Node {
-        AnyWidget::build_node(self, ctx, view)
-    }
 }
 
 macro_rules! impl_widget_for_primitive {
     ($t:ty, $v:ident) => {
         impl<S: AppState> Widget<S> for $t {
             fn build(&self, _ctx: &mut BuildCtx<S>, _view: &View<S>) -> impl crate::IntoWidget<S> {
-                crate::AnyWidget::from_node(Node::$v(self.clone()))
+                crate::view::internal_node_widget(Node::$v(self.clone()))
             }
         }
     };
 }
 
-impl_widget_for_primitive!(Row, Row);
-impl_widget_for_primitive!(Column, Column);
+impl_widget_for_primitive!(ActionScope, ActionScope);
 impl_widget_for_primitive!(Align, Align);
+impl_widget_for_primitive!(FocusScope, FocusScope);
+impl_widget_for_primitive!(Clip, Clip);
 impl_widget_for_primitive!(Text, Text);
-impl_widget_for_primitive!(Button, Button);
+impl_widget_for_primitive!(RichText, RichText);
+impl_widget_for_primitive!(Transform, Transform);
 impl_widget_for_primitive!(TextInput, TextInput);
 impl_widget_for_primitive!(Scroll, Scroll);
+impl_widget_for_primitive!(SemanticsRegion, SemanticsRegion);
 impl_widget_for_primitive!(Image, Image);
-impl_widget_for_primitive!(ZStack, ZStack);
 impl_widget_for_primitive!(Overlay, Overlay);
-impl_widget_for_primitive!(Container, Container);
+impl_widget_for_primitive!(GestureDetector, GestureDetector);
 impl_widget_for_primitive!(Grid, Grid);
 impl_widget_for_primitive!(GridItem, GridItem);
 impl_widget_for_primitive!(Checkbox, Checkbox);
 impl_widget_for_primitive!(Switch, Switch);
 impl_widget_for_primitive!(Radio, Radio);
-impl_widget_for_primitive!(Positioned, Positioned);
+impl_widget_for_primitive!(SafeArea, SafeArea);
+impl_widget_for_primitive!(Composite, Composite);
 impl_widget_for_primitive!(Spacer, Spacer);
 impl_widget_for_primitive!(Slider, Slider);
 impl_widget_for_primitive!(LazyColumn, LazyColumn);
+impl_widget_for_primitive!(Icon, Icon);
 
 impl<S: AppState> Widget<S> for Video {
     fn build(&self, ctx: &mut BuildCtx<S>, _view: &View<S>) -> impl crate::IntoWidget<S> {
@@ -350,6 +355,6 @@ impl<S: AppState> Widget<S> for Video {
             loop_playback: video.loop_playback,
         });
 
-        crate::AnyWidget::from_node(Node::Video(video))
+        crate::view::internal_node_widget(Node::Video(video))
     }
 }

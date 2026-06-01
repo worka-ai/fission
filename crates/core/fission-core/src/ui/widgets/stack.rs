@@ -1,53 +1,73 @@
 use crate::lowering::{wrap_zstack_child, LoweringContext, NodeBuilder};
 use crate::ui::traits::Lower;
 use crate::ui::Node;
+use crate::{AnyWidget, AppState, BuildCtx, IntoWidget, View, Widget};
 use fission_ir::{LayoutOp, NodeId, Op};
 use serde::{Deserialize, Serialize};
 
 /// A z-axis stacking container that layers children on top of each other.
-///
-/// Children are painted in order: the first child is at the bottom, the last
-/// is on top. Use [`Positioned`](super::Positioned) children to place them
-/// at absolute offsets within the stack.
-///
-/// The stack's size is determined by its largest child.
-///
-/// # Example
-///
-/// ```rust,ignore
-/// ZStack {
-///     children: vec![
-///         Image::asset("bg.png").into_node().into(),
-///         Positioned {
-///             bottom: Some(16.0),
-///             right: Some(16.0),
-///             child: Some(Box::new(Text::new("Overlay").into_node())),
-///             ..Default::default()
-///         }.into_node().into(),
-///     ],
-///     ..Default::default()
-/// }
-/// ```
-#[derive(Debug, Default, Clone, Serialize, Deserialize)]
-pub struct ZStack {
-    /// Explicit node identity.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ZStack<Child = Node> {
     pub id: Option<NodeId>,
-    /// Children painted in order (first = bottom, last = top).
-    pub children: Vec<Node>,
+    pub children: Vec<Child>,
 }
 
-impl ZStack {
+impl<Child> Default for ZStack<Child> {
+    fn default() -> Self {
+        Self {
+            id: None,
+            children: Vec::new(),
+        }
+    }
+}
+
+impl<S: AppState> ZStack<AnyWidget<S>> {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    pub fn child(mut self, child: impl IntoWidget<S>) -> Self {
+        self.children.push(child.into_widget());
+        self
+    }
+
+    pub fn children<I, W>(mut self, children: I) -> Self
+    where
+        I: IntoIterator<Item = W>,
+        W: IntoWidget<S>,
+    {
+        self.children = children.into_iter().map(IntoWidget::into_widget).collect();
+        self
+    }
+}
+
+impl ZStack<Node> {
+    #[doc(hidden)]
     pub fn children(mut self, children: Vec<Node>) -> Self {
         self.children = children;
         self
     }
 
+    #[doc(hidden)]
     pub fn into_node(self) -> Node {
         Node::ZStack(self)
     }
 }
 
-impl Lower for ZStack {
+impl<S: AppState> Widget<S> for ZStack<AnyWidget<S>> {
+    fn build(&self, ctx: &mut BuildCtx<S>, view: &View<S>) -> impl IntoWidget<S> {
+        crate::view::internal_node_widget(Node::ZStack(ZStack {
+            id: self.id,
+            children: self
+                .children
+                .iter()
+                .map(|child| child.lower_to_node(ctx, view))
+                .collect(),
+        }))
+    }
+}
+
+impl Lower for ZStack<Node> {
     fn lower(&self, cx: &mut LoweringContext) -> NodeId {
         let id = self.id.unwrap_or_else(|| cx.next_node_id());
 

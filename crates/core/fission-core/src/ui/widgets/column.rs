@@ -1,50 +1,26 @@
-use crate::{Lower, LoweringContext, Node, NodeBuilder};
+use crate::{
+    AnyWidget, AppState, BuildCtx, IntoWidget, Lower, LoweringContext, Node, NodeBuilder, View,
+    Widget,
+};
 use fission_ir::op::{AlignItems, FlexWrap, JustifyContent};
 use fission_ir::{FlexDirection, LayoutOp, NodeId, Op, Semantics};
 use serde::{Deserialize, Serialize};
 
-/// A vertical flex container that lays out children in a column.
-///
-/// Children are arranged top-to-bottom. Use `align_items` to control
-/// cross-axis (horizontal) alignment and `justify_content` for main-axis
-/// (vertical) distribution.
-///
-/// # Example
-///
-/// ```rust,ignore
-/// Column {
-///     children: vec![
-///         Text::new("Title").size(24.0).into_node().into(),
-///         Text::new("Subtitle").size(14.0).into_node().into(),
-///     ],
-///     gap: Some(4.0),
-///     align_items: AlignItems::Stretch,
-///     ..Default::default()
-/// }
-/// ```
+/// A vertical flex container that lays out child widgets top-to-bottom.
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct Column {
-    /// Explicit node identity.
+pub struct Column<Child = Node> {
     pub id: Option<NodeId>,
-    /// The child widgets laid out top-to-bottom.
-    pub children: Vec<Node>,
-    /// Custom semantics for accessibility.
+    pub children: Vec<Child>,
     pub semantics: Option<Semantics>,
-    /// Flex grow factor.
     pub flex_grow: f32,
-    /// Flex shrink factor.
     pub flex_shrink: f32,
-    /// Spacing between children in layout points.
     pub gap: Option<f32>,
-    /// Whether children wrap when they overflow.
     pub wrap: FlexWrap,
-    /// Cross-axis (horizontal) alignment (default: `Stretch`).
     pub align_items: AlignItems,
-    /// Main-axis (vertical) distribution (default: `Start`).
     pub justify_content: JustifyContent,
 }
 
-impl Default for Column {
+impl<Child> Default for Column<Child> {
     fn default() -> Self {
         Self {
             id: None,
@@ -60,12 +36,27 @@ impl Default for Column {
     }
 }
 
-impl Column {
-    pub fn children(mut self, children: Vec<Node>) -> Self {
-        self.children = children;
+impl<S: AppState> Column<AnyWidget<S>> {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    pub fn child(mut self, child: impl IntoWidget<S>) -> Self {
+        self.children.push(child.into_widget());
         self
     }
 
+    pub fn children<I, W>(mut self, children: I) -> Self
+    where
+        I: IntoIterator<Item = W>,
+        W: IntoWidget<S>,
+    {
+        self.children = children.into_iter().map(IntoWidget::into_widget).collect();
+        self
+    }
+}
+
+impl<Child> Column<Child> {
     pub fn flex_grow(mut self, flex_grow: f32) -> Self {
         self.flex_grow = flex_grow;
         self
@@ -85,13 +76,42 @@ impl Column {
         self.justify_content = justify;
         self
     }
+}
 
+impl Column<Node> {
+    #[doc(hidden)]
+    pub fn children(mut self, children: Vec<Node>) -> Self {
+        self.children = children;
+        self
+    }
+
+    #[doc(hidden)]
     pub fn into_node(self) -> Node {
         Node::Column(self)
     }
 }
 
-impl Lower for Column {
+impl<S: AppState> Widget<S> for Column<AnyWidget<S>> {
+    fn build(&self, ctx: &mut BuildCtx<S>, view: &View<S>) -> impl IntoWidget<S> {
+        crate::view::internal_node_widget(Node::Column(Column {
+            id: self.id,
+            children: self
+                .children
+                .iter()
+                .map(|child| child.lower_to_node(ctx, view))
+                .collect(),
+            gap: self.gap,
+            flex_grow: self.flex_grow,
+            flex_shrink: self.flex_shrink,
+            semantics: self.semantics.clone(),
+            wrap: self.wrap,
+            align_items: self.align_items,
+            justify_content: self.justify_content,
+        }))
+    }
+}
+
+impl Lower for Column<Node> {
     fn lower(&self, cx: &mut LoweringContext) -> NodeId {
         let layout_id = self.id.unwrap_or_else(|| cx.next_node_id());
 
@@ -118,13 +138,14 @@ impl Lower for Column {
 
         let layout_id = builder.build(cx);
 
-        if let Some(s) = &self.semantics {
+        if let Some(semantics) = &self.semantics {
+            let wrapper_id = cx.next_node_id();
             let mut semantics_builder =
-                NodeBuilder::new(cx.next_node_id(), Op::Semantics(s.clone()));
+                NodeBuilder::new(wrapper_id, Op::Semantics(semantics.clone()));
             semantics_builder.add_child(layout_id);
-            return semantics_builder.build(cx);
+            semantics_builder.build(cx)
+        } else {
+            layout_id
         }
-
-        layout_id
     }
 }

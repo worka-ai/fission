@@ -160,7 +160,7 @@ fn container_background_fill_accepts_gradients() {
     };
 
     let ir = lower_node(
-        Container::new(
+        Container::<Node>::lowered(
             Spacer {
                 width: Some(40.0),
                 height: Some(12.0),
@@ -210,7 +210,7 @@ fn button_background_fill_and_text_override_lower() {
     };
 
     let ir = lower_node(
-        Button {
+        Button::<Node> {
             child: Some(Box::new(Text::new("Continue").into_node())),
             background_fill: Some(gradient.clone()),
             text_color: Some(Color::WHITE),

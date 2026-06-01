@@ -58,7 +58,7 @@ fn test_explicit_focus_order() {
         }
     }
 
-    let root = crate::ui::widgets::column::Column {
+    let root = crate::ui::widgets::column::Column::<Node> {
         children: vec![
             button_with_focus(2),
             button_with_focus(1),

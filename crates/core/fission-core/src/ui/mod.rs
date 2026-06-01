@@ -8,10 +8,10 @@ pub use node::{CustomNode, Node};
 pub use traits::{Lower, LowerDyn};
 pub use widgets::{
     ActionScope, Align, BadgeTone, Builder, Button, ButtonContentAlign, ButtonHierarchy,
-    ButtonVariant, CardPattern, Checkbox, Column, ComponentSize, ComponentState, Composite,
+    ButtonVariant, CardPattern, Checkbox, Clip, Column, ComponentSize, ComponentState, Composite,
     Container, FocusScope, GestureDetector, Grid, GridItem, HttpHeader, Icon, Image,
     ImageAlignment, ImageCachePolicy, ImageErrorBehavior, ImageLoadingBehavior, ImageRequest,
     ImageSource, LayoutBuilder, LazyColumn, Overlay, Positioned, Radio, RichText, RichTextRun, Row,
     SafeArea, Scroll, SemanticsRegion, Slider, Spacer, Switch, Text, TextContent, TextFontStyle,
-    TextInput, TextRunStyle, Video, ZStack,
+    TextInput, TextRunStyle, Transform, Video, ZStack,
 };

@@ -3,6 +3,7 @@ use crate::lowering::LoweringContext;
 use crate::ui::traits::Lower;
 use crate::ui::widgets::clip::Clip;
 use crate::ui::widgets::container::Container;
+use crate::ui::Node;
 use fission_ir::{LayoutOp, Op};
 
 #[test]
@@ -12,7 +13,7 @@ fn test_clip_lowering() {
 
     let clip = Clip {
         path: Some("M 0 0 L 100 0 L 100 100 L 0 100 Z".into()),
-        child: Box::new(Container::default().into_node()),
+        child: Box::new(Container::<Node>::default().into_node()),
         ..Default::default()
     };
 

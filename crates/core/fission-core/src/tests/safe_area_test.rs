@@ -3,6 +3,7 @@ use crate::lowering::{build_layout_tree, LoweringContext};
 use crate::ui::traits::Lower;
 use crate::ui::widgets::container::Container;
 use crate::ui::widgets::safe_area::SafeArea;
+use crate::ui::Node;
 use fission_layout::{LayoutEngine, LayoutSize};
 
 #[test]
@@ -19,7 +20,12 @@ fn test_safe_area_layout() {
 
     // SafeArea wrapping a child that has a fixed size
     let safe_area = SafeArea {
-        child: Box::new(Container::default().width(100.0).height(100.0).into_node()),
+        child: Box::new(
+            Container::<Node>::default()
+                .width(100.0)
+                .height(100.0)
+                .into_node(),
+        ),
         ..Default::default()
     };
 
