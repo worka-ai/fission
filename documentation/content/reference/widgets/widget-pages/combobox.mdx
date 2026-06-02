@@ -16,10 +16,10 @@ use fission::prelude::*;
 use std::sync::Arc;
 
 let node = Combobox {
-id: WidgetNodeId::explicit("assignee_box"),
-value: view.state.assignee_query.clone(),
-items: view.state.filtered_people.clone(),
-is_open: view.state.assignee_open,
+id: WidgetId::explicit("assignee_box"),
+value: view.state().assignee_query.clone(),
+items: view.state().filtered_people.clone(),
+is_open: view.state().assignee_open,
 width: Some(280.0),
 max_popup_height: Some(240.0),
 on_change: Some(ctx.bind(
@@ -35,7 +35,7 @@ on_select: Some(Arc::new(move |name| ActionEnvelope {
     payload: serde_json::to_vec(&ChooseAssignee(name)).unwrap(),
 })),
 }
-.build(ctx, view);
+.into();
 ```
 
 In a real reducer, `on_change` usually updates the query and refreshes `filtered_people`, `on_toggle` opens or closes the popup, and `on_select` stores the chosen value and closes the popup.
@@ -44,7 +44,7 @@ In a real reducer, `on_change` usually updates the query and refreshes `filtered
 
 | Field | Type | Meaning | Notes / default behavior |
 | --- | --- | --- | --- |
-| `id` | `WidgetNodeId` | Stable identity for the combobox and its popover anchor. | Required. |
+| `id` | `WidgetId` | Stable identity for the combobox and its popover anchor. | Required. |
 | `value` | `String` | Current text shown in the input. | Controlled by app state. |
 | `items` | `Vec<String>` | Items to show in the popup right now. | Supply the already filtered list you want the user to see. |
 | `is_open` | `bool` | Whether the popup list is visible. | Controlled by app state. |
@@ -56,7 +56,7 @@ In a real reducer, `on_change` usually updates the query and refreshes `filtered
 
 ## How the event flow works
 
-There are two different kinds of events here. Typing uses the text-input path: the runtime dispatches `on_change` with the new string, your reducer stores that query, and the next build passes a filtered `items` list back in. Picking an item uses the `on_select` closure, which turns the chosen string into an `ActionEnvelope` immediately.
+There are two different kinds of events here. Typing uses the text-input path: the runtime dispatches `on_change` with the new string, your reducer stores that query, and the next conversion passes a filtered `items` list back in. Picking an item uses the `on_select` closure, which turns the chosen string into an `ActionEnvelope` immediately.
 
 This split is intentional. Free text and confirmed selection are not the same product event. Keep them separate in your actions.
 

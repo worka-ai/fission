@@ -16,7 +16,7 @@ use fission::prelude::*;
 use std::sync::Arc;
 
 let node = DataTable {
-    id: WidgetNodeId::explicit("build_runs_table"),
+    id: WidgetId::explicit("build_runs_table"),
     columns: vec![
         TableColumn {
             id: "status".into(),
@@ -37,13 +37,13 @@ let node = DataTable {
             cells: vec!["Passed".into(), "main".into()],
         },
     ],
-    selected_ids: view.state.selected_run_ids.clone(),
+    selected_ids: view.state().selected_run_ids.clone(),
     on_selection_change: Some(Arc::new(move |row_id| ActionEnvelope {
         id: toggle_row_selection_id,
         payload: serde_json::to_vec(&ToggleRowSelection(row_id)).unwrap(),
     })),
 }
-.build(ctx, view);
+.into();
 ```
 
 Here the table is responsible for presentation. The reducer is responsible for which rows are selected and what selection means.
@@ -52,7 +52,7 @@ Here the table is responsible for presentation. The reducer is responsible for w
 
 | Field | Type | Meaning | Notes / default behavior |
 | --- | --- | --- | --- |
-| `id` | `WidgetNodeId` | Stable identity for the table instance. | Present in the public struct, but the checked-in renderer does not currently consume it internally. |
+| `id` | `WidgetId` | Stable identity for the table instance. | Present in the public struct, but the checked-in renderer does not currently consume it internally. |
 | `columns` | `Vec<TableColumn>` | Column definitions in display order. | Required. Width comes from the column records. |
 | `rows` | `Vec<TableRow>` | Row data in display order. | Required. Each row's cells are matched to columns by index. |
 | `selected_ids` | `Vec<String>` | Currently selected row ids. | Controlled by app state. |

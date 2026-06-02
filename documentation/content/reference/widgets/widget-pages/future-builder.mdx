@@ -7,7 +7,7 @@ slug: /widgets/future-builder
 
 `FutureBuilder` connects a screen to one async job and lets the widget tree render from the latest snapshot held in application state.
 
-Use it when a screen needs request-and-response data: load products, fetch a profile, parse an imported file, save a document, or perform another one-shot operation where the app expects one success or one error. The widget declares the resource during `build()`. Reducers still own the state changes when the job completes.
+Use it when a screen needs request-and-response data: load products, fetch a profile, parse an imported file, save a document, or perform another one-shot operation where the app expects one success or one error. The widget declares the resource during component conversion. Reducers still own the state changes when the job completes.
 
 ## Basic shape
 
@@ -17,19 +17,19 @@ use fission::prelude::*;
 let products = FutureBuilder::new(
     ResourceKey::new("catalog.products"),
     PRODUCTS_JOB,
-    view.state.product_request(),
-    view.state.products.clone(),
-    |ctx, view, snapshot| {
+    view.state().product_request(),
+    view.state().products.clone(),
+    |_ctx, _view, snapshot| {
         ProductList {
             snapshot: snapshot.clone(),
         }
-        .build(ctx, view)
+        .into()
     },
 )
-.deps(view.state.product_request())
+.deps(view.state().product_request())
 .on_ok(with_reducer!(ctx, ProductsLoaded, on_products_loaded))
 .on_err(with_reducer!(ctx, ProductsFailed, on_products_failed))
-.build(ctx, view);
+.into();
 ```
 
 The important rule is that the snapshot is not hidden inside the widget. Store it in your app state. The success and error reducers update that state, and the next build renders the new snapshot.
@@ -46,7 +46,7 @@ The important rule is that the snapshot is not hidden inside the widget. Store i
 | `on_err` | `Option<ActionEnvelope>` | Action dispatched when the job fails. | Use this to bind the error reducer. |
 | `deps` | `Option<Vec<u8>>` | Serialized dependency identity. | Changing deps restarts or preserves according to `policy`. |
 | `policy` | `ResourcePolicy` | How resource changes are handled. | Defaults to `RestartOnChange`. |
-| `builder` | `AsyncWidgetBuilder` | Closure that renders the current snapshot. | Keep it pure; do not perform side effects inside it. |
+| `builder` | `AsyncWidgetBuilder<S, J::Ok, J::Err>` | Pure closure that turns the current snapshot into UI. | Keep the closure small; delegate real UI to a named component that receives the snapshot. |
 
 ## Snapshot states
 

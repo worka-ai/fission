@@ -16,14 +16,14 @@ use fission::core::ui::{Button, ButtonVariant, Text};
 
 let primary = Button {
 variant: ButtonVariant::Filled,
-child: Some(Box::new(Text::new("Save").into_node())),
+child: Some(Text::new("Save").into()),
 on_press: Some(save_action),
 ..Default::default()
 };
 
 let secondary = Button {
 variant: ButtonVariant::Outline,
-child: Some(Box::new(Text::new("Preview").into_node())),
+child: Some(Text::new("Preview").into()),
 on_press: Some(preview_action),
 ..Default::default()
 };

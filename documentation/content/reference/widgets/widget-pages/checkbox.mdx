@@ -23,7 +23,7 @@ state.receive_newsletter = !state.receive_newsletter;
 }
 
 let node = Checkbox {
-checked: view.state.receive_newsletter,
+checked: view.state().receive_newsletter,
 label: Some("Receive product updates".into()),
 on_toggle: Some(ctx.bind(
     ToggleNewsletter,
@@ -31,16 +31,16 @@ on_toggle: Some(ctx.bind(
 )),
 ..Default::default()
 }
-.into_node();
+.into();
 ```
 
-The checkbox does not flip itself. It emits an action, the reducer changes `AppState`, and the next build reads the new `checked` value from `View`.
+The checkbox does not flip itself. It emits an action, the reducer changes `GlobalState`, and the next conversion pass reads the new `checked` value from `ViewHandle`.
 
 ## Field table
 
 | Field | Type | Meaning | Notes / default behavior |
 | --- | --- | --- | --- |
-| `id` | `Option<NodeId>` | Stable node identity. | Defaults to `None`. |
+| `id` | `Option<WidgetId>` | Stable node identity. | Defaults to `None`. |
 | `checked` | `bool` | Whether the checkbox is currently selected. | Defaults to `false`. |
 | `on_toggle` | `Option<ActionEnvelope>` | Action dispatched when the user toggles the checkbox. | Defaults to `None`. |
 | `label` | `Option<String>` | Visible text shown next to the indicator. | Defaults to `None`, but most real checkboxes should have a label. |

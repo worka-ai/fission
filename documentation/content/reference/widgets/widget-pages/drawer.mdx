@@ -9,36 +9,36 @@ slug: /widgets/drawer
 
 Use it when you need temporary space for navigation, filters, settings, or an inspector without changing the main route. The important architectural rule is that the drawer does not decide when it is open. Your app state owns that decision through `is_open`. The widget's job is to render the panel into the modal portal layer, add a backdrop, and dispatch your dismiss action when the backdrop is tapped.
 
-This makes the behavior predictable. A button dispatches an action, the reducer flips `show_filters` to `true`, and the next `build()` pass includes an open drawer. Closing the drawer is the same loop in reverse.
+This makes the behavior predictable. A button dispatches an action, the reducer flips `show_filters` to `true`, and the next `component conversion` pass includes an open drawer. Closing the drawer is the same loop in reverse.
 
 Do not use a drawer for critical confirmations or short blocking decisions. That is usually a [`Modal`](/reference/widgets/modal). Also do not use it for tiny anchored choices next to a button. That is what [`Popover`](/reference/widgets/popover) or [`flyout`](/reference/widgets/flyout) are for.
 
 ## Example
 
 ```rust
-use fission::core::{Handler, WidgetNodeId};
+use fission::core::{Handler, WidgetId};
 use fission::prelude::*;
 
 let drawer = Drawer {
-    id: WidgetNodeId::explicit("filters_drawer"),
+    id: WidgetId::explicit("filters_drawer"),
     side: DrawerSide::Right,
-    is_open: view.state.show_filters,
+    is_open: view.state().show_filters,
     on_dismiss: Some(ctx.bind(
         ToggleFilters(false),
-        reduce_with!((|state: &mut AppState, action: ToggleFilters, _| {
+        reduce_with!((|state: &mut GlobalState, action: ToggleFilters, _| {
             state.show_filters = action.0;
         })),
     )),
     width: Some(360.0),
-    content: Box::new(
+    content: 
         VStack {
             spacing: Some(16.0),
-            children: vec![filter_form.build(ctx, view)],
+            children: vec![filter_form.into()],
         }
-        .into_node(),
-    ),
+        .into(),
+    ,
 }
-.build(ctx, view);
+.into();
 ```
 
 The reducer owns `show_filters`. The drawer itself only reads that state and emits `on_dismiss` when the user taps the backdrop.
@@ -47,11 +47,11 @@ The reducer owns `show_filters`. The drawer itself only reads that state and emi
 
 | Field | Type | Meaning | Notes / default behavior |
 | --- | --- | --- | --- |
-| `id` | `WidgetNodeId` | Stable identity for the portal entry. | Required. Give each drawer a stable id so the runtime can track it consistently. |
+| `id` | `WidgetId` | Stable identity for the portal entry. | Required. Give each drawer a stable id so the runtime can track it consistently. |
 | `side` | `DrawerSide` | Which horizontal edge the panel attaches to. | Use `Left` or `Right`. |
 | `is_open` | `bool` | Whether the drawer should be visible this frame. | When `false`, the widget returns an inert spacer and registers no portal. |
 | `on_dismiss` | `Option<ActionEnvelope>` | Action dispatched when the backdrop is tapped. | Defaults to `None`. If you omit it, the backdrop still covers the screen but does not close the drawer for you. |
-| `content` | `Box<Node>` | The panel body. | Build the full drawer user interface here. |
+| `content` | `Widget` | The panel body. | Build the full drawer user interface here. |
 | `width` | `Option<f32>` | Requested panel width in logical pixels. | Defaults to `300.0`. The runtime clamps it to the current viewport so the drawer still fits on smaller screens. |
 
 ## Layout and overlay behavior

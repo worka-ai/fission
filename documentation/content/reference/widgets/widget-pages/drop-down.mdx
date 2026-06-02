@@ -15,12 +15,12 @@ It looks like a dropdown control, showing the current selection and a chevron, b
 use fission::prelude::*;
 
 let node = DropDown {
-selected: Some(view.state.sort_label.clone()),
+selected: Some(view.state().sort_label.clone()),
 on_toggle: Some(toggle_sort_panel_action),
 options: vec!["Newest".into(), "Oldest".into()],
 on_select: None,
 }
-.build(ctx, view);
+.into();
 ```
 
 This is a good fit when some other part of your user interface owns the actual popup or sheet, and you only want a trigger with dropdown styling.

@@ -16,10 +16,10 @@ Use `Composite` when the change is visual rather than structural. Do not use it 
 ```rust
 use fission::core::ui::{Composite, Text};
 
-let node = Composite::new(Text::new("Saving...").into_node())
+let node = Composite::new(Text::new("Saving...").into())
     .opacity(0.72)
     .translate_y(-4.0)
-    .into_node();
+    .into();
 ```
 
 This changes presentation without changing where the surrounding layout thinks the child lives.
@@ -28,9 +28,9 @@ This changes presentation without changing where the surrounding layout thinks t
 
 | Field | Type | Meaning | Notes / default behavior |
 | --- | --- | --- | --- |
-| `id` | `Option<NodeId>` | Stable node identity. | Defaults to `None`. |
+| `id` | `Option<WidgetId>` | Stable node identity. | Defaults to `None`. |
 | `style` | `CompositeStyle` | Visual presentation settings for the child. | Defaults to `CompositeStyle::default()`, which means no extra effect. |
-| `child` | `Box<Node>` | The wrapped child node. | Required. `Composite::default()` uses an empty spacer child. |
+| `child` | `Widget` | The wrapped child node. | Required. `Composite::default()` uses an empty spacer child. |
 
 ## `CompositeStyle` fields
 

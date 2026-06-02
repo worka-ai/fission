@@ -17,9 +17,9 @@ use fission::prelude::*;
 use std::sync::Arc;
 
 let node = DatePicker {
-id: WidgetNodeId::explicit("publish_date"),
-value: view.state.publish_date,
-is_open: view.state.publish_date_open,
+id: WidgetId::explicit("publish_date"),
+value: view.state().publish_date,
+is_open: view.state().publish_date_open,
 width: Some(200.0),
 on_change: Some(Arc::new(move |date: NaiveDate| ActionEnvelope {
     id: set_publish_date_id,
@@ -28,7 +28,7 @@ on_change: Some(Arc::new(move |date: NaiveDate| ActionEnvelope {
 on_toggle: Some(toggle_publish_date_action),
 on_close: Some(close_publish_date_action),
 }
-.build(ctx, view);
+.into();
 ```
 
 A common reducer flow is: `on_toggle` opens the picker, `on_change` stores the selected date, and the same reducer or a follow-up action closes the picker.
@@ -37,7 +37,7 @@ A common reducer flow is: `on_toggle` opens the picker, `on_change` stores the s
 
 | Field | Type | Meaning | Notes / default behavior |
 | --- | --- | --- | --- |
-| `id` | `WidgetNodeId` | Stable identity for the trigger and popover. | Required. |
+| `id` | `WidgetId` | Stable identity for the trigger and popover. | Required. |
 | `value` | `Option<NaiveDate>` | Currently selected date, or no date yet. | Controlled by app state. |
 | `is_open` | `bool` | Whether the popup calendar is visible. | Controlled by app state. |
 | `width` | `Option<f32>` | Preferred trigger width. | Defaults to `164.0`, then clamps against the viewport when needed. |

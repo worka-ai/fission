@@ -16,8 +16,8 @@ use fission::prelude::*;
 
 let item = AccordionItem {
     title: "Advanced filters".into(),
-    content: Text::new("Extra search controls go here").into_node(),
-    is_expanded: view.state.advanced_filters_open,
+    content: Text::new("Extra search controls go here").into(),
+    is_expanded: view.state().advanced_filters_open,
     on_toggle: Some(toggle_advanced_filters_action),
 };
 ```
@@ -29,7 +29,7 @@ This keeps the item definition easy to read. The actual reducer still decides wh
 | Field | Type | Meaning | Notes / default behavior |
 | --- | --- | --- | --- |
 | `title` | `String` | Text shown in the accordion header. | Required. Keep titles short and scannable. |
-| `content` | `Node` | Body content shown when the item is expanded. | Required. This can be any node tree. |
+| `content` | `Widget` | Body content shown when the item is expanded. | Required. This can be any widget subtree. |
 | `is_expanded` | `bool` | Whether the content is currently visible. | Controlled by app state. |
 | `on_toggle` | `Option<ActionEnvelope>` | Action fired when the header is pressed. | Defaults to `None`. Usually flips `is_expanded` in the reducer. |
 

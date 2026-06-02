@@ -19,7 +19,7 @@ let node = Alert {
     title: "Could not save draft".into(),
     description: Some("Check your connection and try again.".into()),
 }
-.build(ctx, view);
+.into();
 ```
 
 This is a good fit because the failure matters to the current workflow and should remain visible until the user responds.

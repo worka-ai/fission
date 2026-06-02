@@ -16,7 +16,7 @@ Use `Container` when you need to shape or decorate a single child. Do not use it
 ```rust
 use fission::core::ui::{Container, Text};
 
-let card = Container::new(Text::new("Billing summary").into_node())
+let card = Container::new(Text::new("Billing summary").into())
     .padding_all(16.0)
     .width(320.0)
     .bg(fission::core::op::Color {
@@ -35,15 +35,15 @@ let card = Container::new(Text::new("Billing summary").into_node())
         1.0,
     )
     .border_radius(12.0)
-    .into_node();
+    .into();
 ```
 
 ## Field table
 
 | Field | Type | Meaning | Notes / default behavior |
 | --- | --- | --- | --- |
-| `id` | `Option<NodeId>` | Stable node identity. | Defaults to `None`. |
-| `child` | `Option<Box<Node>>` | The wrapped child node. | Defaults to `None`. `Container::new(...)` fills this for you. |
+| `id` | `Option<WidgetId>` | Stable node identity. | Defaults to `None`. |
+| `child` | `Option<Widget>` | The wrapped child node. | Defaults to `None`. `Container::new(...)` fills this for you. |
 | `width` | `Option<f32>` | Fixed width. | Defaults to `None`. |
 | `height` | `Option<f32>` | Fixed height. | Defaults to `None`. |
 | `min_width` | `Option<f32>` | Minimum width constraint. | Defaults to `None`. |

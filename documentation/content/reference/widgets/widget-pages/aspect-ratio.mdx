@@ -19,18 +19,18 @@ use fission::prelude::*;
 
 let node = AspectRatio {
     ratio: 16.0 / 9.0,
-    child: Box::new(
-        Container::new(Text::new("Preview").into_node())
+    child: 
+        Container::new(Text::new("Preview").into())
             .bg(fission::core::op::Color {
                 r: 32,
                 g: 37,
                 b: 49,
                 a: 255,
             })
-            .into_node(),
-    ),
+            .into(),
+    ,
 }
-.build(ctx, view);
+.into();
 ```
 
 The parent still controls how much space is available. `AspectRatio` only makes sure the child stays in the requested proportion.
@@ -40,7 +40,7 @@ The parent still controls how much space is available. `AspectRatio` only makes 
 | Field | Type | Meaning | Notes / default behavior |
 | --- | --- | --- | --- |
 | `ratio` | `f32` | Width divided by height. | Required. `16.0 / 9.0` gives a widescreen rectangle; `1.0` gives a square. |
-| `child` | `Box<Node>` | The node constrained by the ratio. | Required. The child still renders normally inside the resulting box. |
+| `child` | `Widget` | The node constrained by the ratio. | Required. The child still renders normally inside the resulting box. |
 
 ## Layout behavior
 

@@ -19,18 +19,18 @@ let node = Accordion {
         AccordionItem {
             title: "Details".into(),
             content: details_node,
-            is_expanded: view.state.details_open,
+            is_expanded: view.state().details_open,
             on_toggle: Some(toggle_details_action),
         },
         AccordionItem {
             title: "History".into(),
             content: history_node,
-            is_expanded: view.state.history_open,
+            is_expanded: view.state().history_open,
             on_toggle: Some(toggle_history_action),
         },
     ],
 }
-.build(ctx, view);
+.into();
 ```
 
 The widget only reflects state. If your product wants exactly one section open at a time, that rule belongs in the reducer. If your product wants several sections open together, that also belongs in the reducer.

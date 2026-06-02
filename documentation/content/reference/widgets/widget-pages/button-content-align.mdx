@@ -17,11 +17,11 @@ use fission::core::ui::{Button, ButtonContentAlign, Text};
 let node = Button {
 width: Some(280.0),
 content_align: ButtonContentAlign::Start,
-child: Some(Box::new(Text::new("Open project").into_node())),
+child: Some(Text::new("Open project").into()),
 on_press: Some(open_project_action),
 ..Default::default()
 }
-.into_node();
+.into();
 ```
 
 In this example the button is intentionally wider than its label, so `Start` makes the text read like a list row instead of a centered badge.

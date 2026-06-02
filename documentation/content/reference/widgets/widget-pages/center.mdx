@@ -18,16 +18,16 @@ use fission::core::ui::Text;
 use fission::prelude::*;
 
 let node = Center {
-    child: Box::new(Text::new("Loading...").into_node()),
+    child: Text::new("Loading...").into(),
 }
-.build(ctx, view);
+.into();
 ```
 
 ## Field table
 
 | Field | Type | Meaning | Notes / default behavior |
 | --- | --- | --- | --- |
-| `child` | `Box<Node>` | The node to center in the available space. | Required. `Center` has no extra alignment fields of its own. |
+| `child` | `Widget` | The node to center in the available space. | Required. `Center` has no extra alignment fields of its own. |
 
 ## Behavior and advice
 

@@ -16,10 +16,10 @@ use fission::prelude::*;
 
 let node = FileUpload {
 label: "Browse".into(),
-selected_file: view.state.attachment_name.clone(),
+selected_file: view.state().attachment_name.clone(),
 on_browse: Some(with_reducer!(ctx, PickAttachment, on_pick_attachment)),
 }
-.build(ctx, view);
+.into();
 ```
 
 A common next step is for `on_pick_attachment` to ask the runtime for a file picker capability, then store the chosen file name or handle in state when the capability returns.
@@ -34,7 +34,7 @@ A common next step is for `on_pick_attachment` to ask the runtime for a file pic
 
 ## How it fits into the state and effect loop
 
-The widget handles presentation only. The full flow usually looks like this: the user presses browse, the widget dispatches `on_browse`, the reducer asks `ctx.effects` to invoke a host file-picker capability such as `PICK_OPEN_FILES`, and a later success action stores the chosen file information in `AppState`. The next build then passes a new `selected_file` string back into the widget.
+The widget handles presentation only. The full flow usually looks like this: the user presses browse, the widget dispatches `on_browse`, the reducer asks `ctx.effects` to invoke a host file-picker capability such as `PICK_OPEN_FILES`, and a later success action stores the chosen file information in `GlobalState`. The next build then passes a new `selected_file` string back into the widget.
 
 This separation is why file picking remains deterministic inside the core runtime. The widget describes intent, while the host interaction happens explicitly outside the reducer.
 

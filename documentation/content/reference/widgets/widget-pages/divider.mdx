@@ -17,12 +17,12 @@ use fission::prelude::*;
 let node = VStack {
     spacing: Some(0.0),
     children: vec![
-        Text::new("General").into_node(),
-        Divider::default().build(ctx, view),
-        Text::new("Security").into_node(),
+        Text::new("General").into(),
+        Divider::default().into(),
+        Text::new("Security").into(),
     ],
 }
-.into_node();
+.into();
 ```
 
 ## Field table

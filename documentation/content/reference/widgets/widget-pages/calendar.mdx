@@ -17,9 +17,9 @@ use fission::prelude::*;
 use std::sync::Arc;
 
 let node = Calendar {
-    year: view.state.visible_year,
-    month: view.state.visible_month,
-    selected_date: view.state.selected_day,
+    year: view.state().visible_year,
+    month: view.state().visible_month,
+    selected_date: view.state().selected_day,
     on_select: Some(Arc::new(move |date: NaiveDate| ActionEnvelope {
         id: set_selected_day_id,
         payload: serde_json::to_vec(&SetSelectedDay(date)).unwrap(),
@@ -31,7 +31,7 @@ let node = Calendar {
     cell_size: Some(40.0),
     padding: Some(16.0),
 }
-.build(ctx, view);
+.into();
 ```
 
 The reducer usually stores both the selected day and the currently visible month. Those are related, but they are not always the same thing.

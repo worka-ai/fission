@@ -18,10 +18,10 @@ The example below shows the shape of the type, but in most app code you would wr
 ```rust
 use std::sync::Arc;
 
-use fission::core::ui::{CustomNode, Node};
+use fission::core::ui::{CustomWidget, Widget};
 use fission::prelude::*;
 
-let sparkline = Node::Custom(CustomNode {
+let sparkline: Widget = CustomWidget {
     debug_tag: "Sparkline".into(),
     lowerer: Some(Arc::new(CanvasLowerer {
         width: Some(120.0),
@@ -32,7 +32,7 @@ let sparkline = Node::Custom(CustomNode {
         }),
     })),
     render_object: None,
-});
+}.into();
 ```
 
 ## Field table
@@ -41,16 +41,16 @@ let sparkline = Node::Custom(CustomNode {
 | --- | --- | --- | --- |
 | `width` | `Option<f32>` | Fixed width for the root box. | `None` leaves width to parent constraints. |
 | `height` | `Option<f32>` | Fixed height for the root box. | `None` leaves height to parent constraints. |
-| `painter` | `Arc<dyn Fn(&mut LoweringContext) -> Vec<NodeId> + Send + Sync>` | Closure that emits child node ids directly into the lowering context. | Required. This is the advanced part of the public contract. |
+| `painter` | `Arc<dyn Fn(&mut LoweringContext) -> Vec<WidgetId> + Send + Sync>` | Closure that emits child node ids directly into the lowering context. | Required. This is the advanced part of the public contract. |
 
 ## Behavior and escape-hatch guidance
 
 `CanvasLowerer` lowers its emitted node ids into a structural group and wraps that group in a fixed-size box. It does not add semantics, input handling, or a custom render object on its own.
 
-That means it is best for lightweight custom drawing helpers. If the surface also needs pointer handling, text input, or custom hit testing, you are usually in [`CustomNode`](/reference/widgets/custom-node) territory rather than plain `CanvasLowerer` territory.
+That means it is best for lightweight custom drawing helpers. If the surface also needs pointer handling, text input, or custom hit testing, you are usually in [`CustomWidget`](/reference/widgets/custom-widget) territory rather than plain `CanvasLowerer` territory.
 
 Another important limit is maintainability. Direct lowering code is powerful, but it is easier to misuse than ordinary widgets. If a layout can be expressed with [`Container`](/reference/widgets/container), [`Row`](/reference/widgets/row), [`Column`](/reference/widgets/column), or [`Composite`](/reference/widgets/composite), prefer those first.
 
 ## Related
 
-[`canvas(...)`](/reference/widgets/canvas), [`CustomNode`](/reference/widgets/custom-node), and [`Node`](/reference/widgets/node).
+[`canvas(...)`](/reference/widgets/canvas), [`CustomWidget`](/reference/widgets/custom-widget), and [`Composite`](/reference/widgets/composite).

@@ -47,16 +47,16 @@ This gives you a compact custom surface while still staying inside the Fission n
 | --- | --- | --- | --- |
 | `width` | `Option<f32>` | Fixed width of the canvas box. | `None` leaves width to the parent constraints. |
 | `height` | `Option<f32>` | Fixed height of the canvas box. | `None` leaves height to the parent constraints. |
-| `painter` | `Fn(&mut LoweringContext) -> Vec<NodeId>` | Closure that emits the child node ids to group inside the canvas box. | Required. The closure should stay deterministic and purely descriptive. |
+| `painter` | `Fn(&mut LoweringContext) -> Vec<WidgetId>` | Closure that emits the child node ids to group inside the canvas box. | Required. The closure should stay deterministic and purely descriptive. |
 
 ## Behavior and advice
 
 `canvas(...)` is still a build-time description tool. The closure runs during lowering and should not do outside work. Think of it as a lower-level way to emit paint and layout nodes, not as a back door for imperative drawing state.
 
-The helper also does not automatically add semantics. If the visual surface conveys important meaning, wrap it in surrounding widgets that provide labels or interaction. If the surface needs custom input or hit-testing logic, move up to [`CustomNode`](/reference/widgets/custom-node).
+The helper also does not automatically add semantics. If the visual surface conveys important meaning, wrap it in surrounding widgets that provide labels or interaction. If the surface needs custom input or hit-testing logic, move up to [`CustomWidget`](/reference/widgets/custom-widget).
 
 If you are teaching or onboarding a team, treat `canvas(...)` as an intermediate escape hatch: more advanced than `Container` or `Composite`, but simpler than designing a full custom node stack.
 
 ## Related
 
-[`CanvasLowerer`](/reference/widgets/canvas-lowerer), [`CustomNode`](/reference/widgets/custom-node), [`Composite`](/reference/widgets/composite), and [`Container`](/reference/widgets/container).
+[`CanvasLowerer`](/reference/widgets/canvas-lowerer), [`CustomWidget`](/reference/widgets/custom-widget), [`Composite`](/reference/widgets/composite), and [`Container`](/reference/widgets/container).

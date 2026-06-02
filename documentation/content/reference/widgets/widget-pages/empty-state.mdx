@@ -18,16 +18,16 @@ let node = EmptyState {
     icon: None,
     title: "No drafts yet".into(),
     description: Some("Create your first draft to start writing.".into()),
-    action: Some(Box::new(
+    action: Some(
         Button {
-            child: Some(Box::new(Text::new("New draft").into_node())),
+            child: Some(Text::new("New draft").into()),
             on_press: Some(create_draft_action),
             ..Default::default()
         }
-        .into_node(),
-    )),
+        .into(),
+    ),
 }
-.build(ctx, view);
+.into();
 ```
 
 This is much more helpful than leaving a large blank panel with no explanation.
@@ -36,10 +36,10 @@ This is much more helpful than leaving a large blank panel with no explanation.
 
 | Field | Type | Meaning | Notes / default behavior |
 | --- | --- | --- | --- |
-| `icon` | `Option<Box<Node>>` | Optional decorative or explanatory visual. | Defaults to `None`. |
+| `icon` | `Option<Widget>` | Optional decorative or explanatory visual. | Defaults to `None`. |
 | `title` | `String` | Main message for the empty state. | Required. |
 | `description` | `Option<String>` | Supporting explanation below the title. | Defaults to `None`. |
-| `action` | `Option<Box<Node>>` | Optional primary action, often a button. | Defaults to `None`. Can be any node. |
+| `action` | `Option<Widget>` | Optional primary action, often a button. | Defaults to `None`. Can be any node. |
 
 ## user experience intent
 

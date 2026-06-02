@@ -16,10 +16,10 @@ use fission::prelude::*;
 
 let node = Avatar {
     name: Some("Maya Patel".into()),
-    src: view.state.profile_photo_url.clone(),
+    src: view.state().profile_photo_url.clone(),
     size: Some(48.0),
 }
-.build(ctx, view);
+.into();
 ```
 
 If the image is unavailable, this renders `MP` inside a circular surface instead of leaving a blank space.

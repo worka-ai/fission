@@ -15,14 +15,14 @@ In product terms, the choice matters because side placement changes the meaning 
 
 ```rust
 use fission::prelude::*;
-use fission::core::WidgetNodeId;
+use fission::WidgetId;
 
 let drawer = Drawer {
-    id: WidgetNodeId::explicit("project_nav"),
+    id: WidgetId::explicit("project_nav"),
     side: DrawerSide::Left,
-    is_open: view.state.show_nav,
+    is_open: view.state().show_nav,
     on_dismiss: Some(close_nav),
-    content: Box::new(nav_content),
+    content: nav_content,
     width: Some(320.0),
 };
 ```

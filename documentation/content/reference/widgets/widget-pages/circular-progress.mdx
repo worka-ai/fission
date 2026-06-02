@@ -21,7 +21,7 @@ let node = CircularProgress {
     track_color: None,
     thickness: 4.0,
 }
-.build(ctx, view);
+.into();
 ```
 
 This gives a compact 72 percent progress ring that can sit beside text or a stat value.
@@ -39,7 +39,7 @@ This gives a compact 72 percent progress ring that can sit beside text or a stat
 
 ## Determinate versus indeterminate behavior
 
-`value: None` is indeterminate mode. The widget draws a partial arc and, when `animated` is true, registers a rotation animation for its `id`. Give each concurrently animated indicator a stable distinct `WidgetNodeId` so their animation state does not collide.
+`value: None` is indeterminate mode. The widget draws a partial arc and, when `animated` is true, registers a rotation animation for its `id`. Give each concurrently animated indicator a stable distinct `WidgetId` so their animation state does not collide.
 
 For determinate progress, pass `Some(fraction)`. The widget expects a value in the `0.0` to `1.0` range and does not clamp it internally. Clamp upstream if the data may drift outside that range.
 

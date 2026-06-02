@@ -17,12 +17,12 @@ Use `Clip` when overflow is the problem. Do not use it as a substitute for sizin
 use fission::core::ui::{Clip, Container, Text};
 
 let node = Clip::new(
-    Container::new(Text::new("Sliding content").into_node())
+    Container::new(Text::new("Sliding content").into())
         .width(200.0)
         .height(48.0)
-        .into_node(),
+        .into(),
 )
-.into_node();
+.into();
 ```
 
 This keeps the child inside its visible bounds even if another wrapper later translates or animates it.
@@ -31,9 +31,9 @@ This keeps the child inside its visible bounds even if another wrapper later tra
 
 | Field | Type | Meaning | Notes / default behavior |
 | --- | --- | --- | --- |
-| `id` | `Option<NodeId>` | Stable node identity. | Defaults to `None`. |
+| `id` | `Option<WidgetId>` | Stable node identity. | Defaults to `None`. |
 | `path` | `Option<String>` | Optional clip path payload. | Defaults to `None`. The current checked-in shell pipeline clips to rectangular bounds, so custom path behavior is not the portable default today. |
-| `child` | `Box<Node>` | The node whose painting should be clipped. | Required. `Clip::default()` uses an empty spacer child. |
+| `child` | `Widget` | The node whose painting should be clipped. | Required. `Clip::default()` uses an empty spacer child. |
 
 ## Layout and rendering behavior
 

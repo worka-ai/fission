@@ -17,7 +17,7 @@ use fission::prelude::*;
 let node = Code {
     text: "fission run".into(),
 }
-.build(ctx, view);
+.into();
 ```
 
 This works well inside help panels, alerts, and setup instructions.

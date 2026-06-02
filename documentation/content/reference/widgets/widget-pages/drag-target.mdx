@@ -15,7 +15,7 @@ It wraps a child and dispatches one action when something is dropped on it. Use 
 use fission::prelude::*;
 
 let node = DragTarget {
-child: Box::new(Text::new("Drop here to move").into_node()),
+child: Text::new("Drop here to move").into(),
 on_drop: Some(ctx.bind(
     MoveCardHere,
     reduce_with!((|state: &mut BoardState, _action: MoveCardHere, ctx| {
@@ -25,7 +25,7 @@ on_drop: Some(ctx.bind(
     })),
 )),
 }
-.build(ctx, view);
+.into();
 ```
 
 The dropped payload travels through `ctx.input`, not through the action type itself. That keeps the drag payload explicit and lets the reducer decide how to decode it.
@@ -34,7 +34,7 @@ The dropped payload travels through `ctx.input`, not through the action type its
 
 | Field | Type | Meaning | Notes / default behavior |
 | --- | --- | --- | --- |
-| `child` | `Box<Node>` | The visible drop target surface. | Required. |
+| `child` | `Widget` | The visible drop target surface. | Required. |
 | `on_drop` | `Option<ActionEnvelope>` | Action dispatched when the runtime delivers a drop to this target. | Defaults to `None`. Read payloads from `ReducerContext::input`. |
 
 ## How drop data reaches your reducer

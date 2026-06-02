@@ -21,21 +21,21 @@ use fission::prelude::*;
 
 let node = ZStack {
     children: vec![
-        Text::new("Main content").into_node(),
+        Text::new("Main content").into(),
         absolute_fill(
-            Container::new(Text::new("").into_node())
+            Container::new(Text::new("").into())
                 .bg(fission::core::op::Color {
                     r: 0,
                     g: 0,
                     b: 0,
                     a: 140,
                 })
-                .into_node(),
+                .into(),
         ),
     ],
     ..Default::default()
 }
-.into_node();
+.into();
 ```
 
 The helper does not add styling or input behavior by itself. It only changes sizing. In this example, the `Container` provides the background color while `absolute_fill(...)` makes that container cover the whole stacked area.
@@ -44,7 +44,7 @@ The helper does not add styling or input behavior by itself. It only changes siz
 
 | Field | Type | Meaning | Notes / default behavior |
 | --- | --- | --- | --- |
-| `child` | `Node` | The node that should fill the parent's bounds. | Required. The helper returns a new `Node` rather than a widget struct with public fields. |
+| `child` | `Widget` | The node that should fill the parent's bounds. | Required. The helper returns a `Widget` rather than a widget struct with public fields. |
 
 ## Behavior and advice
 

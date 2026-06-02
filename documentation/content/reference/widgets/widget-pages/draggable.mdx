@@ -15,29 +15,27 @@ It takes a visible child and a payload of bytes. When the user begins dragging, 
 use fission::prelude::*;
 
 let node = Draggable {
-payload: view.state.card_id.as_bytes().to_vec(),
-on_drag_start: Some(start_drag_action),
-on_drag_end: Some(end_drag_action),
-child: Box::new(
-    Button {
-        child: Some(Box::new(Text::new("Release checklist").into_node())),
+    payload: view.state().card_id.as_bytes().to_vec(),
+    on_drag_start: Some(start_drag_action),
+    on_drag_end: Some(end_drag_action),
+    child: Button {
+        child: Some(Text::new("Release checklist").into()),
         on_press: Some(open_card_action),
         ..Default::default()
     }
-    .into_node(),
-),
+    .into(),
 }
-.build(ctx, view);
+.into();
 ```
 
-The payload carries just enough information for the eventual drop target to know what moved. The actual board order, selection state, and persistence rules still belong in `AppState` and reducers.
+The payload carries just enough information for the eventual drop target to know what moved. The actual board order, selection state, and persistence rules still belong in `GlobalState` and reducers.
 
 ## Field table
 
 | Field | Type | Meaning | Notes / default behavior |
 | --- | --- | --- | --- |
 | `payload` | `Vec<u8>` | Bytes attached to the drag. | Required. The reducer on the drop target decodes them from `ctx.input.as_internal_drop()`. |
-| `child` | `Box<Node>` | Visible content that the user drags. | Required. |
+| `child` | `Widget` | Visible content that the user drags. | Required. |
 | `on_drag_start` | `Option<ActionEnvelope>` | Action fired when dragging begins. | Defaults to `None`. Useful for visual state such as highlighting the source item. |
 | `on_drag_end` | `Option<ActionEnvelope>` | Action fired when dragging ends. | Defaults to `None`, regardless of whether a target accepted the drop. |
 
@@ -54,4 +52,3 @@ If you only need reordering inside one list, use a small stable id in the payloa
 ## Related
 
 [`DragTarget`](/reference/widgets/drag-target), [`Dropzone`](/reference/widgets/dropzone), [`GestureDetector`](/reference/widgets/gesture-detector), and [`Button`](/reference/widgets/button).
-

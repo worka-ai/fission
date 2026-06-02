@@ -24,11 +24,11 @@ let node = FocusScope {
             placeholder: Some("To".into()),
             ..Default::default()
         }
-        .into_node(),
+        .into(),
     ],
     ..Default::default()
 }
-.into_node();
+.into();
 ```
 
 This is the kind of structure you want inside a modal, where keyboard users should stay inside the dialog while it is open.
@@ -37,8 +37,8 @@ This is the kind of structure you want inside a modal, where keyboard users shou
 
 | Field | Type | Meaning | Notes / default behavior |
 | --- | --- | --- | --- |
-| `id` | `Option<NodeId>` | Stable node identity. | Defaults to `None`. |
-| `children` | `Vec<Node>` | The subtree inside the focus scope. | Defaults to an empty list. |
+| `id` | `Option<WidgetId>` | Stable node identity. | Defaults to `None`. |
+| `children` | `Vec<Widget>` | The subtree inside the focus scope. | Defaults to an empty list. |
 | `is_barrier` | `bool` | Whether focus traversal should be contained by this scope. | Defaults to `false`. Set `true` for modal-style focus containment. |
 
 ## Focus and semantics behavior
