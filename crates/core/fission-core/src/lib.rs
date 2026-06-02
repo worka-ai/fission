@@ -46,6 +46,7 @@ pub mod build;
 mod build_context;
 pub mod capability; // New
 pub mod context; // New
+pub mod devtools;
 pub mod diff;
 pub mod effect; // New
 pub mod env;

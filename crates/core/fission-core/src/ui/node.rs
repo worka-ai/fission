@@ -9,6 +9,7 @@ use super::widgets::{
 use crate::lowering::InternalLoweringCx;
 use fission_ir::{Op, StructuralOp, WidgetId};
 use serde::{Deserialize, Serialize};
+use std::collections::BTreeMap;
 use std::sync::Arc;
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -255,6 +256,246 @@ impl Widget {
         }
     }
 
+    pub(crate) fn devtools_explicit_id(&self) -> Option<WidgetId> {
+        match &*self.kind {
+            WidgetKind::Identified { id, .. } => Some(*id),
+            WidgetKind::ActionScope(_) => None,
+            WidgetKind::Row(w) => w.id,
+            WidgetKind::Column(w) => w.id,
+            WidgetKind::Align(w) => w.id,
+            WidgetKind::FocusScope(w) => w.id,
+            WidgetKind::Clip(w) => w.id,
+            WidgetKind::Text(w) => w.id,
+            WidgetKind::RichText(w) => w.id,
+            WidgetKind::Transform(w) => w.id,
+            WidgetKind::Button(w) => w.id,
+            WidgetKind::TextInput(w) => w.id,
+            WidgetKind::Scroll(w) => w.id,
+            WidgetKind::SemanticsRegion(w) => w.id,
+            WidgetKind::Image(w) => w.id,
+            WidgetKind::Video(w) => w.id,
+            WidgetKind::ZStack(w) => w.id,
+            WidgetKind::Overlay(w) => w.id,
+            WidgetKind::Container(w) => w.id,
+            WidgetKind::GestureDetector(w) => w.id,
+            WidgetKind::Grid(w) => w.id,
+            WidgetKind::GridItem(w) => w.id,
+            WidgetKind::Checkbox(w) => w.id,
+            WidgetKind::Switch(w) => w.id,
+            WidgetKind::Radio(w) => w.id,
+            WidgetKind::SafeArea(w) => w.id,
+            WidgetKind::Positioned(w) => w.id,
+            WidgetKind::Spacer(w) => w.id,
+            WidgetKind::Slider(w) => w.id,
+            WidgetKind::LazyColumn(w) => w.id,
+            WidgetKind::Icon(w) => w.id,
+            WidgetKind::Composite(w) => w.id,
+            WidgetKind::Custom(_) => None,
+        }
+    }
+
+    pub(crate) fn devtools_children(&self) -> Vec<&Widget> {
+        match &*self.kind {
+            WidgetKind::Identified { child, .. } => vec![child],
+            WidgetKind::ActionScope(w) => vec![&w.child],
+            WidgetKind::Row(w) => w.children.iter().collect(),
+            WidgetKind::Column(w) => w.children.iter().collect(),
+            WidgetKind::Align(w) => vec![&w.child],
+            WidgetKind::FocusScope(w) => w.children.iter().collect(),
+            WidgetKind::Clip(w) => vec![&w.child],
+            WidgetKind::RichText(w) => w.inline_widgets.iter().map(|span| &span.widget).collect(),
+            WidgetKind::Transform(w) => vec![&w.child],
+            WidgetKind::Button(w) => w.child.iter().collect(),
+            WidgetKind::Scroll(w) => w.child.iter().collect(),
+            WidgetKind::SemanticsRegion(w) => w.child.iter().collect(),
+            WidgetKind::ZStack(w) => w.children.iter().collect(),
+            WidgetKind::Overlay(w) => vec![&w.content, &w.overlay],
+            WidgetKind::Container(w) => w.child.iter().collect(),
+            WidgetKind::GestureDetector(w) => vec![&w.child],
+            WidgetKind::Grid(w) => w.children.iter().collect(),
+            WidgetKind::GridItem(w) => vec![&w.child],
+            WidgetKind::SafeArea(w) => vec![&w.child],
+            WidgetKind::Positioned(w) => w.child.iter().collect(),
+            WidgetKind::LazyColumn(w) => w.children.iter().collect(),
+            WidgetKind::Composite(w) => vec![&w.child],
+            WidgetKind::Text(_)
+            | WidgetKind::TextInput(_)
+            | WidgetKind::Image(_)
+            | WidgetKind::Video(_)
+            | WidgetKind::Checkbox(_)
+            | WidgetKind::Switch(_)
+            | WidgetKind::Radio(_)
+            | WidgetKind::Spacer(_)
+            | WidgetKind::Slider(_)
+            | WidgetKind::Icon(_)
+            | WidgetKind::Custom(_) => Vec::new(),
+        }
+    }
+
+    pub(crate) fn devtools_debug_label(&self) -> Option<String> {
+        match &*self.kind {
+            WidgetKind::Identified { child, .. } => child.devtools_debug_label(),
+            WidgetKind::Text(w) => Some(format!("{:?}", w.content)),
+            WidgetKind::RichText(w) => {
+                let text = w
+                    .runs
+                    .iter()
+                    .map(|run| run.text.as_str())
+                    .collect::<Vec<_>>()
+                    .join("");
+                (!text.is_empty()).then_some(text)
+            }
+            WidgetKind::Button(w) => w
+                .semantics
+                .as_ref()
+                .and_then(|semantics| semantics.label.clone()),
+            WidgetKind::TextInput(w) => w
+                .label
+                .as_ref()
+                .or(w.placeholder.as_ref())
+                .map(|content| format!("{content:?}")),
+            WidgetKind::Image(w) => Some(format!("{:?}", w.request.source)),
+            WidgetKind::Video(w) => Some(w.source.clone()),
+            WidgetKind::Checkbox(w) => w.label.clone(),
+            WidgetKind::Radio(w) => w.label.clone(),
+            WidgetKind::SemanticsRegion(w) => w.label.clone().or_else(|| w.identifier.clone()),
+            WidgetKind::Icon(w) => Some(format!("{:?}", w.source)),
+            WidgetKind::Custom(w) => Some(w.debug_tag.clone()),
+            _ => None,
+        }
+    }
+
+    pub(crate) fn devtools_properties(&self) -> BTreeMap<String, String> {
+        let mut properties = BTreeMap::new();
+        if let Some(id) = self.devtools_explicit_id() {
+            properties.insert("widget_id".into(), id.as_u128().to_string());
+        }
+        let child_count = self.devtools_children().len();
+        if child_count > 0 {
+            properties.insert("child_count".into(), child_count.to_string());
+        }
+
+        match &*self.kind {
+            WidgetKind::Identified { id, .. } => {
+                properties.insert("identified_id".into(), id.as_u128().to_string());
+            }
+            WidgetKind::Row(w) => {
+                insert_optional(&mut properties, "gap", w.gap);
+                properties.insert("flex_grow".into(), w.flex_grow.to_string());
+                properties.insert("flex_shrink".into(), w.flex_shrink.to_string());
+                properties.insert("align_items".into(), format!("{:?}", w.align_items));
+                properties.insert("justify_content".into(), format!("{:?}", w.justify_content));
+            }
+            WidgetKind::Column(w) => {
+                insert_optional(&mut properties, "gap", w.gap);
+                properties.insert("flex_grow".into(), w.flex_grow.to_string());
+                properties.insert("flex_shrink".into(), w.flex_shrink.to_string());
+                properties.insert("align_items".into(), format!("{:?}", w.align_items));
+                properties.insert("justify_content".into(), format!("{:?}", w.justify_content));
+            }
+            WidgetKind::Button(w) => {
+                insert_optional(&mut properties, "width", w.width);
+                insert_optional(&mut properties, "height", w.height);
+                properties.insert("variant".into(), format!("{:?}", w.variant));
+                properties.insert("disabled".into(), w.disabled.to_string());
+                properties.insert("has_action".into(), w.on_press.is_some().to_string());
+            }
+            WidgetKind::Container(w) => {
+                insert_optional(&mut properties, "width", w.width);
+                insert_optional(&mut properties, "height", w.height);
+                insert_optional(&mut properties, "border_radius", Some(w.border_radius));
+                properties.insert(
+                    "has_background".into(),
+                    w.background_fill.is_some().to_string(),
+                );
+            }
+            WidgetKind::Scroll(w) => {
+                insert_optional(&mut properties, "width", w.width);
+                insert_optional(&mut properties, "height", w.height);
+                properties.insert("direction".into(), format!("{:?}", w.direction));
+                properties.insert("show_scrollbar".into(), w.show_scrollbar.to_string());
+            }
+            WidgetKind::Text(w) => {
+                insert_optional(&mut properties, "width", w.width);
+                insert_optional(&mut properties, "height", w.height);
+                insert_optional(&mut properties, "size", w.font_size);
+                properties.insert("wrap".into(), w.wrap.to_string());
+            }
+            WidgetKind::RichText(w) => {
+                insert_optional(&mut properties, "width", w.width);
+                insert_optional(&mut properties, "height", w.height);
+                properties.insert("runs".into(), w.runs.len().to_string());
+                properties.insert("inline_widgets".into(), w.inline_widgets.len().to_string());
+                properties.insert("wrap".into(), w.wrap.to_string());
+            }
+            WidgetKind::TextInput(w) => {
+                insert_optional(&mut properties, "width", w.width);
+                insert_optional(&mut properties, "height", w.height);
+                properties.insert("text_len".into(), w.value.len().to_string());
+                properties.insert("multiline".into(), w.multiline.to_string());
+                properties.insert("enabled".into(), w.enabled.to_string());
+                properties.insert("read_only".into(), w.read_only.to_string());
+            }
+            WidgetKind::Image(w) => {
+                insert_optional(&mut properties, "width", w.width);
+                insert_optional(&mut properties, "height", w.height);
+                properties.insert("fit".into(), format!("{:?}", w.fit));
+            }
+            WidgetKind::Video(w) => {
+                insert_optional(&mut properties, "width", w.width);
+                insert_optional(&mut properties, "height", w.height);
+                properties.insert("autoplay".into(), w.autoplay.to_string());
+                properties.insert("loop_playback".into(), w.loop_playback.to_string());
+            }
+            WidgetKind::Grid(w) => {
+                properties.insert("columns".into(), w.columns.len().to_string());
+                properties.insert("rows".into(), w.rows.len().to_string());
+                insert_optional(&mut properties, "column_gap", w.column_gap);
+                insert_optional(&mut properties, "row_gap", w.row_gap);
+            }
+            WidgetKind::GridItem(w) => {
+                properties.insert("row_start".into(), format!("{:?}", w.row_start));
+                properties.insert("row_end".into(), format!("{:?}", w.row_end));
+                properties.insert("col_start".into(), format!("{:?}", w.col_start));
+                properties.insert("col_end".into(), format!("{:?}", w.col_end));
+            }
+            WidgetKind::Checkbox(w) => {
+                properties.insert("checked".into(), w.checked.to_string());
+                properties.insert("has_action".into(), w.on_toggle.is_some().to_string());
+            }
+            WidgetKind::Switch(w) => {
+                properties.insert("checked".into(), w.checked.to_string());
+                properties.insert("has_action".into(), w.on_toggle.is_some().to_string());
+            }
+            WidgetKind::Radio(w) => {
+                properties.insert("checked".into(), w.checked.to_string());
+                properties.insert("has_action".into(), w.on_select.is_some().to_string());
+            }
+            WidgetKind::Spacer(w) => {
+                insert_optional(&mut properties, "width", w.width);
+                insert_optional(&mut properties, "height", w.height);
+            }
+            WidgetKind::Slider(w) => {
+                properties.insert("value".into(), w.value.to_string());
+                properties.insert("min".into(), w.min.to_string());
+                properties.insert("max".into(), w.max.to_string());
+                properties.insert("has_action".into(), w.on_change.is_some().to_string());
+            }
+            WidgetKind::Icon(w) => {
+                insert_optional(&mut properties, "size", w.size);
+            }
+            WidgetKind::Custom(w) => {
+                properties.insert("debug_tag".into(), w.debug_tag.clone());
+                properties.insert(
+                    "has_render_object".into(),
+                    w.render_object.is_some().to_string(),
+                );
+            }
+            _ => {}
+        }
+        properties
+    }
+
     pub(crate) fn as_row(&self) -> Option<&Row> {
         match &*self.kind {
             WidgetKind::Identified { child, .. } => child.as_row(),
@@ -350,6 +591,16 @@ pub trait WidgetIdExt: Into<Widget> + Sized {
 }
 
 impl<T> WidgetIdExt for T where T: Into<Widget> {}
+
+fn insert_optional<T: ToString>(
+    properties: &mut BTreeMap<String, String>,
+    key: &'static str,
+    value: Option<T>,
+) {
+    if let Some(value) = value {
+        properties.insert(key.to_string(), value.to_string());
+    }
+}
 
 impl Widget {
     pub(crate) fn lower(&self, cx: &mut InternalLoweringCx) -> WidgetId {

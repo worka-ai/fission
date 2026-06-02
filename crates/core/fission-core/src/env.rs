@@ -127,6 +127,7 @@ pub struct RuntimeState {
     pub caret_visible: HashMap<WidgetId, bool>,
     pub gesture: GestureState,
     pub hero: HeroState,
+    pub devtools: crate::devtools::DevtoolsRuntimeState,
 }
 
 #[derive(Clone, Debug, Default)]
