@@ -1371,6 +1371,7 @@ dependencies = [
  "anyhow",
  "clap",
  "fission-command-core",
+ "fission-command-devtools",
  "fission-command-package",
  "fission-command-release",
  "fission-command-run",
@@ -2489,6 +2490,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "fission-command-devtools"
+version = "0.4.0"
+dependencies = [
+ "anyhow",
+ "clap",
+ "fission-devtools-protocol",
+ "fission-test-driver",
+ "serde_json",
+]
+
+[[package]]
 name = "fission-command-package"
 version = "0.4.0"
 dependencies = [
@@ -2580,6 +2592,7 @@ dependencies = [
  "anyhow",
  "blake3",
  "downcast-rs",
+ "fission-devtools-protocol",
  "fission-diagnostics",
  "fission-i18n",
  "fission-ir",
@@ -2614,6 +2627,14 @@ name = "fission-design-system-codegen"
 version = "0.4.0"
 dependencies = [
  "anyhow",
+ "serde_json",
+]
+
+[[package]]
+name = "fission-devtools-protocol"
+version = "0.4.0"
+dependencies = [
+ "serde",
  "serde_json",
 ]
 
@@ -2933,6 +2954,7 @@ version = "0.4.0"
 dependencies = [
  "anyhow",
  "base64",
+ "fission-devtools-protocol",
  "serde",
  "serde_json",
  "ureq",
