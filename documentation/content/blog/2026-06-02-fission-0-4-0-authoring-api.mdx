@@ -101,3 +101,10 @@ For existing code, the migration is conceptually straightforward even though it 
 6. Add explicit `WidgetId` values for dynamic retained children that can be reordered or filtered.
 
 The payoff is a smaller and clearer public API surface. Components are Rust structs. Conversion is explicit. State access is scoped. Runtime wiring is handled through typed handles. Parent context has a stack. Local widget state has a retained identity model. The code now better matches the mental model the docs teach and the shape Fission wants generated code to produce.
+
+## What this means for developers
+
+The practical test for `Fission 0.4.0: a cleaner authoring model for production Rust UI` is whether it makes a real app less risky to build. The implementation work matters because it gives developers a shorter path from idea to running software, a clearer way to diagnose failure, and fewer hidden platform-specific assumptions.
+
+If you are evaluating Fission, use the release as a checklist rather than a marketing claim: create or open an app, run the documented command, inspect the generated files, and add one small test around the behavior you plan to depend on. The framework should make that path explicit. When it does not, the documentation or tooling needs to improve until the risk is visible and actionable.
+

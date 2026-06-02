@@ -253,3 +253,14 @@ Do not store raw platform callback state all over your widget tree. Convert it i
 ## Where to go next
 
 If your next feature needs repeated background work instead of a one-shot host action, continue with [Keep a timer or service alive](/docs/cookbook/keep-a-timer-or-service-alive). If you want the deeper architecture behind effects, jobs, services, and resources, read [Resources and async](/docs/guides/resources-and-async).
+
+## Finished state and checks
+
+By the end of `Run typed host work`, you should have a runnable change, not just a set of snippets. Run the command shown in the page, exercise the feature once manually, and add or update the smallest test that protects the behavior.
+
+| Check | Expected result |
+| --- | --- |
+| Build | `cargo check` or the relevant `fission` command finishes without target-specific configuration errors. |
+| Behavior | The screen, package, server route, or test flow described by the recipe is visible and responds to input. |
+| Failure path | At least one denied, missing, invalid, or empty case renders a useful message instead of silently doing nothing. |
+| Next link | The reference page linked from the recipe explains the exact fields, commands, or types used here. |

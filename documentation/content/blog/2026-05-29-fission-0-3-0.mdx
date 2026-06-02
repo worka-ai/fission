@@ -27,3 +27,10 @@ Packaging and deployment work continued. Docker image support was added for stat
 Security received direct attention in the server shell. The release added signed server action forms, runtime security configuration, cache tests, session and island coverage, and documentation for server rendering and security workflow. That is important because server-side interactivity increases the cost of ambiguous behavior. The framework needs to make unsafe paths visible and controlled.
 
 Fission 0.3.0 is the release where the platform story became significantly more complete: real media loading, native capabilities, sharper web and iOS rendering, server rendering, sessions, browser bridges, Docker packaging, and security documentation all landed together.
+
+## What this means for developers
+
+The practical test for `Fission 0.3.0: async images, native capabilities, GPU-first web and server rendering` is whether it makes a real app less risky to build. The implementation work matters because it gives developers a shorter path from idea to running software, a clearer way to diagnose failure, and fewer hidden platform-specific assumptions.
+
+If you are evaluating Fission, use the release as a checklist rather than a marketing claim: create or open an app, run the documented command, inspect the generated files, and add one small test around the behavior you plan to depend on. The framework should make that path explicit. When it does not, the documentation or tooling needs to improve until the risk is visible and actionable.
+

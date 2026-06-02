@@ -75,6 +75,21 @@ The title and description are route metadata. They become part of the generated 
 A serious site normally has a shared header and footer. Put those in reusable widgets or configure them through the site app. Use the design system and theme rather than hard-coded colors when possible, then use `css_files` only for site-specific overrides.
 
 ```toml
+
+## What you should have working
+
+After this guide, you should be able to explain where `Static site custom pages` fits in the Fission lifecycle, identify the file or component you changed, run the relevant `fission` command, and verify the result in a real target or test. If any of those pieces are missing, treat the page as unfinished work: add the smallest runnable example, then add the diagnostic step that proves it works.
+
+## Common mistakes to check
+
+| Symptom | What to check first |
+| --- | --- |
+| The app compiles but nothing changes | Confirm the component is actually used by the route or shell target you are running. |
+| An action fires but state does not update | Confirm the reducer is registered with the same action value that the UI dispatches. |
+| A platform feature reports unsupported | Confirm the target has the capability in `fission.toml` and the shell registered the provider. |
+| The page works on one target but not another | Run `fission doctor`, then inspect target-specific configuration and feature flags. |
+| Tests are hard to write | Split the product rule into a reducer test first, then add a UI or shell smoke test for the integration. |
+
 [site]
 css_files = ["site/overrides.css"]
 asset_dirs = ["static"]

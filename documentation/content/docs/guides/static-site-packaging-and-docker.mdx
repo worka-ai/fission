@@ -45,6 +45,21 @@ fission publish \
 A static site can also be packaged into an OCI/Docker image. Fission generates a Docker context containing the rendered site and a small Rust static-file server. The server adapter is configured in [`fission.toml`](/reference/config/fission-toml/).
 
 ```toml
+
+## What you should have working
+
+After this guide, you should be able to explain where `Package static sites` fits in the Fission lifecycle, identify the file or component you changed, run the relevant `fission` command, and verify the result in a real target or test. If any of those pieces are missing, treat the page as unfinished work: add the smallest runnable example, then add the diagnostic step that proves it works.
+
+## Common mistakes to check
+
+| Symptom | What to check first |
+| --- | --- |
+| The app compiles but nothing changes | Confirm the component is actually used by the route or shell target you are running. |
+| An action fires but state does not update | Confirm the reducer is registered with the same action value that the UI dispatches. |
+| A platform feature reports unsupported | Confirm the target has the capability in `fission.toml` and the shell registered the provider. |
+| The page works on one target but not another | Run `fission doctor`, then inspect target-specific configuration and feature flags. |
+| Tests are hard to write | Split the product rule into a reducer test first, then add a UI or shell smoke test for the integration. |
+
 [package.docker]
 adapter = "axum"
 port = 8080

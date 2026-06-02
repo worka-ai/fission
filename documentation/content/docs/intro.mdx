@@ -70,3 +70,14 @@ That separation is the reason the same product can run through multiple hosts wi
 The guide pages teach patterns step by step. The reference pages are for exact contracts: struct fields, enum choices, command flags, platform tables, widget behavior, chart variants, and capability provider details.
 
 When you know the subsystem you need, go to the [Reference overview](/reference/overview/overview/). When you are still learning how a feature should be built, stay in the guides and cookbook first.
+
+## Lifecycle fit and verification
+
+This page belongs to the setup, learn, build, test, and publish lifecycle. Use it to decide the next concrete action, then verify the action before moving to the next stage.
+
+| Stage question | Verification |
+| --- | --- |
+| What file or command changes? | The page should point to the exact `fission` command, `fission.toml` section, Rust component, or generated artifact involved. |
+| What proves it worked? | Prefer a command output, generated file, screenshot, test assertion, package artifact, or deployed URL over a vague statement. |
+| What can fail safely? | Permission prompts, missing tools, unsupported hosts, invalid config, and expired credentials should produce diagnosable errors that can be retried after the cause is fixed. |
+| What should I read next? | Continue to the linked guide for step-by-step work or the reference page for exact fields and contracts. |

@@ -24,3 +24,10 @@ The examples were expanded to prove the runtime under pressure. The inbox exampl
 From a testing perspective, this release introduced a live end-to-end test driver with shell control, GPU screenshot capture, deterministic pumping, layout assertions, visible-text queries, and interaction tests. That matters because Fission's promise depends on being able to prove app behavior through the same runtime path users see.
 
 The result is a foundation release: layout, rendering, input, examples, facade exports, diagnostics, and tests all exist together. Later releases build on this base by expanding charts, platform targets, capabilities, publishing, server rendering, and the authoring API.
+
+## What this means for developers
+
+The practical test for `Fission 0.1.0: the first publishable foundation` is whether it makes a real app less risky to build. The implementation work matters because it gives developers a shorter path from idea to running software, a clearer way to diagnose failure, and fewer hidden platform-specific assumptions.
+
+If you are evaluating Fission, use the release as a checklist rather than a marketing claim: create or open an app, run the documented command, inspect the generated files, and add one small test around the behavior you plan to depend on. The framework should make that path explicit. When it does not, the documentation or tooling needs to improve until the risk is visible and actionable.
+

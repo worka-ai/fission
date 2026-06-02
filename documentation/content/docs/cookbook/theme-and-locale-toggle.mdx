@@ -324,3 +324,14 @@ If a language or theme choice should persist across launches, keep the persisted
 ## Where to go next
 
 If you want the broader explanation of how `Env`, `ViewHandle`, and synchronized environment values work, read [Input, text, and environment](/docs/guides/input-events-text-and-env) and [Theming and internationalization](/docs/guides/theming-and-i18n). If you want a repo-backed example after finishing this recipe, the `inbox` example is the strongest current demonstration of theme and locale switching.
+
+## Finished state and checks
+
+By the end of `Toggle theme and locale`, you should have a runnable change, not just a set of snippets. Run the command shown in the page, exercise the feature once manually, and add or update the smallest test that protects the behavior.
+
+| Check | Expected result |
+| --- | --- |
+| Build | `cargo check` or the relevant `fission` command finishes without target-specific configuration errors. |
+| Behavior | The screen, package, server route, or test flow described by the recipe is visible and responds to input. |
+| Failure path | At least one denied, missing, invalid, or empty case renders a useful message instead of silently doing nothing. |
+| Next link | The reference page linked from the recipe explains the exact fields, commands, or types used here. |

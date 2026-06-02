@@ -50,6 +50,22 @@ Round that out with [Platform runtime](/reference/core/platform-runtime), [Testi
 
 The platform pages explain what happens after the shared runtime reaches a real host.
 
+## Contract completeness checklist
+
+Use this checklist when wiring `Reference overview` into an app or shell implementation.
+
+| Requirement | Why it matters |
+| --- | --- |
+| Public entrypoint | The app code must call the documented helper, command, or configuration field rather than a platform-specific shortcut. |
+| Required setup | Native manifests, plist entries, entitlements, service-worker files, domains, protocols, credentials, or provider registration must be present before production use. |
+| Typed success and error | The implementation should return a truthful typed result. Silent success, swallowed errors, and string-only failure paths make apps unsafe to retry. |
+| Retry behavior | Operations that can fail because of permission, network, hardware, store, or packaging state should document whether retrying is useful and what must change first. |
+| Tests | Cover the happy path, unsupported host path, bad configuration path, and any security-sensitive rejection path. |
+
+## Failure behavior and safe retry
+
+Treat failures as product states, not surprises. A Fission app should be able to tell the user whether the problem is missing configuration, missing provider support, denied permission, unavailable hardware, invalid input, expired credentials, or a transient host error. Reducers should update state from typed results and keep retry buttons idempotent so pressing them twice cannot corrupt state or duplicate unsafe work.
+
 [Targets](/reference/platform/targets) is the page to open when you need to understand generated host output, target folders, and the practical expectations for desktop, web, Android, iOS, terminal, and static site targets.
 
 [Accessibility and internationalization](/reference/platform/accessibility-and-i18n) focuses on how semantic meaning and locale-sensitive behavior connect to platform adapters and testing.

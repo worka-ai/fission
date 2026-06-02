@@ -325,3 +325,14 @@ Do not treat accessibility as a later patch. Focus behavior and readable modal t
 ## Where to go next
 
 If this recipe made the text-update loop click for you, the next useful step is [Build a counter](/docs/cookbook/build-a-counter) for the smallest possible version of the same architecture, or [Write a live interface test](/docs/cookbook/write-a-live-ui-test) to validate that the modal stays reachable and dismisses correctly on a real host.
+
+## Finished state and checks
+
+By the end of `Build a modal text flow`, you should have a runnable change, not just a set of snippets. Run the command shown in the page, exercise the feature once manually, and add or update the smallest test that protects the behavior.
+
+| Check | Expected result |
+| --- | --- |
+| Build | `cargo check` or the relevant `fission` command finishes without target-specific configuration errors. |
+| Behavior | The screen, package, server route, or test flow described by the recipe is visible and responds to input. |
+| Failure path | At least one denied, missing, invalid, or empty case renders a useful message instead of silently doing nothing. |
+| Next link | The reference page linked from the recipe explains the exact fields, commands, or types used here. |

@@ -163,3 +163,14 @@ A good weekly rhythm is:
 6. Publish the video and update this calendar.
 
 The calendar should remain flexible, but the standard should not. Every shipped video should make Fission more understandable, more trustworthy, and easier to adopt.
+
+## Lifecycle fit and verification
+
+This page belongs to the setup, learn, build, test, and publish lifecycle. Use it to decide the next concrete action, then verify the action before moving to the next stage.
+
+| Stage question | Verification |
+| --- | --- |
+| What file or command changes? | The page should point to the exact `fission` command, `fission.toml` section, Rust component, or generated artifact involved. |
+| What proves it worked? | Prefer a command output, generated file, screenshot, test assertion, package artifact, or deployed URL over a vague statement. |
+| What can fail safely? | Permission prompts, missing tools, unsupported hosts, invalid config, and expired credentials should produce diagnosable errors that can be retried after the cause is fixed. |
+| What should I read next? | Continue to the linked guide for step-by-step work or the reference page for exact fields and contracts. |

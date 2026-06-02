@@ -188,3 +188,14 @@ That is the model to use today. A future paged data-source helper can make the p
 ## Best practices
 
 Keep charts fed by plain app state. Keep fetching, streaming, retries, caching, and paging in resources, jobs, services, or platform integrations. Test transformations before rendering. Use DataSets when named dimensions make the chart easier to reason about, and use direct series data when a small vector says everything the chart needs to say.
+
+## Lifecycle fit and verification
+
+This page belongs to the setup, learn, build, test, and publish lifecycle. Use it to decide the next concrete action, then verify the action before moving to the next stage.
+
+| Stage question | Verification |
+| --- | --- |
+| What file or command changes? | The page should point to the exact `fission` command, `fission.toml` section, Rust component, or generated artifact involved. |
+| What proves it worked? | Prefer a command output, generated file, screenshot, test assertion, package artifact, or deployed URL over a vague statement. |
+| What can fail safely? | Permission prompts, missing tools, unsupported hosts, invalid config, and expired credentials should produce diagnosable errors that can be retried after the cause is fixed. |
+| What should I read next? | Continue to the linked guide for step-by-step work or the reference page for exact fields and contracts. |

@@ -96,6 +96,22 @@ Shells provide the real platform implementations. Tests can provide mocks.
 
 That separation matters because clipboard and input method editor behavior are part of the host boundary, but they still need to plug into the shared runtime model explicitly.
 
+## Contract completeness checklist
+
+Use this checklist when wiring `Environment, input, and input method editor` into an app or shell implementation.
+
+| Requirement | Why it matters |
+| --- | --- |
+| Public entrypoint | The app code must call the documented helper, command, or configuration field rather than a platform-specific shortcut. |
+| Required setup | Native manifests, plist entries, entitlements, service-worker files, domains, protocols, credentials, or provider registration must be present before production use. |
+| Typed success and error | The implementation should return a truthful typed result. Silent success, swallowed errors, and string-only failure paths make apps unsafe to retry. |
+| Retry behavior | Operations that can fail because of permission, network, hardware, store, or packaging state should document whether retrying is useful and what must change first. |
+| Tests | Cover the happy path, unsupported host path, bad configuration path, and any security-sensitive rejection path. |
+
+## Failure behavior and safe retry
+
+Treat failures as product states, not surprises. A Fission app should be able to tell the user whether the problem is missing configuration, missing provider support, denied permission, unavailable hardware, invalid input, expired credentials, or a transient host error. Reducers should update state from typed results and keep retry buttons idempotent so pressing them twice cannot corrupt state or duplicate unsafe work.
+
 ## Related runtime-owned text state
 
 This page is about the public boundary types, but it helps to remember that the runtime also owns text-edit state internally. That includes caret and selection state, undo history, preedit state, and other editing affordances.

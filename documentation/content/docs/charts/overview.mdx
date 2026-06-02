@@ -80,3 +80,14 @@ Do not use a dramatic chart just because it looks impressive. A gauge is useful 
 ## Where the docs go next
 
 The catalog documents the chart surface that is implemented today. Every entry uses a chart-only screenshot captured from the Fission chart gallery so readers see real renderer output rather than the gallery application shell. Use the catalog for quick selection, then open the family and variant reference pages for the data shape, Rust model, interaction notes, animation behavior, and testing guidance.
+
+## Lifecycle fit and verification
+
+This page belongs to the setup, learn, build, test, and publish lifecycle. Use it to decide the next concrete action, then verify the action before moving to the next stage.
+
+| Stage question | Verification |
+| --- | --- |
+| What file or command changes? | The page should point to the exact `fission` command, `fission.toml` section, Rust component, or generated artifact involved. |
+| What proves it worked? | Prefer a command output, generated file, screenshot, test assertion, package artifact, or deployed URL over a vague statement. |
+| What can fail safely? | Permission prompts, missing tools, unsupported hosts, invalid config, and expired credentials should produce diagnosable errors that can be retried after the cause is fixed. |
+| What should I read next? | Continue to the linked guide for step-by-step work or the reference page for exact fields and contracts. |

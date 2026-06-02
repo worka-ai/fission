@@ -11,6 +11,17 @@ Fission treats release as part of the application lifecycle because building the
 
 ## 1. Keep the root manifest readable
 
+## Lifecycle fit and verification
+
+This page belongs to the setup, learn, build, test, and publish lifecycle. Use it to decide the next concrete action, then verify the action before moving to the next stage.
+
+| Stage question | Verification |
+| --- | --- |
+| What file or command changes? | The page should point to the exact `fission` command, `fission.toml` section, Rust component, or generated artifact involved. |
+| What proves it worked? | Prefer a command output, generated file, screenshot, test assertion, package artifact, or deployed URL over a vague statement. |
+| What can fail safely? | Permission prompts, missing tools, unsupported hosts, invalid config, and expired credentials should produce diagnosable errors that can be retried after the cause is fixed. |
+| What should I read next? | Continue to the linked guide for step-by-step work or the reference page for exact fields and contracts. |
+
 [`fission.toml`](/reference/config/fission-toml/) is the authoritative project root. Store stable facts there: app id, display name, version, target declarations, provider references, release tracks, and paths to release-content files.
 
 Do not put full release notes, long localized store descriptions, screenshot inventories, or review attachments directly into [`fission.toml`](/reference/config/fission-toml/). Put those in referenced files so humans can still review the manifest.
