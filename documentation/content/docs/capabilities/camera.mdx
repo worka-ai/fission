@@ -17,7 +17,7 @@ Add the smallest state fields the screen needs to render honestly. For this flow
 
 ```rust
 #[derive(Default)]
-struct AppState {
+struct GlobalState {
     // Add these fields to your existing app state.
 profile_photo: Option<Vec<u8>>,
     camera_error: Option<String>,
@@ -53,14 +53,14 @@ Capability work finishes later, after the reducer that started it has returned. 
 
 ```rust
 #[fission_reducer(PhotoCaptured)]
-fn on_photo_captured(state: &mut AppState, capture: CameraCapture) {
+fn on_photo_captured(state: &mut GlobalState, capture: CameraCapture) {
     state.capturing = false;
     state.profile_photo = Some(capture.bytes);
     state.camera_error = None;
 }
 
 #[fission_reducer(PhotoCaptureFailed)]
-fn on_photo_capture_failed(state: &mut AppState, error: CameraError) {
+fn on_photo_capture_failed(state: &mut GlobalState, error: CameraError) {
     state.capturing = false;
     state.camera_error = Some(error.message);
 }
@@ -103,14 +103,15 @@ Wire the user-facing control with the normal Fission action pattern. This exampl
 ```rust
 struct CaptureProfilePhotoButton;
 
-impl Widget<AppState> for CaptureProfilePhotoButton {
-    fn build(&self, view: &View<AppState>, ctx: &mut BuildCtx<AppState>) -> Node {
+impl From<CaptureProfilePhotoButton> for Widget {
+    fn from(component: CaptureProfilePhotoButton) -> Self {
+        let (ctx, view) = fission::build::current::<GlobalState>();
         let run = with_reducer!(ctx, CaptureProfilePhoto, on_capture_profile_photo);
 
         Button::new("Take photo")
-            .disabled(view.state.capturing)
+            .disabled(view.state().capturing)
             .on_press(run)
-            .build(view, ctx)
+            .into()
     }
 }
 ```

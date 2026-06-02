@@ -17,7 +17,7 @@ Add the smallest state fields the screen needs to render honestly. For this flow
 
 ```rust
 #[derive(Default)]
-struct AppState {
+struct GlobalState {
     // Add these fields to your existing app state.
 share_url: String,
     copied: bool,
@@ -47,13 +47,13 @@ Capability work finishes later, after the reducer that started it has returned. 
 
 ```rust
 #[fission_reducer(LinkCopied)]
-fn on_link_copied(state: &mut AppState) {
+fn on_link_copied(state: &mut GlobalState) {
     state.copied = true;
     state.clipboard_error = None;
 }
 
 #[fission_reducer(CopyFailed)]
-fn on_copy_failed(state: &mut AppState, error: ClipboardError) {
+fn on_copy_failed(state: &mut GlobalState, error: ClipboardError) {
     state.copied = false;
     state.clipboard_error = Some(error.message);
 }
@@ -90,14 +90,15 @@ Wire the user-facing control with the normal Fission action pattern. This exampl
 ```rust
 struct CopyShareLinkButton;
 
-impl Widget<AppState> for CopyShareLinkButton {
-    fn build(&self, view: &View<AppState>, ctx: &mut BuildCtx<AppState>) -> Node {
+impl From<CopyShareLinkButton> for Widget {
+    fn from(component: CopyShareLinkButton) -> Self {
+        let (ctx, view) = fission::build::current::<GlobalState>();
         let run = with_reducer!(ctx, CopyShareLink, on_copy_share_link);
 
         Button::new("Copy link")
             .disabled(false)
             .on_press(run)
-            .build(view, ctx)
+            .into()
     }
 }
 ```

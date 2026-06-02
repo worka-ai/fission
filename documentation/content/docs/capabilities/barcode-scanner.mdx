@@ -17,7 +17,7 @@ Add the smallest state fields the screen needs to render honestly. For this flow
 
 ```rust
 #[derive(Default)]
-struct AppState {
+struct GlobalState {
     // Add these fields to your existing app state.
 last_barcode: Option<String>,
     barcode_error: Option<String>,
@@ -53,14 +53,14 @@ Capability work finishes later, after the reducer that started it has returned. 
 
 ```rust
 #[fission_reducer(BarcodeScanned)]
-fn on_barcode_scanned(state: &mut AppState, results: BarcodeScanResults) {
+fn on_barcode_scanned(state: &mut GlobalState, results: BarcodeScanResults) {
     state.scanning = false;
     state.last_barcode = results.items.first().map(|item| item.value.clone());
     state.barcode_error = None;
 }
 
 #[fission_reducer(BarcodeScanFailed)]
-fn on_barcode_scan_failed(state: &mut AppState, error: BarcodeScannerError) {
+fn on_barcode_scan_failed(state: &mut GlobalState, error: BarcodeScannerError) {
     state.scanning = false;
     state.barcode_error = Some(error.message);
 }
@@ -102,14 +102,15 @@ Wire the user-facing control with the normal Fission action pattern. This exampl
 ```rust
 struct ScanBarcodeButton;
 
-impl Widget<AppState> for ScanBarcodeButton {
-    fn build(&self, view: &View<AppState>, ctx: &mut BuildCtx<AppState>) -> Node {
+impl From<ScanBarcodeButton> for Widget {
+    fn from(component: ScanBarcodeButton) -> Self {
+        let (ctx, view) = fission::build::current::<GlobalState>();
         let run = with_reducer!(ctx, ScanBarcode, on_scan_barcode);
 
         Button::new("Scan barcode")
-            .disabled(view.state.scanning)
+            .disabled(view.state().scanning)
             .on_press(run)
-            .build(view, ctx)
+            .into()
     }
 }
 ```

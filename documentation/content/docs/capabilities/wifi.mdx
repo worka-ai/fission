@@ -17,7 +17,7 @@ Add the smallest state fields the screen needs to render honestly. For this flow
 
 ```rust
 #[derive(Default)]
-struct AppState {
+struct GlobalState {
     // Add these fields to your existing app state.
 networks: Vec<WifiNetwork>,
     wifi_error: Option<String>,
@@ -53,14 +53,14 @@ Capability work finishes later, after the reducer that started it has returned. 
 
 ```rust
 #[fission_reducer(WifiNetworksFound)]
-fn on_wifi_networks_found(state: &mut AppState, result: WifiScanResult) {
+fn on_wifi_networks_found(state: &mut GlobalState, result: WifiScanResult) {
     state.scanning_wifi = false;
     state.networks = result.networks;
     state.wifi_error = None;
 }
 
 #[fission_reducer(WifiScanFailed)]
-fn on_wifi_scan_failed(state: &mut AppState, error: WifiError) {
+fn on_wifi_scan_failed(state: &mut GlobalState, error: WifiError) {
     state.scanning_wifi = false;
     state.wifi_error = Some(error.message);
 }
@@ -100,14 +100,15 @@ Wire the user-facing control with the normal Fission action pattern. This exampl
 ```rust
 struct ScanWifiNetworksButton;
 
-impl Widget<AppState> for ScanWifiNetworksButton {
-    fn build(&self, view: &View<AppState>, ctx: &mut BuildCtx<AppState>) -> Node {
+impl From<ScanWifiNetworksButton> for Widget {
+    fn from(component: ScanWifiNetworksButton) -> Self {
+        let (ctx, view) = fission::build::current::<GlobalState>();
         let run = with_reducer!(ctx, ScanWifiNetworks, on_scan_wifi_networks);
 
         Button::new("Scan networks")
-            .disabled(view.state.scanning_wifi)
+            .disabled(view.state().scanning_wifi)
             .on_press(run)
-            .build(view, ctx)
+            .into()
     }
 }
 ```

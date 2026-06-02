@@ -17,7 +17,7 @@ Add the smallest state fields the screen needs to render honestly. For this flow
 
 ```rust
 #[derive(Default)]
-struct AppState {
+struct GlobalState {
     // Add these fields to your existing app state.
 volume: Option<VolumeLevel>,
     volume_error: Option<String>,
@@ -52,13 +52,13 @@ Capability work finishes later, after the reducer that started it has returned. 
 
 ```rust
 #[fission_reducer(VolumeChanged)]
-fn on_volume_changed(state: &mut AppState, level: VolumeLevel) {
+fn on_volume_changed(state: &mut GlobalState, level: VolumeLevel) {
     state.volume = Some(level);
     state.volume_error = None;
 }
 
 #[fission_reducer(VolumeChangeFailed)]
-fn on_volume_change_failed(state: &mut AppState, error: VolumeError) {
+fn on_volume_change_failed(state: &mut GlobalState, error: VolumeError) {
     state.volume_error = Some(error.message);
 }
 ```
@@ -96,14 +96,15 @@ Wire the user-facing control with the normal Fission action pattern. This exampl
 ```rust
 struct RaiseVolumeButton;
 
-impl Widget<AppState> for RaiseVolumeButton {
-    fn build(&self, view: &View<AppState>, ctx: &mut BuildCtx<AppState>) -> Node {
+impl From<RaiseVolumeButton> for Widget {
+    fn from(component: RaiseVolumeButton) -> Self {
+        let (ctx, view) = fission::build::current::<GlobalState>();
         let run = with_reducer!(ctx, RaiseVolume, on_raise_volume);
 
         Button::new("Raise volume")
             .disabled(false)
             .on_press(run)
-            .build(view, ctx)
+            .into()
     }
 }
 ```

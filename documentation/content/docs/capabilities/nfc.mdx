@@ -17,7 +17,7 @@ Add the smallest state fields the screen needs to render honestly. For this flow
 
 ```rust
 #[derive(Default)]
-struct AppState {
+struct GlobalState {
     // Add these fields to your existing app state.
 nfc_text: Option<String>,
     nfc_error: Option<String>,
@@ -53,14 +53,14 @@ Capability work finishes later, after the reducer that started it has returned. 
 
 ```rust
 #[fission_reducer(TagScanned)]
-fn on_tag_scanned(state: &mut AppState, tag: NfcTag) {
+fn on_tag_scanned(state: &mut GlobalState, tag: NfcTag) {
     state.scanning_nfc = false;
     state.nfc_text = tag.records.first().map(|record| String::from_utf8_lossy(&record.payload).to_string());
     state.nfc_error = None;
 }
 
 #[fission_reducer(TagScanFailed)]
-fn on_tag_scan_failed(state: &mut AppState, error: NfcError) {
+fn on_tag_scan_failed(state: &mut GlobalState, error: NfcError) {
     state.scanning_nfc = false;
     state.nfc_error = Some(error.message);
 }
@@ -101,14 +101,15 @@ Wire the user-facing control with the normal Fission action pattern. This exampl
 ```rust
 struct ScanNfcTagButton;
 
-impl Widget<AppState> for ScanNfcTagButton {
-    fn build(&self, view: &View<AppState>, ctx: &mut BuildCtx<AppState>) -> Node {
+impl From<ScanNfcTagButton> for Widget {
+    fn from(component: ScanNfcTagButton) -> Self {
+        let (ctx, view) = fission::build::current::<GlobalState>();
         let run = with_reducer!(ctx, ScanNfcTag, on_scan_nfc_tag);
 
         Button::new("Scan tag")
-            .disabled(view.state.scanning_nfc)
+            .disabled(view.state().scanning_nfc)
             .on_press(run)
-            .build(view, ctx)
+            .into()
     }
 }
 ```
