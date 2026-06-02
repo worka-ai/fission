@@ -26,12 +26,12 @@ use fission::charts::*;
 
 struct Dashboard;
 
-impl Widget<App> for Dashboard {
-    fn build(&self, _ctx: &mut BuildCtx<App>, _view: &View<App>) -> Node {
+impl From<Dashboard> for Widget {
+    fn from(component: Dashboard) -> Self {
         LineChart::new()
             .title("Revenue")
             .series(LineSeries::new("Actual", vec![120.0, 156.0, 182.0]))
-            .into_node()
+            .into()
     }
 }
 ```
