@@ -178,6 +178,30 @@ Write the page body in Markdown or MDX.
 
 The built-in documentation template renders the page as a three-column documentation layout. The left column comes from the sidebar file. The middle column is the Markdown body. The right column is generated from headings in the page. On narrow screens the layout collapses so the article remains readable.
 
+## Header navigation and dropdowns
+
+Use `[[site.nav]]` in `fission.toml` for the header links that should appear on documentation pages. A navigation item can include nested `children`, and the static-site shell renders those children as dropdown menus with ordinary links. This keeps navigation declarative: the menu structure lives in the project manifest, while the shell handles HTML, CSS, keyboard focus, hover behavior, and progressive enhancement.
+
+```toml
+[[site.nav]]
+title = "Product"
+href = "/product/overview/"
+
+[[site.nav.children]]
+title = "Platform overview"
+href = "/product/overview/"
+
+[[site.nav.children]]
+title = "Blog"
+href = "/blog/welcome/"
+
+[[site.nav.children.children]]
+title = "Fission 0.4.0"
+href = "/blog/2026-06-02-fission-0-4-0-authoring-api/"
+```
+
+Parent items should still have an `href`. That means the menu works both as a dropdown and as a normal navigation path for users, crawlers, and browsers without JavaScript. The implementation supports recursive children, but keep production menus shallow unless the information architecture genuinely needs deeper nesting.
+
 ## Sidebars
 
 Sidebar files are TOML because navigation should be explicit. A content folder may contain hundreds of pages, but the product owner still needs control over order, grouping, and labels.

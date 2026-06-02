@@ -19,6 +19,7 @@ pub use build::{
     list_site_routes, site_base_css, site_enhancement_js, SiteBuildOptions, SiteBuildReport,
     SiteContentRouteConfig, SiteRouteReport,
 };
+pub use document::SiteNavLink;
 pub use html::{
     render_ir_to_html, render_ir_to_html_with_styles, theme_variables_css, CodeHighlightingOptions,
     CssVariableMap, HtmlRenderOptions, RenderedHtml, StyleRegistry,

@@ -22,6 +22,22 @@ pub(crate) struct ContentRoute {
 pub struct SiteNavLink {
     pub title: String,
     pub href: String,
+    pub children: Vec<SiteNavLink>,
+}
+
+impl SiteNavLink {
+    pub fn new(title: impl Into<String>, href: impl Into<String>) -> Self {
+        Self {
+            title: title.into(),
+            href: href.into(),
+            children: Vec::new(),
+        }
+    }
+
+    pub fn with_children(mut self, children: impl IntoIterator<Item = SiteNavLink>) -> Self {
+        self.children = children.into_iter().collect();
+        self
+    }
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -76,7 +92,8 @@ impl DocumentationPage<'_> {
                     children: self
                         .site_nav
                         .iter()
-                        .map(|link| nav_link(&link.title, &link.href, tokens))
+                        .enumerate()
+                        .map(|(index, link)| nav_item(link, 0, index, tokens))
                         .collect(),
                     gap: Some(tokens.spacing.l),
                     align_items: AlignItems::Center,
@@ -390,6 +407,62 @@ fn nav_link(label: &str, href: &str, tokens: &Tokens) -> Widget {
         .color(tokens.colors.text_link)
         .semantics_identifier(format!("site-route:{href}"))
         .into()
+}
+
+fn nav_item(link: &SiteNavLink, depth: usize, index: usize, tokens: &Tokens) -> Widget {
+    let has_children = !link.children.is_empty();
+    let mut label_children = vec![nav_link(&link.title, &link.href, tokens)];
+    if has_children {
+        label_children.push(
+            Text::new(if depth == 0 { "v" } else { ">" })
+                .size(tokens.typography.font_size_xs)
+                .weight(tokens.typography.font_weight_bold)
+                .color(tokens.colors.text_muted)
+                .into(),
+        );
+    }
+
+    let mut children = vec![Row {
+        children: label_children,
+        gap: Some(tokens.spacing.xs),
+        align_items: AlignItems::Center,
+        justify_content: JustifyContent::Start,
+        semantics: Some(site_semantics(format!(
+            "site-nav-label:{depth}:{has_children}:{index}"
+        ))),
+        ..Default::default()
+    }
+    .into()];
+
+    if has_children {
+        children.push(nav_menu(&link.children, depth + 1, tokens));
+    }
+
+    Column {
+        children,
+        semantics: Some(site_semantics(format!(
+            "site-nav-item:{depth}:{has_children}:{index}"
+        ))),
+        ..Default::default()
+    }
+    .into()
+}
+
+fn nav_menu(items: &[SiteNavLink], depth: usize, tokens: &Tokens) -> Widget {
+    Column {
+        children: items
+            .iter()
+            .enumerate()
+            .map(|(index, item)| nav_item(item, depth, index, tokens))
+            .collect(),
+        gap: Some(tokens.spacing.xs),
+        semantics: Some(site_semantics(format!(
+            "site-nav-menu:{depth}:{}",
+            items.len()
+        ))),
+        ..Default::default()
+    }
+    .into()
 }
 
 fn theme_toggle(tokens: &Tokens) -> Widget {

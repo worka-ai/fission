@@ -131,20 +131,35 @@ The current documentation manifest also contains `locales` and `pretty_urls`. Th
 
 ### `[[site.nav]]`
 
-Each `[[site.nav]]` entry adds one top-level navigation link to the generated documentation template.
+Each `[[site.nav]]` entry adds one top-level navigation link to the generated documentation template. A link can also contain nested `children`, which the static-site shell renders as dropdown menus. Nested children can continue recursively, so a top-level product menu can contain a Blog item, and Blog can contain individual post links.
 
 | Field | Type | Required | Meaning |
 | --- | --- | --- | --- |
 | `title` | string | Yes | Text shown in the header navigation. |
 | `href` | string | Yes | Site route or absolute URL. Site routes should start with `/`. |
+| `children` | array of nav entries | No | Nested dropdown entries. Each child has the same `title`, `href`, and optional `children` fields. |
 
 Example:
 
 ```toml
 [[site.nav]]
-title = "Learn"
-href = "/docs/learn/overview/"
+title = "Product"
+href = "/product/overview/"
+
+[[site.nav.children]]
+title = "Platform overview"
+href = "/product/overview/"
+
+[[site.nav.children]]
+title = "Blog"
+href = "/blog/welcome/"
+
+[[site.nav.children.children]]
+title = "Fission 0.4.0"
+href = "/blog/2026-06-02-fission-0-4-0-authoring-api/"
 ```
+
+The dropdown is generated from data, not from hand-written HTML. Keep `href` on parent items even when they have children, because keyboard users and search engines still need a normal destination for the parent item. The menu can nest beyond three levels, but a production navigation should stay shallow enough that users can scan it quickly.
 
 ### `[[site.routes]]`
 

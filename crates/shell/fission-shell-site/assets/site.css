@@ -267,6 +267,80 @@ img, svg { max-width: 100%; }
   flex: 1 1 0;
 }
 
+.fission-site-nav-item {
+  position: relative;
+  z-index: 20;
+}
+
+.fission-site-nav-item > .fission-site-column {
+  align-items: stretch !important;
+  overflow: visible !important;
+}
+
+.fission-site-nav-label {
+  white-space: nowrap;
+}
+
+.fission-site-nav-label > .fission-site-row {
+  align-items: center !important;
+  flex-wrap: nowrap !important;
+}
+
+.fission-site-nav-menu {
+  display: none;
+  position: absolute;
+  top: calc(100% + 0.55rem);
+  left: 0;
+  z-index: 1002;
+  min-width: 15rem;
+  padding: 0.55rem;
+  border: 1px solid color-mix(in srgb, var(--fs-color-border) 82%, transparent);
+  border-radius: 0.85rem;
+  background: color-mix(in srgb, var(--fs-color-surface) 96%, transparent);
+  box-shadow: 0 1rem 2.5rem rgba(0, 0, 0, 0.22);
+}
+
+.fission-site-nav-menu .fission-site-nav-menu {
+  top: -0.55rem;
+  left: calc(100% + 0.45rem);
+}
+
+.fission-site-nav-menu > .fission-site-column {
+  gap: 0.25rem !important;
+  overflow: visible !important;
+}
+
+.fission-site-nav-menu .fission-site-nav-item {
+  width: 100%;
+}
+
+.fission-site-nav-menu .fission-site-nav-label {
+  width: 100%;
+}
+
+.fission-site-nav-menu .fission-site-nav-label > .fission-site-row {
+  justify-content: space-between !important;
+  width: 100%;
+}
+
+.fission-site-nav-menu .fission-site-route-link {
+  display: block;
+  width: 100%;
+  padding: 0.48rem 0.62rem;
+  border-radius: 0.55rem;
+}
+
+.fission-site-nav-menu .fission-site-route-link:hover {
+  background: color-mix(in srgb, var(--fs-color-primary-subtle) 58%, transparent);
+  text-decoration: none;
+}
+
+.fission-site-nav-item:hover > .fission-site-column > .fission-site-nav-menu,
+.fission-site-nav-item:focus-within > .fission-site-column > .fission-site-nav-menu,
+.fission-site-nav-item[data-fission-site-nav-open="true"] > .fission-site-column > .fission-site-nav-menu {
+  display: block;
+}
+
 .fission-site-js .fission-site-sidebar-item[hidden] {
   display: none !important;
 }
@@ -358,6 +432,14 @@ img, svg { max-width: 100%; }
 
   .fission-site-doc-nav {
     display: none !important;
+  }
+
+  .fission-site-nav-menu {
+    position: static;
+    min-width: 0;
+    width: 100%;
+    margin-top: 0.35rem;
+    box-shadow: none;
   }
 
   .fission-site-doc-sidebar {

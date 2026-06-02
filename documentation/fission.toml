@@ -47,6 +47,66 @@ production_branch = "main"
 title = "Product"
 href = "/product/overview/"
 
+[[site.nav.children]]
+title = "Platform overview"
+href = "/product/overview/"
+
+[[site.nav.children]]
+title = "Cross-platform apps"
+href = "/product/cross-platform-apps/"
+
+[[site.nav.children]]
+title = "Static sites"
+href = "/product/static-sites/"
+
+[[site.nav.children]]
+title = "Terminal apps"
+href = "/product/terminal-apps/"
+
+[[site.nav.children]]
+title = "Charts"
+href = "/product/charts/"
+
+[[site.nav.children]]
+title = "Production lifecycle"
+href = "/product/production-lifecycle/"
+
+[[site.nav.children]]
+title = "Developer tools"
+href = "/product/developer-tools/"
+
+[[site.nav.children]]
+title = "Design systems"
+href = "/product/design-systems/"
+
+[[site.nav.children]]
+title = "Blog"
+href = "/blog/welcome/"
+
+[[site.nav.children.children]]
+title = "Introducing Fission"
+href = "/blog/2026-04-25-introducing-fission/"
+
+[[site.nav.children.children]]
+title = "Fission 0.1.0"
+href = "/blog/2026-04-25-fission-0-1-0/"
+
+[[site.nav.children.children]]
+title = "The Fission site is built with Fission"
+href = "/blog/welcome/"
+
+[[site.nav.children.children]]
+title = "Fission 0.2.0"
+href = "/blog/2026-05-26-fission-0-2-0/"
+
+[[site.nav.children.children]]
+title = "Fission 0.3.0"
+href = "/blog/2026-05-29-fission-0-3-0/"
+
+[[site.nav.children.children]]
+title = "Fission 0.4.0"
+href = "/blog/2026-06-02-fission-0-4-0-authoring-api/"
+
 [[site.nav]]
 title = "Setup"
 href = "/docs/learn/quickstart/"

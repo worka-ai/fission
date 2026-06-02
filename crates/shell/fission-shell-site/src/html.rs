@@ -1499,21 +1499,55 @@ fn site_semantic_class(identifier: &str) -> String {
 }
 
 fn site_semantic_data_attrs(identifier: &str) -> String {
-    let Some(rest) = identifier.strip_prefix("site-sidebar-item:") else {
-        return String::new();
-    };
-    let mut parts = rest.split(':');
-    let level = parts.next().unwrap_or("0");
-    let active = parts.next().unwrap_or("false");
-    let group = parts.next().unwrap_or("false");
-    let index = parts.next().unwrap_or("0");
-    format!(
-        " data-fission-site-sidebar-level=\"{}\" data-fission-site-sidebar-active=\"{}\" data-fission-site-sidebar-group=\"{}\" data-fission-site-sidebar-index=\"{}\"",
-        escape_attr(level),
-        escape_attr(active),
-        escape_attr(group),
-        escape_attr(index)
-    )
+    if let Some(rest) = identifier.strip_prefix("site-sidebar-item:") {
+        let mut parts = rest.split(':');
+        let level = parts.next().unwrap_or("0");
+        let active = parts.next().unwrap_or("false");
+        let group = parts.next().unwrap_or("false");
+        let index = parts.next().unwrap_or("0");
+        return format!(
+            " data-fission-site-sidebar-level=\"{}\" data-fission-site-sidebar-active=\"{}\" data-fission-site-sidebar-group=\"{}\" data-fission-site-sidebar-index=\"{}\"",
+            escape_attr(level),
+            escape_attr(active),
+            escape_attr(group),
+            escape_attr(index)
+        );
+    }
+    if let Some(rest) = identifier.strip_prefix("site-nav-item:") {
+        let mut parts = rest.split(':');
+        let depth = parts.next().unwrap_or("0");
+        let has_children = parts.next().unwrap_or("false");
+        let index = parts.next().unwrap_or("0");
+        return format!(
+            " data-fission-site-nav-depth=\"{}\" data-fission-site-nav-has-children=\"{}\" data-fission-site-nav-index=\"{}\"",
+            escape_attr(depth),
+            escape_attr(has_children),
+            escape_attr(index)
+        );
+    }
+    if let Some(rest) = identifier.strip_prefix("site-nav-menu:") {
+        let mut parts = rest.split(':');
+        let depth = parts.next().unwrap_or("0");
+        let count = parts.next().unwrap_or("0");
+        return format!(
+            " data-fission-site-nav-menu-depth=\"{}\" data-fission-site-nav-menu-count=\"{}\"",
+            escape_attr(depth),
+            escape_attr(count)
+        );
+    }
+    if let Some(rest) = identifier.strip_prefix("site-nav-label:") {
+        let mut parts = rest.split(':');
+        let depth = parts.next().unwrap_or("0");
+        let has_children = parts.next().unwrap_or("false");
+        let index = parts.next().unwrap_or("0");
+        return format!(
+            " data-fission-site-nav-label-depth=\"{}\" data-fission-site-nav-label-has-children=\"{}\" data-fission-site-nav-label-index=\"{}\"",
+            escape_attr(depth),
+            escape_attr(has_children),
+            escape_attr(index)
+        );
+    }
+    String::new()
 }
 
 fn push_paragraph_style(

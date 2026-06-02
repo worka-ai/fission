@@ -120,10 +120,7 @@ impl SiteBuildOptions {
         let site_nav = site
             .nav
             .into_iter()
-            .map(|link| SiteNavLink {
-                title: link.title,
-                href: normalize_site_link_href(&link.href),
-            })
+            .map(normalize_project_site_nav_link)
             .collect();
         let user_css = site
             .css_files
@@ -1241,6 +1238,18 @@ fn normalize_site_link_href(value: &str) -> String {
     }
 }
 
+fn normalize_project_site_nav_link(link: ProjectSiteNavLink) -> SiteNavLink {
+    SiteNavLink {
+        title: link.title,
+        href: normalize_site_link_href(&link.href),
+        children: link
+            .children
+            .into_iter()
+            .map(normalize_project_site_nav_link)
+            .collect(),
+    }
+}
+
 fn normalize_site_asset_href(value: &str) -> String {
     let value = value.trim();
     if is_absolute_href(value) || value.starts_with("data:") {
@@ -1370,6 +1379,8 @@ struct ProjectSitePageElement {
 struct ProjectSiteNavLink {
     title: String,
     href: String,
+    #[serde(default)]
+    children: Vec<ProjectSiteNavLink>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -1448,6 +1459,12 @@ mod tests {
         options.generate_robots = true;
         options.code_highlighting.enabled = true;
         options.search.enabled = true;
+        options.site_nav = vec![SiteNavLink::new("Product", "/content/getting-started/")
+            .with_children(vec![SiteNavLink::new("Blog", "/content/getting-started/")
+                .with_children(vec![SiteNavLink::new(
+                    "Fission 0.4.0",
+                    "/content/getting-started/",
+                )])])];
         options.page_elements.push(
             SitePageElement::head("<script defer src=\"https://example.com/site.js\"></script>")
                 .only_route("/content/getting-started/"),
@@ -1473,6 +1490,10 @@ mod tests {
         assert!(html.contains("<pre class=\"fission-site-code-block\""));
         assert!(html.contains("class=\"language-rust\""));
         assert!(html.contains("highlight.js/11.11.1/highlight.min.js"));
+        assert!(html.contains("fission-site-nav-item"));
+        assert!(html.contains("fission-site-nav-menu"));
+        assert!(html.contains("Blog"));
+        assert!(html.contains("Fission 0.4.0"));
         let css = fs::read_to_string(temp.join("target/fission/site/site.css")).unwrap();
         assert!(css.contains(":root"));
         assert!(css.contains(".fs_"));
@@ -1484,6 +1505,51 @@ mod tests {
             .exists());
         let docs = fs::read_to_string(temp.join("target/fission/site/search/docs.json")).unwrap();
         assert!(docs.contains("Getting started"));
+        let _ = fs::remove_dir_all(temp);
+    }
+
+    #[test]
+    fn project_site_nav_supports_nested_dropdowns() {
+        let temp = std::env::temp_dir().join(format!(
+            "fission-site-nav-test-{}",
+            SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        fs::create_dir_all(&temp).unwrap();
+        fs::write(
+            temp.join("fission.toml"),
+            r#"
+[app]
+name = "docs"
+
+[site]
+title = "Docs"
+
+[[site.nav]]
+title = "Product"
+href = "product/overview"
+
+[[site.nav.children]]
+title = "Blog"
+href = "/blog/welcome/"
+
+[[site.nav.children.children]]
+title = "Fission 0.4.0"
+href = "/blog/fission-0-4-0/"
+"#,
+        )
+        .unwrap();
+
+        let options = SiteBuildOptions::from_project_dir(&temp, "Docs").unwrap();
+        assert_eq!(options.site_nav.len(), 1);
+        assert_eq!(options.site_nav[0].href, "/product/overview/");
+        assert_eq!(options.site_nav[0].children[0].title, "Blog");
+        assert_eq!(
+            options.site_nav[0].children[0].children[0].href,
+            "/blog/fission-0-4-0/"
+        );
         let _ = fs::remove_dir_all(temp);
     }
 
