@@ -130,6 +130,7 @@ struct PreparedParagraphLayout {
     styles: Vec<(std::ops::Range<usize>, RenderTextStyle)>,
     inline_boxes: Vec<crate::text::RichInlineBox>,
     caret_index: Option<usize>,
+    #[allow(dead_code)]
     text_byte_offset: usize,
 }
 
