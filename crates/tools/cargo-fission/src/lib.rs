@@ -59,6 +59,9 @@ where
             port,
             no_open,
             headless,
+            devtools,
+            devtools_port,
+            performance_overlay,
         } => fission_command_run::run_app(fission_command_run::RunOptions {
             project_dir,
             target,
@@ -69,6 +72,9 @@ where
             port,
             no_open,
             headless,
+            devtools,
+            devtools_port,
+            performance_overlay,
         }),
         Command::Build {
             target,
@@ -225,6 +231,7 @@ where
             device,
             follow,
         }),
+        Command::Devtools { command } => fission_command_devtools::run(command),
         Command::Ui {
             project_dir,
             screenshot,

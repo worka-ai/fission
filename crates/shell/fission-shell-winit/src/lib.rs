@@ -2918,6 +2918,68 @@ fn build_get_tree_response(
     TestResponse::Tree { nodes }
 }
 
+fn build_devtools_snapshot_response(
+    pipeline: &Pipeline,
+    env: &Env,
+    sequence: u64,
+    widget_tree: Option<fission_core::devtools::WidgetTreeSnapshot>,
+    performance: Option<fission_core::devtools::FramePerformanceSample>,
+) -> fission_test_driver::TestResponse {
+    let core_ir = pipeline
+        .prev_ir
+        .as_ref()
+        .map(fission_core::devtools::inspect_core_ir);
+    let layout = pipeline
+        .last_snapshot
+        .as_ref()
+        .map(|layout| fission_core::devtools::inspect_layout(pipeline.prev_ir.as_ref(), layout));
+    let semantics = pipeline
+        .prev_ir
+        .as_ref()
+        .map(fission_core::devtools::inspect_semantics);
+    let snapshot = fission_core::devtools::frame_snapshot(
+        sequence,
+        current_shell_target(),
+        fission_core::devtools::default_desktop_viewport(env),
+        widget_tree,
+        core_ir,
+        layout,
+        semantics,
+        performance,
+    );
+    fission_test_driver::TestResponse::DevtoolsSnapshot { snapshot }
+}
+
+fn current_shell_target() -> fission_core::devtools::ShellTarget {
+    #[cfg(target_arch = "wasm32")]
+    {
+        return fission_core::devtools::ShellTarget::Web;
+    }
+    #[cfg(target_os = "android")]
+    {
+        return fission_core::devtools::ShellTarget::Android;
+    }
+    #[cfg(target_os = "ios")]
+    {
+        return fission_core::devtools::ShellTarget::Ios;
+    }
+    #[cfg(not(any(target_arch = "wasm32", target_os = "android", target_os = "ios")))]
+    {
+        fission_core::devtools::ShellTarget::Desktop
+    }
+}
+
+fn env_flag(name: &str) -> bool {
+    std::env::var(name)
+        .map(|value| {
+            matches!(
+                value.to_ascii_lowercase().as_str(),
+                "1" | "true" | "yes" | "on"
+            )
+        })
+        .unwrap_or(false)
+}
+
 /// Handle TapText — find text in the IR, tap at its center.
 fn handle_tap_text(
     text: &str,
@@ -3706,6 +3768,12 @@ where
             paint: true,
             composite: true,
         };
+        let devtools_enabled = env_flag("FISSION_DEVTOOLS");
+        let performance_overlay_enabled = env_flag("FISSION_DEVTOOLS_PERFORMANCE_OVERLAY")
+            || env_flag("FISSION_PERFORMANCE_OVERLAY");
+        runtime.runtime_state.devtools.performance_overlay_enabled = performance_overlay_enabled;
+        let mut latest_devtools_widget_tree: Option<fission_core::devtools::WidgetTreeSnapshot> =
+            None;
         let mut vello_image_cache_generation = fission_render_vello::image_cache_generation();
         let mut software_image_cache_generation = software_renderer::image_cache_generation();
 
@@ -4109,6 +4177,16 @@ where
                         TestEvent::GetTree { response_tx } => {
                             let resp =
                                 build_get_tree_response(&pipeline, &runtime.runtime_state.scroll);
+                            let _ = response_tx.send(resp);
+                        }
+                        TestEvent::GetDevtoolsSnapshot { response_tx } => {
+                            let resp = build_devtools_snapshot_response(
+                                &pipeline,
+                                &env,
+                                presented_frames,
+                                latest_devtools_widget_tree.clone(),
+                                runtime.runtime_state.devtools.latest_performance.clone(),
+                            );
                             let _ = response_tx.send(resp);
                         }
                         TestEvent::Pump { response_tx } => {
@@ -4939,6 +5017,9 @@ where
                                 }
                                 redraw_pending = false;
                                 diag::begin_frame(None);
+                                if runtime.runtime_state.devtools.performance_overlay_enabled {
+                                    invalidations.mark_build();
+                                }
                                 let now = Instant::now();
                                 let dt = now.duration_since(last_frame_time);
                                 last_frame_time = now;
@@ -5368,17 +5449,45 @@ where
                                     runtime.sync_video_nodes(&videos);
                                     runtime.sync_web_nodes(&web_views);
 
+                                    let mut overlay_children = portals;
+                                    if let Some(state) =
+                                        runtime.runtime_state.devtools.overlay_state()
+                                    {
+                                        if state.enabled {
+                                            overlay_children.push(
+                                                fission_core::ui::Positioned {
+                                                    top: Some(12.0),
+                                                    left: Some(12.0),
+                                                    child: Some(
+                                                        fission_core::devtools::PerformanceOverlay::new(state)
+                                                            .into(),
+                                                    ),
+                                                    ..Default::default()
+                                                }
+                                                .into(),
+                                            );
+                                        }
+                                    }
                                     let final_root: fission_core::Widget =
                                         fission_core::ui::Overlay {
                                             id: None,
                                             content: node_tree,
                                             overlay: fission_core::ui::ZStack {
-                                                children: portals,
+                                                children: overlay_children,
                                                 ..Default::default()
                                             }
                                             .into(),
                                         }
                                         .into();
+                                    if devtools_enabled
+                                        || performance_overlay_enabled
+                                        || test_control_enabled
+                                    {
+                                        latest_devtools_widget_tree =
+                                            Some(fission_core::devtools::inspect_widget_tree(
+                                                &final_root,
+                                            ));
+                                    }
 
                                     let mut lower_cx = InternalLoweringCx::new(
                                         &env,
@@ -5756,6 +5865,19 @@ where
 
                                             let total_ms = now.elapsed().as_secs_f64() * 1000.0;
                                             publish_web_frame_perf(&active_renderer, total_ms);
+                                            runtime.runtime_state.devtools.record_frame(
+                                                fission_core::devtools::performance_sample_from_runtime(
+                                                    presented_frames,
+                                                    Some(active_renderer.clone()),
+                                                    total_ms,
+                                                    latest_devtools_widget_tree
+                                                        .as_ref()
+                                                        .map(|tree| tree.nodes.len())
+                                                        .unwrap_or(0),
+                                                    pipeline.prev_ir.as_ref(),
+                                                    pipeline.last_snapshot.as_ref(),
+                                                ),
+                                            );
                                             if let Some(input_at) = pending_web_input_at.take() {
                                                 publish_web_input_latency(
                                                     &active_renderer,
@@ -6071,6 +6193,20 @@ where
                                                 presented_frames,
                                             );
 
+                                            let total_ms = now.elapsed().as_secs_f64() * 1000.0;
+                                            runtime.runtime_state.devtools.record_frame(
+                                                fission_core::devtools::performance_sample_from_runtime(
+                                                    presented_frames,
+                                                    Some(render_state.renderer_report.active.clone()),
+                                                    total_ms,
+                                                    latest_devtools_widget_tree
+                                                        .as_ref()
+                                                        .map(|tree| tree.nodes.len())
+                                                        .unwrap_or(0),
+                                                    pipeline.prev_ir.as_ref(),
+                                                    pipeline.last_snapshot.as_ref(),
+                                                ),
+                                            );
                                             diag::emit(
                                                 diag::DiagCategory::Frame,
                                                 diag::DiagLevel::Debug,
@@ -6079,7 +6215,7 @@ where
                                                         .renderer_report
                                                         .active
                                                         .clone(),
-                                                    total_ms: now.elapsed().as_secs_f64() * 1000.0,
+                                                    total_ms,
                                                 },
                                             );
                                             diag::end_frame(diag::FrameStats::default());

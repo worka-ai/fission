@@ -1,5 +1,6 @@
 use clap::{Parser, Subcommand};
 use fission_command_core::{DistributionProvider, PlatformCapability, Target};
+use fission_command_devtools as devtools;
 use fission_command_package as package;
 use fission_command_release as release;
 use std::path::PathBuf;
@@ -97,6 +98,15 @@ pub(crate) enum Command {
         /// Prefer headless simulator/emulator execution where supported.
         #[arg(long)]
         headless: bool,
+        /// Expose the development tooling protocol while the app runs.
+        #[arg(long)]
+        devtools: bool,
+        /// Test/devtools control port used when `--devtools` is enabled.
+        #[arg(long, default_value_t = 9876)]
+        devtools_port: u16,
+        /// Show the runtime performance overlay in the app.
+        #[arg(long)]
+        performance_overlay: bool,
     },
     /// Build a configured target without launching it.
     Build {
@@ -292,6 +302,11 @@ pub(crate) enum Command {
         /// Continue following logs instead of printing the current buffer.
         #[arg(long)]
         follow: bool,
+    },
+    /// Inspect a running development app through the Fission devtools protocol.
+    Devtools {
+        #[command(subcommand)]
+        command: devtools::DevtoolsCommand,
     },
     /// Open the interactive Fission command terminal UI.
     Ui {

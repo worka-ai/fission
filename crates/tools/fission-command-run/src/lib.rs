@@ -36,6 +36,9 @@ pub struct RunOptions {
     pub port: u16,
     pub no_open: bool,
     pub headless: bool,
+    pub devtools: bool,
+    pub devtools_port: u16,
+    pub performance_overlay: bool,
 }
 
 #[derive(Clone, Debug)]
@@ -127,6 +130,12 @@ pub fn list_devices(project_dir: &Path, json: bool) -> Result<()> {
 }
 
 pub fn run_app(options: RunOptions) -> Result<()> {
+    if options.devtools {
+        println!(
+            "Fission devtools enabled on control port {}. Attach with `fission devtools snapshot --port {}`.",
+            options.devtools_port, options.devtools_port
+        );
+    }
     let project = read_project_config(&options.project_dir)?;
     let device = select_device(
         &options.project_dir,
@@ -529,6 +538,7 @@ fn ensure_target_configured(
 
 fn run_desktop(project: &FissionProject, options: &RunOptions, device: &Device) -> Result<()> {
     if matches!(device.target, Target::Macos) && cfg!(target_os = "macos") {
+        set_devtools_process_env(options);
         let app = package_macos_run_app(project, &options.project_dir, options.release)?;
         return run_macos_app_bundle(&app, options);
     }
@@ -536,6 +546,7 @@ fn run_desktop(project: &FissionProject, options: &RunOptions, device: &Device) 
         let app = package_linux_run_app(project, &options.project_dir, options.release)?;
         let mut command = Command::new(&app.executable);
         command.current_dir(&options.project_dir);
+        apply_devtools_env(&mut command, options);
         return run_child(
             command,
             options.detach,
@@ -546,6 +557,7 @@ fn run_desktop(project: &FissionProject, options: &RunOptions, device: &Device) 
         let app = package_windows_run_app(project, &options.project_dir, options.release)?;
         let mut command = Command::new(&app.executable);
         command.current_dir(&options.project_dir);
+        apply_devtools_env(&mut command, options);
         return run_child(
             command,
             options.detach,
@@ -558,6 +570,7 @@ fn run_desktop(project: &FissionProject, options: &RunOptions, device: &Device) 
     if options.release {
         command.arg("--release");
     }
+    apply_devtools_env(&mut command, options);
     run_child(
         command,
         options.detach,
@@ -606,6 +619,32 @@ fn run_web(options: &RunOptions, _device: &Device) -> Result<()> {
     )
 }
 
+fn apply_devtools_env(command: &mut Command, options: &RunOptions) {
+    if options.devtools {
+        command.env("FISSION_DEVTOOLS", "1");
+        command.env(
+            "FISSION_TEST_CONTROL_PORT",
+            options.devtools_port.to_string(),
+        );
+    }
+    if options.performance_overlay {
+        command.env("FISSION_DEVTOOLS_PERFORMANCE_OVERLAY", "1");
+    }
+}
+
+fn set_devtools_process_env(options: &RunOptions) {
+    if options.devtools {
+        env::set_var("FISSION_DEVTOOLS", "1");
+        env::set_var(
+            "FISSION_TEST_CONTROL_PORT",
+            options.devtools_port.to_string(),
+        );
+    }
+    if options.performance_overlay {
+        env::set_var("FISSION_DEVTOOLS_PERFORMANCE_OVERLAY", "1");
+    }
+}
+
 fn available_web_port(host: &str, requested: u16) -> Result<u16> {
     const SEARCH_LIMIT: u16 = 50;
     let mut first_error = None;
@@ -642,6 +681,7 @@ fn run_ios(project: &FissionProject, options: &RunOptions, device: &Device) -> R
     let script = options.project_dir.join("platforms/ios/run-sim.sh");
     let mut command = command_for_script(&script)?;
     command.current_dir(&options.project_dir);
+    apply_devtools_env(&mut command, options);
     if device.kind == "ios-simulator" {
         command.env("IOS_SIM_DEVICE_ID", &device.id);
     }
@@ -665,6 +705,7 @@ fn run_android(project: &FissionProject, options: &RunOptions, device: &Device) 
             .join("platforms/android/run-emulator.sh");
         let mut command = command_for_script(&script)?;
         command.current_dir(&options.project_dir);
+        apply_devtools_env(&mut command, options);
         command.env(
             "ANDROID_AVD_NAME",
             device.id.trim_start_matches("android-avd:"),

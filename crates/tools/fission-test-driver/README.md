@@ -34,6 +34,7 @@ All commands are serialized with `#[serde(tag = "cmd")]`:
 | `Screenshot` | `path: String` | Capture the current frame to a PNG file at the given path. The PNG dimensions are in logical test-space pixels so they align with `GetText` / `GetTree` coordinates. |
 | `GetText` | (none) | Return all visible text items with bounding rects in logical test-space pixels. |
 | `GetTree` | (none) | Return the semantic accessibility tree with bounds in logical test-space pixels. |
+| `GetDevtoolsSnapshot` | (none) | Return the current FDTP frame snapshot, including widget tree, Core IR, layout, semantics, and performance data when available. |
 | `Wait` | `ms: u64` | Sleep for the given duration (server-side). |
 | `Pump` | (none) | Force a frame render and wait for it to complete. |
 | `Quit` | (none) | Exit the application. |
@@ -46,6 +47,7 @@ All commands are serialized with `#[serde(tag = "cmd")]`:
 | `Ok` | (none) | Command succeeded. |
 | `Text` | `items: Vec<TextItem>` | Response to `GetText`. |
 | `Tree` | `nodes: Vec<SemanticNode>` | Response to `GetTree`. |
+| `DevtoolsSnapshot` | `snapshot: DevtoolsFrameSnapshot` | Response to `GetDevtoolsSnapshot`. |
 | `Error` | `message: String` | Command failed with a reason. |
 
 ### `TextItem`

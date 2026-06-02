@@ -58,6 +58,7 @@ pub enum TestCommand {
     CaptureScreenshot {},
     GetText {},
     GetTree {},
+    GetDevtoolsSnapshot {},
     Wait {
         ms: u64,
     },
@@ -140,6 +141,9 @@ pub enum TestEvent {
     GetTree {
         response_tx: TestResponseSender,
     },
+    GetDevtoolsSnapshot {
+        response_tx: TestResponseSender,
+    },
     Pump {
         response_tx: TestResponseSender,
     },
@@ -193,6 +197,9 @@ pub enum TestResponse {
     },
     Tree {
         nodes: Vec<SemanticNode>,
+    },
+    DevtoolsSnapshot {
+        snapshot: fission_devtools_protocol::DevtoolsFrameSnapshot,
     },
     Screenshot {
         png_base64: String,
@@ -355,6 +362,15 @@ impl LiveTestClient {
     pub fn get_tree(&self) -> Result<Vec<SemanticNode>> {
         match self.send(TestCommand::GetTree {})? {
             TestResponse::Tree { nodes } => Ok(nodes),
+            other => Err(anyhow!("unexpected response: {:?}", other)),
+        }
+    }
+
+    pub fn get_devtools_snapshot(
+        &self,
+    ) -> Result<fission_devtools_protocol::DevtoolsFrameSnapshot> {
+        match self.send(TestCommand::GetDevtoolsSnapshot {})? {
+            TestResponse::DevtoolsSnapshot { snapshot } => Ok(snapshot),
             other => Err(anyhow!("unexpected response: {:?}", other)),
         }
     }

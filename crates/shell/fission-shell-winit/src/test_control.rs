@@ -220,6 +220,9 @@ fn dispatch_command(cmd: TestCommand, injector: &EventInjector) -> TestResponse 
         TestCommand::GetTree {} => {
             query_event(injector, |response_tx| TestEvent::GetTree { response_tx })
         }
+        TestCommand::GetDevtoolsSnapshot {} => query_event(injector, |response_tx| {
+            TestEvent::GetDevtoolsSnapshot { response_tx }
+        }),
         TestCommand::Wait { ms } => {
             std::thread::sleep(std::time::Duration::from_millis(ms));
             TestResponse::Ok {}
