@@ -12,13 +12,13 @@ Nodes and edges arranged into a readable network. Use it for dependency, social,
 
 ## What the chart is for
 
-Force graph belongs to the **Relationships and hierarchy** family. Its job is to make this data shape readable: `Node list plus edge list.` In a production interface, choose this chart when the visual form makes the user's question faster to answer than a table or a simpler chart would.
+Force graph belongs to the **Relationships and hierarchy** family. Its job is to make this data shape readable: `Vertex list plus edge list.` In a production interface, choose this chart when the visual form makes the user's question faster to answer than a table or a simpler chart would.
 
 Avoid it when the visual form makes the user estimate more than necessary; choose the simplest chart that answers the product question.
 
 ## Data model
 
-`Node list plus edge list.` Keep the data close to the type that describes it. Fission Charts is typed Rust, so a line uses `LineSeries`, a calendar heatmap uses `CalendarHeatmapSeries`, and chart components such as zoom, marks, and graphics are explicit fields on `Chart` rather than hidden string configuration.
+`Vertex list plus edge list.` Keep the data close to the type that describes it. Fission Charts is typed Rust, so a line uses `LineSeries`, a calendar heatmap uses `CalendarHeatmapSeries`, and chart components such as zoom, marks, and graphics are explicit fields on `Chart` rather than hidden string configuration.
 
 ## Rust API
 

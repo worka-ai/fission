@@ -76,7 +76,7 @@ A practical Fission design separates three concerns:
 
 For a live IoT chart, a service might receive new readings and update a bounded in-memory buffer for the latest window. When the user scrolls back, a resource or job can request older pages from the durable store and merge them into the visible slice. The chart still receives typed Rust values, but the app does not pretend the entire history belongs in one synchronous in-memory dataset.
 
-That distinction matters because Fission's chart API is intentionally synchronous at build time. `build()` should read the data that is currently available and describe the chart. It should not block while fetching the next page from a database or device.
+That distinction matters because Fission's chart API is intentionally synchronous at conversion time. `component conversion` should read the data that is currently available and describe the chart. It should not block while fetching the next page from a database or device.
 
 ## Axes turn values into position
 

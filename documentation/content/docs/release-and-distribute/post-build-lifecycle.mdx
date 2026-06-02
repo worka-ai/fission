@@ -95,7 +95,7 @@ The manifest records the target, format, profile, artifact paths, hashes, sizes,
 
 ## Release content is separate from the binary
 
-Store listings and marketing assets often change without rebuilding the app. Fission treats release content as its own workflow:
+Store listings and marketing assets often change without reconverting the app. Fission treats release content as its own workflow:
 
 ```bash
 fission release-content capture --project-dir . --target ios --set app-store

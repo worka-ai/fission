@@ -113,7 +113,7 @@ The dates assume a weekly cadence starting in June 2026. If a week slips, keep t
 | 67 | 2027-09-06 | Widget inspector workflow | Inspector demo | How developer tools should reveal the widget tree, layout, state, and events. | Planned |
 | 68 | 2027-09-13 | Network and host work inspector | API dashboard | How requests, resources, jobs, retries, and errors can be made visible. | Planned |
 | 69 | 2027-09-20 | Logging and tracing for UI bugs | Trace viewer | How to collect useful traces without turning the app into noise. | Planned |
-| 70 | 2027-09-27 | Performance profiling | Large dashboard | How to spot slow rebuilds, heavy layouts, expensive paint, and unnecessary work. | Planned |
+| 70 | 2027-09-27 | Performance profiling | Large dashboard | How to spot slow reconversions, heavy layouts, expensive paint, and unnecessary work. | Planned |
 | 71 | 2027-10-04 | Golden, smoke, and interaction tests | Widget test suite | How to choose the right test type for each UI risk. | Planned |
 | 72 | 2027-10-11 | CI for Fission apps | GitHub workflow | How to run checks for desktop, web, mobile package smoke, and static sites. | Planned |
 | 73 | 2027-10-18 | Package for Linux | Linux release demo | How readiness checks, metadata, icons, artifacts, and distribution fit together. | Planned |

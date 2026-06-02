@@ -35,12 +35,13 @@ use fission::charts::{Axis, BarSeries, Chart, Legend, LineSeries, Tooltip};
 #[derive(Default, Clone)]
 struct DashboardState;
 
-impl AppState for DashboardState {}
+impl GlobalState for DashboardState {}
 
 struct Dashboard;
 
-impl Widget<DashboardState> for Dashboard {
-    fn build(&self, ctx: &mut BuildCtx<DashboardState>, view: &View<DashboardState>) -> Node {
+impl From<Dashboard> for Widget {
+    fn from(component: Dashboard) -> Self {
+        let (ctx, view) = fission::build::current::<DashboardState>();
         Chart::new()
             .title("Weekly revenue")
             .x_axis(Axis::category(vec!["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]))
@@ -56,7 +57,7 @@ impl Widget<DashboardState> for Dashboard {
                     .data(vec![120.0, 132.0, 101.0, 134.0, 90.0, 230.0, 210.0])
                     .into(),
             ])
-            .build(ctx, view)
+            .into()
     }
 }
 ```
