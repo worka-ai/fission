@@ -98,7 +98,7 @@ impl From<MyComponent> for Widget
 
 You do not need to read that as a Rust expert yet. In plain English, it says: "given a component, produce the widget tree for the current app inputs."
 
-The `S` is a generic placeholder for "whatever app state type this widget works with." In this page, that state type is `NoteState`.
+The component itself is not generic over app state. When the conversion needs state or runtime wiring, it asks for the concrete state type with `fission::build::current::<NoteState>()`.
 
 Here is a shortened version of the note editor widget:
 
@@ -319,8 +319,10 @@ If you keep that flow in mind, the rest of Fission becomes much easier to place.
 
 ## Read next
 
-Read [Rendering pipeline](/docs/learn/rendering-pipeline) next to see what happens after `component conversion` returns its user interface description.
+Read [State, handles, and providers](/docs/guides/state-handles-and-providers/) next if you want the practical rules for `GlobalState`, local widget state, provider scopes, `BuildCtxHandle`, `ViewHandle`, and stable `WidgetId` values.
 
-Then read [Resources and async](/docs/guides/resources-and-async) when you are ready to learn the full effect and resource story behind `ReducerContext` and runtime-managed work.
+Read [Rendering pipeline](/docs/learn/rendering-pipeline/) to see what happens after `component conversion` returns its user interface description.
 
-If you want to understand the environment data that also flows through `ViewHandle`, continue to [Environment, input, and text](/docs/guides/input-events-text-and-env).
+Then read [Resources and async](/docs/guides/resources-and-async/) when you are ready to learn the full effect and resource story behind `ReducerContext` and runtime-managed work.
+
+If you want to understand the environment data that also flows through `ViewHandle`, continue to [Environment, input, and text](/docs/guides/input-events-text-and-env/).

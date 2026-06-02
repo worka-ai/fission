@@ -23,7 +23,8 @@ After that, learn the core loop in this order:
 | 2 | [Rendering pipeline](/docs/learn/rendering-pipeline/) | How widgets become layout, semantics, display lists, and host output. |
 | 3 | [Layout and widgets](/docs/guides/layout-and-widgets/) | How to compose screens that adapt to mobile, desktop, and web-sized viewports. |
 | 4 | [Input, events, text, and environment](/docs/guides/input-events-text-and-env/) | How pointer, keyboard, text input, theme, locale, and environment data reach widgets. |
-| 5 | [State, resources, and async](/docs/guides/resources-and-async/) | How to keep product state explicit while still doing host work, background work, and long-lived resources. |
+| 5 | [State, handles, and providers](/docs/guides/state-handles-and-providers/) | Where durable app state, local widget state, build handles, environment, and parent-provided context belong. |
+| 6 | [State, resources, and async](/docs/guides/resources-and-async/) | How to keep product state explicit while still doing host work, background work, and long-lived resources. |
 
 The docs assume you can run `cargo`, but they do not assume you are an expert Rust developer. When a concept such as `Env`, `BuildCtxHandle`, `ViewHandle`, reducer, selector, resource, job, or capability appears, the relevant guide should introduce what it is, why it exists, when to use it, and what to avoid.
 
@@ -35,7 +36,7 @@ Fission projects move through a practical development lifecycle.
 | --- | --- | --- |
 | Setup | [Quickstart](/docs/learn/quickstart/), [Project structure](/docs/guides/app-structure/), [Add platform targets](/docs/cookbook/add-platform-targets/) | Create or open a project, understand [`fission.toml`](/reference/config/fission-toml/), and add desktop, web, Android, iOS, terminal, or static site targets without losing existing files. |
 | Learn | [Learn overview](/docs/learn/overview/), [Runtime model](/docs/learn/runtime-model/), [Rendering pipeline](/docs/learn/rendering-pipeline/) | Understand the architecture before copying patterns into a larger app. |
-| Build features | [Layout and widgets](/docs/guides/layout-and-widgets/), [Theming and internationalization](/docs/guides/theming-and-i18n/), [Design system](/docs/guides/design-system/), [Charts](/docs/charts/overview/), [Capabilities](/docs/capabilities/matrix/) | Build product screens, theme them, translate them, add charts, and request platform features through typed capabilities. |
+| Build features | [Layout and widgets](/docs/guides/layout-and-widgets/), [State, handles, and providers](/docs/guides/state-handles-and-providers/), [Theming and internationalization](/docs/guides/theming-and-i18n/), [Design system](/docs/guides/design-system/), [Charts](/docs/charts/overview/), [Capabilities](/docs/capabilities/matrix/) | Build product screens, manage state intentionally, theme them, translate them, add charts, and request platform features through typed capabilities. |
 | Develop | [Development workflow](/docs/develop/workflow/), [Platform shells and CLI](/docs/guides/platform-shells-cli-and-testing/), [Terminal user interfaces](/docs/guides/terminal-user-interfaces/), [Static sites](/docs/guides/static-sites/) | Run the app on real targets, keep logs attached, use the terminal UI, and build content-backed static sites. |
 | Test and debug | [Testing lifecycle](/docs/test-and-debug/overview/), [Testing and diagnostics](/docs/guides/testing-and-diagnostics/), [Write a live UI test](/docs/cookbook/write-a-live-ui-test/) | Test reducers first, then widgets, runtime effects, shell paths, screenshots, logs, and release captures. |
 | Build and package | [Packaging overview](/docs/build-and-package/overview/) | Produce installable or uploadable artifacts with readiness checks and artifact manifests. |
@@ -52,10 +53,12 @@ If you are unsure where a piece of code belongs, ask what kind of thing it is:
 
 | If it is... | It usually belongs in... |
 | --- | --- |
-| Durable product data | `GlobalState` |
+| Durable product data | [`GlobalState`](/docs/guides/state-handles-and-providers/) |
 | A user intent such as save, select, open, close, submit, or retry | An action and reducer |
 | A value derived from existing state | A selector or local calculation in `component conversion` |
 | Visual structure for the current frame | A widget `component conversion` method |
+| Temporary UI state owned by one widget identity | [local widget state](/docs/guides/state-handles-and-providers/) |
+| Typed context a parent gives only to descendants | [providers](/docs/guides/state-handles-and-providers/) |
 | Theme, locale, title, viewport, or other app-wide presentation context | `Env` synchronized from state or seeded by the shell |
 | File I/O, networking, device access, notifications, camera, clipboard, or other host work | A capability, resource, command, job, service, or explicit effect |
 | Platform packaging, SDK setup, release metadata, or provider upload | [`fission.toml`](/reference/config/fission-toml/), release-content files, and `fission` CLI commands |

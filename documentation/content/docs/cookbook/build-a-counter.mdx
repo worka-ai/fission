@@ -61,4 +61,4 @@ fn main() -> anyhow::Result<()> {
 - `ctx.bind_local(...)` wires the generated `Increment` action to the local `count` field.
 - `impl From<CounterApp> for Widget` is the public authoring boundary: the component converts into the closed `Widget` tree.
 
-Use `GlobalState` when the value is part of your app model, persistence, routing, sync, or shared behavior. Use local widget state for temporary UI state like this counter, a local draft value, an open/closed flag, or a selected tab inside one component.
+Use `GlobalState` when the value is part of your app model, persistence, routing, sync, or shared behavior. Use local widget state for temporary UI state like this counter, a local draft value, an open/closed flag, or a selected tab inside one component. The longer guide to this decision is [State, handles, and providers](/docs/guides/state-handles-and-providers/).

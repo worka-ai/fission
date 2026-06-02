@@ -46,6 +46,11 @@ href = "/docs/learn/runtime-model/"
 level = 2
 
 [[items]]
+title = "State, handles, and providers"
+href = "/docs/guides/state-handles-and-providers/"
+level = 2
+
+[[items]]
 title = "Rendering pipeline"
 href = "/docs/learn/rendering-pipeline/"
 level = 2
