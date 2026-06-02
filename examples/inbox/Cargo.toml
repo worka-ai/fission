@@ -5,6 +5,7 @@ edition = "2021"
 
 [dependencies]
 fission = { path = "../../crates/authoring/fission", default-features = false, features = ["desktop"] }
+fission-ir = { path = "../../crates/core/fission-ir" }
 serde = { version = "1.0", features = ["derive"] }
 anyhow = "1.0"
 chrono = { version = "0.4", default-features = false, features = ["alloc", "clock", "serde"] }
