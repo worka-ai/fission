@@ -255,13 +255,274 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::{fs, path::PathBuf};
+    use std::{fs, path::PathBuf, process::Command};
 
     fn unique_dir(name: &str) -> PathBuf {
         let dir =
             std::env::temp_dir().join(format!("cargo-fission-{}-{}", name, std::process::id()));
         let _ = fs::remove_dir_all(&dir);
         dir
+    }
+
+    #[cfg(unix)]
+    fn write_executable(path: impl AsRef<std::path::Path>, contents: &str) {
+        use std::os::unix::fs::PermissionsExt;
+
+        let path = path.as_ref();
+        if let Some(parent) = path.parent() {
+            fs::create_dir_all(parent).unwrap();
+        }
+        fs::write(path, contents).unwrap();
+        fs::set_permissions(path, fs::Permissions::from_mode(0o755)).unwrap();
+    }
+
+    #[cfg(unix)]
+    fn path_with_fake_bin(fake_bin: &std::path::Path) -> String {
+        let existing = std::env::var("PATH").unwrap_or_default();
+        format!("{}:{existing}", fake_bin.display())
+    }
+
+    #[cfg(unix)]
+    fn write_fake_cargo(fake_bin: &std::path::Path) {
+        write_executable(
+            fake_bin.join("cargo"),
+            r#"#!/usr/bin/env bash
+set -euo pipefail
+if [[ "${1:-}" == "metadata" ]]; then
+  printf '%s\n' "$FAKE_TARGET_DIR"
+  exit 0
+fi
+if [[ "${1:-}" == "build" ]]; then
+  target=""
+  package=""
+  profile="debug"
+  args=("$@")
+  for ((i = 0; i < ${#args[@]}; i++)); do
+    case "${args[$i]}" in
+      --target) target="${args[$((i + 1))]}" ;;
+      --package) package="${args[$((i + 1))]}" ;;
+      --release) profile="release" ;;
+    esac
+  done
+  if [[ -z "$target" || -z "$package" ]]; then
+    printf 'fake cargo expected --target and --package\n' >&2
+    exit 2
+  fi
+  artifact_dir="$FAKE_TARGET_DIR/$target/$profile"
+  mkdir -p "$artifact_dir"
+  lib_name="${package//-/_}"
+  printf 'fake native library\n' > "$artifact_dir/lib${lib_name}.so"
+  printf '#!/usr/bin/env sh\nexit 0\n' > "$artifact_dir/$package"
+  chmod +x "$artifact_dir/$package"
+  exit 0
+fi
+printf 'unsupported fake cargo invocation: %s\n' "$*" >&2
+exit 2
+"#,
+        );
+    }
+
+    #[cfg(unix)]
+    fn write_fake_python3(fake_bin: &std::path::Path) {
+        write_executable(
+            fake_bin.join("python3"),
+            r#"#!/usr/bin/env bash
+set -euo pipefail
+script=$(cat)
+if [[ "$script" == *"import plistlib"* ]]; then
+  printf 'plistlib must not be used by generated mobile package scripts\n' >&2
+  exit 44
+fi
+if [[ "$script" == *"cargo\", \"metadata\""* || "$script" == *"metadata = json.loads"* ]]; then
+  printf '%s\n' "$FAKE_TARGET_DIR"
+  exit 0
+fi
+if [[ "$script" == *"android:minSdkVersion"* ]]; then
+  if [[ "${1:-}" == "-" ]]; then
+    shift
+  fi
+  source="$1"
+  dest="$2"
+  min_api="$3"
+  target_api="$4"
+  has_code=false
+  if [[ -f "$(dirname "$dest")/apk-root/classes.dex" ]]; then
+    has_code=true
+  fi
+  sed -E \
+    -e "s/android:minSdkVersion=\"[0-9]+\"/android:minSdkVersion=\"$min_api\"/" \
+    -e "s/android:targetSdkVersion=\"[0-9]+\"/android:targetSdkVersion=\"$target_api\"/" \
+    -e "s/android:hasCode=\"(true|false)\"/android:hasCode=\"$has_code\"/" \
+    "$source" > "$dest"
+  exit 0
+fi
+printf 'unsupported fake python3 script\n%s\n' "$script" >&2
+exit 2
+"#,
+        );
+    }
+
+    #[cfg(unix)]
+    fn write_fake_ios_tools(fake_bin: &std::path::Path) {
+        write_executable(
+            fake_bin.join("xcrun"),
+            r#"#!/usr/bin/env bash
+set -euo pipefail
+if [[ "${1:-}" == "--find" && "${2:-}" == "plutil" ]]; then
+  printf '%s/plutil\n' "$FISSION_FAKE_BIN"
+  exit 0
+fi
+if [[ "${1:-}" == "--find" && "${2:-}" == "ibtool" ]]; then
+  printf '%s/ibtool\n' "$FISSION_FAKE_BIN"
+  exit 0
+fi
+printf 'unsupported fake xcrun invocation: %s\n' "$*" >&2
+exit 2
+"#,
+        );
+        write_executable(
+            fake_bin.join("plutil"),
+            r#"#!/usr/bin/env bash
+set -euo pipefail
+if [[ "${1:-}" != "-replace" || "${3:-}" != "-string" ]]; then
+  printf 'unsupported fake plutil invocation: %s\n' "$*" >&2
+  exit 2
+fi
+key="$2"
+value="$4"
+file="$5"
+tmp="$(mktemp)"
+awk -v key="$key" -v value="$value" '
+  replace_next {
+    print "  <string>" value "</string>"
+    replace_next = 0
+    next
+  }
+  {
+    print
+    if ($0 ~ "<key>" key "</key>") {
+      replace_next = 1
+    }
+  }
+' "$file" > "$tmp"
+mv "$tmp" "$file"
+"#,
+        );
+        write_executable(
+            fake_bin.join("ibtool"),
+            r#"#!/usr/bin/env bash
+set -euo pipefail
+args=("$@")
+for ((i = 0; i < ${#args[@]}; i++)); do
+  if [[ "${args[$i]}" == "--compile" ]]; then
+    mkdir -p "${args[$((i + 1))]}"
+    exit 0
+  fi
+done
+printf 'fake ibtool missing --compile\n' >&2
+exit 2
+"#,
+        );
+    }
+
+    #[cfg(unix)]
+    fn write_fake_android_tools(android_home: &std::path::Path, fake_bin: &std::path::Path) {
+        let build_tools = android_home.join("build-tools/35.0.0");
+        let ndk_bin = android_home.join("ndk/27.0.0/toolchains/llvm/prebuilt/linux-x86_64/bin");
+        fs::create_dir_all(android_home.join("platforms/android-35")).unwrap();
+        fs::write(android_home.join("platforms/android-35/android.jar"), "").unwrap();
+        fs::create_dir_all(&build_tools).unwrap();
+        fs::create_dir_all(&ndk_bin).unwrap();
+        fs::write(ndk_bin.join("aarch64-linux-android24-clang"), "").unwrap();
+        fs::write(ndk_bin.join("llvm-ar"), "").unwrap();
+
+        write_executable(
+            build_tools.join("aapt"),
+            r#"#!/usr/bin/env bash
+set -euo pipefail
+out=""
+manifest=""
+args=("$@")
+for ((i = 0; i < ${#args[@]}; i++)); do
+  case "${args[$i]}" in
+    -F) out="${args[$((i + 1))]}" ;;
+    -M) manifest="${args[$((i + 1))]}" ;;
+  esac
+done
+if [[ -z "$out" || -z "$manifest" ]]; then
+  printf 'fake aapt missing -F or -M\n' >&2
+  exit 2
+fi
+mkdir -p "$(dirname "$out")"
+{
+  printf 'AAPT_MANIFEST_BEGIN\n'
+  cat "$manifest"
+  printf '\nAAPT_MANIFEST_END\n'
+} > "$out"
+"#,
+        );
+        write_executable(
+            build_tools.join("zipalign"),
+            r#"#!/usr/bin/env bash
+set -euo pipefail
+args=("$@")
+count=${#args[@]}
+input="${args[$((count - 2))]}"
+output="${args[$((count - 1))]}"
+cp "$input" "$output"
+"#,
+        );
+        write_executable(
+            build_tools.join("apksigner"),
+            r#"#!/usr/bin/env bash
+set -euo pipefail
+out=""
+input=""
+args=("$@")
+for ((i = 0; i < ${#args[@]}; i++)); do
+  if [[ "${args[$i]}" == "--out" ]]; then
+    out="${args[$((i + 1))]}"
+  fi
+done
+input="${args[$((${#args[@]} - 1))]}"
+if [[ -z "$out" ]]; then
+  printf 'fake apksigner missing --out\n' >&2
+  exit 2
+fi
+cp "$input" "$out"
+"#,
+        );
+        write_executable(
+            fake_bin.join("zip"),
+            r#"#!/usr/bin/env bash
+set -euo pipefail
+archive=""
+entries=()
+for arg in "$@"; do
+  if [[ "$arg" == -* ]]; then
+    continue
+  fi
+  if [[ -z "$archive" ]]; then
+    archive="$arg"
+  else
+    entries+=("$arg")
+  fi
+done
+if [[ -z "$archive" ]]; then
+  printf 'fake zip missing archive\n' >&2
+  exit 2
+fi
+for entry in "${entries[@]}"; do
+  if [[ -d "$entry" ]]; then
+    while IFS= read -r file; do
+      printf 'APK_ENTRY=%s\n' "$file" >> "$archive"
+    done < <(find "$entry" -type f | sort)
+  elif [[ -f "$entry" ]]; then
+    printf 'APK_ENTRY=%s\n' "$entry" >> "$archive"
+  fi
+done
+"#,
+        );
     }
 
     #[test]
@@ -537,6 +798,125 @@ PY
         assert!(hardened.contains("xcrun --find plutil"));
         assert!(hardened.contains("-replace CFBundleExecutable -string"));
         assert!(!hardened.contains("import plistlib"));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn ios_package_script_executes_without_python_plistlib() {
+        let dir = unique_dir("ios-package-e2e");
+        run([
+            "fission",
+            "init",
+            dir.to_str().unwrap(),
+            "--name",
+            "ios-package-e2e",
+            "--app-id",
+            "com.example.iospackagee2e",
+        ])
+        .unwrap();
+        run([
+            "fission",
+            "add-target",
+            "ios",
+            "--project-dir",
+            dir.to_str().unwrap(),
+        ])
+        .unwrap();
+
+        let fake_bin = dir.join("fake-bin");
+        let fake_target = dir.join("fake-target");
+        fs::create_dir_all(&fake_bin).unwrap();
+        fs::create_dir_all(&fake_target).unwrap();
+        write_fake_cargo(&fake_bin);
+        write_fake_python3(&fake_bin);
+        write_fake_ios_tools(&fake_bin);
+
+        let output = Command::new("bash")
+            .arg("platforms/ios/package-sim.sh")
+            .current_dir(&dir)
+            .env("PATH", path_with_fake_bin(&fake_bin))
+            .env("FAKE_TARGET_DIR", &fake_target)
+            .env("FISSION_FAKE_BIN", &fake_bin)
+            .env("IOS_BUNDLE_ID", "com.example.overridden")
+            .env("IOS_DISPLAY_NAME", "Overridden iOS")
+            .env("IOS_EXECUTABLE_NAME", "OverriddenExecutable")
+            .output()
+            .unwrap();
+        assert!(
+            output.status.success(),
+            "package-sim.sh failed\nstdout:\n{}\nstderr:\n{}",
+            String::from_utf8_lossy(&output.stdout),
+            String::from_utf8_lossy(&output.stderr)
+        );
+
+        let bundle_dir = String::from_utf8(output.stdout).unwrap();
+        let bundle_dir = PathBuf::from(bundle_dir.trim());
+        assert!(bundle_dir.join("OverriddenExecutable").exists());
+        assert!(bundle_dir.join("LaunchScreen.storyboardc").exists());
+        let plist = fs::read_to_string(bundle_dir.join("Info.plist")).unwrap();
+        assert!(plist.contains("<string>com.example.overridden</string>"));
+        assert!(plist.contains("<string>Overridden iOS</string>"));
+        assert!(plist.contains("<string>OverriddenExecutable</string>"));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn android_package_script_builds_native_only_apk_metadata() {
+        let dir = unique_dir("android-package-e2e");
+        run([
+            "fission",
+            "init",
+            dir.to_str().unwrap(),
+            "--name",
+            "android-package-e2e",
+            "--app-id",
+            "com.example.androidpackagee2e",
+        ])
+        .unwrap();
+        run([
+            "fission",
+            "add-target",
+            "android",
+            "--project-dir",
+            dir.to_str().unwrap(),
+        ])
+        .unwrap();
+
+        let fake_bin = dir.join("fake-bin");
+        let fake_target = dir.join("fake-target");
+        let android_home = dir.join("fake-android-sdk");
+        fs::create_dir_all(&fake_bin).unwrap();
+        fs::create_dir_all(&fake_target).unwrap();
+        write_fake_cargo(&fake_bin);
+        write_fake_python3(&fake_bin);
+        write_fake_android_tools(&android_home, &fake_bin);
+        let keystore = dir.join("debug.keystore");
+        fs::write(&keystore, "fake debug keystore").unwrap();
+
+        let output = Command::new("bash")
+            .arg("platforms/android/package-apk.sh")
+            .current_dir(&dir)
+            .env("PATH", path_with_fake_bin(&fake_bin))
+            .env("FAKE_TARGET_DIR", &fake_target)
+            .env("ANDROID_HOME", &android_home)
+            .env("ANDROID_DEBUG_KEYSTORE", &keystore)
+            .output()
+            .unwrap();
+        assert!(
+            output.status.success(),
+            "package-apk.sh failed\nstdout:\n{}\nstderr:\n{}",
+            String::from_utf8_lossy(&output.stdout),
+            String::from_utf8_lossy(&output.stderr)
+        );
+
+        let apk = String::from_utf8(output.stdout).unwrap();
+        let apk = PathBuf::from(apk.trim());
+        let apk_payload = fs::read_to_string(apk).unwrap();
+        assert!(apk_payload.contains("android:hasCode=\"false\""));
+        assert!(apk_payload.contains("android:minSdkVersion=\"24\""));
+        assert!(apk_payload.contains("android:targetSdkVersion=\"35\""));
+        assert!(apk_payload.contains("APK_ENTRY=lib/arm64-v8a/libandroid_package_e2e.so"));
+        assert!(!apk_payload.contains("APK_ENTRY=classes.dex"));
     }
 
     #[test]
