@@ -38,7 +38,7 @@ Fission now has six shell families that serve different host surfaces.
 | Terminal | You want an interactive terminal user interface. | `TerminalApp` |
 | Test driver | You want automated shell control for supported live hosts. | `fission-test` and `fission-test-driver` |
 
-Desktop, web, and mobile are runtime shells: they keep the app running in a host event loop. The terminal shell is also a runtime shell, but its renderer targets terminal cells instead of a GPU-backed window. The static site shell is different: it runs at build time, lowers real Fission widgets to Core IR, and emits static HTML, CSS, and site assets.
+Desktop, web, and mobile are runtime shells: they keep the app running in a host event loop. The terminal shell is also a runtime shell, but its renderer targets terminal cells instead of a GPU-backed window. The static site shell is different: it runs at conversion time, lowers real Fission widgets to Core IR, and emits static HTML, CSS, and site assets.
 
 Those differences are host differences, not app-model differences. The same state, reducers, selectors, widgets, design system, and environment model stay at the center.
 
@@ -60,13 +60,13 @@ The public wrappers are not completely symmetrical, so it helps to understand th
 
 `TerminalApp` runs the same build, lower, layout, verify, and render pipeline inside a terminal. It is useful for command tools, dashboards, setup flows, and developer workflows where the user already lives in a terminal. It verifies terminal compatibility from Core IR and semantics rather than from hard-coded widget names. Continue to [Terminal user interfaces](/docs/guides/terminal-user-interfaces/) for a full guide.
 
-`FissionSite` is the static site shell. It is not an interactive app loop. It renders configured routes at build time, turns Markdown and custom Fission page widgets into semantic HTML, writes shared CSS, generates search data when enabled, and copies configured assets. Continue to [Static sites](/docs/guides/static-sites/) for the site workflow.
+`FissionSite` is the static site shell. It is not an interactive app loop. It renders configured routes at conversion time, turns Markdown and custom Fission page widgets into semantic HTML, writes shared CSS, generates search data when enabled, and copies configured assets. Continue to [Static sites](/docs/guides/static-sites/) for the site workflow.
 
 ## How developers actually use shell wrappers
 
 A good rule is to use the wrapper for host startup concerns and keep product behavior in the shared app.
 
-`with_state_init(...)` is for synchronous state preparation before the first frame. `with_startup_action(...)` is for entering the normal reducer flow as soon as the runtime is ready. `with_sync_env(...)` is for values that belong in `Env`, such as theme, locale, translation bundles, or other read-only context widgets should consume during `build()`.
+`with_state_init(...)` is for synchronous state preparation before the first frame. `with_startup_action(...)` is for entering the normal reducer flow as soon as the runtime is ready. `with_sync_env(...)` is for values that belong in `Env`, such as theme, locale, translation bundles, or other read-only context widgets should consume during component conversion.
 
 `with_async(...)` is where you register jobs, services, and capabilities that the host may need to run outside pure reducers. `with_frame_hook(...)` exists for narrow polling or wakeup cases, but it should stay a host-level helper instead of becoming your primary application architecture.
 

@@ -12,13 +12,13 @@ This documentation site is the real-world example. The project under `documentat
 
 ## When to use the site target
 
-Use the site target when a route can be decided at build time and the user should receive a fast, crawlable document. Good fits include product landing pages, documentation, API reference pages, blog posts, changelogs, legal pages, and chart galleries that can show static screenshots with links into richer examples.
+Use the site target when a route can be decided at conversion time and the user should receive a fast, crawlable document. Good fits include product landing pages, documentation, API reference pages, blog posts, changelogs, legal pages, and chart galleries that can show static screenshots with links into richer examples.
 
 Do not use the site target as a replacement for the normal web app target. If a page needs continuous runtime state, canvas rendering, device APIs, live collaboration, background workers, or heavy in-page interaction, use the web target for that surface. A static site can still contain light progressive enhancement such as search, theme switching, collapsible sidebars, and code highlighting, but the base page should remain useful as static HTML.
 
 ## What the static site shell does
 
-The site shell takes a real Fission app and renders it ahead of time. The custom routes are ordinary Fission widgets. Content routes start as Markdown or MDX files, pass through the documentation template widget, and then lower through the same Fission `Node` and Core IR path used by the renderer. The HTML backend visits that resolved tree and writes semantic HTML.
+The site shell takes a real Fission app and renders it ahead of time. The custom routes are ordinary Fission widgets. Content routes start as Markdown or MDX files, pass through the documentation template widget, and then lower through the same Fission `Widget` and Core IR path used by the renderer. The HTML backend visits that resolved tree and writes semantic HTML.
 
 The important detail is that the site target does not introduce a second page model. It does not ask you to build a parallel HTML router. Your custom pages are widgets, your shared visual language comes from the Fission theme, and the static renderer produces the static assets from that resolved tree.
 
@@ -103,22 +103,22 @@ use fission::site::{build_from_cli, FissionSite};
 
 #[derive(Default)]
 struct SiteState;
-impl AppState for SiteState {}
+impl GlobalState for SiteState {}
 
 #[derive(Clone)]
 struct HomePage;
 
-impl Widget<SiteState> for HomePage {
-    fn build(&self, _ctx: &mut BuildCtx<SiteState>, _view: &View<SiteState>) -> Node {
+impl From<HomePage> for Widget {
+    fn from(component: HomePage) -> Self {
         Column {
             children: vec![
-                Text::new("Build something people can read").size(48.0).into_node(),
-                Text::new("This route is rendered by the Fission static site shell.").into_node(),
+                Text::new("Build something people can read").size(48.0).into(),
+                Text::new("This route is rendered by the Fission static site shell.").into(),
             ],
             gap: Some(16.0),
             ..Default::default()
         }
-        .into_node()
+        .into()
     }
 }
 
@@ -134,7 +134,7 @@ fn main() -> Result<()> {
 }
 ```
 
-The route widget is rendered at build time. That means `build()` should describe the static page for the current route and theme. It should not start network requests, mutate global state, or depend on a live browser event loop. If a page needs live behavior, keep the static page useful and link to a normal Fission web app route or example.
+The route widget is rendered at conversion time. That means `component conversion` should describe the static page for the current route and theme. It should not start network requests, mutate global state, or depend on a live browser event loop. If a page needs live behavior, keep the static page useful and link to a normal Fission web app route or example.
 
 ## Content routes
 

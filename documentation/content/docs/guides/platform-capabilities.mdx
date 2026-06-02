@@ -138,14 +138,15 @@ Use the normal Fission action binding from a widget.
 ```rust
 struct CapturePhotoButton;
 
-impl Widget<ProfileState> for CapturePhotoButton {
-    fn build(&self, view: &View<ProfileState>, ctx: &mut BuildCtx<ProfileState>) -> Node {
+impl From<CapturePhotoButton> for Widget {
+    fn from(component: CapturePhotoButton) -> Self {
+        let (ctx, view) = fission::build::current::<ProfileState>();
         let capture = with_reducer!(ctx, CaptureProfilePhoto, on_capture_profile_photo);
 
-        Button::new(if view.state.capturing_photo { "Capturing..." } else { "Take photo" })
-            .disabled(view.state.capturing_photo)
+        Button::new(if view.state().capturing_photo { "Capturing..." } else { "Take photo" })
+            .disabled(view.state().capturing_photo)
             .on_press(capture)
-            .build(view, ctx)
+            .into()
     }
 }
 ```

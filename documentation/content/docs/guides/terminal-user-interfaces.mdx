@@ -39,7 +39,7 @@ struct ToolState {
     logs: Vec<String>,
 }
 
-impl AppState for ToolState {}
+impl GlobalState for ToolState {}
 
 #[fission_reducer(SelectScreen)]
 fn select_screen(state: &mut ToolState, selected: usize) {
@@ -49,8 +49,9 @@ fn select_screen(state: &mut ToolState, selected: usize) {
 #[derive(Clone)]
 struct ToolApp;
 
-impl Widget<ToolState> for ToolApp {
-    fn build(&self, ctx: &mut BuildCtx<ToolState>, view: &View<ToolState>) -> Node {
+impl From<ToolApp> for Widget {
+    fn from(component: ToolApp) -> Self {
+        let (ctx, view) = fission::build::current::<ToolState>();
         let dashboard = with_reducer!(ctx, SelectScreen(0), select_screen);
         let settings = with_reducer!(ctx, SelectScreen(1), select_screen);
 
@@ -58,15 +59,15 @@ impl Widget<ToolState> for ToolApp {
             children: vec![
                 Column {
                     children: vec![
-                        Button { on_press: Some(dashboard), child: Some(Box::new(Text::new("Dashboard").into_node())), ..Default::default() }.into_node(),
-                        Button { on_press: Some(settings), child: Some(Box::new(Text::new("Settings").into_node())), ..Default::default() }.into_node(),
+                        Button { on_press: Some(dashboard), child: Some(Text::new("Dashboard").into()), ..Default::default() }.into(),
+                        Button { on_press: Some(settings), child: Some(Text::new("Settings").into()), ..Default::default() }.into(),
                     ],
                     ..Default::default()
-                }.into_node(),
-                Text::new(format!("Selected screen: {}", view.state.selected)).into_node(),
+                }.into(),
+                Text::new(format!("Selected screen: {}", view.state().selected)).into(),
             ],
             ..Default::default()
-        }.into_node()
+        }.into()
     }
 }
 
@@ -98,14 +99,14 @@ This is the important lesson from the CLI: a terminal app should still be a real
 
 ## Keep long-running work out of the frame loop
 
-Terminal tools often run slow commands: build, test, doctor, deploy, logs, and server processes. Do not run that work directly inside `build()` and do not block the terminal event loop while a command is running.
+Terminal tools often run slow commands: build, test, doctor, deploy, logs, and server processes. Do not run that work directly inside `component conversion` and do not block the terminal event loop while a command is running.
 
 The CLI starts command work on a background thread, stores progress in shared command state, and lets the terminal app poll for new output between input events. That keeps the interface responsive while the command runs. The visible output panel is just another widget reading app state.
 
 A good command workflow has three parts:
 
 1. Dispatch an action when the user presses a button or selects a command.
-2. Start the command outside `build()` and immediately return control to the UI.
+2. Start the command outside `component conversion` and immediately return control to the UI.
 3. Append output to bounded scrollback and request a redraw when new data arrives.
 
 That pattern keeps keyboard navigation, mouse clicks, scrolling, theme changes, and settings usable while the command is still running.

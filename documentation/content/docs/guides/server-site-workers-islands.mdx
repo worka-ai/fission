@@ -73,13 +73,13 @@ On the server-rendered page, render a fallback region that remains readable if J
 
 ```rust
 SemanticsRegion::new(
-    Container::new(Text::new("Island booting").into_node())
+    Container::new(Text::new("Island booting").into())
         .padding_all(18.0)
-        .into_node(),
+        .into(),
 )
-.id(fission::ir::NodeId::explicit("cart-drawer"))
+.id(fission::WidgetId::explicit("cart-drawer"))
 .identifier("cart-drawer")
-.into_node()
+.into()
 ```
 
 The island itself is a normal Fission widget app with state and reducers:
@@ -90,24 +90,25 @@ pub struct BrowserCartState {
     count: u32,
 }
 
-impl AppState for BrowserCartState {}
+impl GlobalState for BrowserCartState {}
 
 #[derive(Clone)]
 pub struct CartDrawerIsland;
 
-impl Widget<BrowserCartState> for CartDrawerIsland {
-    fn build(&self, ctx: &mut BuildCtx<BrowserCartState>, view: &View<BrowserCartState>) -> Node {
+impl From<CartDrawerIsland> for Widget {
+    fn from(component: CartDrawerIsland) -> Self {
+        let (ctx, view) = fission::build::current::<BrowserCartState>();
         let add = ctx.bind(IslandAddToCart, reduce_with!(on_island_add_to_cart));
 
         SemanticsRegion::new(
-            Container::new(Text::new(format!("{} items", view.state.count)).into_node())
+            Container::new(Text::new(format!("{} items", view.state().count)).into())
                 .padding_all(12.0)
-                .into_node(),
+                .into(),
         )
         .identifier("island-action:add-card")
-        .role(fission::ir::Role::Button)
+        .role(fission::Role::Button)
         .default_action(add)
-        .into_node()
+        .into()
     }
 }
 

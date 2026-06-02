@@ -74,7 +74,7 @@ That is the right layer for questions such as:
 - Is this button visible after a reducer change?
 - Did the layout place the drawer where we expect?
 - Does the semantic tree contain the right label and role?
-- After typing text, does the rebuilt user interface show the expected result?
+- After typing text, does the reconverted user interface show the expected result?
 
 Why is this layer so valuable? Because it exercises the real runtime model while staying much faster and more controllable than a live shell test.
 
@@ -154,7 +154,7 @@ cargo run -p counter
 
 Use diagnostics when you need evidence such as these:
 
-- did layout rebuild more than expected,
+- did layout reconvert more than expected,
 - did paint order change,
 - did input arrive in the expected order,
 - did animation state advance the way you thought,

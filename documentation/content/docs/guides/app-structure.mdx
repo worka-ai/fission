@@ -96,28 +96,33 @@ Use `#[fission_action]` for manual action structs when the action is part of a p
 
 ## 4. Build screens from real widget structs
 
-Prefer reusable widget structs over large helper functions that return `Node` directly. This keeps examples and production apps aligned with the framework model.
+Prefer reusable widget structs over large helper functions that return `Widget` directly. This keeps examples and production apps aligned with the framework model.
 
 ```rust
 pub struct TodoScreen;
 
-impl Widget<TodoState> for TodoScreen {
-    fn build(&self, view: &View<TodoState>, ctx: &mut BuildCtx<TodoState>) -> Node {
+impl From<TodoScreen> for Widget {
+    fn from(component: TodoScreen) -> Self {
+        let (ctx, view) = fission::build::current::<TodoState>();
         let add = with_reducer!(ctx, AddTodo, on_add_todo);
 
-        Column::new()
-            .child(TodoComposer { on_submit: add })
-            .child(TodoList::new(view.state.visible_items()))
-            .build(view, ctx)
+        Column {
+            children: vec![
+                TodoComposer { on_submit: add }.into(),
+                TodoList::new(view.state().visible_items()).into(),
+            ],
+            ..Default::default()
+        }
+        .into()
     }
 }
 ```
 
-Small helper functions are still useful for pure formatting or repeated literal values. They should not become a second component system beside `Widget` implementations.
+Small helper functions are still useful for pure formatting or repeated literal values. They should not become a second component system beside `Widget` conversions.
 
 ## 5. Use selectors for derived view data
 
-A selector is a small piece of code that turns product state into view-ready data. It keeps `build()` readable and avoids mutating state while building the UI.
+A selector is a small piece of code that turns product state into view-ready data. It keeps `component conversion` readable and avoids mutating state while building the UI.
 
 ```rust
 pub struct TodoListItemVm {

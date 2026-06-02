@@ -5,7 +5,7 @@ description: Use server-side jobs, cache policies, revalidation, sessions, and s
 
 # Server caching, jobs, and actions
 
-Server-rendered Fission routes need a clear data story. A page may be public and reusable, public but rebuilt after a short time, or private to one browser session. Fission keeps those decisions explicit through route modes, cache configuration, jobs, and signed action dispatch.
+Server-rendered Fission routes need a clear data story. A page may be public and reusable, public but reconverted after a short time, or private to one browser session. Fission keeps those decisions explicit through route modes, cache configuration, jobs, and signed action dispatch.
 
 ## 1. Choose what may be reused
 
@@ -109,12 +109,14 @@ let catalog = FutureBuilder::new(
     ResourceKey::new("pokemon-card-store.catalog"),
     CATALOG_JOB,
     CatalogRequest { generation: 1 },
-    view.state.catalog.clone(),
-    |ctx, view, snapshot| CardGrid { snapshot: snapshot.clone() }.build(ctx, view),
+    view.state().catalog.clone(),
+    CardGrid {
+        snapshot: view.state().catalog.clone(),
+    },
 )
 .on_ok(with_reducer!(ctx, CatalogLoaded, on_catalog_loaded))
 .on_err(with_reducer!(ctx, CatalogFailed, on_catalog_failed))
-.build(ctx, view);
+.into();
 ```
 
 During server rendering, Fission drains registered blocking jobs, dispatches the configured success or error reducer, and renders again until the page settles or `render_pass_limit` is reached. Missing jobs fail the render instead of producing an empty page.
@@ -162,7 +164,7 @@ Server routes should have tests for more than happy-path rendering.
 
 | Test area | What to verify |
 | --- | --- |
-| Cache expiry | Fresh entries are reused, stale entries can be rebuilt, and invalidation tags clear the right routes. |
+| Cache expiry | Fresh entries are reused, stale entries can be reconverted, and invalidation tags clear the right routes. |
 | Cache keys | Query order is normalized and declared vary headers create distinct entries. |
 | Job draining | Missing jobs fail clearly and registered jobs produce the expected page data. |
 | Action signatures | Unsigned, expired, tampered, oversized, wrong-origin, and replayed requests are rejected. |
