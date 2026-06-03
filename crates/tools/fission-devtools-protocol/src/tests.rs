@@ -5,7 +5,8 @@ fn performance_overlay_state_derives_fps_and_slowest_stage() {
     let sample = FramePerformanceSample {
         sequence: 7,
         renderer: Some("vello".into()),
-        total_ms: 20.0,
+        total_ms: 8.5,
+        frame_interval_ms: Some(20.0),
         build_ms: Some(3.0),
         lower_ms: Some(4.0),
         layout_ms: Some(2.0),
@@ -23,6 +24,8 @@ fn performance_overlay_state_derives_fps_and_slowest_stage() {
 
     assert_eq!(state.enabled, true);
     assert_eq!(state.fps, Some(50.0));
+    assert_eq!(state.last_frame_ms, 20.0);
+    assert_eq!(state.last_render_ms, 8.5);
     assert_eq!(state.slowest_stage.as_deref(), Some("paint 9.00ms"));
     assert_eq!(state.widget_count, 12);
 }

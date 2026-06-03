@@ -92,6 +92,12 @@ impl From<PerformanceOverlay> for Widget {
             .fps
             .map(|value| format!("{value:.0} fps"))
             .unwrap_or_else(|| "fps --".to_string());
+        let frame = if overlay.state.last_frame_ms > 0.0 {
+            format!("frame {}", format_duration(overlay.state.last_frame_ms))
+        } else {
+            "frame --".to_string()
+        };
+        let render = format!("render {}", format_duration(overlay.state.last_render_ms));
         let slowest = overlay
             .state
             .slowest_stage
@@ -110,7 +116,7 @@ impl From<PerformanceOverlay> for Widget {
                             .size(11.0)
                             .color(fission_ir::op::Color::WHITE)
                             .into(),
-                        Text::new(format!("{:.2}ms", overlay.state.last_frame_ms))
+                        Text::new(frame)
                             .size(11.0)
                             .color(fission_ir::op::Color::WHITE)
                             .into(),
@@ -119,6 +125,7 @@ impl From<PerformanceOverlay> for Widget {
                     ..Default::default()
                 }
                 .into(),
+                Text::new(render).size(11.0).color(secondary).into(),
                 Text::new(slowest).size(11.0).color(secondary).into(),
                 Text::new(format!(
                     "widgets {} / ir {} / layout {}",
@@ -379,6 +386,7 @@ pub fn performance_sample_from_runtime(
     sequence: u64,
     renderer: Option<String>,
     total_ms: f64,
+    frame_interval_ms: Option<f64>,
     widget_count: usize,
     ir: Option<&CoreIR>,
     layout: Option<&LayoutSnapshot>,
@@ -387,6 +395,7 @@ pub fn performance_sample_from_runtime(
         sequence,
         renderer,
         total_ms,
+        frame_interval_ms,
         build_ms: None,
         lower_ms: None,
         layout_ms: None,
@@ -398,5 +407,13 @@ pub fn performance_sample_from_runtime(
         core_node_count: ir.map(|ir| ir.nodes.len()).unwrap_or(0),
         layout_node_count: layout.map(|layout| layout.nodes.len()).unwrap_or(0),
         paint_op_count: None,
+    }
+}
+
+fn format_duration(ms: f64) -> String {
+    if ms.is_finite() && ms > 0.0 && ms < 1.0 {
+        format!("{:.0}us", ms * 1000.0)
+    } else {
+        format!("{ms:.2}ms")
     }
 }

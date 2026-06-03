@@ -131,13 +131,18 @@ fn perf(port: u16, json: bool) -> Result<()> {
         println!("{}", serde_json::to_string_pretty(&perf)?);
         return Ok(());
     }
+    let frame_interval = perf
+        .frame_interval_ms
+        .map(|ms| format_duration(ms))
+        .unwrap_or_else(|| "--".to_string());
+    let fps = perf
+        .fps()
+        .map(|fps| format!("{fps:.0} fps"))
+        .unwrap_or_else(|| "fps --".to_string());
     println!(
-        "frame {}: {:.2}ms{}",
+        "frame {}: {fps}, interval {frame_interval}, render {}",
         perf.sequence,
-        perf.total_ms,
-        perf.fps()
-            .map(|fps| format!(" ({fps:.0} fps)"))
-            .unwrap_or_default()
+        format_duration(perf.total_ms),
     );
     if let Some(renderer) = &perf.renderer {
         println!("renderer: {renderer}");
@@ -150,6 +155,14 @@ fn perf(port: u16, json: bool) -> Result<()> {
         println!("slowest stage: {stage} {ms:.2}ms");
     }
     Ok(())
+}
+
+fn format_duration(ms: f64) -> String {
+    if ms.is_finite() && ms > 0.0 && ms < 1.0 {
+        format!("{:.0}us", ms * 1000.0)
+    } else {
+        format!("{ms:.2}ms")
+    }
 }
 
 fn read_snapshot(port: u16) -> Result<fission_devtools_protocol::DevtoolsFrameSnapshot> {

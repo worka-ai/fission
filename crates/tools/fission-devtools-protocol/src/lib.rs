@@ -261,7 +261,15 @@ pub struct SemanticsNodeSnapshot {
 pub struct FramePerformanceSample {
     pub sequence: u64,
     pub renderer: Option<String>,
+    /// Time spent doing the shell's frame work for this presented frame.
+    ///
+    /// This is not the frame interval and must not be used to derive FPS.
     pub total_ms: f64,
+    /// Time between this presented frame and the previous presented frame.
+    ///
+    /// `None` on the first reported frame, or when a shell cannot provide a
+    /// reliable interval. FPS is derived from this value.
+    pub frame_interval_ms: Option<f64>,
     pub build_ms: Option<f64>,
     pub lower_ms: Option<f64>,
     pub layout_ms: Option<f64>,
@@ -277,11 +285,9 @@ pub struct FramePerformanceSample {
 
 impl FramePerformanceSample {
     pub fn fps(&self) -> Option<f64> {
-        if self.total_ms > 0.0 {
-            Some(1000.0 / self.total_ms)
-        } else {
-            None
-        }
+        self.frame_interval_ms
+            .filter(|interval| *interval > 0.0)
+            .map(|interval| 1000.0 / interval)
     }
 
     pub fn slowest_known_stage(&self) -> Option<(&'static str, f64)> {
@@ -303,7 +309,10 @@ impl FramePerformanceSample {
 pub struct PerformanceOverlayState {
     pub enabled: bool,
     pub frame_budget_ms: f64,
+    /// Time between the two most recently presented frames.
     pub last_frame_ms: f64,
+    /// Time spent doing the shell's work for the most recent frame.
+    pub last_render_ms: f64,
     pub fps: Option<f64>,
     pub slowest_stage: Option<String>,
     pub widget_count: usize,
@@ -320,7 +329,8 @@ impl PerformanceOverlayState {
         Self {
             enabled,
             frame_budget_ms,
-            last_frame_ms: sample.total_ms,
+            last_frame_ms: sample.frame_interval_ms.unwrap_or(0.0),
+            last_render_ms: sample.total_ms,
             fps: sample.fps(),
             slowest_stage: sample
                 .slowest_known_stage()

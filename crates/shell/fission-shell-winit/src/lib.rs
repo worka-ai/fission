@@ -3691,7 +3691,7 @@ where
             .checked_sub(min_frame)
             .unwrap_or_else(Instant::now);
         let mut redraw_pending = false;
-        let mut last_frame_time = Instant::now();
+        let mut last_frame_time: Option<Instant> = None;
         let blink_enabled = std::env::var("FISSION_TEXTINPUT_BLINK")
             .map(|v| !matches!(v.to_ascii_lowercase().as_str(), "0" | "false" | "no"))
             .unwrap_or(true);
@@ -5021,9 +5021,13 @@ where
                                     invalidations.mark_build();
                                 }
                                 let now = Instant::now();
-                                let dt = now.duration_since(last_frame_time);
-                                last_frame_time = now;
+                                let frame_interval =
+                                    last_frame_time.map(|last| now.saturating_duration_since(last));
+                                last_frame_time = Some(now);
+                                let dt = frame_interval.unwrap_or(min_frame);
                                 let dt_ms = dt.as_millis() as u64;
+                                let frame_interval_ms =
+                                    frame_interval.map(|interval| interval.as_secs_f64() * 1000.0);
                                 let pre_tick_active = active_animation_keys(&runtime);
                                 match runtime.tick(dt_ms) {
                                     Ok(tick_result) => {
@@ -5870,6 +5874,7 @@ where
                                                     presented_frames,
                                                     Some(active_renderer.clone()),
                                                     total_ms,
+                                                    frame_interval_ms,
                                                     latest_devtools_widget_tree
                                                         .as_ref()
                                                         .map(|tree| tree.nodes.len())
@@ -6199,6 +6204,7 @@ where
                                                     presented_frames,
                                                     Some(render_state.renderer_report.active.clone()),
                                                     total_ms,
+                                                    frame_interval_ms,
                                                     latest_devtools_widget_tree
                                                         .as_ref()
                                                         .map(|tree| tree.nodes.len())

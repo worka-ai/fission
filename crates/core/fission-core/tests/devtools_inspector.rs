@@ -61,6 +61,7 @@ fn performance_overlay_is_a_normal_widget_tree() {
         sequence: 4,
         renderer: Some("vello".into()),
         total_ms: 12.5,
+        frame_interval_ms: Some(16.67),
         build_ms: Some(2.0),
         lower_ms: Some(1.5),
         layout_ms: Some(3.0),
