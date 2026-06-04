@@ -1702,6 +1702,16 @@ mod tests {
     }
 
     #[test]
+    fn route_links_render_as_boxed_click_targets() {
+        let css = site_base_css();
+        assert!(css.contains(".fission-site-route-link {\n  cursor: pointer;"));
+        assert!(css.contains(".fission-site-route-link > .fission-site-node"));
+        assert!(!css.contains(
+            ".fission-site-route-link,\n.fission-site-heading-link { display: contents; }"
+        ));
+    }
+
+    #[test]
     fn content_site_build_writes_real_html() {
         let temp = std::env::temp_dir().join(format!(
             "fission-site-test-{}",
