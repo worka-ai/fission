@@ -875,12 +875,23 @@ impl HtmlRenderer<'_> {
             }
             PaintOp::DrawSvg {
                 content,
-                fill: _,
-                stroke: _,
-            } => Ok(format!(
-                "<span class=\"fission-site-svg\" data-fission-node=\"{}\">{}</span>",
-                node.id, content
-            )),
+                fill,
+                stroke,
+            } => {
+                let base = if fill.is_some() || stroke.is_some() {
+                    "fission-site-svg fission-site-svg-colored"
+                } else {
+                    "fission-site-svg"
+                };
+                let class_name =
+                    self.class_name(base, self.svg_paint_style(fill.as_ref(), stroke.as_ref()));
+                Ok(format!(
+                    "<span class=\"{}\" data-fission-node=\"{}\">{}</span>",
+                    escape_attr(&class_name),
+                    node.id,
+                    content
+                ))
+            }
         }
     }
 

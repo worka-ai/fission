@@ -1706,6 +1706,9 @@ mod tests {
         let css = site_base_css();
         assert!(css.contains(".fission-site-route-link {\n  cursor: pointer;"));
         assert!(css.contains(".fission-site-route-link > .fission-site-node"));
+        assert!(css.contains(".fission-site-svg-colored svg *"));
+        assert!(css.contains("fill: currentColor;"));
+        assert!(css.contains(".fission-site-svg-colored svg [fill=\"none\"]"));
         assert!(!css.contains(
             ".fission-site-route-link,\n.fission-site-heading-link { display: contents; }"
         ));
