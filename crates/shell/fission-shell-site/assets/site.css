@@ -30,6 +30,13 @@ img, svg { max-width: 100%; }
 .fission-site-heading-link > .fission-site-node {
   flex: 1 1 auto;
 }
+.fission-site-positioned > .fission-site-node,
+.fission-site-positioned > .fission-site-semantics,
+.fission-site-positioned > .fission-site-semantics > .fission-site-node,
+.fission-site-absolute-fill > .fission-site-node {
+  width: 100%;
+  height: 100%;
+}
 
 @media (max-width: 720px) {
   .fission-site-root > .fission-site-box > .fission-site-column {

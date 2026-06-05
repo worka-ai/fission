@@ -481,6 +481,10 @@ impl ServerRenderer {
             css.push('\n');
             css.push_str(style);
         }
+        for user_css in &self.app.user_css {
+            css.push('\n');
+            css.push_str(user_css);
+        }
         Ok(ServerResponse::text(200, "text/css; charset=utf-8", css))
     }
 
@@ -1860,6 +1864,7 @@ same_site = "none"
         );
         let css = css.body_string();
         assert!(css.contains(".fission-site-root"));
+        assert!(css.contains(".fission-site-positioned > .fission-site-semantics"));
         assert!(css.contains(":root"));
 
         let js = renderer
@@ -1883,6 +1888,24 @@ same_site = "none"
         let runtime = runtime.body_string();
         assert!(runtime.contains("fission_bridge_alloc"));
         assert!(runtime.contains("fission-site-text-run"));
+    }
+
+    #[test]
+    fn server_renderer_appends_user_css_to_site_stylesheet() {
+        let renderer = ServerRenderer::new(
+            FissionServerApp::new("Test")
+                .user_css(".demo-hook{animation:demo 1s linear infinite;}")
+                .server_route_widget::<TestState, _>("/", "Home", None, TestPage("CSS page")),
+        );
+
+        let page = renderer.handle(ServerRequest::get("/")).unwrap();
+        assert_eq!(page.status, 200);
+
+        let css = renderer.handle(ServerRequest::get("/site.css")).unwrap();
+        assert_eq!(css.status, 200);
+        let css = css.body_string();
+        assert!(css.contains(".fission-site-root"));
+        assert!(css.contains(".demo-hook{animation:demo 1s linear infinite;}"));
     }
 
     #[test]

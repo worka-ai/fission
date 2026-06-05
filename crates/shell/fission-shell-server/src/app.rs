@@ -87,6 +87,7 @@ pub struct FissionServerApp {
     pub(crate) jobs: ServerJobRegistry,
     pub(crate) routes: Vec<ServerRouteEntry>,
     pub(crate) static_mounts: Vec<StaticMount>,
+    pub(crate) user_css: Vec<String>,
 }
 
 impl FissionServerApp {
@@ -100,6 +101,7 @@ impl FissionServerApp {
             jobs: ServerJobRegistry::new(),
             routes: Vec::new(),
             static_mounts: Vec::new(),
+            user_css: Vec::new(),
         }
     }
 
@@ -130,6 +132,11 @@ impl FissionServerApp {
 
     pub fn jobs(mut self, jobs: ServerJobRegistry) -> Self {
         self.jobs = jobs;
+        self
+    }
+
+    pub fn user_css(mut self, css: impl Into<String>) -> Self {
+        self.user_css.push(css.into());
         self
     }
 
