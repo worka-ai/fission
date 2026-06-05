@@ -12,7 +12,7 @@ use fission_core::{
 use fission_layout::LayoutSize;
 use fission_theme::Theme;
 use std::collections::BTreeSet;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 pub(crate) type RouteRenderer =
@@ -69,6 +69,14 @@ pub(crate) struct ServerRouteEntry {
     pub render: Arc<RouteRenderer>,
 }
 
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct StaticMount {
+    pub url_prefix: String,
+    pub directory: PathBuf,
+    pub index_file: Option<String>,
+    pub fallback_to_index: bool,
+}
+
 #[derive(Clone)]
 pub struct FissionServerApp {
     pub(crate) project_name: String,
@@ -78,6 +86,7 @@ pub struct FissionServerApp {
     pub(crate) request_env_sync: Option<Arc<RequestEnvSync>>,
     pub(crate) jobs: ServerJobRegistry,
     pub(crate) routes: Vec<ServerRouteEntry>,
+    pub(crate) static_mounts: Vec<StaticMount>,
 }
 
 impl FissionServerApp {
@@ -90,6 +99,7 @@ impl FissionServerApp {
             request_env_sync: None,
             jobs: ServerJobRegistry::new(),
             routes: Vec::new(),
+            static_mounts: Vec::new(),
         }
     }
 
@@ -120,6 +130,35 @@ impl FissionServerApp {
 
     pub fn jobs(mut self, jobs: ServerJobRegistry) -> Self {
         self.jobs = jobs;
+        self
+    }
+
+    pub fn static_dir(
+        mut self,
+        url_prefix: impl Into<String>,
+        directory: impl Into<PathBuf>,
+    ) -> Self {
+        self.static_mounts.push(StaticMount {
+            url_prefix: normalize_mount_prefix(&url_prefix.into()),
+            directory: directory.into(),
+            index_file: None,
+            fallback_to_index: false,
+        });
+        self
+    }
+
+    pub fn static_app(
+        mut self,
+        url_prefix: impl Into<String>,
+        directory: impl Into<PathBuf>,
+        index_file: impl Into<String>,
+    ) -> Self {
+        self.static_mounts.push(StaticMount {
+            url_prefix: normalize_mount_prefix(&url_prefix.into()),
+            directory: directory.into(),
+            index_file: Some(index_file.into()),
+            fallback_to_index: true,
+        });
         self
     }
 
@@ -397,6 +436,21 @@ pub(crate) fn normalize_server_path(path: &str) -> String {
     }
     if out.len() > 1 && !out.ends_with('/') {
         out.push('/');
+    }
+    out
+}
+
+fn normalize_mount_prefix(path: &str) -> String {
+    let mut out = if path.starts_with('/') {
+        path.to_string()
+    } else {
+        format!("/{path}")
+    };
+    while out.contains("//") {
+        out = out.replace("//", "/");
+    }
+    if out.len() > 1 {
+        out = out.trim_end_matches('/').to_string();
     }
     out
 }

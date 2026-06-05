@@ -1,5 +1,6 @@
 use crate::app::{
-    normalize_server_path, FissionServerApp, ServerEnvContext, ServerRenderedNode, ServerRouteEntry,
+    normalize_server_path, FissionServerApp, ServerEnvContext, ServerRenderedNode,
+    ServerRouteEntry, StaticMount,
 };
 use crate::{
     Cache, CacheEntry, CacheKey, CacheMetadata, CachePipeline, CacheScope, CacheTag, Freshness,
@@ -285,6 +286,11 @@ impl ServerRenderer {
         if let Some(response) = self.handle_asset_request(&asset_request_path(&request.path))? {
             return Ok(response);
         }
+        if let Some(response) =
+            self.handle_static_mount_request(&asset_request_path(&request.path))?
+        {
+            return Ok(response);
+        }
         let path = normalize_server_path(&request.path);
         let Some(route) = self.app.find_route(&path) else {
             return Ok(ServerResponse::text(
@@ -532,6 +538,58 @@ impl ServerRenderer {
             "text/plain; charset=utf-8",
             "asset not found",
         ))
+    }
+
+    fn handle_static_mount_request(&self, request_path: &str) -> Result<Option<ServerResponse>> {
+        for mount in &self.app.static_mounts {
+            let Some(relative) = static_mount_relative_path(mount, request_path) else {
+                continue;
+            };
+            let Some(relative) = relative else {
+                return Ok(Some(ServerResponse::text(
+                    400,
+                    "text/plain; charset=utf-8",
+                    "invalid static path",
+                )));
+            };
+
+            let root = static_mount_root(&self.app.project_dir, mount);
+            let mut candidate = if relative.as_os_str().is_empty() {
+                match &mount.index_file {
+                    Some(index_file) => root.join(index_file),
+                    None => root.clone(),
+                }
+            } else {
+                root.join(&relative)
+            };
+
+            if candidate.is_dir() {
+                if let Some(index_file) = &mount.index_file {
+                    candidate = candidate.join(index_file);
+                }
+            }
+
+            if candidate.is_file() {
+                return Ok(Some(file_response(&candidate)?));
+            }
+
+            if mount.fallback_to_index && !looks_like_static_file_request(&relative) {
+                if let Some(index_file) = &mount.index_file {
+                    let index = root.join(index_file);
+                    if index.is_file() {
+                        return Ok(Some(file_response(&index)?));
+                    }
+                }
+            }
+
+            return Ok(Some(ServerResponse::text(
+                404,
+                "text/plain; charset=utf-8",
+                "static file not found",
+            )));
+        }
+
+        Ok(None)
     }
 
     fn handle_action(&self, request: ServerRequest) -> Result<ServerResponse> {
@@ -1039,6 +1097,42 @@ fn safe_relative_asset_path(request_path: &str) -> Option<PathBuf> {
     (!out.as_os_str().is_empty()).then_some(out)
 }
 
+fn static_mount_relative_path(mount: &StaticMount, request_path: &str) -> Option<Option<PathBuf>> {
+    let prefix = mount.url_prefix.as_str();
+    let relative = if request_path == prefix {
+        ""
+    } else if prefix == "/" {
+        request_path.trim_start_matches('/')
+    } else {
+        request_path.strip_prefix(&format!("{prefix}/"))?
+    };
+    Some(safe_relative_static_path(relative))
+}
+
+fn safe_relative_static_path(relative: &str) -> Option<PathBuf> {
+    let path = Path::new(relative);
+    let mut out = PathBuf::new();
+    for component in path.components() {
+        match component {
+            Component::Normal(segment) => out.push(segment),
+            _ => return None,
+        }
+    }
+    Some(out)
+}
+
+fn static_mount_root(project_dir: &Path, mount: &StaticMount) -> PathBuf {
+    if mount.directory.is_absolute() {
+        mount.directory.clone()
+    } else {
+        project_dir.join(&mount.directory)
+    }
+}
+
+fn looks_like_static_file_request(relative: &Path) -> bool {
+    relative.extension().is_some()
+}
+
 fn file_response(path: &Path) -> Result<ServerResponse> {
     let body = fs::read(path)?;
     Ok(ServerResponse {
@@ -1059,8 +1153,9 @@ fn content_type_for_path(path: &Path) -> &'static str {
         .map(|extension| extension.to_ascii_lowercase())
         .as_deref()
     {
+        Some("html") | Some("htm") => "text/html; charset=utf-8",
         Some("css") => "text/css; charset=utf-8",
-        Some("js") => "application/javascript; charset=utf-8",
+        Some("js") | Some("mjs") => "application/javascript; charset=utf-8",
         Some("wasm") => "application/wasm",
         Some("ico") => "image/x-icon",
         Some("svg") => "image/svg+xml",
@@ -1833,6 +1928,83 @@ same_site = "none"
             .handle(ServerRequest::get("/assets/../secret.txt"))
             .unwrap();
         assert_eq!(traversal.status, 400);
+
+        let _ = fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn server_renderer_serves_static_app_mount_with_index_and_modules() {
+        let root = temp_project_dir("server-renderer-static-app");
+        let admin_dir = root.join("assets/admin/pkg");
+        fs::create_dir_all(&admin_dir).unwrap();
+        fs::write(
+            root.join("assets/admin/index.html"),
+            "<!doctype html><script type=\"module\" src=\"./bootstrap.mjs\"></script>",
+        )
+        .unwrap();
+        fs::write(
+            root.join("assets/admin/bootstrap.mjs"),
+            "import './pkg/app.js';",
+        )
+        .unwrap();
+        fs::write(
+            root.join("assets/admin/pkg/app.js"),
+            "export const app = true;",
+        )
+        .unwrap();
+        fs::write(root.join("secret.txt"), b"secret").unwrap();
+
+        let renderer = ServerRenderer::new(
+            FissionServerApp::new("Test")
+                .project_dir(&root)
+                .static_app("/admin", "assets/admin", "index.html")
+                .server_route_widget::<TestState, _>("/", "Home", None, TestPage("Mount page")),
+        );
+
+        let index = renderer.handle(ServerRequest::get("/admin/")).unwrap();
+        assert_eq!(index.status, 200);
+        assert_eq!(
+            response_header(&index, "content-type"),
+            Some("text/html; charset=utf-8")
+        );
+        assert!(index.body_string().contains("bootstrap.mjs"));
+
+        let module = renderer
+            .handle(ServerRequest::get("/admin/bootstrap.mjs"))
+            .unwrap();
+        assert_eq!(module.status, 200);
+        assert_eq!(
+            response_header(&module, "content-type"),
+            Some("application/javascript; charset=utf-8")
+        );
+
+        let nested = renderer
+            .handle(ServerRequest::get("/admin/pkg/app.js"))
+            .unwrap();
+        assert_eq!(nested.status, 200);
+        assert_eq!(
+            response_header(&nested, "content-type"),
+            Some("application/javascript; charset=utf-8")
+        );
+
+        let spa_route = renderer
+            .handle(ServerRequest::get("/admin/content/calendar"))
+            .unwrap();
+        assert_eq!(spa_route.status, 200);
+        assert_eq!(spa_route.body, index.body);
+
+        let missing_asset = renderer
+            .handle(ServerRequest::get("/admin/pkg/missing.js"))
+            .unwrap();
+        assert_eq!(missing_asset.status, 404);
+
+        let traversal = renderer
+            .handle(ServerRequest::get("/admin/../secret.txt"))
+            .unwrap();
+        assert_eq!(traversal.status, 400);
+
+        let public_route = renderer.handle(ServerRequest::get("/")).unwrap();
+        assert_eq!(public_route.status, 200);
 
         let _ = fs::remove_dir_all(&root);
     }
