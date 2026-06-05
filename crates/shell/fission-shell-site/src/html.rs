@@ -1,8 +1,10 @@
 use anyhow::{anyhow, bail, Result};
+use fission_core::{AnimationPropertyId, AnimationRequest, AnimationStartValue, EasingFunction};
 use fission_ir::op::{
-    decode_inline_widget_marker, AlignItems, BoxShadow, Color, Fill, FlexDirection, FlexWrap,
-    FontStyle, GridPlacement, GridTrack, ImageFit, ImageSource, JustifyContent, LayoutOp, LineCap,
-    LineJoin, Op, PaintOp, Stroke, TextAlign, TextOverflow, TextRun,
+    decode_inline_widget_marker, AlignItems, BoxShadow, Color, CompositeScalar, Fill,
+    FlexDirection, FlexWrap, FontStyle, GridPlacement, GridTrack, ImageFit, ImageSource,
+    JustifyContent, LayoutOp, LineCap, LineJoin, Op, PaintOp, Stroke, TextAlign, TextOverflow,
+    TextRun,
 };
 use fission_ir::{semantics::ActionTrigger, CoreIR, CoreNode, Role, WidgetId};
 use fission_theme::{DesignMode, Theme};
@@ -32,6 +34,7 @@ pub struct HtmlRenderOptions {
     pub head_end_html: Vec<String>,
     pub body_start_html: Vec<String>,
     pub body_end_html: Vec<String>,
+    pub animation_requests: Vec<(WidgetId, AnimationRequest)>,
 }
 
 impl Default for HtmlRenderOptions {
@@ -59,6 +62,7 @@ impl Default for HtmlRenderOptions {
             head_end_html: Vec::new(),
             body_start_html: Vec::new(),
             body_end_html: Vec::new(),
+            animation_requests: Vec::new(),
         }
     }
 }
@@ -348,6 +352,7 @@ impl CssVariableMap {
 pub struct StyleRegistry {
     style_to_class: BTreeMap<String, String>,
     class_to_style: BTreeMap<String, String>,
+    raw_rules: BTreeMap<String, String>,
 }
 
 impl StyleRegistry {
@@ -382,7 +387,17 @@ impl StyleRegistry {
             out.push_str(style);
             out.push_str("}\n");
         }
+        for rule in self.raw_rules.values() {
+            out.push_str(rule);
+            if !rule.ends_with('\n') {
+                out.push('\n');
+            }
+        }
         out
+    }
+
+    pub fn raw_rule(&mut self, key: impl Into<String>, rule: impl Into<String>) {
+        self.raw_rules.insert(key.into(), rule.into());
     }
 }
 
@@ -578,9 +593,15 @@ impl HtmlRenderer<'_> {
     ) -> Result<String> {
         let mut skip = HashSet::new();
         style.extend(self.coalesced_paint_style(node, &mut skip)?);
-        style.extend(composite_style(node));
+        let (composite_style, animated) = self.composite_style(node);
+        style.extend(composite_style);
         let children = self.render_children(&node.children, &skip)?;
-        let class_name = self.class_name(class_name, style);
+        let class_name = if animated {
+            format!("{class_name} fission-site-animated")
+        } else {
+            class_name.to_string()
+        };
+        let class_name = self.class_name(&class_name, style);
         Ok(format!(
             "<{tag} class=\"{}\" data-fission-node=\"{}\">{children}</{tag}>",
             escape_attr(&class_name),
@@ -594,6 +615,191 @@ impl HtmlRenderer<'_> {
         } else {
             base.to_string()
         }
+    }
+
+    fn composite_style(&mut self, node: &CoreNode) -> (Vec<String>, bool) {
+        let mut style = Vec::new();
+        let mut animations = Vec::new();
+
+        if node.composite.clip_to_bounds {
+            style.push("overflow:hidden".to_string());
+        }
+
+        if let Some(opacity) = node.composite.opacity.as_ref() {
+            style.push(format!("opacity:{}", opacity.base));
+            if let Some(request) = self.animation_request(opacity, AnimationPropertyId::Opacity) {
+                animations.push(self.animation_css(
+                    CssAnimationProperty::Opacity,
+                    opacity.base,
+                    &request,
+                    None,
+                ));
+            }
+        }
+
+        let translate_x = node
+            .composite
+            .translate_x
+            .as_ref()
+            .map(|v| v.base)
+            .unwrap_or(0.0);
+        let translate_y = node
+            .composite
+            .translate_y
+            .as_ref()
+            .map(|v| v.base)
+            .unwrap_or(0.0);
+        let scale = node.composite.scale.as_ref().map(|v| v.base).unwrap_or(1.0);
+        let rotation = node
+            .composite
+            .rotation
+            .as_ref()
+            .map(|v| v.base)
+            .unwrap_or(0.0);
+
+        let translate_x_request = node
+            .composite
+            .translate_x
+            .as_ref()
+            .and_then(|scalar| self.animation_request(scalar, AnimationPropertyId::TranslateX));
+        let translate_y_request = node
+            .composite
+            .translate_y
+            .as_ref()
+            .and_then(|scalar| self.animation_request(scalar, AnimationPropertyId::TranslateY));
+        let scale_request = node
+            .composite
+            .scale
+            .as_ref()
+            .and_then(|scalar| self.animation_request(scalar, AnimationPropertyId::Scale));
+        let rotation_request = node
+            .composite
+            .rotation
+            .as_ref()
+            .and_then(|scalar| self.animation_request(scalar, AnimationPropertyId::Rotation));
+        let has_transform_animation = translate_x_request.is_some()
+            || translate_y_request.is_some()
+            || scale_request.is_some()
+            || rotation_request.is_some();
+
+        if has_transform_animation {
+            style.push(format!(
+                "translate:{}px {}px",
+                px(translate_x),
+                px(translate_y)
+            ));
+            style.push(format!("scale:{}", px(scale)));
+            style.push(format!("rotate:{}rad", px(rotation)));
+        } else if translate_x != 0.0
+            || translate_y != 0.0
+            || (scale - 1.0).abs() > f32::EPSILON
+            || rotation != 0.0
+        {
+            style.push(format!(
+                "transform:translate({}px,{}px) scale({}) rotate({}rad)",
+                px(translate_x),
+                px(translate_y),
+                scale,
+                rotation
+            ));
+        }
+
+        if let Some(request) = translate_x_request {
+            animations.push(self.animation_css(
+                CssAnimationProperty::TranslateX {
+                    other_axis: translate_y,
+                },
+                translate_x,
+                &request,
+                None,
+            ));
+        }
+        if let Some(request) = translate_y_request {
+            animations.push(self.animation_css(
+                CssAnimationProperty::TranslateY {
+                    other_axis: translate_x,
+                },
+                translate_y,
+                &request,
+                None,
+            ));
+        }
+        if let Some(request) = scale_request {
+            animations.push(self.animation_css(CssAnimationProperty::Scale, scale, &request, None));
+        }
+        if let Some(request) = rotation_request {
+            animations.push(self.animation_css(
+                CssAnimationProperty::Rotation,
+                rotation,
+                &request,
+                None,
+            ));
+        }
+
+        if !animations.is_empty() {
+            style.push(format!("animation:{}", animations.join(",")));
+            self.styles.raw_rule(
+                "fission-site-reduced-motion-animations",
+                "@media (prefers-reduced-motion:reduce){.fission-site-animated{animation:none!important;}}\n",
+            );
+        }
+
+        (style, !animations.is_empty())
+    }
+
+    fn animation_request(
+        &self,
+        scalar: &CompositeScalar,
+        property: AnimationPropertyId,
+    ) -> Option<AnimationRequest> {
+        let target = scalar.animation_target?;
+        self.options
+            .animation_requests
+            .iter()
+            .rev()
+            .find_map(|(candidate, request)| {
+                (*candidate == target && request.property == property).then_some(request.clone())
+            })
+    }
+
+    fn animation_css(
+        &mut self,
+        property: CssAnimationProperty,
+        base: f32,
+        request: &AnimationRequest,
+        override_from: Option<f32>,
+    ) -> String {
+        let from = override_from.unwrap_or_else(|| animation_start_value(request, base));
+        let name = self.register_animation_keyframes(property, from, request.to, request);
+        format!(
+            "{} {}ms {} {}ms {} normal both",
+            name,
+            request.duration_ms,
+            easing_css(&request.easing),
+            request.delay_ms,
+            if request.repeat { "infinite" } else { "1" }
+        )
+    }
+
+    fn register_animation_keyframes(
+        &mut self,
+        property: CssAnimationProperty,
+        from: f32,
+        to: f32,
+        request: &AnimationRequest,
+    ) -> String {
+        let key = format!(
+            "{property:?}:{from:?}:{to:?}:{:?}:{}:{}:{}",
+            request.easing, request.duration_ms, request.delay_ms, request.repeat
+        );
+        let name = format!("fission_anim_{:016x}", stable_hash(key.as_bytes()));
+        let rule = format!(
+            "@keyframes {name}{{from{{{}}}to{{{}}}}}\n",
+            property.css_declaration(from),
+            property.css_declaration(to)
+        );
+        self.styles.raw_rule(name.clone(), rule);
+        name
     }
 
     fn render_layout(&mut self, node: &CoreNode, layout: &LayoutOp) -> Result<String> {
@@ -809,6 +1015,10 @@ impl HtmlRenderer<'_> {
                 ..
             } => {
                 let mut style = self.text_style(*size, *color, *underline, *wrap);
+                if paragraph_needs_text_box(paragraph_style.as_ref()) {
+                    style.push("display:block".to_string());
+                    style.push("width:100%".to_string());
+                }
                 push_paragraph_style(&mut style, paragraph_style.as_ref());
                 let class_name = self.class_name("fission-site-text", style);
                 Ok(format!(
@@ -824,10 +1034,17 @@ impl HtmlRenderer<'_> {
                 paragraph_style,
                 ..
             } => {
-                let mut style = vec![
-                    "display:inline".to_string(),
-                    format!("white-space:{}", if *wrap { "pre-wrap" } else { "pre" }),
-                ];
+                let mut style = Vec::new();
+                if paragraph_needs_text_box(paragraph_style.as_ref()) {
+                    style.push("display:block".to_string());
+                    style.push("width:100%".to_string());
+                } else {
+                    style.push("display:inline".to_string());
+                }
+                style.push(format!(
+                    "white-space:{}",
+                    if *wrap { "pre-wrap" } else { "pre" }
+                ));
                 push_paragraph_style(&mut style, paragraph_style.as_ref());
                 let mut content = String::new();
                 for run in runs {
@@ -1587,6 +1804,13 @@ fn push_paragraph_style(
     }
 }
 
+fn paragraph_needs_text_box(paragraph: Option<&fission_ir::op::TextParagraphStyle>) -> bool {
+    matches!(
+        paragraph.map(|style| style.text_align),
+        Some(TextAlign::Center | TextAlign::Right | TextAlign::End | TextAlign::Justify)
+    )
+}
+
 fn push_box_constraints(
     style: &mut Vec<String>,
     width: Option<f32>,
@@ -1639,47 +1863,54 @@ fn push_grid_placement(style: &mut Vec<String>, name: &str, value: GridPlacement
     }
 }
 
-fn composite_style(node: &CoreNode) -> Vec<String> {
-    let mut style = Vec::new();
-    if let Some(opacity) = node.composite.opacity.as_ref() {
-        style.push(format!("opacity:{}", opacity.base));
+#[derive(Clone, Copy, Debug)]
+enum CssAnimationProperty {
+    Opacity,
+    TranslateX { other_axis: f32 },
+    TranslateY { other_axis: f32 },
+    Scale,
+    Rotation,
+}
+
+impl CssAnimationProperty {
+    fn css_declaration(self, value: f32) -> String {
+        match self {
+            Self::Opacity => format!("opacity:{}", px(value)),
+            Self::TranslateX { other_axis } => {
+                format!("translate:{}px {}px", px(value), px(other_axis))
+            }
+            Self::TranslateY { other_axis } => {
+                format!("translate:{}px {}px", px(other_axis), px(value))
+            }
+            Self::Scale => format!("scale:{}", px(value)),
+            Self::Rotation => format!("rotate:{}rad", px(value)),
+        }
     }
-    if node.composite.clip_to_bounds {
-        style.push("overflow:hidden".to_string());
+}
+
+fn animation_start_value(request: &AnimationRequest, base: f32) -> f32 {
+    match request.from {
+        AnimationStartValue::Explicit(value) => value,
+        AnimationStartValue::Current => base,
     }
-    let translate_x = node
-        .composite
-        .translate_x
-        .as_ref()
-        .map(|v| v.base)
-        .unwrap_or(0.0);
-    let translate_y = node
-        .composite
-        .translate_y
-        .as_ref()
-        .map(|v| v.base)
-        .unwrap_or(0.0);
-    let scale = node.composite.scale.as_ref().map(|v| v.base).unwrap_or(1.0);
-    let rotation = node
-        .composite
-        .rotation
-        .as_ref()
-        .map(|v| v.base)
-        .unwrap_or(0.0);
-    if translate_x != 0.0
-        || translate_y != 0.0
-        || (scale - 1.0).abs() > f32::EPSILON
-        || rotation != 0.0
-    {
-        style.push(format!(
-            "transform:translate({}px,{}px) scale({}) rotate({}rad)",
-            px(translate_x),
-            px(translate_y),
-            scale,
-            rotation
-        ));
+}
+
+fn easing_css(easing: &EasingFunction) -> String {
+    match easing {
+        EasingFunction::Linear => "linear".to_string(),
+        EasingFunction::EaseIn => "ease-in".to_string(),
+        EasingFunction::EaseOut => "ease-out".to_string(),
+        EasingFunction::EaseInOut => "ease-in-out".to_string(),
+        EasingFunction::CubicBezier(x1, y1, x2, y2) => {
+            format!(
+                "cubic-bezier({},{},{},{})",
+                px(*x1),
+                px(*y1),
+                px(*x2),
+                px(*y2)
+            )
+        }
     }
-    style
 }
 
 fn raw_color_css(color: Color) -> String {
@@ -1834,7 +2065,10 @@ fn escape_attr(value: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use fission_ir::{ActionEntry, ActionSet, CoreIR, CoreNode, Op, Semantics, WidgetId};
+    use fission_ir::{
+        ActionEntry, ActionSet, CompositeScalar, CompositeStyle, CoreIR, CoreNode, Op, Semantics,
+        WidgetId,
+    };
 
     #[test]
     fn renders_text_from_core_ir() {
@@ -1938,6 +2172,183 @@ mod tests {
         assert!(css.contains(&format!(".{class_name}")));
         assert!(css.contains("display:block;overflow:hidden"));
         assert!(!css.contains("overflow:auto"));
+    }
+
+    #[test]
+    fn repeated_rotation_animation_lowers_to_css_keyframes() {
+        let root = WidgetId::explicit("root");
+        let spinner = WidgetId::explicit("spinner-node");
+        let target = WidgetId::explicit("spinner-animation");
+        let mut ir = CoreIR::new();
+        ir.nodes.insert(
+            spinner,
+            CoreNode {
+                id: spinner,
+                op: Op::Structural(fission_ir::StructuralOp::Group { stable_hash: 7 }),
+                composite: CompositeStyle {
+                    rotation: Some(CompositeScalar::new(0.0).animated(target)),
+                    ..Default::default()
+                },
+                children: Vec::new(),
+                parent: None,
+                hash: 0,
+            },
+        );
+        ir.add_node(
+            root,
+            Op::Structural(fission_ir::StructuralOp::Group { stable_hash: 1 }),
+            vec![spinner],
+        );
+        ir.set_root(root);
+        let options = HtmlRenderOptions {
+            animation_requests: vec![(
+                target,
+                AnimationRequest {
+                    property: AnimationPropertyId::Rotation,
+                    from: AnimationStartValue::Explicit(0.0),
+                    to: std::f32::consts::TAU,
+                    duration_ms: 7000,
+                    repeat: true,
+                    delay_ms: 120,
+                    frame_interval_ms: None,
+                    easing: EasingFunction::Linear,
+                },
+            )],
+            ..Default::default()
+        };
+
+        let rendered = render_ir_to_html(&ir, &options).unwrap();
+
+        assert!(rendered.html.contains("fission-site-animated"));
+        assert!(rendered.css.contains("@keyframes fission_anim_"));
+        assert!(rendered.css.contains("rotate:0rad"));
+        assert!(rendered.css.contains("rotate:6.283rad"));
+        assert!(rendered
+            .css
+            .contains("7000ms linear 120ms infinite normal both"));
+        assert!(rendered.css.contains("prefers-reduced-motion:reduce"));
+    }
+
+    #[test]
+    fn scale_and_opacity_animations_share_one_dom_node() {
+        let root = WidgetId::explicit("root");
+        let pulse = WidgetId::explicit("pulse-node");
+        let target = WidgetId::explicit("pulse-animation");
+        let mut ir = CoreIR::new();
+        ir.nodes.insert(
+            pulse,
+            CoreNode {
+                id: pulse,
+                op: Op::Structural(fission_ir::StructuralOp::Group { stable_hash: 7 }),
+                composite: CompositeStyle {
+                    opacity: Some(CompositeScalar::new(0.72).animated(target)),
+                    scale: Some(CompositeScalar::new(0.92).animated(target)),
+                    ..Default::default()
+                },
+                children: Vec::new(),
+                parent: None,
+                hash: 0,
+            },
+        );
+        ir.add_node(
+            root,
+            Op::Structural(fission_ir::StructuralOp::Group { stable_hash: 1 }),
+            vec![pulse],
+        );
+        ir.set_root(root);
+        let options = HtmlRenderOptions {
+            animation_requests: vec![
+                (
+                    target,
+                    AnimationRequest {
+                        property: AnimationPropertyId::Opacity,
+                        from: AnimationStartValue::Explicit(0.72),
+                        to: 1.0,
+                        duration_ms: 1400,
+                        repeat: true,
+                        delay_ms: 0,
+                        frame_interval_ms: None,
+                        easing: EasingFunction::EaseInOut,
+                    },
+                ),
+                (
+                    target,
+                    AnimationRequest {
+                        property: AnimationPropertyId::Scale,
+                        from: AnimationStartValue::Explicit(0.92),
+                        to: 1.08,
+                        duration_ms: 1400,
+                        repeat: true,
+                        delay_ms: 0,
+                        frame_interval_ms: None,
+                        easing: EasingFunction::EaseInOut,
+                    },
+                ),
+            ],
+            ..Default::default()
+        };
+
+        let rendered = render_ir_to_html(&ir, &options).unwrap();
+
+        assert!(rendered.css.contains("opacity:0.720"));
+        assert!(rendered.css.contains("opacity:1"));
+        assert!(rendered.css.contains("scale:0.920"));
+        assert!(rendered.css.contains("scale:1.080"));
+        assert!(rendered.css.matches("@keyframes fission_anim_").count() >= 2);
+        assert!(rendered.css.contains(",fission_anim_"));
+    }
+
+    #[test]
+    fn centered_rich_text_lowers_to_width_bearing_block() {
+        let root = WidgetId::explicit("root");
+        let text = WidgetId::explicit("centered-text");
+        let mut ir = CoreIR::new();
+        ir.add_node(
+            text,
+            Op::Paint(PaintOp::DrawRichText {
+                runs: vec![TextRun {
+                    text: "Centered\ncopy".into(),
+                    style: fission_ir::op::TextStyle {
+                        font_size: 24.0,
+                        color: Color::WHITE,
+                        underline: false,
+                        font_family: None,
+                        locale: None,
+                        font_weight: 700,
+                        font_style: FontStyle::Normal,
+                        line_height: Some(28.0),
+                        letter_spacing: 0.0,
+                        background_color: None,
+                    },
+                }],
+                wrap: true,
+                caret_index: None,
+                caret_color: None,
+                caret_width: None,
+                caret_height: None,
+                caret_radius: None,
+                paragraph_style: Some(fission_ir::op::TextParagraphStyle {
+                    text_align: TextAlign::Center,
+                    ..Default::default()
+                }),
+            }),
+            Vec::new(),
+        );
+        ir.add_node(
+            root,
+            Op::Structural(fission_ir::StructuralOp::Group { stable_hash: 1 }),
+            vec![text],
+        );
+        ir.set_root(root);
+
+        let rendered = render_ir_to_html(&ir, &HtmlRenderOptions::default()).unwrap();
+
+        assert!(rendered.css.contains("display:block"));
+        assert!(rendered.css.contains("width:100%"));
+        assert!(rendered.css.contains("text-align:center"));
+        assert!(!rendered
+            .css
+            .contains("display:inline;white-space:pre-wrap;text-align:center"));
     }
 
     #[test]

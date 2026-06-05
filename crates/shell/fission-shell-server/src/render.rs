@@ -395,7 +395,11 @@ impl ServerRenderer {
             default_locale: &self.default_locale,
             env: &env,
         };
-        let ServerRenderedNode { node, resources } = (route.render)(&ctx)?;
+        let ServerRenderedNode {
+            node,
+            resources,
+            animation_requests,
+        } = (route.render)(&ctx)?;
         let runtime = RuntimeState::default();
         let mut lowering = InternalLoweringCx::new(&env, &runtime, None, None);
         let root = fission_core::internal::lower_widget(&node, &mut lowering);
@@ -430,6 +434,7 @@ impl ServerRenderer {
             css_variables: CssVariableMap::from_theme(&env.theme),
             server_action_post_path: Some("/__fission/action".to_string()),
             server_action_tokens: action_tokens,
+            animation_requests,
             head_end_html,
             body_end_html,
             ..Default::default()

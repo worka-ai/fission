@@ -6,8 +6,8 @@ use crate::{
 use anyhow::Result;
 use fission_core::internal::BuildCtx;
 use fission_core::{
-    ActionInput, Effect, Env, GlobalState, RuntimeResourceDeclaration, RuntimeResourceKind,
-    RuntimeState, View, Widget, WidgetId,
+    ActionInput, AnimationRequest, Effect, Env, GlobalState, RuntimeResourceDeclaration,
+    RuntimeResourceKind, RuntimeState, View, Widget, WidgetId,
 };
 use fission_layout::LayoutSize;
 use fission_theme::Theme;
@@ -26,6 +26,7 @@ type InitialStateLoader<S> =
 pub(crate) struct ServerRenderedNode {
     pub node: Widget,
     pub resources: Vec<RuntimeResourceDeclaration>,
+    pub animation_requests: Vec<(WidgetId, AnimationRequest)>,
 }
 
 #[derive(Clone)]
@@ -311,6 +312,7 @@ where
     let mut pending_action = ctx.action.cloned();
     let mut final_node = None;
     let mut final_resources = Vec::new();
+    let mut final_animation_requests = Vec::new();
 
     for pass in 0..=ctx.render_pass_limit {
         let view = View::new(&state, &runtime, env, None);
@@ -336,6 +338,7 @@ where
         )?;
         final_node = Some(node);
         final_resources = resources;
+        final_animation_requests = build_ctx.take_animation_requests();
         if !dispatched {
             break;
         }
@@ -355,6 +358,7 @@ where
             fission_core::build::enter(&mut build_ctx, &view, || (*widget).clone().into())
         }),
         resources: final_resources,
+        animation_requests: final_animation_requests,
     })
 }
 

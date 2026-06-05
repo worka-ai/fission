@@ -15,7 +15,7 @@ use anyhow::{bail, Context, Result};
 use fission_core::internal::BuildCtx;
 use fission_core::internal::InternalLoweringCx;
 use fission_core::ui::Column;
-use fission_core::{Env, RuntimeState, View, Widget};
+use fission_core::{AnimationRequest, Env, RuntimeState, View, Widget, WidgetId};
 use fission_layout::LayoutSize;
 use fission_theme::DesignMode;
 use serde::Deserialize;
@@ -898,6 +898,7 @@ fn render_custom_routes(
             site,
             &env,
             styles,
+            Vec::new(),
         )?;
         routes.push(ContentRoute {
             path: route.path.clone(),
@@ -967,6 +968,7 @@ fn render_route(
         page_node,
         render_footer_node(options, site, &route.path, &env)?,
     );
+    let animation_requests = build_ctx.take_animation_requests();
     render_node_to_html(
         node,
         &format!("{} | {}", route.title, options.site_title),
@@ -979,6 +981,7 @@ fn render_route(
         site,
         &env,
         styles,
+        animation_requests,
     )
 }
 
@@ -999,6 +1002,7 @@ fn render_node_to_html(
     site: &FissionSite,
     env: &Env,
     styles: &mut StyleRegistry,
+    animation_requests: Vec<(WidgetId, AnimationRequest)>,
 ) -> Result<String> {
     let runtime = RuntimeState::default();
     let mut lowering = InternalLoweringCx::new(env, &runtime, None, None);
@@ -1055,6 +1059,7 @@ fn render_node_to_html(
             route_path,
             SitePageElementPlacement::BodyEnd,
         ),
+        animation_requests,
         ..Default::default()
     };
     Ok(render_ir_to_html_with_styles(&lowering.ir, &render_options, styles)?.html)
