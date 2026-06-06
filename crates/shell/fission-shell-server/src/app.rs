@@ -1,4 +1,4 @@
-use crate::render::{ServerRequest, ServerSession};
+use crate::render::{ServerRequest, ServerResponse, ServerSession};
 use crate::{
     ProgressiveWorker, ServerJobRegistry, ServerRenderPolicy, VerifiedServerAction, WasmIsland,
     WebRoute, WebRouteMode,
@@ -21,6 +21,8 @@ type RequestEnvSync =
     dyn for<'a> Fn(&ServerEnvContext<'a>, &mut Env) -> Result<()> + Send + Sync + 'static;
 type InitialStateLoader<S> =
     dyn for<'a> Fn(&ServerRenderContext<'a>) -> Result<S> + Send + Sync + 'static;
+type HttpHandler =
+    dyn for<'a> Fn(&ServerHttpContext<'a>) -> Result<ServerResponse> + Send + Sync + 'static;
 
 #[derive(Debug)]
 pub(crate) struct ServerRenderedNode {
@@ -65,9 +67,23 @@ impl<'a> ServerRenderContext<'a> {
 }
 
 #[derive(Clone)]
+pub struct ServerHttpContext<'a> {
+    pub project_dir: &'a Path,
+    pub request: &'a ServerRequest,
+    pub session: &'a ServerSession,
+}
+
+#[derive(Clone)]
 pub(crate) struct ServerRouteEntry {
     pub route: WebRoute,
     pub render: Arc<RouteRenderer>,
+}
+
+#[derive(Clone)]
+pub(crate) struct ServerHttpHandlerEntry {
+    pub method: String,
+    pub path: String,
+    pub handler: Arc<HttpHandler>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -87,6 +103,7 @@ pub struct FissionServerApp {
     pub(crate) request_env_sync: Option<Arc<RequestEnvSync>>,
     pub(crate) jobs: ServerJobRegistry,
     pub(crate) routes: Vec<ServerRouteEntry>,
+    pub(crate) http_handlers: Vec<ServerHttpHandlerEntry>,
     pub(crate) static_mounts: Vec<StaticMount>,
     pub(crate) user_css: Vec<String>,
 }
@@ -101,6 +118,7 @@ impl FissionServerApp {
             request_env_sync: None,
             jobs: ServerJobRegistry::new(),
             routes: Vec::new(),
+            http_handlers: Vec::new(),
             static_mounts: Vec::new(),
             user_css: Vec::new(),
         }
@@ -139,6 +157,30 @@ impl FissionServerApp {
     pub fn user_css(mut self, css: impl Into<String>) -> Self {
         self.user_css.push(css.into());
         self
+    }
+
+    pub fn http_handler<F>(
+        mut self,
+        method: impl Into<String>,
+        path: impl Into<String>,
+        handler: F,
+    ) -> Self
+    where
+        F: for<'a> Fn(&ServerHttpContext<'a>) -> Result<ServerResponse> + Send + Sync + 'static,
+    {
+        self.http_handlers.push(ServerHttpHandlerEntry {
+            method: method.into().to_ascii_uppercase(),
+            path: normalize_server_path(&path.into()),
+            handler: Arc::new(handler),
+        });
+        self
+    }
+
+    pub fn form_post<F>(self, path: impl Into<String>, handler: F) -> Self
+    where
+        F: for<'a> Fn(&ServerHttpContext<'a>) -> Result<ServerResponse> + Send + Sync + 'static,
+    {
+        self.http_handler("POST", path, handler)
     }
 
     pub fn static_dir(
@@ -272,6 +314,18 @@ impl FissionServerApp {
     pub(crate) fn find_route(&self, path: &str) -> Option<&ServerRouteEntry> {
         let path = normalize_server_path(path);
         self.routes.iter().find(|entry| entry.route.path == path)
+    }
+
+    pub(crate) fn find_http_handler(
+        &self,
+        method: &str,
+        path: &str,
+    ) -> Option<&ServerHttpHandlerEntry> {
+        let method = method.to_ascii_uppercase();
+        let path = normalize_server_path(path);
+        self.http_handlers
+            .iter()
+            .find(|entry| entry.method == method && entry.path == path)
     }
 
     pub(crate) fn apply_default_route_mode(&mut self, mode: WebRouteMode) {

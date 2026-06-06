@@ -1,6 +1,6 @@
 use crate::app::{
-    normalize_server_path, FissionServerApp, ServerEnvContext, ServerRenderedNode,
-    ServerRouteEntry, StaticMount,
+    normalize_server_path, FissionServerApp, ServerEnvContext, ServerHttpContext,
+    ServerRenderedNode, ServerRouteEntry, StaticMount,
 };
 use crate::{
     Cache, CacheEntry, CacheKey, CacheMetadata, CachePipeline, CacheScope, CacheTag, Freshness,
@@ -275,6 +275,16 @@ impl ServerRenderer {
         if request.method == "POST" && normalize_server_path(&request.path) == "/__fission/action/"
         {
             return self.handle_action(request);
+        }
+        if let Some(handler) = self.app.find_http_handler(&request.method, &request.path) {
+            let session = self.session_for_request(&request)?;
+            let mut response = (handler.handler)(&ServerHttpContext {
+                project_dir: &self.app.project_dir,
+                request: &request,
+                session: &session,
+            })?;
+            self.attach_session_cookie(&mut response, &session);
+            return Ok(response);
         }
         if request.method != "GET" {
             return Ok(ServerResponse::text(

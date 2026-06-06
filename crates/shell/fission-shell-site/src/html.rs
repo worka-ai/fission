@@ -95,6 +95,59 @@ pub struct RenderedHtml {
     pub css: String,
 }
 
+#[derive(Clone, Debug, Default, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct StaticFormSpec {
+    action: String,
+    #[serde(default = "default_form_method")]
+    method: String,
+    #[serde(default)]
+    fields: Vec<StaticFormField>,
+    #[serde(default)]
+    submit_label: Option<String>,
+}
+
+#[derive(Clone, Debug, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct StaticFormField {
+    name: String,
+    #[serde(default = "default_form_field_kind")]
+    kind: StaticFormFieldKind,
+    #[serde(default)]
+    label: Option<String>,
+    #[serde(default)]
+    placeholder: Option<String>,
+    #[serde(default)]
+    value: Option<String>,
+    #[serde(default)]
+    required: bool,
+    #[serde(default)]
+    max_length: Option<usize>,
+    #[serde(default)]
+    rows: Option<usize>,
+}
+
+#[derive(Clone, Copy, Debug, Default, serde::Deserialize)]
+#[serde(rename_all = "snake_case")]
+enum StaticFormFieldKind {
+    #[default]
+    Text,
+    Email,
+    Tel,
+    Url,
+    Hidden,
+    Textarea,
+    Checkbox,
+}
+
+fn default_form_method() -> String {
+    "post".to_string()
+}
+
+fn default_form_field_kind() -> StaticFormFieldKind {
+    StaticFormFieldKind::Text
+}
+
 pub fn render_ir_to_html(ir: &CoreIR, options: &HtmlRenderOptions) -> Result<RenderedHtml> {
     let mut registry = StyleRegistry::default();
     render_ir_to_html_with_styles(ir, options, &mut registry)
@@ -1174,6 +1227,9 @@ impl HtmlRenderer<'_> {
             if let Some(language) = identifier.strip_prefix("markdown-code-block:") {
                 return self.render_markdown_code_block(node, language, semantics.value.as_deref());
             }
+            if identifier == "site-form" || identifier.starts_with("site-form:") {
+                return self.render_static_form(node, identifier, semantics);
+            }
             if identifier.starts_with("site-") {
                 return self.render_site_semantic_wrapper(
                     node,
@@ -1375,6 +1431,89 @@ impl HtmlRenderer<'_> {
             node.id,
             escape_text(code)
         ))
+    }
+
+    fn render_static_form(
+        &mut self,
+        node: &CoreNode,
+        identifier: &str,
+        semantics: &fission_ir::Semantics,
+    ) -> Result<String> {
+        let Some(value) = semantics.value.as_deref() else {
+            return self.render_site_semantic_wrapper(node, identifier, semantics.label.as_deref());
+        };
+        let spec: StaticFormSpec = serde_json::from_str(value)
+            .map_err(|error| anyhow!("invalid static form spec on node {}: {error}", node.id))?;
+        let method = spec.method.to_ascii_lowercase();
+        let action = self.resolve_link_href(&spec.action);
+        let mut attrs = format!(
+            " method=\"{}\" action=\"{}\" data-fission-semantics=\"{}\"",
+            escape_attr(&method),
+            escape_attr(&action),
+            escape_attr(identifier)
+        );
+        if let Some(label) = semantics.label.as_deref() {
+            attrs.push_str(&format!(" aria-label=\"{}\"", escape_attr(label)));
+        }
+        let mut fields = String::new();
+        for field in &spec.fields {
+            fields.push_str(&self.render_static_form_field(field));
+        }
+        let submit = spec
+            .submit_label
+            .as_deref()
+            .unwrap_or_else(|| semantics.label.as_deref().unwrap_or("Submit"));
+        Ok(format!(
+            "<form class=\"fission-site-node fission-site-form {}\"{attrs} data-fission-node=\"{}\">{fields}<button class=\"fission-site-form-submit\" type=\"submit\">{}</button></form>",
+            site_semantic_class(identifier),
+            node.id,
+            escape_text(submit),
+        ))
+    }
+
+    fn render_static_form_field(&self, field: &StaticFormField) -> String {
+        match field.kind {
+            StaticFormFieldKind::Hidden => format!(
+                "<input type=\"hidden\" name=\"{}\" value=\"{}\">",
+                escape_attr(&field.name),
+                escape_attr(field.value.as_deref().unwrap_or(""))
+            ),
+            StaticFormFieldKind::Textarea => {
+                let mut attrs = static_form_input_attrs(field);
+                let rows = field.rows.unwrap_or(5).max(2);
+                attrs.push_str(&format!(" rows=\"{}\"", rows));
+                let control = format!(
+                    "<textarea class=\"fission-site-form-input fission-site-form-textarea\"{attrs}>{}</textarea>",
+                    escape_text(field.value.as_deref().unwrap_or(""))
+                );
+                static_form_label(field, control)
+            }
+            StaticFormFieldKind::Checkbox => {
+                let mut attrs = static_form_input_attrs(field);
+                attrs.push_str(" type=\"checkbox\"");
+                if field.value.as_deref() == Some("true") {
+                    attrs.push_str(" checked");
+                }
+                let control =
+                    format!("<input class=\"fission-site-form-checkbox\"{attrs} value=\"true\">");
+                static_form_label(field, control)
+            }
+            StaticFormFieldKind::Text
+            | StaticFormFieldKind::Email
+            | StaticFormFieldKind::Tel
+            | StaticFormFieldKind::Url => {
+                let input_type = match field.kind {
+                    StaticFormFieldKind::Email => "email",
+                    StaticFormFieldKind::Tel => "tel",
+                    StaticFormFieldKind::Url => "url",
+                    _ => "text",
+                };
+                let mut attrs = static_form_input_attrs(field);
+                attrs.push_str(&format!(" type=\"{}\"", input_type));
+                let control = format!("<input class=\"fission-site-form-input\"{attrs}>");
+                static_form_label(field, control)
+            }
+        }
     }
 
     fn render_site_semantic_wrapper(
@@ -1724,6 +1863,36 @@ fn site_semantic_class(identifier: &str) -> String {
         })
         .collect::<String>();
     format!("fission-{suffix}")
+}
+
+fn static_form_label(field: &StaticFormField, control: String) -> String {
+    let label = field.label.as_deref().unwrap_or(field.name.as_str());
+    format!(
+        "<label class=\"fission-site-form-field\"><span class=\"fission-site-form-label\">{}</span>{control}</label>",
+        escape_text(label)
+    )
+}
+
+fn static_form_input_attrs(field: &StaticFormField) -> String {
+    let mut attrs = format!(" name=\"{}\"", escape_attr(&field.name));
+    if let Some(placeholder) = field.placeholder.as_deref() {
+        attrs.push_str(&format!(" placeholder=\"{}\"", escape_attr(placeholder)));
+    }
+    if let Some(value) = field.value.as_deref() {
+        if !matches!(
+            field.kind,
+            StaticFormFieldKind::Textarea | StaticFormFieldKind::Checkbox
+        ) {
+            attrs.push_str(&format!(" value=\"{}\"", escape_attr(value)));
+        }
+    }
+    if field.required {
+        attrs.push_str(" required");
+    }
+    if let Some(max_length) = field.max_length {
+        attrs.push_str(&format!(" maxlength=\"{}\"", max_length));
+    }
+    attrs
 }
 
 fn site_semantic_data_attrs(identifier: &str) -> String {
@@ -2435,6 +2604,63 @@ mod tests {
         assert!(rendered.html.contains("action=\"/__fission/action\""));
         assert!(rendered.html.contains("name=\"token\""));
         assert!(rendered.html.contains("signed-token"));
+    }
+
+    #[test]
+    fn site_form_semantics_render_native_post_form() {
+        let root = WidgetId::explicit("static-form");
+        let semantics = Semantics {
+            identifier: Some("site-form:contact".to_string()),
+            label: Some("Contact".to_string()),
+            value: Some(
+                r#"{
+                    "action": "/contact/submit",
+                    "method": "post",
+                    "submitLabel": "Send",
+                    "fields": [
+                        {"kind": "email", "name": "email", "label": "Email", "required": true, "maxLength": 320},
+                        {"kind": "textarea", "name": "message", "label": "Message", "rows": 4},
+                        {"kind": "checkbox", "name": "agree", "label": "Agree"}
+                    ]
+                }"#
+                .to_string(),
+            ),
+            ..Default::default()
+        };
+        let mut ir = CoreIR::new();
+        ir.nodes.insert(
+            root,
+            CoreNode {
+                id: root,
+                op: Op::Semantics(semantics),
+                composite: Default::default(),
+                children: Vec::new(),
+                parent: None,
+                hash: 0,
+            },
+        );
+        ir.set_root(root);
+
+        let rendered = render_ir_to_html(
+            &ir,
+            &HtmlRenderOptions {
+                current_route_path: "/contact/".to_string(),
+                ..Default::default()
+            },
+        )
+        .unwrap();
+
+        assert!(rendered.html.contains("<form"));
+        assert!(rendered.html.contains("method=\"post\""));
+        assert!(rendered.html.contains("action=\"../contact/submit\""));
+        assert!(rendered
+            .html
+            .contains("data-fission-semantics=\"site-form:contact\""));
+        assert!(rendered.html.contains("type=\"email\""));
+        assert!(rendered.html.contains("name=\"message\""));
+        assert!(rendered.html.contains("<textarea"));
+        assert!(rendered.html.contains("type=\"checkbox\""));
+        assert!(rendered.html.contains(">Send</button>"));
     }
 
     #[test]
