@@ -876,7 +876,7 @@ impl ServerRenderer {
             })
             .unwrap_or_default();
         let theme_hash = blake3::hash(format!("{:?}", env.theme).as_bytes());
-        let build_id = option_env!("FISSION_BUILD_ID").unwrap_or(env!("CARGO_PKG_VERSION"));
+        let build_id = cache_build_id();
         let mut key = format!(
             "page:{}?{}#app:{}#locale:{}#theme:{}#build:{}",
             normalize_server_path(&request.path),
@@ -892,6 +892,41 @@ impl ServerRenderer {
         }
         CacheKey::new(key)
     }
+}
+
+fn cache_build_id() -> String {
+    cache_build_id_from(
+        std::env::var("FISSION_BUILD_ID").ok(),
+        option_env!("FISSION_BUILD_ID"),
+        env!("CARGO_PKG_VERSION"),
+    )
+}
+
+fn cache_build_id_from(
+    runtime_build_id: Option<String>,
+    compile_time_build_id: Option<&'static str>,
+    package_version: &'static str,
+) -> String {
+    runtime_build_id
+        .and_then(|value| {
+            let value = value.trim();
+            if value.is_empty() {
+                None
+            } else {
+                Some(value.to_string())
+            }
+        })
+        .or_else(|| {
+            compile_time_build_id.and_then(|value| {
+                let value = value.trim();
+                if value.is_empty() {
+                    None
+                } else {
+                    Some(value.to_string())
+                }
+            })
+        })
+        .unwrap_or_else(|| package_version.to_string())
 }
 
 fn matched_route_path(route: &ServerRouteEntry, request: &ServerRequest) -> String {
@@ -1836,6 +1871,19 @@ mod tests {
         );
         assert!(cache.contains_fresh(&en_key, SystemTime::now()).unwrap());
         assert!(cache.contains_fresh(&fr_key, SystemTime::now()).unwrap());
+    }
+
+    #[test]
+    fn cache_build_id_prefers_runtime_env_over_compile_time_env() {
+        assert_eq!(
+            cache_build_id_from(Some("release-42".to_string()), Some("compile-1"), "0.0.0"),
+            "release-42"
+        );
+        assert_eq!(
+            cache_build_id_from(Some("  ".to_string()), Some("compile-1"), "0.0.0"),
+            "compile-1"
+        );
+        assert_eq!(cache_build_id_from(None, Some("  "), "0.0.0"), "0.0.0");
     }
 
     #[test]
