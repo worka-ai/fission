@@ -22,7 +22,7 @@ use serde::Serialize;
 use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
 use std::path::{Component, Path, PathBuf};
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::atomic::{AtomicU16, AtomicU64, Ordering};
 use std::sync::{Arc, RwLock};
 use std::time::{Duration, SystemTime};
 
@@ -120,6 +120,7 @@ pub struct RenderedServerRoute {
     pub css: String,
     pub resources: Vec<RuntimeResourceDeclaration>,
     pub server_action_count: usize,
+    pub status: u16,
 }
 
 pub struct ServerRenderer {
@@ -355,7 +356,7 @@ impl ServerRenderer {
             let page = RenderedPage {
                 html: rendered.html.clone(),
                 css: rendered.css.clone(),
-                status: 200,
+                status: rendered.status,
             };
             let entry = CacheEntry::full_page(
                 cache_key,
@@ -374,7 +375,7 @@ impl ServerRenderer {
 
         let rendered = self.render_uncached(route, None, &request, &session)?;
         let mut response = ServerResponse {
-            status: 200,
+            status: rendered.status,
             headers: vec![(
                 "content-type".to_string(),
                 "text/html; charset=utf-8".to_string(),
@@ -406,6 +407,7 @@ impl ServerRenderer {
         env: Env,
     ) -> Result<RenderedServerRoute> {
         let route_path = matched_route_path(route, request);
+        let response_status = AtomicU16::new(200);
         let ctx = crate::ServerRenderContext {
             project_dir: &self.app.project_dir,
             route_path: &route_path,
@@ -418,6 +420,7 @@ impl ServerRenderer {
             render_pass_limit: self.render_pass_limit,
             default_locale: &self.default_locale,
             env: &env,
+            response_status: &response_status,
         };
         let ServerRenderedNode {
             node,
@@ -482,6 +485,7 @@ impl ServerRenderer {
             css,
             resources,
             server_action_count,
+            status: response_status.load(Ordering::Relaxed),
         })
     }
 
@@ -1548,6 +1552,34 @@ mod tests {
 
         assert_eq!(response.status, 200);
         assert!(response.body_string().contains("/docs/platform/"));
+    }
+
+    #[test]
+    fn route_renderers_can_set_http_response_status() {
+        let app = FissionServerApp::new("Test").route_prefix_widget_with_state::<PathState, _, _>(
+            "/docs/",
+            "Docs",
+            None,
+            WebRouteMode::Server(Default::default()),
+            PathPage,
+            |ctx| {
+                ctx.set_response_status(404);
+                Ok(PathState {
+                    route_path: ctx.route_path.to_string(),
+                })
+            },
+        );
+        let renderer = ServerRenderer::new(app);
+
+        let rendered = renderer.render_route("/docs/missing").unwrap();
+        assert_eq!(rendered.status, 404);
+        assert!(rendered.html.contains("/docs/missing/"));
+
+        let response = renderer
+            .handle(ServerRequest::get("/docs/missing"))
+            .unwrap();
+        assert_eq!(response.status, 404);
+        assert!(response.body_string().contains("/docs/missing/"));
     }
 
     #[test]

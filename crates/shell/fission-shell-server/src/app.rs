@@ -13,6 +13,7 @@ use fission_layout::LayoutSize;
 use fission_theme::Theme;
 use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicU16, Ordering};
 use std::sync::Arc;
 
 pub(crate) type RouteRenderer =
@@ -58,11 +59,16 @@ pub struct ServerRenderContext<'a> {
     pub render_pass_limit: usize,
     pub default_locale: &'a str,
     pub(crate) env: &'a Env,
+    pub(crate) response_status: &'a AtomicU16,
 }
 
 impl<'a> ServerRenderContext<'a> {
     pub fn env(&self) -> &'a Env {
         self.env
+    }
+
+    pub fn set_response_status(&self, status: u16) {
+        self.response_status.store(status, Ordering::Relaxed);
     }
 }
 
